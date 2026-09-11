@@ -1,0 +1,29 @@
+#!/bin/sh
+# commit-message-guide.md 규칙 강제
+# 유효 접두사: 추가 | 수정 | 버그수정 | 리팩토링 | 문서 | 테스트 | 의존성
+
+MSG_FILE="$1"
+
+# 주석(#)과 빈 줄을 제외한 첫 번째 줄
+FIRST_LINE=$(grep -v '^#' "$MSG_FILE" | grep -v '^[[:space:]]*$' | head -n 1)
+
+# 빈 메시지는 git이 자체 처리
+[ -z "$FIRST_LINE" ] && exit 0
+
+if echo "$FIRST_LINE" | grep -qE "^(추가|수정|버그수정|리팩토링|문서|테스트|의존성): .+"; then
+    exit 0
+fi
+
+echo ""
+echo "❌ 커밋 메시지 형식 오류 (commit-message-guide.md 위반)"
+echo ""
+echo "  형식  : {접두사}: {제목}"
+echo "  접두사: 추가 | 수정 | 버그수정 | 리팩토링 | 문서 | 테스트 | 의존성"
+echo ""
+echo "  현재  : $FIRST_LINE"
+echo ""
+echo "  예시  : 수정: RudpChannel ArrayPool 반환 누락 수정"
+echo "          추가: BinaryPacketSerializer 구현 추가"
+echo "          버그수정: TryReadPacket 헤더 파싱 오류 수정"
+echo ""
+exit 1
