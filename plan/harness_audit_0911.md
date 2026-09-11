@@ -50,7 +50,7 @@
 | concurrency-guard-orchestrator | 4 (2 병렬 + 2 순차) | 100점, APPROVE. 락·동기 블로킹 0건, 기각 항목 6건 검증자 재확인 | `_workspace/04_concurrency_guard_report.md` |
 | gc-guard-orchestrator | 3 (2 병렬 + 1 순차) | 최종 91점, APPROVE. 확정 1(LINQ 이터레이터) / 하향 2 / 기각 1, FP 20% | `_workspace/04_gc_guard_report.md`, `03_peer_review.json` |
 | tdd-orchestrator | 3 (순차) + harness-evolve | Red 16 케이스 실패 → Green 16/16 (재작업 0) → Refactor 6건 적용 후 회귀 16/16 PASS | `_workspace/01_analyst/`, `02_builder/`, `03_qa/`, `04_evolution/evolution_report.md` |
-| pipeline-architect-orchestrator | 1 감독자 + 3 중첩 워커 | (아래 5절 참조) | `_workspace/02_io_loop/IoLoop.cs`, `02_dispatcher/ThreadDispatcher.cs`, `03_load_test_audit.md`, `04_pipeline_architecture.md` |
+| pipeline-architect-orchestrator | 1 감독자 + 3 중첩 워커 | APPROVE. CRITICAL 0 / HIGH 2 / MEDIUM 4 / LOW 6, 워커 재작업 0회. 감독자 1회 재호출(API 한도) | `_workspace/02_interface_contract.cs`, `02_io_loop/IoLoop.cs`(915줄), `02_dispatcher/ThreadDispatcher.cs`(519줄), `03_load_test_audit.md`, `04_pipeline_architecture.md` |
 
 실행 중 확인된 하네스 동작 특성:
 - 워커가 "리더에게 SendMessage" 를 시도했지만 리더 ID를 모르는 경우가 반복됨 → 워커 20개에 최종 응답 보고 규칙 추가(F1 수정에 포함).
@@ -59,7 +59,22 @@
 
 ## 5. 파이프라인 아키텍처 하네스 결과
 
-(실행 완료 후 기록)
+브리프: TCP 에코 서버(길이 접두사 4B LE + 페이로드), 동시 연결 10,000, 200,000 msg/s, 최대 64 KB, p99 2 ms, 정상 경로 Zero-allocation.
+
+**실행 경과**
+- 감독자가 인터페이스 계약(`02_interface_contract.cs`)을 작성하고 io-loop-designer·thread-dispatcher-designer 를 단일 메시지로 동시 호출. 두 워커 모두 산출물 완성.
+- 첫 감독자 실행이 품질 게이트 직전 세션 사용량 한도(HTTP 429)로 중단됨 → 스킬 에러 규칙대로 1회 재호출하되 기존 산출물부터 이어가도록 지시. 재호출은 워커를 다시 만들지 않고 게이트·감사·문서화만 수행.
+- 품질 게이트: PipeWriter/Reader Complete 전 종료 경로, `AdvanceTo(consumed, examined)` 매 ReadAsync 1회, 계약 준수, Channel.Writer.Complete, 클로저-프리 Work Item, 백프레셔 전 항목 합격. 보조 근거로 세 파일을 저장소 밖 임시 프로젝트로 net10.0 빌드 시 경고 0·오류 0.
+- load-test-auditor 판정 **APPROVE** (CRITICAL 0). 메모리 폭증·영구 대기·프로세스 행을 유발하는 결함 없음.
+
+**미해결 항목 (다음 사이클, `04_pipeline_architecture.md` 7절에 담당·지침 기록)**
+| 등급 | 항목 | 위치 | 담당 |
+|---|---|---|---|
+| HIGH | H-1 송신 타임아웃 부재 — 응답을 읽지 않는 클라이언트가 워커 1개를 HOL 정지 | `IoLoop.cs:568-661` | io-loop-designer |
+| HIGH | H-2 유휴 연결이 4 KB 수신 세그먼트를 상시 보유·핀 (zero-byte read 미적용) | `IoLoop.cs:291-297` | io-loop-designer |
+| MEDIUM | M-1 DisposeAsync 진입 경합, M-2/M-3 연결당 메모리·ArrayPool 버킷 한도(계약 개정 필요), M-4 MaxDrainPerTurn 기본값 | 계약·IoLoop·Dispatcher | 감독자 중재 |
+
+**하네스 관점 결론**: 감독자 패턴의 Agent 중첩 호출(오케스트레이터 → 감독자 → 워커 3개)이 이 빌드에서 동작함을 확인. 단, 감독자 1회 실행이 약 13만 토큰·16분으로 5종 중 가장 무거우며, 세션 한도에 걸리면 산출물 재사용 재호출이 필요하다. 재호출 프롬프트 패턴("기존 산출물 이어가기")을 `pipeline-architect-orchestrator` 에러 핸들링에 추가할 것을 권고.
 
 ## 6. 변경 파일 목록
 
