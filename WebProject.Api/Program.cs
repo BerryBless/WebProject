@@ -35,9 +35,26 @@ app.MapGet("/weatherforecast", () =>
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+/// <summary>일별 기상 예보 응답 모델.</summary>
+/// <param name="Date">예보 날짜</param>
+/// <param name="TemperatureC">섭씨 온도(정수)</param>
+/// <param name="Summary">체감 요약 문구. 없을 수 있다.</param>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> Thread-safe. 불변 record 이며 <see cref="TemperatureF"/> 는 상태 없는 순수 계산이다.</description></item>
+/// <item><description><b>Memory Allocation:</b> <see cref="TemperatureF"/> 는 Zero-allocation guaranteed. 정수 연산만 수행한다.</description></item>
+/// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
+/// </list>
+/// </remarks>
+public record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    /// <summary>화씨 온도. F = C × 9/5 + 32 를 정수 연산으로 계산하며 소수부는 0 방향으로 버린다.</summary>
+    /// <remarks>
+    /// 템플릿 원본의 <c>TemperatureC / 0.5556</c> 근사는 100°C 를 211°F 로 계산하는 오차가 있어
+    /// 정확한 9/5 비율로 교체했다. <c>TemperatureC * 9</c> 를 먼저 계산해 정수 나눗셈의 정밀도 손실을 최소화한다.
+    /// </remarks>
+    public int TemperatureF => 32 + TemperatureC * 9 / 5;
 }
 
 // WebApplicationFactory<Program> 기반 통합 테스트가 진입점 타입에 접근할 수 있도록 공개한다.

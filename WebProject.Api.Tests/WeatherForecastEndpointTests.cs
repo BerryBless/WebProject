@@ -42,6 +42,8 @@ public sealed class WeatherForecastEndpointTests : IClassFixture<WebApplicationF
         Assert.NotNull(forecasts);
         Assert.Equal(5, forecasts.Length);
         Assert.All(forecasts, f => Assert.InRange(f.TemperatureC, -20, 55));
+        // 직렬화된 TemperatureF 가 도메인 공식(F = C × 9/5 + 32)과 일치하는지 응답 계약 수준에서 검증한다.
+        Assert.All(forecasts, f => Assert.Equal(32 + f.TemperatureC * 9 / 5, f.TemperatureF));
     }
 
     private sealed record WeatherForecastDto(DateOnly Date, int TemperatureC, string? Summary, int TemperatureF);
