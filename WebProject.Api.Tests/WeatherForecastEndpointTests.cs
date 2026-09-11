@@ -40,8 +40,9 @@ public sealed class WeatherForecastEndpointTests : IClassFixture<WebApplicationF
 
         var forecasts = await response.Content.ReadFromJsonAsync<WeatherForecastDto[]>();
         Assert.NotNull(forecasts);
-        Assert.Equal(5, forecasts.Length);
-        Assert.All(forecasts, f => Assert.InRange(f.TemperatureC, -20, 55));
+        Assert.Equal(WeatherForecast.ForecastDays, forecasts.Length);
+        // InRange 는 양끝 포함이므로 핸들러의 Next(Min, Max + 1) 와 경계 의미가 일치한다.
+        Assert.All(forecasts, f => Assert.InRange(f.TemperatureC, WeatherForecast.MinTemperatureC, WeatherForecast.MaxTemperatureC));
         // 직렬화된 TemperatureF 가 도메인 공식(F = C × 9/5 + 32)과 일치하는지 응답 계약 수준에서 검증한다.
         Assert.All(forecasts, f => Assert.Equal(32 + f.TemperatureC * 9 / 5, f.TemperatureF));
     }

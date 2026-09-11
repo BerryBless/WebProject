@@ -21,11 +21,12 @@ var summaries = new[]
 
 app.MapGet("/weatherforecast", () =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
+    // Random.Next(min, max) 는 상한 배타적이므로 MaxTemperatureC 를 포함하려면 +1 이 필요하다.
+    var forecast = Enumerable.Range(1, WeatherForecast.ForecastDays).Select(index =>
         new WeatherForecast
         (
             DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
+            Random.Shared.Next(WeatherForecast.MinTemperatureC, WeatherForecast.MaxTemperatureC + 1),
             summaries[Random.Shared.Next(summaries.Length)]
         ))
         .ToArray();
@@ -49,6 +50,15 @@ app.Run();
 /// </remarks>
 public record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
+    /// <summary>예보 일수. 응답 배열 길이와 같다.</summary>
+    public const int ForecastDays = 5;
+
+    /// <summary>샘플 예보의 섭씨 하한(포함).</summary>
+    public const int MinTemperatureC = -20;
+
+    /// <summary>샘플 예보의 섭씨 상한(포함).</summary>
+    public const int MaxTemperatureC = 55;
+
     /// <summary>화씨 온도. F = C × 9/5 + 32 를 정수 연산으로 계산하며 소수부는 0 방향으로 버린다.</summary>
     /// <remarks>
     /// 템플릿 원본의 <c>TemperatureC / 0.5556</c> 근사는 100°C 를 211°F 로 계산하는 오차가 있어
