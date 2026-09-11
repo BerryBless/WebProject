@@ -228,4 +228,4 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | TDD Red-Green-Refactor 하네스 구축 (harness-evolve 포함) |
-| 2026-09-11 | TeamCreate 의존 제거(순차 Agent 호출), dotnet_study 절대경로 제거 | tdd-orchestrator·tdd-refactor-phase | 하네스 전수조사: 타 프로젝트 경로로 Refactor 단계 실패 확정 |
+| 2026-09-11 | TeamCreate 의존 제거(순차 Agent 호출), dotnet_study 절대경로 제거, TddSession.csproj 템플릿 수정(EnableDefaultCompileItems=false, 단계별 Compile 조건을 실제 .cs 존재 여부로) | tdd-orchestrator·tdd-refactor-phase | 하네스 전수조사: 타 프로젝트 경로로 Refactor 단계 실패 확정. 실행 검증 중 NETSDK1022 중복·빈 03_qa/Src 로 스텁 미컴파일 발견 |
