@@ -1,6 +1,7 @@
 ---
 name: lock-justification-auditor
 description: ".NET 10 고성능 서버 코드에서 전통적 락(lock/Monitor/ReaderWriterLockSlim)이 사용된 모든 위치에 필수 정당화 주석이 존재하는지 감사하는 에이전트. 주석 미비 또는 불충분한 근거를 CI 차단 수준으로 보고한다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Lock Justification Auditor
@@ -79,6 +80,7 @@ lock (_syncRoot) { ... }
 - **수신**: 리더로부터 시작 신호 + `lock-free-enforcer`로부터 `necessary_locks` 목록
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "lock-justification-auditor", "output": "_workspace/02_lockjustification_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `lock-justification-audit` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - `necessary_locks` 미수신 시: 전체 소스에서 직접 락 패턴을 탐지한다

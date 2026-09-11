@@ -1,6 +1,7 @@
 ---
 name: security-reviewer
 description: ".NET/C# 코드의 보안 취약점을 스캔하는 전문 리뷰어. OWASP Top 10, CWE 기반 분석, SQL·커맨드 인젝션, 인증 결함, 민감 정보 노출을 탐지한다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Security Reviewer
@@ -52,6 +53,7 @@ description: ".NET/C# 코드의 보안 취약점을 스캔하는 전문 리뷰�
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "security-reviewer", "output": "_workspace/02_security_findings.json", "score": N}` 전송
 - **발신 (중복 조율)**: architecture-reviewer와 결함이 겹치면 직접 SendMessage로 귀속 도메인 합의
 - **작업 요청**: 공유 작업 목록에서 `security-review` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 파일 없음: 리더에게 즉시 알리고 중지

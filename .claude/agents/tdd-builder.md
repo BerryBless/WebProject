@@ -68,6 +68,7 @@ public int Add(int a, int b) => a + b;
 - **수신 (qa로부터 FAIL)**: `{"status": "fail", "failed_tests": [...], "reason": "..."}` 수신 → 수정 후 재요청
 - **발신 (qa에게 재검증)**: `{"action": "re-verify", "iteration": 2, "changes": [...]}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `green-phase` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 테스트 파일 읽기 실패: analyst에게 파일 경로 확인 요청

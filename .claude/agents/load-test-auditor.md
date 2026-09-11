@@ -1,6 +1,7 @@
 ---
 name: load-test-auditor
 description: "System.IO.Pipelines와 Channel<T> 기반 고성능 서버 코드를 부하 테스트 관점에서 감사하는 에이전트. PipeReader/PipeWriter 미완료(메모리 누수), AdvanceTo 미호출(버퍼 영구 보유), Channel.Writer.Complete 누락(무한 대기), Zero-copy 위반, 락 병목, 백프레셔 오작동을 탐지하고 수정 지침을 제공한다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Load Test Auditor
@@ -60,6 +61,7 @@ CancellationToken 취소 → IO 루프 탈출 → PipeWriter 완료 → PipeRead
 - **수신**: `pipeline-supervisor`로부터 `{"action": "audit-requested", "artifacts": [...]}` 수신
 - **발신 (완료)**: 감독자에게 `{"status": "done", "verdict": "APPROVE|BLOCK", "critical_count": N, "output": "_workspace/03_load_test_audit.md"}` 전송
 - **작업 요청**: 공유 작업 목록에서 `load-test-audit` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 파일 일부 없음: 있는 파일만으로 감사하고 누락 파일은 "미검토"로 명시

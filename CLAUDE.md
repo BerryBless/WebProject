@@ -4,11 +4,17 @@
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-11 초기화):** 빈 솔루션 `WebProject.sln`(.NET 10)만 존재한다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것.
+**구성(2026-09-11):** `WebProject.sln`(.NET 10) 아래 두 프로젝트가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것.
+- `WebProject.Api` — ASP.NET Core 최소 API(`Microsoft.NET.Sdk.Web`). 통합 테스트 접근용으로 `Program`을 `public partial`로 노출한다.
+- `WebProject.Api.Tests` — xUnit + `Microsoft.AspNetCore.Mvc.Testing`. CI의 `dotnet test` 게이트가 실제로 검사하는 대상이다.
+
+**하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 7개 항목으로 검사한다(프론트매터, 참조 실존, 절대경로, 팀 도구, 미러 동기화, 서명). 하네스 파일을 고치면 실행해 PASS를 확인할 것. 감사 결과와 수정 이력은 `plan/harness_audit_0911.md` 참조.
 
 **경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다. Stop 훅은 `$env:CLAUDE_PROJECT_DIR`, PowerShell 스크립트는 `$PSScriptRoot` 기준으로 루트를 계산한다.
 
 **Git 훅:** `scripts/git-hooks/commit-msg`가 커밋 메시지 접두사 형식을 강제한다. 새로 클론하면 `Copy-Item scripts/git-hooks/commit-msg .git/hooks/`로 설치할 것.
+
+**.gitignore:** `dotnet new gitignore` 공식 템플릿 + 프로젝트 커스텀 블록(Rider, `_work*/`, `_workspace/cross/` 재포함). Stop 훅이 `git add -A`로 전부 커밋하므로 새 생성물 폴더가 생기면 커밋 전에 규칙을 먼저 추가할 것.
 
 ## 하네스: Git 자동 커밋 & 푸시 (Git Automator)
 
@@ -21,15 +27,20 @@
 - 형식: `{접두사}: {제목}` (접두사: 추가/수정/버그수정/리팩토링/문서/테스트/의존성)
 - 제목: 50자 이내, 파일명 나열 금지, WHY 중심
 - 본문(선택): `- ` 항목 나열
-- 마지막 줄(필수): `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+- 마지막 줄(필수): `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`
 
 Stop 훅(`auto-commit.ps1`)이 이 파일을 읽어 커밋하고 즉시 삭제한다. 파일을 남기지 않으면 접두사 기반 폴백 메시지로 커밋된다(안전망).
+
+**커밋 주체 정책:** 커밋 경로는 두 가지이며 충돌하지 않는다.
+- `commitandpush` 스킬 — 사용자가 명시 요청했을 때 보안 감사 → 메시지 작성 → 즉시 커밋·푸시하는 **능동 경로**. 커밋 후 `.git/auto_commit_msg.txt`가 있으면 삭제한다.
+- Stop 훅 — 턴 종료 시 남은 변경을 커밋하는 **수동 안전망**. 스킬이 먼저 커밋했으면 변경 없음으로 종료한다.
 
 **변경 이력:**
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-03 | 초기 구성 | 전체 | Git 자동 커밋&푸시 파이프라인 구축 |
 | 2026-06-03 | 파일 기반 메시지 전달로 재설계 | auto-commit.ps1 | nested claude -p 콜드스타트/stdin 취약성으로 폴백 빈발 |
+| 2026-09-11 | git 에이전트 3개 프론트매터 등록·실명 호출, 커밋 주체 정책 명문화, 서명 Fable 5.1 통일 | git-*.md·commitandpush·auto-commit.ps1 | 하네스 전수조사: 프론트매터 없어 서브에이전트 미등록, 커밋 경로 이중화 정본 미정 |
 
 ---
 
@@ -58,7 +69,7 @@ plan/<기능명>_<MMDD>.md
 
 | 파일 | 날짜 | 내용 |
 |------|------|------|
-| (아직 없음) | | |
+| plan/harness_audit_0911.md | 2026-09-11 | 하네스 전수조사 결과(F1~F13), 수정 내역, 오케스트레이터 5종 실행 검증, 재감사 스크립트 |
 
 ---
 
@@ -146,6 +157,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 2026-09-10 | 초기 구성 | cross-verify 스킬 + cross-planner/cross-implementer/cross-reviewer/codex-adapter 에이전트 | Plan·리뷰 교차 검증 파이프라인 구축 |
 | 2026-09-10 | 트리거 조건 강화 — 코덱스/Codex 키워드 필수 | cross-verify description·CLAUDE.md | 키워드 없는 일반 검증 요청에 고비용 파이프라인이 오발동하지 않도록 사용자 요청 |
 | 2026-09-10 | 토큰 부족 시 Claude 단독 폴백 추가 | invoke-codex.ps1(status=quota)·codex-adapter·cross-verify | Codex 사용량 한도로 파이프라인이 멈추는 대신 작업을 완료하고 "교차 검증 아님"을 명시 피드백하도록 사용자 요청 |
+| 2026-09-11 | 미러에서 codex 스킬 제거, 미러 서명 Codex로 통일, cross-planner/reviewer tools 제한 | .agents/skills·cross-*.md | 하네스 전수조사: 미러 정책 위반(재귀 위험)·잡종 서명 발견 |
 
 ---
 
@@ -160,6 +172,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | 종합 코드 리뷰 하네스 구축 |
 | 2026-06-09 | 보안 가드 감사 | security-reviewer | 해킹·DDoS 공격 표면 점검 (리포트 plan/security_audit_0609.md) |
+| 2026-09-11 | TeamCreate 의존 제거, Agent 팬아웃 방식으로 재작성, 리뷰어 tools 제한 | code-review-orchestrator·reviewer 4종 | 하네스 전수조사: 이 빌드에 팀 도구가 없어 실행 불가 |
 
 ---
 
@@ -173,6 +186,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 고성능 서버 동시성 하네스 구축 |
+| 2026-09-11 | TeamCreate 의존 제거, Agent 팬아웃+순차 생성-검증으로 재작성 | concurrency-guard-orchestrator | 하네스 전수조사: 팀 도구 미존재 |
 
 ---
 
@@ -186,6 +200,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 서버 GC 억제 메모리 최적화 하네스 구축 |
+| 2026-09-11 | TeamCreate 의존 제거, Agent 팬아웃+순차 교차검증으로 재작성 | gc-guard-orchestrator | 하네스 전수조사: 팀 도구 미존재 |
 
 ---
 
@@ -199,6 +214,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 고성능 IO 파이프라인 아키텍처 하네스 구축 |
+| 2026-09-11 | TeamCreate 의존 제거, 감독자가 Agent로 워커를 중첩 호출하는 방식으로 재작성 | pipeline-architect-orchestrator·pipeline-supervisor | 하네스 전수조사: 팀 도구·TaskGet 미존재 |
 
 ---
 
@@ -212,3 +228,4 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | TDD Red-Green-Refactor 하네스 구축 (harness-evolve 포함) |
+| 2026-09-11 | TeamCreate 의존 제거(순차 Agent 호출), dotnet_study 절대경로 제거 | tdd-orchestrator·tdd-refactor-phase | 하네스 전수조사: 타 프로젝트 경로로 Refactor 단계 실패 확정 |

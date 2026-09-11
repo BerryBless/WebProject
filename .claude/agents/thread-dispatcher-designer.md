@@ -53,6 +53,7 @@ IO 루프에서 수신된 파싱 데이터를 락 없이 스레드 풀에 효율
 - **발신 (완료)**: 감독자에게 `{"status": "done", "output": "_workspace/02_dispatcher/ThreadDispatcher.cs", "channel_capacity": N, "lock_free": true, "backpressure_mechanism": "..."}` 전송
 - **발신 (인터페이스 협의)**: `io-loop-designer`에게 `{"action": "interface-confirm", "accepted_type": "...", "channel_capacity": N}` SendMessage
 - **발신 (재작업 완료)**: 감독자에게 `{"status": "revised", "changes": ["...", "..."]}` 전송
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - IO 루프 인터페이스 수신 전: 기본 제네릭 인터페이스로 스텁 설계 후 감독자에게 알림

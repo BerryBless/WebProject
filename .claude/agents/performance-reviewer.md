@@ -1,6 +1,7 @@
 ---
 name: performance-reviewer
 description: ".NET/C# 코드의 성능 병목을 탐지하는 전문 리뷰어. N+1 쿼리, 동기 I/O 블로킹, 불필요한 힙 할당, 비효율적 LINQ, 캐싱 누락을 탐지한다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Performance Reviewer
@@ -52,6 +53,7 @@ description: ".NET/C# 코드의 성능 병목을 탐지하는 전문 리뷰어. 
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "performance-reviewer", "output": "_workspace/02_performance_findings.json", "score": N}` 전송
 - **발신 (중복 조율)**: architecture-reviewer와 원인이 겹치는 발견은 직접 SendMessage로 조율
 - **작업 요청**: 공유 작업 목록에서 `performance-review` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 파일 없음: 리더에게 즉시 알리고 중지

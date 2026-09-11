@@ -7,7 +7,7 @@ description: ".NET 10 고성능 비동기 서버 라이브러리의 동시성·�
 
 .NET 10 고성능 비동기 서버 라이브러리를 위한 동시성 전문 감사 팀을 조율하는 오케스트레이터.
 
-## 실행 모드: 하이브리드 에이전트 팀
+## 실행 모드: 하이브리드 (Agent 팬아웃 + 순차 생성-검증)
 
 | Phase | 모드 | 팀 구성 | 이유 |
 |-------|------|---------|------|
@@ -59,92 +59,61 @@ gh pr diff <PR번호>
 수집 내용을 `_workspace/00_input/source.txt`에 저장한다.
 소스가 비어있으면 사용자에게 알리고 중지한다.
 
-### Phase 2: 팀 구성
+### Phase 2: 실행 규칙
+
+**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
+- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
+- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
+- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
+- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
+- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
+
+### Phase 3: Phase A — 병렬 락 감사 (Agent 팬아웃)
+
+아래 2개를 **단일 메시지에서 동시에** 호출한다:
 
 ```
-TeamCreate(
-  team_name: "concurrency-guard-team",
-  members: [
-    {
-      name: "lock-free-enforcer",
-      agent_type: "lock-free-enforcer",
-      model: "opus",
-      prompt: "당신은 lock-free-enforcer입니다. /lock-free-enforcement 스킬을 사용하여 _workspace/00_input/source.txt를 감사하고 결과를 _workspace/02_lockfree_findings.json에 저장하세요. 완료 후 necessary_locks 목록을 lock-justification-auditor에게 SendMessage로 전달하고, 리더에게 완료를 알리세요."
-    },
-    {
-      name: "lock-justification-auditor",
-      agent_type: "lock-justification-auditor",
-      model: "opus",
-      prompt: "당신은 lock-justification-auditor입니다. /lock-justification-audit 스킬을 사용하여 _workspace/00_input/source.txt를 감사하세요. lock-free-enforcer로부터 necessary_locks 목록을 수신 후 우선 감사하고 결과를 _workspace/02_lockjustification_findings.json에 저장하세요. 완료 후 리더에게 알리세요."
-    },
-    {
-      name: "deadlock-analyzer",
-      agent_type: "deadlock-analyzer",
-      model: "opus",
-      prompt: "당신은 deadlock-analyzer입니다. lock-free-enforcer 완료 알림을 받은 후 /deadlock-static-analysis 스킬을 사용하여 _workspace/00_input/source.txt와 _workspace/02_lockfree_findings.json을 분석하세요. 결과를 _workspace/03_deadlock_analysis.json에 저장하고 deadlock-reviewer에게 검증 요청 SendMessage를 보내세요."
-    },
-    {
-      name: "deadlock-reviewer",
-      agent_type: "deadlock-reviewer",
-      model: "opus",
-      prompt: "당신은 deadlock-reviewer입니다. deadlock-analyzer로부터 검증 요청 SendMessage를 받은 후 /deadlock-review 스킬을 사용하여 _workspace/03_deadlock_analysis.json을 독립 검증하세요. 결과를 _workspace/03_deadlock_review.json에 저장하고 리더에게 완료를 알리세요. 필요하면 deadlock-analyzer에게 재분석 요청(1회 한도)을 보내세요."
-    }
-  ]
-)
+Agent(subagent_type="lock-free-enforcer", description="Lock-free audit",
+      prompt="당신은 lock-free-enforcer입니다. 프로젝트 루트는 {project_root} 입니다.
+              lock-free-enforcement 스킬을 사용하여 _workspace/00_input/source.txt 를 감사하고
+              결과를 _workspace/02_lockfree_findings.json 에 저장하세요.
+              necessary_locks 목록은 JSON 안에 포함하세요. 완료 후 건수·점수를 한 줄로 보고하세요.")
+Agent(subagent_type="lock-justification-auditor", description="Lock justification audit",
+      prompt="당신은 lock-justification-auditor입니다. ... lock-justification-audit 스킬로 source.txt 를 감사하고
+              결과를 _workspace/02_lockjustification_findings.json 에 저장하세요. ...")
 ```
 
-작업 등록 (의존성으로 Phase A/B 순서 모델링):
-```
-TaskCreate(tasks: [
-  {
-    title: "Lock-Free 설계 감사",
-    description: "/lock-free-enforcement 스킬로 모든 락 사용을 감사하고 necessary_locks를 lock-justification-auditor에게 전달",
-    assignee: "lock-free-enforcer"
-  },
-  {
-    title: "락 정당화 주석 감사",
-    description: "/lock-justification-audit 스킬로 [LOCK-REQUIRED] 주석 존재·품질을 감사",
-    assignee: "lock-justification-auditor"
-  },
-  {
-    title: "데드락 정적 분석",
-    description: "/deadlock-static-analysis 스킬로 async 패턴 분석 후 deadlock-reviewer에게 검증 요청",
-    assignee: "deadlock-analyzer",
-    depends_on: ["Lock-Free 설계 감사"]
-  },
-  {
-    title: "데드락 분석 검증",
-    description: "/deadlock-review 스킬로 분석 보고서 독립 검증 및 최종 확정",
-    assignee: "deadlock-reviewer",
-    depends_on: ["데드락 정적 분석"]
-  }
-])
-```
+**필요 락 목록 공유:** lock-free-enforcer 완료 알림을 먼저 받으면 `02_lockfree_findings.json` 의
+necessary_locks 를 `SendMessage` 로 lock-justification-auditor 에게 전달한다 (아직 실행 중일 때만).
+이미 둘 다 끝났으면 Phase 5 통합 시 리더가 직접 대조한다.
 
-### Phase 3: Phase A — 병렬 락 감사
-
-**실행 모드: 에이전트 팀 (팬아웃)**
-
-lock-free-enforcer와 lock-justification-auditor가 병렬로 실행된다.
-
-**팀 통신 흐름:**
 ```
 lock-free-enforcer  →  [necessary_locks 목록]  →  lock-justification-auditor
       ↓                                                      ↓
 02_lockfree_findings.json                    02_lockjustification_findings.json
-      ↓
-  리더에게 완료 알림
 ```
 
-리더는 두 에이전트의 완료 알림을 수신할 때까지 모니터링한다.
+두 완료 알림을 모두 수신하면 Phase 4로 진행한다.
 
-### Phase 4: Phase B — 생성-검증 데드락 분석
+### Phase 4: Phase B — 생성-검증 데드락 분석 (순차)
 
-**실행 모드: 에이전트 팀 (생성-검증 순환)**
+**Step 1 — 분석기 호출** (lock-free-enforcer 완료 후):
+```
+Agent(subagent_type="deadlock-analyzer", description="Deadlock static analysis",
+      prompt="deadlock-static-analysis 스킬로 _workspace/00_input/source.txt 와
+              _workspace/02_lockfree_findings.json 을 분석하고 _workspace/03_deadlock_analysis.json 에 저장하세요.")
+```
 
-lock-free-enforcer 완료 후 deadlock-analyzer가 시작된다.
+**Step 2 — 검증자 호출** (분석기 완료 알림 후):
+```
+Agent(subagent_type="deadlock-reviewer", description="Deadlock review",
+      prompt="deadlock-review 스킬로 _workspace/03_deadlock_analysis.json 을 독립 검증하고
+              _workspace/03_deadlock_review.json 에 저장하세요. 재분석이 필요한 항목은 needs_reanalysis 배열로 보고하세요.")
+```
 
-**생성-검증 순환:**
+**Step 3 — 재분석 (최대 1회):** 검증 결과에 needs_reanalysis 가 있으면 deadlock-analyzer 를
+해당 항목 목록과 함께 1회 재호출하고, 이어서 deadlock-reviewer 를 1회 재호출한다.
+
 ```
 deadlock-analyzer → [분석 완료] → deadlock-reviewer
                                         ↓
@@ -152,7 +121,7 @@ deadlock-analyzer → [분석 완료] → deadlock-reviewer
                                         ↓
                     재분석 필요? → deadlock-analyzer (최대 1회)
                                         ↓
-                         [최종 확정] → 리더에게 완료 알림
+                         [최종 확정] → 리더 완료 알림
 ```
 
 최대 2라운드(초기 분석 + 1회 재분석) 보장.
@@ -209,7 +178,7 @@ APPROVE / REQUEST CHANGES / BLOCK
 
 ### Phase 6: 정리
 
-1. TeamDelete
+1. 별도 팀 해제 절차 없음
 2. `_workspace/` 보존
 3. 리포트 내용 출력 + 경로 안내
 
@@ -220,16 +189,16 @@ APPROVE / REQUEST CHANGES / BLOCK
 ```
 Phase 1: source.txt 수집
     ↓
-Phase 2: TeamCreate (4명) + TaskCreate (4개, 의존성 설정)
+Phase 2: 실행 규칙 확인
     ↓
-Phase 3: [lock-free-enforcer] ↔ [lock-justification-auditor] (병렬)
+Phase 3: Agent 2개 동시 호출 [lock-free-enforcer] ↔ [lock-justification-auditor]
          락 목록 공유 via SendMessage
     ↓
 Phase 4: [deadlock-analyzer] → [deadlock-reviewer] → (재분석 가능, 1회)
     ↓
 Phase 5: 4개 JSON 통합 → concurrency_guard_report.md
     ↓
-Phase 6: TeamDelete + 보고
+Phase 6: 보고
 ```
 
 ---
@@ -238,7 +207,7 @@ Phase 6: TeamDelete + 보고
 
 | 상황 | 처리 |
 |------|------|
-| 에이전트 1명 실패 | SendMessage로 상태 확인 → 1회 재시작 → 재실패 시 해당 도메인 "수집 실패"로 표시 |
+| 에이전트 1개 실패 | 동일 프롬프트로 1회 재호출 → 재실패 시 해당 도메인 "수집 실패"로 표시 |
 | lock-justification-auditor가 necessary_locks 미수신 | 소스 전체에서 직접 락 탐지로 전환 |
 | deadlock-reviewer 재분석 요청 타임아웃 | 기존 분석 결과로 검증 진행 |
 | 의견 불일치 3개+ | `disputed_findings`로 기록, 리더가 사용자에게 중재 요청 |

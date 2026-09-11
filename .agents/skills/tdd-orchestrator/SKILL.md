@@ -7,7 +7,7 @@ description: "TDD(테스트 주도 개발) 하네스를 실행하는 오케스�
 
 Red-Green-Refactor 사이클을 에이전트 팀으로 조율하는 TDD 하네스 오케스트레이터.
 
-## 실행 모드: 에이전트 팀 (파이프라인 + 생성-검증 혼합)
+## 실행 모드: 순차 Agent 호출 (파이프라인 + 생성-검증 혼합)
 
 ```
 analyst ──→ builder ──→ qa
@@ -41,7 +41,7 @@ analyst ──→ builder ──→ qa
 `_workspace/` 하위에 xUnit 테스트 프로젝트를 생성한다:
 
 ```bash
-mkdir -p E:/project/dotnet_study/_workspace/{01_analyst/Tests,01_analyst/Src,02_builder/Src,03_qa/Src,03_qa,04_evolution}
+cd "$CLAUDE_PROJECT_DIR" && mkdir -p _workspace/{01_analyst/Tests,01_analyst/Src,02_builder/Src,03_qa/Src,03_qa,04_evolution}
 ```
 
 `_workspace/TddSession.csproj` 생성 (처음 실행 시만):
@@ -55,6 +55,9 @@ mkdir -p E:/project/dotnet_study/_workspace/{01_analyst/Tests,01_analyst/Src,02_
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>TddSession</RootNamespace>
+    <!-- SDK 기본 **/*.cs 글로빙을 끈다: 아래 명시 Compile 항목과 중복(NETSDK1022)되고,
+         _workspace/ 에 공존하는 다른 하네스 산출물(.cs)까지 컴파일되는 것을 막는다 -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
@@ -84,69 +87,48 @@ mkdir -p E:/project/dotnet_study/_workspace/{01_analyst/Tests,01_analyst/Src,02_
 
 요구사항을 `_workspace/00_requirements.md`에 저장한다.
 
-### Phase 2: 팀 구성
+### Phase 2: 실행 규칙
 
+**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
+- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
+- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
+- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
+- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
+- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
+
+TDD 파이프라인은 **순차**이므로 각 단계는 앞 단계의 완료 알림 수신 후 호출한다.
+
+### Phase 3: 파이프라인 실행 (순차 Agent 호출 + 생성-검증 루프)
+
+**Step 1 — Red:**
 ```
-TeamCreate(
-  team_name: "tdd-team",
-  members: [
-    {
-      name: "tdd-analyst",
-      agent_type: "tdd-analyst",
-      model: "opus",
-      prompt: "당신은 TDD 분석가입니다. /tdd-red-phase 스킬을 사용하여 _workspace/00_requirements.md를 읽고 실패하는 xUnit 테스트와 스텁을 작성한 후, tdd-builder에게 완료 SendMessage를 보내세요."
-    },
-    {
-      name: "tdd-builder",
-      agent_type: "tdd-builder",
-      model: "opus",
-      prompt: "당신은 TDD 구현자입니다. tdd-analyst로부터 완료 메시지를 받으면 /tdd-green-phase 스킬을 사용하여 최소 구현을 작성하고 tdd-qa에게 검증 요청 SendMessage를 보내세요. qa로부터 FAIL 메시지를 받으면 수정 후 재검증을 요청하세요 (최대 2회)."
-    },
-    {
-      name: "tdd-qa",
-      agent_type: "tdd-qa",
-      model: "opus",
-      prompt: "당신은 TDD QA입니다. tdd-builder로부터 검증 요청을 받으면 /tdd-refactor-phase 스킬을 사용하여 dotnet test를 실행하세요. 실패 시 tdd-builder에게 FAIL SendMessage를, 전체 통과 시 리더에게 PASS SendMessage를 보내세요."
-    }
-  ]
-)
+Agent(subagent_type="tdd-analyst", description="TDD red phase",
+      prompt="당신은 TDD 분석가입니다. 프로젝트 루트는 {project_root} 입니다.
+              tdd-red-phase 스킬을 사용하여 _workspace/00_requirements.md 를 읽고 실패하는 xUnit 테스트와 스텁을
+              _workspace/01_analyst/ 에 작성하세요. 완료 후 설계한 테스트 수를 한 줄로 보고하세요.")
 ```
 
-작업 등록:
+**Step 2 — Green** (analyst 완료 알림 후):
 ```
-TaskCreate(tasks: [
-  {
-    title: "Red — 실패 테스트 설계",
-    description: "/tdd-red-phase 스킬로 테스트와 스텁 작성",
-    assignee: "tdd-analyst"
-  },
-  {
-    title: "Green — 최소 구현",
-    description: "/tdd-green-phase 스킬로 테스트 통과 최소 코드 작성",
-    assignee: "tdd-builder",
-    depends_on: ["Red — 실패 테스트 설계"]
-  },
-  {
-    title: "Refactor — 검증 및 리팩토링",
-    description: "/tdd-refactor-phase 스킬로 dotnet test 실행 + 리팩토링 가이드",
-    assignee: "tdd-qa",
-    depends_on: ["Green — 최소 구현"]
-  }
-])
+Agent(subagent_type="tdd-builder", description="TDD green phase",
+      prompt="당신은 TDD 구현자입니다. tdd-green-phase 스킬을 사용하여 _workspace/01_analyst/ 의 테스트를 통과시키는
+              최소 구현을 _workspace/02_builder/Src/ 에 작성하세요. 과잉 구현 금지.")
 ```
 
-### Phase 3: 파이프라인 실행
-
-**실행 방식:** 에이전트 팀이 SendMessage로 자체 조율.
+**Step 3 — Refactor/검증** (builder 완료 알림 후):
+```
+Agent(subagent_type="tdd-qa", description="TDD refactor phase",
+      prompt="당신은 TDD QA입니다. tdd-refactor-phase 스킬을 사용하여 _workspace/TddSession.csproj 로 dotnet test 를
+              실제 실행하고 결과를 _workspace/03_qa/ 에 기록하세요. PASS/FAIL 판정과 실패 테스트 목록을 한 줄로 보고하세요.")
+```
 
 **생성-검증 루프 규칙:**
-- builder → qa: 구현 완료 시 검증 요청
-- qa → builder: FAIL 시 피드백과 함께 재작업 요청 (최대 2회)
-- 2회 초과 FAIL: 리더에게 에스컬레이션 → analyst 테스트 재설계 또는 요구사항 재확인
+- qa FAIL → 실패 테스트 목록과 함께 tdd-builder 를 재호출 (최대 2회), 이어서 tdd-qa 재호출
+- 2회 초과 FAIL: 사용자에게 에스컬레이션 → analyst 테스트 재설계 또는 요구사항 재확인
 
 **리더 모니터링:**
-- TaskGet으로 각 단계 진행 확인
-- 10분+ 유휴 팀원에게 진행 상태 확인 SendMessage
+- 각 단계 완료 알림의 한 줄 요약을 기록 (테스트 수, 시도 횟수, PASS/FAIL)
+- 완료 알림이 10분+ 없으면 SendMessage 로 진행 상태 확인
 
 ### Phase 4: harness-evolve 실행
 
@@ -156,7 +138,7 @@ qa PASS 판정 후 `/harness-evolve` 스킬을 직접 실행한다:
 
 ### Phase 5: 정리
 
-1. TeamDelete
+1. 별도 팀 해제 절차 없음
 2. `_workspace/` 보존 (다음 TDD 사이클의 회귀 테스트로 사용)
 3. 결과 요약 보고:
    - Red 단계: N개 테스트 설계

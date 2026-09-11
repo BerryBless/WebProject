@@ -7,11 +7,11 @@ description: "System.IO.Pipelines 기반 고성능 서버 라이브러리의 IO 
 
 System.IO.Pipelines 기반 IO 루프와 Channel<T> 기반 스레드 디스패처를 감독자 패턴으로 설계·검증하는 오케스트레이터.
 
-## 실행 모드: 에이전트 팀 (감독자 패턴)
+## 실행 모드: 감독자 패턴 (Agent 중첩 호출)
 
 ```
-[오케스트레이터] → TeamCreate
-    └── [pipeline-supervisor] (감독자/리더)
+[오케스트레이터] → Agent(pipeline-supervisor)
+    └── [pipeline-supervisor] (감독자/리더) — 자신이 Agent 도구로 워커를 호출
             ├── 감독: [io-loop-designer] (워커 1)
             ├── 감독: [thread-dispatcher-designer] (워커 2)
             └── 위임: [load-test-auditor] (검증자)
@@ -65,97 +65,55 @@ System.IO.Pipelines 기반 IO 루프와 Channel<T> 기반 스레드 디스패처
 
 브리프가 불충분하면 사용자에게 핵심 항목(프로토콜, 처리량 목표)만 질문한다.
 
-### Phase 2: 팀 구성
+### Phase 2: 감독자 호출
+
+**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
+- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
+- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
+- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
+- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
+- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
+
+오케스트레이터는 **감독자 1개만** 호출하고, 워커·감사자 호출은 감독자가 자신의 `Agent` 도구로 수행한다.
 
 ```
-TeamCreate(
-  team_name: "pipeline-design-team",
-  members: [
-    {
-      name: "pipeline-supervisor",
-      agent_type: "pipeline-supervisor",
-      model: "opus",
-      prompt: "당신은 파이프라인 설계 팀의 감독자입니다. _workspace/00_design_brief.md를 읽고 io-loop-designer와 thread-dispatcher-designer에게 설계 작업을 할당하세요. 두 워커의 품질을 모니터링하고, 인터페이스를 협상하며, 완성 후 load-test-auditor에게 감사를 위임하고 최종 아키텍처 문서를 작성하세요."
-    },
-    {
-      name: "io-loop-designer",
-      agent_type: "io-loop-designer",
-      model: "opus",
-      prompt: "당신은 IO 루프 설계자입니다. 감독자로부터 설계 지시를 받으면 /io-loop-design 스킬을 사용하여 System.IO.Pipelines 기반 IO 루프를 설계하고 _workspace/02_io_loop/IoLoop.cs에 저장하세요."
-    },
-    {
-      name: "thread-dispatcher-designer",
-      agent_type: "thread-dispatcher-designer",
-      model: "opus",
-      prompt: "당신은 스레드 디스패처 설계자입니다. 감독자로부터 설계 지시를 받으면 /thread-dispatch-design 스킬을 사용하여 Channel<T> 기반 디스패처를 설계하고 _workspace/02_dispatcher/ThreadDispatcher.cs에 저장하세요."
-    },
-    {
-      name: "load-test-auditor",
-      agent_type: "load-test-auditor",
-      model: "opus",
-      prompt: "당신은 부하 테스트 감사자입니다. 감독자로부터 감사 요청을 받으면 /load-test-audit 스킬을 사용하여 IO 루프와 디스패처 코드를 감사하고 _workspace/03_load_test_audit.md에 저장하세요."
-    }
-  ]
-)
+Agent(subagent_type="pipeline-supervisor", description="Pipeline design supervision",
+      prompt="당신은 파이프라인 설계 팀의 감독자입니다. 프로젝트 루트는 {project_root} 입니다.
+              _workspace/00_design_brief.md 를 읽고 아래 절차를 수행하세요.
+              1) 인터페이스 계약을 _workspace/02_interface_contract.cs 에 작성
+              2) Agent 도구로 io-loop-designer 와 thread-dispatcher-designer 를 단일 메시지에서 동시에 호출
+                 (각각 io-loop-design / thread-dispatch-design 스킬 사용,
+                  산출물 _workspace/02_io_loop/IoLoop.cs, _workspace/02_dispatcher/ThreadDispatcher.cs)
+              3) 두 완료 알림 수신 후 품질 게이트 체크리스트로 검토, 불합격 시 해당 워커를 issues 목록과 함께 1회 재호출
+              4) Agent 도구로 load-test-auditor 를 호출 (load-test-audit 스킬, 산출물 _workspace/03_load_test_audit.md)
+              5) BLOCK 판정이면 해당 워커 1회 재작업 후 재감사
+              6) _workspace/04_pipeline_architecture.md 에 최종 아키텍처 문서 작성
+              완료 후 감사 판정(APPROVE/BLOCK)과 산출물 경로를 한 줄로 보고하세요.")
 ```
 
-작업 등록 (감독자 패턴 — 감독자가 중앙에서 동적 할당):
+### Phase 3: 감독자 주도 설계 실행 (감독자 내부 절차)
+
+**Step 1 — 인터페이스 계약 (병렬 시작 전)**
 ```
-TaskCreate(tasks: [
-  {
-    title: "파이프라인 설계 총괄",
-    description: "브리프 분석 → 워커 할당 → 품질 모니터링 → 감사 위임 → 통합",
-    assignee: "pipeline-supervisor"
-  },
-  {
-    title: "IO 루프 설계",
-    description: "/io-loop-design 스킬로 PipeReader/Writer IO 루프 구현",
-    assignee: "io-loop-designer",
-    depends_on: ["파이프라인 설계 총괄 (감독자 지시 대기)"]
-  },
-  {
-    title: "스레드 디스패처 설계",
-    description: "/thread-dispatch-design 스킬로 Channel<T> 디스패처 구현",
-    assignee: "thread-dispatcher-designer",
-    depends_on: ["파이프라인 설계 총괄 (감독자 지시 대기)"]
-  },
-  {
-    title: "부하 테스트 감사",
-    description: "/load-test-audit 스킬로 두 설계 코드 감사",
-    assignee: "load-test-auditor",
-    depends_on: ["IO 루프 설계", "스레드 디스패처 설계"]
-  }
-])
+감독자가 브리프에서 ParsedMessage 타입·파이프 용량을 결정 → _workspace/02_interface_contract.cs 작성
 ```
 
-### Phase 3: 감독자 주도 설계 실행
-
-감독자가 다음 순서로 팀을 이끈다:
-
-**Step 1 — 인터페이스 협상 (병렬 시작 전)**
+**Step 2 — 병렬 설계 (Agent 팬아웃, 단일 메시지)**
 ```
-감독자 → io-loop-designer: {"action": "propose-interface", "message_type": "ParsedMessage"}
-감독자 → thread-dispatcher-designer: {"action": "confirm-interface", "pipe_capacity": N}
-양측 합의 → 감독자가 _workspace/02_interface_contract.cs 작성
+Agent(subagent_type="io-loop-designer",          prompt="... interface_contract.cs 를 준수하여 IoLoop.cs 작성 ...")
+Agent(subagent_type="thread-dispatcher-designer", prompt="... interface_contract.cs 를 준수하여 ThreadDispatcher.cs 작성 ...")
 ```
 
-**Step 2 — 병렬 설계 (팬아웃)**
-```
-감독자 → io-loop-designer: {"action": "design-io-loop", "brief": "...", "interface": "..."}
-감독자 → thread-dispatcher-designer: {"action": "design-dispatcher", "expected-tps": N}
-```
-
-**Step 3 — 품질 게이트 (각 워커 완료 시)**
+**Step 3 — 품질 게이트 (각 완료 알림 수신 시)**
 ```
 감독자가 산출물 파일 Read → 체크리스트 확인
 합격 → 다음 단계
-불합격 → {"action": "revision-required", "issues": [...]} SendMessage
+불합격 → 해당 워커를 {"action": "revision-required", "issues": [...]} 와 함께 재호출 (1회)
 ```
 
 **Step 4 — 감사 위임**
 ```
-두 워커 품질 게이트 통과 →
-감독자 → load-test-auditor: {"action": "audit-requested", "artifacts": [...]}
+두 워커 품질 게이트 통과 → Agent(subagent_type="load-test-auditor", prompt="... 두 파일 감사 → 03_load_test_audit.md")
 ```
 
 **Step 5 — 통합**
@@ -164,13 +122,13 @@ TaskCreate(tasks: [
 ```
 
 **감독자 개입 조건:**
-- 워커가 10분+ 무응답: 구체적 지침과 함께 SendMessage
-- 재작업 요청 2회 후 미해결: 감독자가 해당 부분 직접 보완
+- 워커 완료 알림이 10분+ 없음: 현재까지 산출물로 진행, 미완료 부분은 감독자가 직접 보완
+- 재작업 요청 1회 후 미해결: 감독자가 해당 부분 직접 보완
 - BLOCK 감사 결과: 해당 워커에게 재작업 지시 (1회 한도)
 
 ### Phase 4: 정리
 
-1. TeamDelete
+1. 별도 팀 해제 절차 없음
 2. `_workspace/` 보존
 3. 최종 아키텍처 문서 경로 안내
 

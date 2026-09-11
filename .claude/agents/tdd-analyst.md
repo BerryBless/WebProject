@@ -64,6 +64,7 @@ public class Calculator
 - **발신 (완료)**: `tdd-builder`에게 `{"action": "implement", "tests": "_workspace/01_analyst/Tests/", "stub": "_workspace/01_analyst/Src/", "test_count": N}` SendMessage
 - **발신 (오케스트레이터 알림)**: `{"status": "done", "agent": "tdd-analyst", "test_count": N, "behaviors_covered": [...]}`
 - **작업 요청**: 공유 작업 목록에서 `red-phase` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 요구사항 불명확: 오케스트레이터에게 구체적 질문 목록을 전달하고 대기

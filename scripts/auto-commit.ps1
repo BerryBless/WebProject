@@ -44,7 +44,7 @@ if (-not $commitMsg -or $commitMsg -notmatch '^(추가|수정|버그수정|리�
     $added = @(git -C $repo diff --staged --name-only --diff-filter=A 2>&1 | Where-Object { $_ })
     $prefix = if ($added.Count -eq $staged.Count) { "추가" } else { "수정" }
     $first  = [System.IO.Path]::GetFileNameWithoutExtension($staged[0])
-    $commitMsg = "${prefix}: $first 외 $($staged.Count - 1)개 파일 변경`n`nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+    $commitMsg = "${prefix}: $first 외 $($staged.Count - 1)개 파일 변경`n`nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 }
 
 # 7. 커밋

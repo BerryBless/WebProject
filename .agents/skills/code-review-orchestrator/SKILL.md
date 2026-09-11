@@ -70,65 +70,37 @@ diff가 비어있으면 사용자에게 알리고 중지한다.
 
 ---
 
-### Phase 2: 팀 구성
+### Phase 2: 병렬 감사 실행 (Agent 팬아웃)
+
+**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
+- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
+- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
+- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
+- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
+- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
+
+아래 4개를 **단일 메시지에서 동시에** 호출한다 (서브에이전트 타입 = 에이전트 파일명):
 
 ```
-TeamCreate(
-  team_name: "code-review-team",
-  members: [
-    {
-      name: "architecture-reviewer",
-      agent_type: "architecture-reviewer",
-      model: "opus",
-      prompt: "당신은 아키텍처 리뷰어입니다. /architecture-review 스킬을 사용하여 _workspace/00_input/diff.txt를 감사하고 결과를 _workspace/02_architecture_findings.json에 저장하세요. 완료 후 리더에게 완료 메시지를 보내세요."
-    },
-    {
-      name: "security-reviewer",
-      agent_type: "security-reviewer",
-      model: "opus",
-      prompt: "당신은 보안 리뷰어입니다. /security-review 스킬을 사용하여 _workspace/00_input/diff.txt를 감사하고 결과를 _workspace/02_security_findings.json에 저장하세요. 완료 후 리더에게 완료 메시지를 보내세요."
-    },
-    {
-      name: "performance-reviewer",
-      agent_type: "performance-reviewer",
-      model: "opus",
-      prompt: "당신은 성능 리뷰어입니다. /performance-review 스킬을 사용하여 _workspace/00_input/diff.txt를 감사하고 결과를 _workspace/02_performance_findings.json에 저장하세요. 완료 후 리더에게 완료 메시지를 보내세요."
-    },
-    {
-      name: "style-reviewer",
-      agent_type: "style-reviewer",
-      model: "opus",
-      prompt: "당신은 스타일 리뷰어입니다. /style-review 스킬을 사용하여 _workspace/00_input/diff.txt를 감사하고 결과를 _workspace/02_style_findings.json에 저장하세요. 완료 후 리더에게 완료 메시지를 보내세요."
-    }
-  ]
-)
+Agent(subagent_type="architecture-reviewer", description="Architecture review",
+      prompt="당신은 종합 코드 리뷰 팀의 아키텍처 리뷰어입니다. 프로젝트 루트는 {project_root} 입니다.
+              architecture-review 스킬을 사용하여 _workspace/00_input/diff.txt 를 감사하고
+              결과 JSON을 _workspace/02_architecture_findings.json 에 저장하세요.
+              완료 후 severity별 건수와 점수를 한 줄로 보고하세요. 프로젝트 소스는 수정하지 마세요.")
+Agent(subagent_type="security-reviewer",     ... _workspace/02_security_findings.json ...)
+Agent(subagent_type="performance-reviewer",  ... _workspace/02_performance_findings.json ...)
+Agent(subagent_type="style-reviewer",        ... _workspace/02_style_findings.json ...)
 ```
 
-작업 등록:
-```
-TaskCreate(tasks: [
-  { title: "아키텍처 감사", description: "_workspace/00_input/diff.txt를 읽고 /architecture-review 스킬로 아키텍처 감사를 수행한다", assignee: "architecture-reviewer" },
-  { title: "보안 취약점 스캔", description: "_workspace/00_input/diff.txt를 읽고 /security-review 스킬로 보안 취약점을 스캔한다", assignee: "security-reviewer" },
-  { title: "성능 병목 탐지", description: "_workspace/00_input/diff.txt를 읽고 /performance-review 스킬로 성능 병목을 탐지한다", assignee: "performance-reviewer" },
-  { title: "코드 스타일 감사", description: "_workspace/00_input/diff.txt를 읽고 /style-review 스킬로 스타일을 감사한다", assignee: "style-reviewer" }
-])
-```
+### Phase 3: 완료 대기 및 조율
 
----
+4개 완료 알림을 모두 수신할 때까지 기다린다. 알림에 담긴 한 줄 요약(건수·점수)을 기록한다.
 
-### Phase 3: 병렬 감사 실행
-
-**팀원들이 자체 조율하며 병렬 실행한다.**
-
-리더는 팀원이 유휴 상태가 되면 자동 알림을 받는다. 알림을 기다리며:
-- 특정 팀원이 막혔을 때 SendMessage로 지시한다
-- 전체 진행률은 TaskGet으로 확인한다
-
-**중복 발견 조율 규칙 (팀원에게 SendMessage로 전달):**
+**중복 발견 조율 규칙:**
 - 동일한 코드 위치에 대한 발견이 두 에이전트에서 나오면, 각자 독립적으로 기록한다 (관점이 다름)
-- 단, 완전히 동일한 내용(같은 severity, 같은 제목)이면 더 관련성 높은 에이전트만 보고한다
+- 완전히 동일한 내용(같은 severity, 같은 제목)이면 Phase 4 통합 시 더 관련성 높은 도메인만 남긴다
 
-모든 팀원의 태스크가 완료되면 Phase 4로 진행한다.
+모든 알림을 수신하면 Phase 4로 진행한다.
 
 ---
 
@@ -216,9 +188,8 @@ _(없으면 생략)_
 
 ### Phase 5: 정리
 
-1. 팀원들에게 종료 SendMessage: `{"action": "shutdown", "reason": "review-complete"}`
-2. TeamDelete
-3. `_workspace/` 보존 (중간 산출물 삭제 안 함 — 사후 확인용)
+1. 별도 팀 해제 절차 없음 (서브에이전트는 완료와 함께 종료됨)
+2. `_workspace/` 보존 (중간 산출물 삭제 안 함 — 사후 확인용)
 4. 사용자에게 리포트 내용 출력 + 파일 경로 안내:
    - 상세 리포트: `_workspace/03_consolidated_report.md`
    - 도메인별 원본: `_workspace/02_{domain}_findings.json`
@@ -234,10 +205,10 @@ _(없으면 생략)_
 Phase 1: diff 수집 → _workspace/00_input/diff.txt
     │
     ▼
-Phase 2: TeamCreate (4명) + TaskCreate (4개)
+Phase 2: Agent 4개 동시 호출 (단일 메시지)
     │
     ▼
-Phase 3: 병렬 감사 (팀원 자체 조율)
+Phase 3: 완료 알림 4개 수신
     ├── architecture-reviewer → 02_architecture_findings.json
     ├── security-reviewer     → 02_security_findings.json
     ├── performance-reviewer  → 02_performance_findings.json
@@ -247,7 +218,7 @@ Phase 3: 병렬 감사 (팀원 자체 조율)
 Phase 4: 4개 JSON 통합 → 03_consolidated_report.md
     │
     ▼
-Phase 5: TeamDelete + 사용자 보고
+Phase 5: 사용자 보고
 ```
 
 ---
@@ -256,11 +227,11 @@ Phase 5: TeamDelete + 사용자 보고
 
 | 상황 | 처리 |
 |------|------|
-| 팀원 1명 실패 | SendMessage로 상태 확인 → 1회 재시작 시도 → 재실패 시 해당 도메인 "수집 실패"로 표시하고 계속 |
-| 팀원 2명+ 실패 | 사용자에게 알리고 진행 여부 확인 |
+| 에이전트 1개 실패 | 동일 프롬프트로 1회 재호출 → 재실패 시 해당 도메인 "수집 실패"로 표시하고 계속 |
+| 에이전트 2개+ 실패 | 사용자에게 알리고 진행 여부 확인 |
 | JSON 파싱 실패 | 해당 도메인 건너뜀, 리포트에 "파싱 실패" 명시 |
 | diff 없음 | 즉시 중지, 사용자에게 대상 지정 요청 |
-| 타임아웃 (팀원 응답 없음 10분+) | 현재까지 수집된 결과로 Phase 4 진행, 미완료 팀원은 종료 |
+| 타임아웃 (완료 알림 없음 10분+) | 현재까지 수집된 결과로 Phase 4 진행, 미완료 도메인은 "수집 실패" 표기 |
 
 ---
 
@@ -269,15 +240,15 @@ Phase 5: TeamDelete + 사용자 보고
 ### 정상 흐름
 1. 사용자: "이 PR 리뷰해줘 #15"
 2. Phase 1: `gh pr diff 15` 실행 → diff 수집
-3. Phase 2: 4명 팀 생성, 4개 태스크 등록
-4. Phase 3: 4명이 병렬로 각자 감사 수행, 중복 발견 조율
+3. Phase 2: Agent 4개 동시 호출
+4. Phase 3: 완료 알림 4개 수신, 중복 발견 조율
 5. Phase 4: JSON 4개 통합, 종합 점수 산출, 리포트 생성
-6. Phase 5: 팀 정리, 리포트 출력
+6. Phase 5: 리포트 출력
 7. 예상: `_workspace/03_consolidated_report.md` 생성, 판정 제시
 
 ### 에러 흐름 (팀원 1명 실패)
-1. Phase 3 중 performance-reviewer가 에러로 중지
-2. 리더가 유휴 알림 수신
-3. SendMessage로 상태 확인 → 재시작 시도
-4. 재시작 실패 시 나머지 3개 도메인 결과로 Phase 4 진행
+1. Phase 2 중 performance-reviewer가 에러로 중지
+2. 리더가 실패 알림 수신
+3. 동일 프롬프트로 1회 재호출
+4. 재호출 실패 시 나머지 3개 도메인 결과로 Phase 4 진행
 5. 리포트에 "⚠️ performance 도메인 수집 실패 — 수동 확인 필요" 명시

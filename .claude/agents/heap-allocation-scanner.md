@@ -1,6 +1,7 @@
 ---
 name: heap-allocation-scanner
 description: ".NET 10 서버 라이브러리 hot path에서 불필요한 힙 할당을 탐지하는 전문 에이전트. boxing/unboxing, 루프 내 new, LINQ 남용, 클로저 캡처 강제 할당, string 연산 할당을 엄격히 감시한다. GC 압력을 유발하는 모든 숨겨진 할당 패턴을 찾아낸다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Heap Allocation Scanner
@@ -60,6 +61,7 @@ description: ".NET 10 서버 라이브러리 hot path에서 불필요한 힙 할
 - **발신 (공유)**: `pooling-enforcer`에게 버퍼/배열 관련 발견을 SendMessage로 공유: `{"action": "share-buffer-allocs", "findings": [...]}`
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "heap-allocation-scanner", "output": "_workspace/02_allocation_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `heap-allocation-scan` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 파일 없음: 리더에게 알리고 중지

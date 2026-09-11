@@ -9,7 +9,7 @@
 - {상세 변경 2}
 (없으면 본문 생략)
 (빈 줄)
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ## 접두사 판단 트리
@@ -40,7 +40,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 - EchoPacket, ChatPacket 예제 패킷 구현
 - IPacketSerializer 인터페이스에 where T : IPacket 제약 추가
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ```
@@ -49,7 +49,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 - TryReadPacket으로 완전한 패킷 단위 분리 처리
 - AdvanceTo consumed/examined 분리로 부분 수신 대응
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ```
@@ -58,31 +58,31 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 - Exists() 절대 경로 → 상대 경로로 수정
 - builder Session.cs 미포함 문제 해결
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ```
 리팩토링: Session 클래스 Dispose 체크 원자성 개선
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ```
 문서: ServerLib 인터페이스 XML 주석 Thread Safety 항목 추가
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ```
 테스트: Session GC 억제 Roundtrip 테스트 10개 추가
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ```
 의존성: BenchmarkDotNet 0.14.0 추가
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 ## 제목 작성 규칙
@@ -126,7 +126,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ## 봇 서명 형식 (고정)
 
 ```
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ```
 
 - 항상 마지막 줄

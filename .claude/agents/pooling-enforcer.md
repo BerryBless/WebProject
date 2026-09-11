@@ -67,6 +67,7 @@ description: ".NET 10 서버 라이브러리 hot path에서 ValueTask, ReadOnlyS
 - **발신 (공유)**: `heap-allocation-scanner`에게 ValueTask 관련 발견 공유: `{"action": "share-valuetask-findings", "findings": [...]}`
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "pooling-enforcer", "output": "_workspace/02_pooling_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `pooling-enforcement` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - `heap-allocation-scanner` 공유 미수신 시: 소스 전체에서 직접 탐색

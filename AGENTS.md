@@ -2,13 +2,15 @@
 
 ## 프로젝트 개요
 
-**목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다.
+**목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-11 초기화):** 빈 솔루션 `WebProject.sln`(.NET 10)만 존재한다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것.
+**구성(2026-09-11):** `WebProject.sln`(.NET 10) 아래 `WebProject.Api`(ASP.NET Core 최소 API, `Microsoft.NET.Sdk.Web`)와 `WebProject.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것.
 
-**경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다.
+**하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 검사한다. 하네스 파일을 고치면 실행해 PASS를 확인할 것.
 
-**Git 훅:** `scripts/git-hooks/commit-msg`가 커밋 메시지 접두사 형식을 강제한다. 새로 클론하면 `.git/hooks/`에 복사해 설치할 것.
+**경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다. Stop 훅은 `$env:CLAUDE_PROJECT_DIR`, PowerShell 스크립트는 `$PSScriptRoot` 기준으로 루트를 계산한다. Codex 세션은 현재 작업 디렉토리(저장소 루트) 기준 상대 경로를 쓴다.
+
+**Git 훅:** `scripts/git-hooks/commit-msg`가 커밋 메시지 접두사 형식을 강제한다. 새로 클론하면 `Copy-Item scripts/git-hooks/commit-msg .git/hooks/`(PowerShell) 또는 `cp scripts/git-hooks/commit-msg .git/hooks/`로 설치할 것.
 
 ## 하네스: Git 자동 커밋 & 푸시 (Git Automator)
 

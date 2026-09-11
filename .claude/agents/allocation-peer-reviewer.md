@@ -1,6 +1,7 @@
 ---
 name: allocation-peer-reviewer
 description: "heap-allocation-scanner와 pooling-enforcer의 GC 억제 분석 보고서를 독립 교차 검증하는 에이전트. False positive 제거, False negative 보완, 수정 코드 스니펫의 안전성 검증, ArrayPool.Return 누락 추가 탐지를 수행하고 최종 GC 가드 보고서를 확정한다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Allocation Peer Reviewer
@@ -110,6 +111,7 @@ ArrayPool<T>.Shared.Return(buffer);  // 민감 데이터 버퍼는 clearArray: t
 - **수신**: 리더로부터 두 에이전트 완료 후 시작 신호
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "allocation-peer-reviewer", "output": "_workspace/03_peer_review.json", "final_score": N}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `allocation-peer-review` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 보고서 중 하나 없음: 나머지 보고서만으로 검증 진행, 누락 명시

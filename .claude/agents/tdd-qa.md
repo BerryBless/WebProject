@@ -82,6 +82,7 @@ dotnet test _workspace/TddSession.csproj --logger "console;verbosity=detailed"
 - **발신 (PASS)**: 오케스트레이터에게 `{"status": "pass", "agent": "tdd-qa", "test_count": N, "pass_count": N, "refactor_suggestions": N}` SendMessage
 - **발신 (FAIL → builder)**: `{"status": "fail", "failed_tests": ["TestName: 실패 이유", ...], "build_errors": [...]}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `refactor-phase` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - dotnet test 실행 실패 (환경 문제): 오케스트레이터에게 환경 설정 문제 보고

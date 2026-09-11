@@ -60,16 +60,14 @@ git-security-auditor → git-commit-writer → git-push-controller
 
 ```python
 agent = Agent(
-    agent_definition="git-security-auditor",
-    subagent_type="general-purpose",
-    model="opus",
+    subagent_type="git-security-auditor",
+    description="Git security audit",
     prompt="""
-    git-security-auditor.md 에이전트 역할을 수행하라.
     
     1. git status --porcelain 실행
     2. git diff --staged 전체 스캔
     3. git diff 전체 스캔 (unstaged 포함)
-    4. references/security-patterns.md 의 패턴으로 민감 정보 탐지
+    4. .claude/skills/commitandpush/references/security-patterns.md 의 패턴으로 민감 정보 탐지
     5. 결과를 _workspace/01_security_result.md 에 저장
     
     작업 디렉토리: {project_root}
@@ -91,16 +89,14 @@ agent = Agent(
 
 ```python
 agent = Agent(
-    agent_definition="git-commit-writer",
-    subagent_type="general-purpose",
-    model="opus",
+    subagent_type="git-commit-writer",
+    description="Write commit message",
     prompt="""
-    git-commit-writer.md 에이전트 역할을 수행하라.
     
     1. git log --oneline -10 실행하여 스타일 학습
     2. git diff --staged --stat 으로 변경 파일 목록 확인
     3. git diff --staged 로 변경 내용 분석
-    4. references/commit-message-guide.md 의 규칙에 따라 한국어 커밋 메시지 작성
+    4. .claude/skills/commitandpush/references/commit-message-guide.md 의 규칙에 따라 한국어 커밋 메시지 작성
        ★ 반드시 접두사 판단 트리를 사용: 추가/수정/버그수정/리팩토링/문서/테스트/의존성
        ★ '자동:', 'update:', 'fix:', 'add:' 등 금지 접두사 절대 사용 금지
        ★ 파일명 나열 형식('ServerLib/Core/... 외 N개 수정') 금지 — WHY 중심 메시지 작성
@@ -121,7 +117,7 @@ agent = Agent(
 - TryReadPacket 헬퍼로 완전한 패킷 경계 감지
 - AdvanceTo consumed/examined 분리 처리
 
-Co-Authored-By: Codex Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Codex <noreply@openai.com>
 ─────────────────────────────
 이 메시지로 커밋하시겠습니까? (y/n/edit)
 ```
@@ -136,11 +132,9 @@ Co-Authored-By: Codex Sonnet 4.6 <noreply@anthropic.com>
 
 ```python
 agent = Agent(
-    agent_definition="git-push-controller",
-    subagent_type="general-purpose",
-    model="opus",
+    subagent_type="git-push-controller",
+    description="Commit and push",
     prompt="""
-    git-push-controller.md 에이전트 역할을 수행하라.
     
     1. _workspace/02_commit_message.txt 에서 커밋 메시지 읽기
     2. git remote -v 로 원격 저장소 확인
@@ -149,6 +143,7 @@ agent = Agent(
     5. pre-commit hook 실패 시 조건부 amend 처리
     6. git push (원격 있으면), 원격 없으면 로컬 커밋만
     7. 결과를 _workspace/03_push_result.md 에 저장
+    8. 커밋 성공 시 .git/auto_commit_msg.txt 가 있으면 삭제 (Stop 훅 중복 커밋 방지)
     
     작업 디렉토리: {project_root}
     절대 금지: force push, reset --hard, clean -fd, git config 변경, -i 명령

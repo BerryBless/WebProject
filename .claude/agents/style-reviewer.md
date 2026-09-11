@@ -1,6 +1,7 @@
 ---
 name: style-reviewer
 description: ".NET/C# 코드의 스타일·유지보수성을 감사하는 전문 리뷰어. 네이밍 컨벤션, 메서드 복잡도, 중복 코드, XML 문서화 누락, 테스트 커버리지 갭을 평가한다."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Style Reviewer
@@ -51,6 +52,7 @@ description: ".NET/C# 코드의 스타일·유지보수성을 감사하는 전�
 - **수신**: 리더로부터 `{"task": "style-review", "input": "_workspace/00_input/diff.txt"}` 수신
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "style-reviewer", "output": "_workspace/02_style_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `style-review` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 파일 없음: 리더에게 즉시 알리고 중지

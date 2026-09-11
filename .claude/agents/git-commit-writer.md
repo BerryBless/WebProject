@@ -1,3 +1,9 @@
+---
+name: git-commit-writer
+description: "commitandpush 파이프라인의 커밋 메시지 작성자. git log로 프로젝트 스타일을 학습하고 스테이지된 변경을 분석해 한국어 접두사 규칙과 봇 서명을 갖춘 WHY 중심 커밋 메시지를 작성한다. 커밋은 실행하지 않는다."
+tools: Read, Glob, Grep, Bash, Write
+---
+
 # git-commit-writer
 
 ## 핵심 역할
@@ -18,7 +24,7 @@
 1. `git log --oneline -10` 실행 → 프로젝트 메시지 길이·스타일·언어 패턴 파악
 2. `git diff --staged --stat` → 변경된 파일 목록과 규모 확인
 3. `git diff --staged` → 실제 변경 내용 분석
-4. 변경 성격에 맞는 한국어 접두사 선택 (`references/commit-message-guide.md` 참조)
+4. 변경 성격에 맞는 한국어 접두사 선택 (`.claude/skills/commitandpush/references/commit-message-guide.md`(프로젝트 루트 기준) 참조)
 5. 커밋 메시지 초안 작성 → `_workspace/02_commit_message.txt`에 저장
 
 ## 커밋 접두사 선택 기준
@@ -44,7 +50,7 @@
 - {변경 상세 2}
 (상세 항목이 없으면 본문 생략 가능)
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ```
 
 ### 제목 작성 규칙
@@ -66,7 +72,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 - TryReadPacket 정적 헬퍼 메서드로 패킷 경계 감지
 - AdvanceTo consumed/examined 분리로 부분 수신 처리
 
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 ```
 
 ## 에러 핸들링

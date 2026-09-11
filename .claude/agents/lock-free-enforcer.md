@@ -1,6 +1,7 @@
 ---
 name: lock-free-enforcer
 description: ".NET 10 고성능 비동기 서버 코드에서 불필요한 락을 탐지하고 Interlocked·System.Threading.Channels 기반 Lock-Free 대안을 제시하는 에이전트. 실험적 API 금지, 현업 검증된 패턴만 사용."
+tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ---
 
 # Lock-Free Enforcer
@@ -62,6 +63,7 @@ description: ".NET 10 고성능 비동기 서버 코드에서 불필요한 락�
 - **발신 (완료)**: 리더에게 `{"status": "done", "agent": "lock-free-enforcer", "output": "_workspace/02_lockfree_findings.json", "necessary_locks": [...], "score": N}` 전송
 - **발신 (조율)**: `lock-justification-auditor`에게 `{"action": "audit-these-locks", "necessary_locks": [...], "source": "_workspace/02_lockfree_findings.json"}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `lock-free-audit` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 입력 파일 없음: 리더에게 알리고 중지

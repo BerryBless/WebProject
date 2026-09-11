@@ -19,13 +19,13 @@ description: "TDD Refactor 단계: dotnet test를 실제 실행하여 Green 여�
 
 ```bash
 # 빌드 먼저
-dotnet build E:/project/dotnet_study/_workspace/TddSession.csproj
+cd "$CLAUDE_PROJECT_DIR" && dotnet build _workspace/TddSession.csproj
 
 # 테스트 실행 (상세 출력)
-dotnet test E:/project/dotnet_study/_workspace/TddSession.csproj \
+dotnet test _workspace/TddSession.csproj \
   --logger "console;verbosity=detailed" \
   --no-build \
-  2>&1 | tee E:/project/dotnet_study/_workspace/03_qa/test_results.txt
+  2>&1 | tee _workspace/03_qa/test_results.txt
 ```
 
 ## Step 3: 결과 분석 및 판정
@@ -100,7 +100,7 @@ var adultUsers = users.Where(u => u.Age > 18).ToList();
 리팩토링 코드를 `_workspace/03_qa/Src/`에 저장한 후:
 
 ```bash
-dotnet test E:/project/dotnet_study/_workspace/TddSession.csproj \
+dotnet test _workspace/TddSession.csproj \
   --logger "console;verbosity=detailed"
 ```
 

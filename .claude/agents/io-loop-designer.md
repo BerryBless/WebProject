@@ -44,6 +44,7 @@ System.IO.Pipelines를 활용하여 커널 이벤트를 안전하게 수신하�
 - **발신 (완료)**: 감독자에게 `{"status": "done", "output": "_workspace/02_io_loop/IoLoop.cs", "backpressure_config": {...}, "buffer_size": N}` 전송
 - **발신 (인터페이스 협의)**: `thread-dispatcher-designer`에게 `{"action": "interface-proposal", "pipe_capacity": N, "message_type": "..."}` SendMessage
 - **발신 (재작업 완료)**: 감독자에게 `{"status": "revised", "changes": ["...", "..."]}` 전송
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 인터페이스 계약 미수신: 감독자에게 알리고 대기

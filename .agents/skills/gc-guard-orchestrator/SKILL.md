@@ -7,7 +7,7 @@ description: ".NET 10 서버 라이브러리의 GC 압력 억제를 위한 메�
 
 .NET 10 고성능 서버 라이브러리의 GC 억제를 위한 메모리 최적화 팀을 조율하는 오케스트레이터.
 
-## 실행 모드: 하이브리드 에이전트 팀
+## 실행 모드: 하이브리드 (Agent 팬아웃 + 순차 교차 검증)
 
 | Phase | 모드 | 팀 구성 | 이유 |
 |-------|------|---------|------|
@@ -57,76 +57,48 @@ gh pr diff <PR번호> -- "*.cs"
 수집 내용을 `_workspace/00_input/source.txt`에 저장한다.
 빈 경우 사용자에게 대상 지정 요청 후 중지한다.
 
-### Phase 2: 팀 구성
+### Phase 2: 실행 규칙
+
+**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
+- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
+- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
+- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
+- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
+- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
+
+### Phase 3: Phase A — 병렬 감사 (Agent 팬아웃)
+
+아래 2개를 **단일 메시지에서 동시에** 호출한다:
 
 ```
-TeamCreate(
-  team_name: "gc-guard-team",
-  members: [
-    {
-      name: "heap-allocation-scanner",
-      agent_type: "heap-allocation-scanner",
-      model: "opus",
-      prompt: "당신은 heap-allocation-scanner입니다. /heap-allocation-scan 스킬을 사용하여 _workspace/00_input/source.txt의 hot path 힙 할당을 탐지하고 _workspace/02_allocation_findings.json에 저장하세요. 버퍼/배열 관련 발견은 즉시 pooling-enforcer에게 SendMessage로 공유하세요."
-    },
-    {
-      name: "pooling-enforcer",
-      agent_type: "pooling-enforcer",
-      model: "opus",
-      prompt: "당신은 pooling-enforcer입니다. /pooling-enforcement 스킬을 사용하여 _workspace/00_input/source.txt의 ValueTask/Span/ArrayPool 패턴을 점검하고 _workspace/02_pooling_findings.json에 저장하세요. heap-allocation-scanner로부터 버퍼 할당 공유를 수신하면 해당 위치를 우선 분석하세요."
-    },
-    {
-      name: "allocation-peer-reviewer",
-      agent_type: "allocation-peer-reviewer",
-      model: "opus",
-      prompt: "당신은 allocation-peer-reviewer입니다. heap-allocation-scanner와 pooling-enforcer 모두 완료된 후 /allocation-peer-review 스킬을 사용하여 두 보고서를 독립 교차 검증하고 _workspace/03_peer_review.json에 저장하세요."
-    }
-  ]
-)
+Agent(subagent_type="heap-allocation-scanner", description="Heap allocation scan",
+      prompt="당신은 heap-allocation-scanner입니다. 프로젝트 루트는 {project_root} 입니다.
+              heap-allocation-scan 스킬로 _workspace/00_input/source.txt 의 hot path 힙 할당을 탐지하고
+              _workspace/02_allocation_findings.json 에 저장하세요. 버퍼/배열 할당은 buffer_allocations 배열로 별도 표기하세요.
+              완료 후 건수·점수를 한 줄로 보고하세요.")
+Agent(subagent_type="pooling-enforcer", description="Pooling enforcement",
+      prompt="당신은 pooling-enforcer입니다. ... pooling-enforcement 스킬로 source.txt 의 ValueTask/Span/ArrayPool 패턴을 점검하고
+              _workspace/02_pooling_findings.json 에 저장하세요. ...")
 ```
 
-작업 등록:
-```
-TaskCreate(tasks: [
-  {
-    title: "힙 할당 스캔",
-    description: "/heap-allocation-scan 스킬로 hot path 할당 탐지",
-    assignee: "heap-allocation-scanner"
-  },
-  {
-    title: "풀링 패턴 강제",
-    description: "/pooling-enforcement 스킬로 ValueTask/Span/ArrayPool 점검",
-    assignee: "pooling-enforcer"
-  },
-  {
-    title: "교차 검증",
-    description: "/allocation-peer-review 스킬로 두 보고서 독립 검증",
-    assignee: "allocation-peer-reviewer",
-    depends_on: ["힙 할당 스캔", "풀링 패턴 강제"]
-  }
-])
-```
+**버퍼 할당 공유:** heap-allocation-scanner 완료 알림을 먼저 받으면 buffer_allocations 를
+`SendMessage` 로 pooling-enforcer 에게 전달한다 (아직 실행 중일 때만).
 
-### Phase 3: Phase A — 병렬 감사
-
-**실행 모드: 에이전트 팀 (팬아웃)**
-
-heap-allocation-scanner와 pooling-enforcer가 병렬 실행하며 SendMessage로 발견 공유.
-
-**통신 흐름:**
 ```
 heap-allocation-scanner  →  [버퍼 할당 목록]  →  pooling-enforcer
          ↓                                               ↓
 02_allocation_findings.json                02_pooling_findings.json
-         ↓                                               ↓
-                    리더에게 각자 완료 알림
 ```
 
-두 에이전트가 모두 완료 알림을 보내면 Phase B로 진행한다.
+두 완료 알림을 모두 수신하면 Phase B로 진행한다.
 
-### Phase 4: Phase B — 교차 검증
+### Phase 4: Phase B — 교차 검증 (순차)
 
-allocation-peer-reviewer가 두 보고서를 독립 검증한다.
+```
+Agent(subagent_type="allocation-peer-reviewer", description="Allocation peer review",
+      prompt="allocation-peer-review 스킬로 _workspace/02_allocation_findings.json 과 _workspace/02_pooling_findings.json 을
+              _workspace/00_input/source.txt 기준으로 독립 교차 검증하고 _workspace/03_peer_review.json 에 저장하세요.")
+```
 
 ```
 02_allocation_findings.json ─┐
@@ -186,7 +158,7 @@ APPROVE / REQUEST CHANGES / BLOCK
 
 ### Phase 6: 정리
 
-1. TeamDelete
+1. 별도 팀 해제 절차 없음
 2. `_workspace/` 보존
 3. 리포트 출력 + 경로 안내
 

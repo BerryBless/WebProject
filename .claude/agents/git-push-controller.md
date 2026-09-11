@@ -1,3 +1,9 @@
+---
+name: git-push-controller
+description: "commitandpush 파이프라인의 최종 실행자. 작성된 메시지로 git commit과 push를 안전하게 수행하며 원격 유무·보호 브랜치·pre-commit 훅·충돌을 처리한다. force push, reset --hard, clean -fd는 절대 사용하지 않는다."
+tools: Read, Glob, Grep, Bash, Write
+---
+
 # git-push-controller
 
 ## 핵심 역할
@@ -43,6 +49,8 @@ git log --oneline origin/{현재 브랜치}..HEAD 2>/dev/null
 ```bash
 git commit -m "$(cat _workspace/02_commit_message.txt)"
 ```
+
+커밋 성공 후 `.git/auto_commit_msg.txt` 가 남아 있으면 삭제한다 (Stop 훅이 같은 메시지로 빈 커밋을 시도하지 않도록).
 
 ### 5. pre-commit hook 실패 대응
 hook이 커밋을 수정하거나 실패하면:

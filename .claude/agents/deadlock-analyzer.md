@@ -86,6 +86,7 @@ description: ".NET 10 고성능 서버 라이브러리의 async 메서드를 빡
 - **발신 (완료)**: `deadlock-reviewer`에게 `{"action": "review-requested", "output": "_workspace/03_deadlock_analysis.json", "iteration": N}` SendMessage
 - **발신 (수정)**: Reviewer로부터 재분석 요청 수신 시 지적된 항목 수정 후 재전송 (최대 2라운드)
 - **작업 요청**: 공유 작업 목록에서 `deadlock-analysis` 태스크를 claim한다
+- **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
 ## 에러 핸들링
 - 탐지 패턴 없음: `findings: [], score: 100`
