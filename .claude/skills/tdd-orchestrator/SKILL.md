@@ -72,13 +72,20 @@ cd "$CLAUDE_PROJECT_DIR" && mkdir -p _workspace/{01_analyst/Tests,01_analyst/Src
     <Compile Include="01_analyst/Tests/**/*.cs" />
     <Compile Include="01_analyst/Src/**/*.cs" />
   </ItemGroup>
-  <!-- builder 구현 (스텁보다 우선) -->
+  <!-- 단계별 산출물 존재 여부 탐지: 빈 디렉터리만 있어도 Exists()가 참이 되므로
+       실제 .cs 파일 유무를 아이템 글로빙으로 판정한다 -->
   <ItemGroup>
+    <_BuilderSrc Include="02_builder/Src/**/*.cs" />
+    <_QaSrc Include="03_qa/Src/**/*.cs" />
+  </ItemGroup>
+  <!-- builder 구현 (있으면 스텁 대체) -->
+  <ItemGroup Condition="'@(_BuilderSrc)' != ''">
     <Compile Remove="01_analyst/Src/**/*.cs" />
     <Compile Include="02_builder/Src/**/*.cs" />
   </ItemGroup>
-  <!-- qa 리팩토링 코드 (있으면 builder 대체) -->
-  <ItemGroup Condition="Exists('03_qa/Src')">
+  <!-- qa 리팩토링 코드 (있으면 builder·스텁 대체) -->
+  <ItemGroup Condition="'@(_QaSrc)' != ''">
+    <Compile Remove="01_analyst/Src/**/*.cs" />
     <Compile Remove="02_builder/Src/**/*.cs" />
     <Compile Include="03_qa/Src/**/*.cs" />
   </ItemGroup>
