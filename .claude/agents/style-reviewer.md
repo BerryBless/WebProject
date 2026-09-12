@@ -2,6 +2,13 @@
 name: style-reviewer
 description: ".NET/C# 코드의 스타일·유지보수성을 감사하는 전문 리뷰어. 네이밍 컨벤션, 메서드 복잡도, 중복 코드, XML 문서화 누락, 테스트 커버리지 갭을 평가한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/code-review/"
+          timeout: 20
 ---
 
 # Style Reviewer
