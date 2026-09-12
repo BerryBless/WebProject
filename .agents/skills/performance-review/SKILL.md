@@ -1,15 +1,26 @@
 ---
 name: performance-review
-description: ".NET/C# 코드의 성능 병목을 심층 탐지한다. N+1 쿼리, async/await 오용, 힙 할당 압박, LINQ 비효율, 캐싱 누락을 분석하고 JSON 결과를 _workspace/02_performance_findings.json에 출력한다. performance-reviewer 에이전트가 사용하는 전용 스킬."
+description: ".NET/C# 코드의 성능 병목을 심층 탐지한다. N+1 쿼리, async/await 오용, 힙 할당 압박, LINQ 비효율, 캐싱 누락을 분석하고 JSON 결과를 {run_dir}/02_performance_findings.json에 출력한다. performance-reviewer 에이전트가 사용하는 전용 스킬."
 ---
 
 # Performance Review Skill
 
 ## 입력 읽기
 
-1. `_workspace/00_input/diff.txt`를 Read 도구로 읽는다
-2. diff면 `+` 줄(추가된 코드)에 집중한다
-3. 루프 내부, 데이터 접근 레이어, async 메서드를 우선 확인한다
+1. `{run_dir}/00_input/meta.json`을 읽어 `run_id`, `target_type`, `head_sha`를 확인한다 (`run_dir`은 프롬프트로 전달됨. 없으면 `_workspace/code-review/latest.txt` 참조).
+2. `{run_dir}/00_input/diff.txt`를 **처음부터 끝까지** Read로 읽는다. 길면 `offset`/`limit`으로 나눠 읽고, `index.md`가 있으면 파일 위치 탐색에만 쓴다. 요약만으로 판단하지 않는다.
+3. diff면 `+` 줄(추가된 코드)에 집중하되, 캐시·풀링·`using`이 **삭제**된 곳도 확인한다.
+4. 루프 내부, 데이터 접근 레이어, async 메서드를 우선 확인한다.
+
+## 저장소 문맥 조사 (읽기 전용)
+
+| 판정 항목 | 필수 보충 조회 | 조회 불가 시 |
+|----------|--------------|------------|
+| 호출 빈도(hot path 여부) | 호출자 Grep (엔드포인트 매핑, 루프, 백그라운드 서비스) | severity를 한 단계 낮추고 `detail`에 "빈도 미확인" |
+| 캐싱 누락 | `IMemoryCache`/`IDistributedCache`/`HybridCache` 등록·주입 여부 (`Program.cs`, 생성자) | `unverified: 캐시 인프라` |
+| N+1(lazy loading) | `DbContext` 옵션의 `UseLazyLoadingProxies`, 엔티티 `virtual` 내비게이션 | 추정임을 명시 |
+
+`target_type=pr`이면 작업 트리 대신 `git show {head_sha}:<경로>`로 읽는다.
 
 ## 감사 체크리스트
 
@@ -62,9 +73,6 @@ var users = _db.Users.ToList().Where(u => u.IsActive);  // 전체 로드 후 필
 // 위험: Count() > 0
 if (_db.Users.Count() > 0)  // Any()가 더 효율적
 
-// 위험: Select 후 Where (순서 역전)
-users.Select(u => expensiveTransform(u)).Where(u => u.IsValid)
-
 // 위험: 중첩 루프에 IEnumerable 반복
 foreach (var x in list)
     if (otherList.Contains(x))  // O(n²) - HashSet 사용 권장
@@ -72,7 +80,18 @@ foreach (var x in list)
 // 안전
 var users = _db.Users.Where(u => u.IsActive).ToList();
 if (_db.Users.Any())
-users.Where(u => u.IsValid).Select(u => expensiveTransform(u))
+```
+
+**비싼 변환 뒤 필터 (`Select(expensive).Where(pred)`):**
+필터를 앞으로 옮기라고 권장하려면 두 조건을 모두 확인해야 한다. 하나라도 확인되지 않으면 "변환 비용 절감 가능성"으로 low에 기록하고 코드 예시는 제시하지 않는다.
+1. `pred`가 변환 **입력** 타입에서 동등하게 표현 가능한가 (변환 결과의 속성을 검사하면 불가)
+2. `expensive`가 `pred`의 결과에 영향을 주는 부작용·상태 변경이 없는가
+
+```csharp
+// 이동 가능: 조건이 원본 속성으로 표현됨
+users.Select(u => Enrich(u)).Where(e => e.SourceId > 0)   →   users.Where(u => u.Id > 0).Select(u => Enrich(u))
+// 이동 불가: 조건이 변환 결과에만 존재
+users.Select(u => Enrich(u)).Where(e => e.EnrichedScore > 10)   // 그대로 두거나 Enrich 비용 자체를 줄인다
 ```
 
 ### 4. 메모리 관리
@@ -113,7 +132,7 @@ longLivedObject.Event += shortLivedObject.Handler;
 - 외부 API 호출
 - 복잡한 집계 쿼리
 
-`IMemoryCache` / `IDistributedCache` 미사용이면서 `HttpContext.RequestServices`나 생성자 주입에 `IMemoryCache`가 없는 서비스에서 위 패턴이 발견되면 보고한다.
+캐시 인프라(`IMemoryCache`/`IDistributedCache`/`HybridCache`)가 등록·주입되어 있지 않은 서비스에서 위 패턴이 발견되면 보고한다. 등록 여부는 저장소 문맥 조사로 확인한다.
 
 ## 심각도 기준
 
@@ -124,8 +143,12 @@ longLivedObject.Event += shortLivedObject.Handler;
 | **medium** | 눈에 띄는 지연, 불필요한 CPU/메모리 소비 |
 | **low** | 미미한 비효율, 캐싱 추가로 개선 가능한 부분 |
 
+## 점수
+
+`score = max(0, 100 − 25×critical − 10×high − 4×medium − 1×low)`. `counts`는 findings에서 센 값과 일치해야 한다.
+
 ## 출력
 
-결과를 `_workspace/02_performance_findings.json`에 Write 도구로 저장한다.
-발견사항이 없으면 빈 배열과 score=100으로 저장한다.
-저장 완료 후 리더에게 SendMessage로 완료를 알린다.
+1. 결과를 `{run_dir}/02_performance_findings.json`(또는 오케스트레이터가 지정한 파일명)에 Write 도구로 저장한다. Write는 이 파일에만 사용한다.
+2. 발견사항이 없으면 빈 배열, counts 0, score=100으로 저장한다.
+3. 저장 후 **최종 응답 첫 줄**에 `{"status":"done","output":"<경로>","counts":{...},"score":N}`을 적고 종료한다. SendMessage는 사용하지 않는다(팀 도구 없음, 리더 ID 미상).

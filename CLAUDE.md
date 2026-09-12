@@ -70,6 +70,7 @@ plan/<기능명>_<MMDD>.md
 | 파일 | 날짜 | 내용 |
 |------|------|------|
 | plan/harness_audit_0911.md | 2026-09-11 | 하네스 전수조사 결과(F1~F13), 수정 내역, 오케스트레이터 5종 실행 검증, 재감사 스크립트 |
+| plan/code_review_harness_fix_0912.md | 2026-09-12 | 종합 코드 리뷰 하네스 Claude↔Codex 교차 검토 결과 16건, 설계 결정(run_dir 격리·점수 산식·판정 순서), 변경 파일, 검증 |
 
 ---
 
@@ -173,6 +174,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 2026-06-02 | 초기 구성 | 전체 | 종합 코드 리뷰 하네스 구축 |
 | 2026-06-09 | 보안 가드 감사 | security-reviewer | 해킹·DDoS 공격 표면 점검 (리포트 plan/security_audit_0609.md) |
 | 2026-09-11 | TeamCreate 의존 제거, Agent 팬아웃 방식으로 재작성, 리뷰어 tools 제한 | code-review-orchestrator·reviewer 4종 | 하네스 전수조사: 이 빌드에 팀 도구가 없어 실행 불가 |
+| 2026-09-12 | 전용 run_dir(`_workspace/code-review/<run_id>/`) 격리, 팀 시대 프로토콜(SendMessage·claim) 제거, 기본 브랜치 빈 diff 폴백, 원본 diff 보존, 결정적 점수 산식·재정규화·판정 우선순위, JSON 구조 검증, 트리거 축소, 스킬 체크리스트 오류(레이어 그림·LINQ 예시·삭제 회귀·remarks 규칙) 교정 | code-review-orchestrator·reviewer 4종·review 스킬 4종·.codex/agents toml | Claude↔Codex 교차 검토(plan/code_review_harness_fix_0912.md): `_workspace/` 전체 이동이 타 하네스 산출물 파괴, 서브에이전트가 리더 ID 없이 SendMessage 시도, master에서 diff 0줄 등 16건 |
 
 ---
 
