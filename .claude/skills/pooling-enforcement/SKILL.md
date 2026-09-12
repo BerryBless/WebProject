@@ -7,7 +7,7 @@ description: ".NET 10 서버 라이브러리 hot path에서 ValueTask·ReadOnlyS
 
 ## 입력 읽기
 
-1. `_workspace/00_input/source.txt`를 Read로 읽는다
+1. `_workspace/gc-guard/00_input/source.txt`를 Read로 읽는다
 2. `heap-allocation-scanner`로부터 버퍼 할당 SendMessage가 있으면 해당 위치를 우선 분석한다
 
 ## 3대 기법 강제 체크리스트
@@ -163,5 +163,5 @@ var span = buffer.AsSpan();                    // 잘못됨: 더 큰 범위 사�
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/02_pooling_findings.json`에 Write한다.
+완성된 JSON을 `_workspace/gc-guard/02_pooling_findings.json`에 Write한다.
 리더에게 완료를 알린다.

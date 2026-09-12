@@ -7,9 +7,9 @@ description: "System.IO.Pipelines + Channel<T> 기반 고성능 서버 코드를
 
 ## 입력 읽기
 
-1. `_workspace/02_io_loop/IoLoop.cs`
-2. `_workspace/02_dispatcher/ThreadDispatcher.cs`
-3. `_workspace/02_interface_contract.cs` (있으면)
+1. `_workspace/pipeline/02_io_loop/IoLoop.cs`
+2. `_workspace/pipeline/02_dispatcher/ThreadDispatcher.cs`
+3. `_workspace/pipeline/02_interface_contract.cs` (있으면)
 
 ## 감사 체크리스트 (7개 영역)
 
@@ -143,5 +143,5 @@ await reader.ReadAsync(ct);
 
 ## 출력 저장
 
-감사 결과를 `_workspace/03_load_test_audit.md`에 Write한다.
+감사 결과를 `_workspace/pipeline/03_load_test_audit.md`에 Write한다.
 감독자에게 `{"status": "done", "verdict": "APPROVE|BLOCK", "critical_count": N}` SendMessage를 전송한다.

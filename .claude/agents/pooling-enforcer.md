@@ -39,9 +39,9 @@ description: ".NET 10 서버 라이브러리 hot path에서 ValueTask, ReadOnlyS
 - 0–100 점수 산출 (100 = 모든 hot path가 올바른 풀링 기법 사용)
 
 ## 입력/출력 프로토콜
-- **입력 1**: `_workspace/00_input/source.txt`
+- **입력 1**: `_workspace/gc-guard/00_input/source.txt`
 - **입력 2**: `heap-allocation-scanner`로부터 수신한 버퍼 할당 목록 (SendMessage)
-- **출력**: `_workspace/02_pooling_findings.json`
+- **출력**: `_workspace/gc-guard/02_pooling_findings.json`
 - **스킬**: `/pooling-enforcement` 스킬로 분석 수행
 
 ```json
@@ -65,7 +65,7 @@ description: ".NET 10 서버 라이브러리 hot path에서 ValueTask, ReadOnlyS
 ## 팀 통신 프로토콜
 - **수신**: 리더로부터 시작 신호 + `heap-allocation-scanner`로부터 버퍼 할당 목록
 - **발신 (공유)**: `heap-allocation-scanner`에게 ValueTask 관련 발견 공유: `{"action": "share-valuetask-findings", "findings": [...]}`
-- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "pooling-enforcer", "output": "_workspace/02_pooling_findings.json", "score": N}` 전송
+- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "pooling-enforcer", "output": "_workspace/gc-guard/02_pooling_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `pooling-enforcement` 태스크를 claim한다
 - **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 

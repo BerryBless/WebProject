@@ -22,7 +22,7 @@ developer_instructions = """
 2. `git diff --staged --stat` → 변경된 파일 목록과 규모 확인
 3. `git diff --staged` → 실제 변경 내용 분석
 4. 변경 성격에 맞는 한국어 접두사 선택 (`.Codex/skills/commitandpush/references/commit-message-guide.md`(프로젝트 루트 기준) 참조)
-5. 커밋 메시지 초안 작성 → `_workspace/02_commit_message.txt`에 저장
+5. 커밋 메시지 초안 작성 → `_workspace/git/02_commit_message.txt`에 저장
 
 ## 커밋 접두사 선택 기준
 
@@ -60,9 +60,9 @@ Co-Authored-By: Codex Fable 5.1 <noreply@anthropic.com>
 
 **입력:**
 - 현재 git 저장소 (staged 변경사항)
-- `_workspace/01_security_result.md` — PASS 판정 확인용
+- `_workspace/git/01_security_result.md` — PASS 판정 확인용
 
-**출력:** `_workspace/02_commit_message.txt`
+**출력:** `_workspace/git/02_commit_message.txt`
 ```
 수정: SocketPipelineSession 패킷 프레이밍 개선
 
@@ -81,5 +81,5 @@ Co-Authored-By: Codex Fable 5.1 <noreply@anthropic.com>
 ## 팀 통신 프로토콜
 
 - **수신:** 오케스트레이터에서 실행 요청 (보안 PASS 확인 후에만 실행됨)
-- **발신:** 오케스트레이터에게 `_workspace/02_commit_message.txt` 경로 반환
+- **발신:** 오케스트레이터에게 `_workspace/git/02_commit_message.txt` 경로 반환
 - 다른 에이전트와 직접 통신하지 않음"""

@@ -48,15 +48,15 @@ CancellationToken 취소 → IO 루프 탈출 → PipeWriter 완료 → PipeRead
 - 이전 산출물 존재 시: 기존 발견의 해소 여부를 확인하고 업데이트한다
 
 ## 입력/출력 프로토콜
-- **입력 1**: `_workspace/02_io_loop/IoLoop.cs`
-- **입력 2**: `_workspace/02_dispatcher/ThreadDispatcher.cs`
-- **입력 3**: `_workspace/02_interface_contract.cs`
-- **출력**: `_workspace/03_load_test_audit.md`
+- **입력 1**: `_workspace/pipeline/02_io_loop/IoLoop.cs`
+- **입력 2**: `_workspace/pipeline/02_dispatcher/ThreadDispatcher.cs`
+- **입력 3**: `_workspace/pipeline/02_interface_contract.cs`
+- **출력**: `_workspace/pipeline/03_load_test_audit.md`
 - **스킬**: `/load-test-audit` 스킬로 감사 수행
 
 ## 팀 통신 프로토콜
 - **수신**: `pipeline-supervisor`로부터 `{"action": "audit-requested", "artifacts": [...]}` 수신
-- **발신 (완료)**: 감독자에게 `{"status": "done", "verdict": "APPROVE|BLOCK", "critical_count": N, "output": "_workspace/03_load_test_audit.md"}` 전송
+- **발신 (완료)**: 감독자에게 `{"status": "done", "verdict": "APPROVE|BLOCK", "critical_count": N, "output": "_workspace/pipeline/03_load_test_audit.md"}` 전송
 - **작업 요청**: 공유 작업 목록에서 `load-test-audit` 태스크를 claim한다
 
 ## 에러 핸들링

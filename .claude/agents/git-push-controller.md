@@ -26,7 +26,7 @@ tools: Read, Glob, Grep, Bash, Write
 ## 작업 순서
 
 ### 1. 준비 단계
-1. `_workspace/02_commit_message.txt` 읽기 (커밋 메시지 확인)
+1. `_workspace/git/02_commit_message.txt` 읽기 (커밋 메시지 확인)
 2. `git status --porcelain` 재확인 (스테이지 상태 최종 확인)
 3. 스테이지된 파일 없으면 → 사용자에게 알리고 중단
 
@@ -47,7 +47,7 @@ git log --oneline origin/{현재 브랜치}..HEAD 2>/dev/null
 
 ### 4. 커밋 실행
 ```bash
-git commit -m "$(cat _workspace/02_commit_message.txt)"
+git commit -m "$(cat _workspace/git/02_commit_message.txt)"
 ```
 
 커밋 성공 후 `.git/auto_commit_msg.txt` 가 남아 있으면 삭제한다 (Stop 훅이 같은 메시지로 빈 커밋을 시도하지 않도록).
@@ -78,10 +78,10 @@ git push
 ## 입력/출력 프로토콜
 
 **입력:**
-- `_workspace/02_commit_message.txt` — 커밋 메시지
-- `_workspace/01_security_result.md` — 보안 패스 확인용
+- `_workspace/git/02_commit_message.txt` — 커밋 메시지
+- `_workspace/git/01_security_result.md` — 보안 패스 확인용
 
-**출력:** `_workspace/03_push_result.md`
+**출력:** `_workspace/git/03_push_result.md`
 ```markdown
 # 커밋 & 푸시 결과
 
@@ -110,4 +110,4 @@ git push
 ## 팀 통신 프로토콜
 
 - **수신:** 오케스트레이터에서 실행 요청
-- **발신:** 오케스트레이터에게 `_workspace/03_push_result.md` 경로와 최종 상태 반환
+- **발신:** 오케스트레이터에게 `_workspace/git/03_push_result.md` 경로와 최종 상태 반환

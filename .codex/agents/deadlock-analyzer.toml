@@ -53,8 +53,8 @@ developer_instructions = '''
 - 이 보고서는 `deadlock-reviewer`의 검증을 받는다 — 명확한 근거 없는 발견은 기각될 수 있음을 인지한다
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_input/source.txt`, 참고: `_workspace/02_lockfree_findings.json`
-- **출력**: `_workspace/03_deadlock_analysis.json`
+- **입력**: `_workspace/concurrency-guard/00_input/source.txt`, 참고: `_workspace/concurrency-guard/02_lockfree_findings.json`
+- **출력**: `_workspace/concurrency-guard/03_deadlock_analysis.json`
 - **스킬**: `/deadlock-static-analysis` 스킬로 분석 수행
 
 ```json
@@ -81,7 +81,7 @@ developer_instructions = '''
 
 ## 팀 통신 프로토콜
 - **수신**: 리더로부터 시작 신호 (lock-free-enforcer 완료 후 트리거)
-- **발신 (완료)**: `deadlock-reviewer`에게 `{"action": "review-requested", "output": "_workspace/03_deadlock_analysis.json", "iteration": N}` SendMessage
+- **발신 (완료)**: `deadlock-reviewer`에게 `{"action": "review-requested", "output": "_workspace/concurrency-guard/03_deadlock_analysis.json", "iteration": N}` SendMessage
 - **발신 (수정)**: Reviewer로부터 재분석 요청 수신 시 지적된 항목 수정 후 재전송 (최대 2라운드)
 - **작업 요청**: 공유 작업 목록에서 `deadlock-analysis` 태스크를 claim한다
 
@@ -91,5 +91,5 @@ developer_instructions = '''
 - Reviewer 재분석 요청: 최대 2라운드. 2라운드 후에도 합의 불가 시 쟁점을 `disputed_findings`로 기록하고 종료한다
 
 ## 협업
-- **lock-free-enforcer**: 락 위치 정보를 파일로 참조한다 (`_workspace/02_lockfree_findings.json`).
+- **lock-free-enforcer**: 락 위치 정보를 파일로 참조한다 (`_workspace/concurrency-guard/02_lockfree_findings.json`).
 - **deadlock-reviewer**: 본 에이전트의 직접 검증 파트너. SendMessage로 검증 요청/재분석 요청을 교환한다.'''

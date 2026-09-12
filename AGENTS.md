@@ -10,6 +10,9 @@
 
 **경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다. Stop 훅은 `$env:CLAUDE_PROJECT_DIR`, PowerShell 스크립트는 `$PSScriptRoot` 기준으로 루트를 계산한다. Codex 세션은 현재 작업 디렉토리(저장소 루트) 기준 상대 경로를 쓴다.
 
+**작업 디렉토리 규칙:** 하네스 산출물은 `_workspace/<하네스명>/` 하위에만 쓴다(code-review·gc-guard·concurrency-guard·pipeline·tdd·git·cross). 새 실행 시 자기 하위 디렉토리만 `_workspace/<하네스명>_{타임스탬프}/`로 보관 이동하고, `_workspace/` 루트나 다른 하네스 디렉토리는 건드리지 않는다. `.gitignore`의 `_workspace/*` 규칙으로 `cross/` 외에는 커밋되지 않는다.
+
+
 **Git 훅:** `scripts/git-hooks/commit-msg`가 커밋 메시지 접두사 형식을 강제한다. 새로 클론하면 `Copy-Item scripts/git-hooks/commit-msg .git/hooks/`(PowerShell) 또는 `cp scripts/git-hooks/commit-msg .git/hooks/`로 설치할 것.
 
 ## 하네스: Git 자동 커밋 & 푸시 (Git Automator)
@@ -33,6 +36,7 @@
 | 2026-06-03 | 초기 구성 | 전체 | Git 자동 커밋&푸시 파이프라인 구축 |
 | 2026-06-03 | 파일 기반 메시지 전달로 재설계 | auto-commit.ps1 | nested claude -p 콜드스타트/stdin 취약성으로 폴백 빈발 |
 | 2026-09-10 | Codex 직접 커밋 규칙으로 분기 | AGENTS.md | Stop 훅은 Claude Code 전용이라 Codex 세션에서 메시지 파일이 잔류하는 문제 방지 |
+| 2026-09-12 | 산출물 경로를 `_workspace/git/` 하위로 격리 | commitandpush·git-*.md | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
 
 ---
 
@@ -62,7 +66,7 @@ plan/<기능명>_<MMDD>.md
 | 파일 | 날짜 | 내용 |
 |------|------|------|
 | plan/harness_audit_0911.md | 2026-09-11 | 하네스 전수조사 결과(F1~F13), 수정 내역, 오케스트레이터 5종 실행 검증, 재감사 스크립트 |
-| plan/code_review_harness_fix_0912.md | 2026-09-12 | 종합 코드 리뷰 하네스 Claude↔Codex 교차 검토 결과 16건, 설계 결정(run_dir 격리·점수 산식·판정 순서), 변경 파일, 검증 |
+| plan/code_review_harness_fix_0912.md | 2026-09-12 | 종합 코드 리뷰 하네스 Claude↔Codex 교차 검토 결과 16건, 설계 결정(run_dir 격리·점수 산식·판정 순서), 변경 파일, 실전 검증(96점 APPROVE), 후속 과제 처리(전 하네스 _workspace 격리) |
 
 ---
 
@@ -147,6 +151,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 고성능 서버 동시성 하네스 구축 |
+| 2026-09-12 | 산출물 경로를 `_workspace/concurrency-guard/` 하위로 격리, 새 실행 시 자기 디렉토리만 보관 이동 | concurrency-guard-orchestrator·전용 스킬 4종·에이전트 4종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
 
 ---
 
@@ -160,6 +165,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 서버 GC 억제 메모리 최적화 하네스 구축 |
+| 2026-09-12 | 산출물 경로를 `_workspace/gc-guard/` 하위로 격리, 새 실행 시 자기 디렉토리만 보관 이동 | gc-guard-orchestrator·전용 스킬 3종·에이전트 3종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
 
 ---
 
@@ -173,6 +179,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 고성능 IO 파이프라인 아키텍처 하네스 구축 |
+| 2026-09-12 | 산출물 경로를 `_workspace/pipeline/` 하위로 격리, 새 실행 시 자기 디렉토리만 보관 이동 | pipeline-architect-orchestrator·전용 스킬 3종·에이전트 4종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
 
 ---
 
@@ -186,3 +193,4 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | TDD Red-Green-Refactor 하네스 구축 (harness-evolve 포함) |
+| 2026-09-12 | 산출물·TddSession.csproj 경로를 `_workspace/tdd/` 하위로 격리, 새 사이클 시 자기 디렉토리만 보관 이동 | tdd-orchestrator·tdd 단계 스킬 3종·harness-evolve·에이전트 3종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |

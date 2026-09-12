@@ -34,15 +34,15 @@ System.IO.Pipelines 기반 IO 루프와 Channel<T> 기반 스레드 디스패처
 
 ### Phase 0: 컨텍스트 확인
 
-1. `_workspace/` 존재 여부 확인
+1. `_workspace/pipeline/` 존재 여부 확인
 2. 분기:
    - **미존재** → 초기 실행. Phase 1 진행
    - **존재 + 특정 재작업** ("IO 루프 다시") → 부분 재실행: 해당 워커만 재할당
-   - **존재 + 새 요구사항** → 새 실행: `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동
+   - **존재 + 새 요구사항** → 새 실행: `_workspace/pipeline/`를 `_workspace/pipeline_{YYYYMMDD_HHMMSS}/`로 이동
 
 ### Phase 1: 설계 브리프 수집
 
-사용자 입력에서 다음을 파악하여 `_workspace/00_design_brief.md`에 저장:
+사용자 입력에서 다음을 파악하여 `_workspace/pipeline/00_design_brief.md`에 저장:
 
 ```markdown
 # Pipeline 설계 브리프
@@ -79,15 +79,15 @@ System.IO.Pipelines 기반 IO 루프와 Channel<T> 기반 스레드 디스패처
 ```
 Agent(subagent_type="pipeline-supervisor", description="Pipeline design supervision",
       prompt="당신은 파이프라인 설계 팀의 감독자입니다. 프로젝트 루트는 {project_root} 입니다.
-              _workspace/00_design_brief.md 를 읽고 아래 절차를 수행하세요.
-              1) 인터페이스 계약을 _workspace/02_interface_contract.cs 에 작성
+              _workspace/pipeline/00_design_brief.md 를 읽고 아래 절차를 수행하세요.
+              1) 인터페이스 계약을 _workspace/pipeline/02_interface_contract.cs 에 작성
               2) Agent 도구로 io-loop-designer 와 thread-dispatcher-designer 를 단일 메시지에서 동시에 호출
                  (각각 io-loop-design / thread-dispatch-design 스킬 사용,
-                  산출물 _workspace/02_io_loop/IoLoop.cs, _workspace/02_dispatcher/ThreadDispatcher.cs)
+                  산출물 _workspace/pipeline/02_io_loop/IoLoop.cs, _workspace/pipeline/02_dispatcher/ThreadDispatcher.cs)
               3) 두 완료 알림 수신 후 품질 게이트 체크리스트로 검토, 불합격 시 해당 워커를 issues 목록과 함께 1회 재호출
-              4) Agent 도구로 load-test-auditor 를 호출 (load-test-audit 스킬, 산출물 _workspace/03_load_test_audit.md)
+              4) Agent 도구로 load-test-auditor 를 호출 (load-test-audit 스킬, 산출물 _workspace/pipeline/03_load_test_audit.md)
               5) BLOCK 판정이면 해당 워커 1회 재작업 후 재감사
-              6) _workspace/04_pipeline_architecture.md 에 최종 아키텍처 문서 작성
+              6) _workspace/pipeline/04_pipeline_architecture.md 에 최종 아키텍처 문서 작성
               완료 후 감사 판정(APPROVE/BLOCK)과 산출물 경로를 한 줄로 보고하세요.")
 ```
 
@@ -95,7 +95,7 @@ Agent(subagent_type="pipeline-supervisor", description="Pipeline design supervis
 
 **Step 1 — 인터페이스 계약 (병렬 시작 전)**
 ```
-감독자가 브리프에서 ParsedMessage 타입·파이프 용량을 결정 → _workspace/02_interface_contract.cs 작성
+감독자가 브리프에서 ParsedMessage 타입·파이프 용량을 결정 → _workspace/pipeline/02_interface_contract.cs 작성
 ```
 
 **Step 2 — 병렬 설계 (Agent 팬아웃, 단일 메시지)**
@@ -118,7 +118,7 @@ Agent(subagent_type="thread-dispatcher-designer", prompt="... interface_contract
 
 **Step 5 — 통합**
 ```
-감사 완료 → 감독자가 _workspace/04_pipeline_architecture.md 작성
+감사 완료 → 감독자가 _workspace/pipeline/04_pipeline_architecture.md 작성
 ```
 
 **감독자 개입 조건:**
@@ -129,7 +129,7 @@ Agent(subagent_type="thread-dispatcher-designer", prompt="... interface_contract
 ### Phase 4: 정리
 
 1. 별도 팀 해제 절차 없음
-2. `_workspace/` 보존
+2. `_workspace/pipeline/` 보존
 3. 최종 아키텍처 문서 경로 안내
 
 ---
@@ -137,7 +137,7 @@ Agent(subagent_type="thread-dispatcher-designer", prompt="... interface_contract
 ## 산출물 구조
 
 ```
-_workspace/
+_workspace/pipeline/
 ├── 00_design_brief.md              ← 설계 요구사항
 ├── 02_interface_contract.cs        ← IO 루프 ↔ 디스패처 인터페이스
 ├── 02_io_loop/

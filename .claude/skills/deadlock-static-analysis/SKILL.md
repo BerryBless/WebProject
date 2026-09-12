@@ -7,8 +7,8 @@ description: ".NET 10 async/await 코드에서 데드락 발생 가능한 모든
 
 ## 입력 읽기
 
-1. `_workspace/00_input/source.txt` — 분석 대상 소스
-2. `_workspace/02_lockfree_findings.json` — 락 위치 참조 (있으면 읽기)
+1. `_workspace/concurrency-guard/00_input/source.txt` — 분석 대상 소스
+2. `_workspace/concurrency-guard/02_lockfree_findings.json` — 락 위치 참조 (있으면 읽기)
 
 ## 8대 탐지 패턴
 
@@ -175,5 +175,5 @@ public async Task ProcessAsync(CancellationToken cancellationToken = default)
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/03_deadlock_analysis.json`에 Write한다.
+완성된 JSON을 `_workspace/concurrency-guard/03_deadlock_analysis.json`에 Write한다.
 `deadlock-reviewer`에게 SendMessage로 검증 요청을 전송한다.

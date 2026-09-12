@@ -10,14 +10,14 @@ TDD 사이클의 진화 궤적을 포착하여 초기 명세와 최종 코드 �
 ## 입력 읽기 (모두 Read)
 
 ```
-_workspace/00_requirements.md          ← 초기 요구사항 (T=0)
-_workspace/01_analyst/test_design.md   ← Red 단계 설계 근거
-_workspace/01_analyst/Tests/           ← 설계된 테스트 집합
-_workspace/02_builder/build_notes.md   ← Green 단계 구현 결정
-_workspace/02_builder/Src/             ← 최소 구현
-_workspace/03_qa/refactor_guide.md     ← Refactor 결정
-_workspace/03_qa/Src/ (있으면)         ← 리팩토링 후 최종 코드
-_workspace/03_qa/test_results.txt      ← 최종 테스트 결과
+_workspace/tdd/00_requirements.md          ← 초기 요구사항 (T=0)
+_workspace/tdd/01_analyst/test_design.md   ← Red 단계 설계 근거
+_workspace/tdd/01_analyst/Tests/           ← 설계된 테스트 집합
+_workspace/tdd/02_builder/build_notes.md   ← Green 단계 구현 결정
+_workspace/tdd/02_builder/Src/             ← 최소 구현
+_workspace/tdd/03_qa/refactor_guide.md     ← Refactor 결정
+_workspace/tdd/03_qa/Src/ (있으면)         ← 리팩토링 후 최종 코드
+_workspace/tdd/03_qa/test_results.txt      ← 최종 테스트 결과
 ```
 
 ## 델타 포착 5개 차원
@@ -113,5 +113,5 @@ TDD 과정에서 검토됐지만 명시적으로 거부된 구현.
 
 ## 출력 저장
 
-`_workspace/04_evolution/evolution_report.md`에 Write한다.
+`_workspace/tdd/04_evolution/evolution_report.md`에 Write한다.
 오케스트레이터에게 `{"status": "done", "evolution_report": "...", "next_cycle_items": [...]}` 전달.

@@ -35,13 +35,13 @@ System.IO.Pipelines를 활용하여 커널 이벤트를 안전하게 수신하�
 - 이전 산출물 존재 시: 읽고 감독자 피드백을 반영한 개선 버전을 작성한다
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_design_brief.md` (요구사항), `_workspace/02_interface_contract.cs` (인터페이스)
-- **출력**: `_workspace/02_io_loop/IoLoop.cs` (완전한 C# 구현)
+- **입력**: `_workspace/pipeline/00_design_brief.md` (요구사항), `_workspace/pipeline/02_interface_contract.cs` (인터페이스)
+- **출력**: `_workspace/pipeline/02_io_loop/IoLoop.cs` (완전한 C# 구현)
 - **스킬**: `/io-loop-design` 스킬로 설계 수행
 
 ## 팀 통신 프로토콜
 - **수신**: 감독자로부터 `{"action": "design-io-loop", "brief": "...", "interface": "...", "constraints": [...]}` 수신
-- **발신 (완료)**: 감독자에게 `{"status": "done", "output": "_workspace/02_io_loop/IoLoop.cs", "backpressure_config": {...}, "buffer_size": N}` 전송
+- **발신 (완료)**: 감독자에게 `{"status": "done", "output": "_workspace/pipeline/02_io_loop/IoLoop.cs", "backpressure_config": {...}, "buffer_size": N}` 전송
 - **발신 (인터페이스 협의)**: `thread-dispatcher-designer`에게 `{"action": "interface-proposal", "pipe_capacity": N, "message_type": "..."}` SendMessage
 - **발신 (재작업 완료)**: 감독자에게 `{"status": "revised", "changes": ["...", "..."]}` 전송
 - **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).

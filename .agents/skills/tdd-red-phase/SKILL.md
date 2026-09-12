@@ -7,7 +7,7 @@ description: "TDD Red 단계: 사용자 요구사항을 분석하여 구현 없�
 
 ## 입력 읽기
 
-`_workspace/00_requirements.md`를 Read로 읽는다.
+`_workspace/tdd/00_requirements.md`를 Read로 읽는다.
 
 ## 요구사항 분해 (동작 단위 추출)
 
@@ -120,8 +120,8 @@ public class <FeatureName>
 
 ## 출력 저장
 
-1. 테스트 파일 → `_workspace/01_analyst/Tests/<FeatureName>Tests.cs`
-2. 스텁 파일 → `_workspace/01_analyst/Src/<FeatureName>.cs`
-3. 설계 근거 → `_workspace/01_analyst/test_design.md`
+1. 테스트 파일 → `_workspace/tdd/01_analyst/Tests/<FeatureName>Tests.cs`
+2. 스텁 파일 → `_workspace/tdd/01_analyst/Src/<FeatureName>.cs`
+3. 설계 근거 → `_workspace/tdd/01_analyst/test_design.md`
 
 저장 후 `tdd-builder`에게 SendMessage로 구현 시작 신호를 전달한다.

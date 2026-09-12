@@ -44,13 +44,13 @@ IO 루프에서 수신된 파싱 데이터를 락 없이 스레드 풀에 효율
 - 이전 산출물 존재 시: 읽고 감독자 피드백 반영 개선 버전을 작성한다
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_design_brief.md` (요구사항), `_workspace/02_interface_contract.cs` (인터페이스)
-- **출력**: `_workspace/02_dispatcher/ThreadDispatcher.cs` (완전한 C# 구현)
+- **입력**: `_workspace/pipeline/00_design_brief.md` (요구사항), `_workspace/pipeline/02_interface_contract.cs` (인터페이스)
+- **출력**: `_workspace/pipeline/02_dispatcher/ThreadDispatcher.cs` (완전한 C# 구현)
 - **스킬**: `/thread-dispatch-design` 스킬로 설계 수행
 
 ## 팀 통신 프로토콜
 - **수신**: 감독자로부터 `{"action": "design-dispatcher", "expected-tps": N, "message-type": "..."}` 수신
-- **발신 (완료)**: 감독자에게 `{"status": "done", "output": "_workspace/02_dispatcher/ThreadDispatcher.cs", "channel_capacity": N, "lock_free": true, "backpressure_mechanism": "..."}` 전송
+- **발신 (완료)**: 감독자에게 `{"status": "done", "output": "_workspace/pipeline/02_dispatcher/ThreadDispatcher.cs", "channel_capacity": N, "lock_free": true, "backpressure_mechanism": "..."}` 전송
 - **발신 (인터페이스 협의)**: `io-loop-designer`에게 `{"action": "interface-confirm", "accepted_type": "...", "channel_capacity": N}` SendMessage
 - **발신 (재작업 완료)**: 감독자에게 `{"status": "revised", "changes": ["...", "..."]}` 전송
 - **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).

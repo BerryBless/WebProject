@@ -31,11 +31,11 @@ description: ".NET 10 고성능 비동기 서버 라이브러리의 동시성·�
 
 ### Phase 0: 컨텍스트 확인
 
-1. `_workspace/` 존재 여부 확인
+1. `_workspace/concurrency-guard/` 존재 여부 확인
 2. 분기:
    - **미존재** → 초기 실행. Phase 1로 진행
    - **존재 + 특정 에이전트 재실행 요청** ("데드락만 다시") → **부분 재실행**: 해당 에이전트만 재호출, Phase 5에서 전체 리포트 재통합
-   - **존재 + 새 코드 제공** → **새 실행**: `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 후 Phase 1
+   - **존재 + 새 코드 제공** → **새 실행**: `_workspace/concurrency-guard/`를 `_workspace/concurrency-guard_{YYYYMMDD_HHMMSS}/`로 이동 후 Phase 1
 
 ### Phase 1: 분석 대상 수집
 
@@ -56,7 +56,7 @@ find <path> -name "*.cs" -exec cat {} \; > combined_source.txt
 gh pr diff <PR번호>
 ```
 
-수집 내용을 `_workspace/00_input/source.txt`에 저장한다.
+수집 내용을 `_workspace/concurrency-guard/00_input/source.txt`에 저장한다.
 소스가 비어있으면 사용자에게 알리고 중지한다.
 
 ### Phase 2: 실행 규칙
@@ -75,12 +75,12 @@ gh pr diff <PR번호>
 ```
 Agent(subagent_type="lock-free-enforcer", description="Lock-free audit",
       prompt="당신은 lock-free-enforcer입니다. 프로젝트 루트는 {project_root} 입니다.
-              lock-free-enforcement 스킬을 사용하여 _workspace/00_input/source.txt 를 감사하고
-              결과를 _workspace/02_lockfree_findings.json 에 저장하세요.
+              lock-free-enforcement 스킬을 사용하여 _workspace/concurrency-guard/00_input/source.txt 를 감사하고
+              결과를 _workspace/concurrency-guard/02_lockfree_findings.json 에 저장하세요.
               necessary_locks 목록은 JSON 안에 포함하세요. 완료 후 건수·점수를 한 줄로 보고하세요.")
 Agent(subagent_type="lock-justification-auditor", description="Lock justification audit",
       prompt="당신은 lock-justification-auditor입니다. ... lock-justification-audit 스킬로 source.txt 를 감사하고
-              결과를 _workspace/02_lockjustification_findings.json 에 저장하세요. ...")
+              결과를 _workspace/concurrency-guard/02_lockjustification_findings.json 에 저장하세요. ...")
 ```
 
 **필요 락 목록 공유:** lock-free-enforcer 완료 알림을 먼저 받으면 `02_lockfree_findings.json` 의
@@ -100,15 +100,15 @@ lock-free-enforcer  →  [necessary_locks 목록]  →  lock-justification-audit
 **Step 1 — 분석기 호출** (lock-free-enforcer 완료 후):
 ```
 Agent(subagent_type="deadlock-analyzer", description="Deadlock static analysis",
-      prompt="deadlock-static-analysis 스킬로 _workspace/00_input/source.txt 와
-              _workspace/02_lockfree_findings.json 을 분석하고 _workspace/03_deadlock_analysis.json 에 저장하세요.")
+      prompt="deadlock-static-analysis 스킬로 _workspace/concurrency-guard/00_input/source.txt 와
+              _workspace/concurrency-guard/02_lockfree_findings.json 을 분석하고 _workspace/concurrency-guard/03_deadlock_analysis.json 에 저장하세요.")
 ```
 
 **Step 2 — 검증자 호출** (분석기 완료 알림 후):
 ```
 Agent(subagent_type="deadlock-reviewer", description="Deadlock review",
-      prompt="deadlock-review 스킬로 _workspace/03_deadlock_analysis.json 을 독립 검증하고
-              _workspace/03_deadlock_review.json 에 저장하세요. 재분석이 필요한 항목은 needs_reanalysis 배열로 보고하세요.")
+      prompt="deadlock-review 스킬로 _workspace/concurrency-guard/03_deadlock_analysis.json 을 독립 검증하고
+              _workspace/concurrency-guard/03_deadlock_review.json 에 저장하세요. 재분석이 필요한 항목은 needs_reanalysis 배열로 보고하세요.")
 ```
 
 **Step 3 — 재분석 (최대 1회):** 검증 결과에 needs_reanalysis 가 있으면 deadlock-analyzer 를
@@ -129,10 +129,10 @@ deadlock-analyzer → [분석 완료] → deadlock-reviewer
 ### Phase 5: 결과 통합 및 리포트 생성
 
 4개 파일을 Read로 수집:
-- `_workspace/02_lockfree_findings.json`
-- `_workspace/02_lockjustification_findings.json`
-- `_workspace/03_deadlock_analysis.json`
-- `_workspace/03_deadlock_review.json`
+- `_workspace/concurrency-guard/02_lockfree_findings.json`
+- `_workspace/concurrency-guard/02_lockjustification_findings.json`
+- `_workspace/concurrency-guard/03_deadlock_analysis.json`
+- `_workspace/concurrency-guard/03_deadlock_review.json`
 
 **종합 점수 계산:**
 ```
@@ -145,7 +145,7 @@ overall = lockfree_score * 0.35
         + deadlock_final_score * 0.35
 ```
 
-**리포트 형식** (`_workspace/04_concurrency_guard_report.md`):
+**리포트 형식** (`_workspace/concurrency-guard/04_concurrency_guard_report.md`):
 
 ```markdown
 # 동시성 가드 리포트
@@ -179,7 +179,7 @@ APPROVE / REQUEST CHANGES / BLOCK
 ### Phase 6: 정리
 
 1. 별도 팀 해제 절차 없음
-2. `_workspace/` 보존
+2. `_workspace/concurrency-guard/` 보존
 3. 리포트 내용 출력 + 경로 안내
 
 ---

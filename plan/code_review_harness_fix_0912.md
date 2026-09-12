@@ -87,9 +87,13 @@ pwsh scripts/harness-audit.ps1          # 7개 항목 PASS 확인
 ```
 Phase 1 스니펫 실측(이 저장소, master): A-1 더러운 트리에서 18개 파일 diff 수집, A-2 merge-base == HEAD 판정, B 모드 5개 파일 헤더 생성.
 
-## 8. 향후 확장 포인트
+## 8. 향후 확장 포인트 → 처리 결과 (2026-09-12 후속)
 
-1. **타 하네스 동일 결함**: gc-guard·concurrency-guard·pipeline-architect·tdd 오케스트레이터도 `_workspace/` 전체 이동 규칙을 갖고 있어 같은 방식(전용 하위 디렉토리)으로 격리 필요.
-2. **사용자 레벨 스킬 충돌**: `~/.claude/skills/comprehensive-review`가 같은 트리거로 공존. 프로젝트 스킬을 우선하도록 사용자 레벨 스킬 제거 또는 이름 변경 검토.
-3. **Write 범위 강제**: 리뷰어의 Write를 `run_dir`로 제한하는 훅(PreToolUse) 도입.
-4. **실전 검증**: C# 변경이 있는 PR에서 4-에이전트 전체 실행으로 `unverified`·재정규화·부분 재실행 경로 확인.
+| # | 항목 | 상태 | 내용 |
+|---|------|------|------|
+| 1 | 타 하네스 `_workspace/` 전체 이동 결함 | **완료** | gc-guard·concurrency-guard·pipeline·tdd·git 5개 하네스의 스킬·에이전트·미러·`.codex/agents` toml에서 `_workspace/` → `_workspace/<하네스>/`로 일괄 치환(perl, 음성 lookahead로 멱등). Phase 0 보관 이동은 `_workspace/<하네스>_{ts}/`로 자기 디렉토리만. CLAUDE.md·AGENTS.md에 "작업 디렉토리 규칙" 문단과 하네스별 이력 추가 |
+| 2 | 사용자 레벨 `~/.claude/skills/comprehensive-review` 충돌 | **완료** | `~/.claude/skills_disabled/comprehensive-review/`로 이동(복구 가능). 프로젝트 `code-review-orchestrator`만 트리거됨 |
+| 3 | 리뷰어 Write 범위 강제 훅 | 미착수 | PreToolUse 훅으로 `run_dir` 밖 Write 차단. 이번 실행에서는 4/4 위반 없음 |
+| 4 | 실전 검증 | **완료** | `WebProject.Api/` 경로 모드로 4-에이전트 전체 실행. run_id `20260912_204220`, 종합 96 APPROVE, 재시도 0, JSON 검증 4/4, 중복 조율 1건, `unverified` 실사용 3건. 리포트 `_workspace/code-review/20260912_204220/03_consolidated_report.md` |
+
+실전 검증에서 확인된 하네스 동작: 리뷰어 4개 모두 SendMessage 없이 최종 응답 첫 줄 JSON으로 보고, 자가 점수와 결정적 산식 재계산이 4/4 일치, 보안 리뷰어가 `dotnet list package --vulnerable`을 실제 실행해 `unverified`를 비움, 성능·스타일 리뷰어는 확인 불가 항목을 결함 대신 `unverified`로 분리. 세 도메인이 같은 구간(`Program.cs:22-35`)을 다른 관점으로 지적해 "동일 위치·다른 관점은 유지" 규칙이 유효함을 확인.

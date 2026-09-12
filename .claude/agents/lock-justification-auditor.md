@@ -50,9 +50,9 @@ lock (_syncRoot) { ... }
 - 0–100 점수 산출 (100 = 모든 락에 완전한 정당화 존재)
 
 ## 입력/출력 프로토콜
-- **입력 1**: `_workspace/00_input/source.txt`
+- **입력 1**: `_workspace/concurrency-guard/00_input/source.txt`
 - **입력 2**: `lock-free-enforcer`로부터 `necessary_locks` 목록 (SendMessage)
-- **출력**: `_workspace/02_lockjustification_findings.json`
+- **출력**: `_workspace/concurrency-guard/02_lockjustification_findings.json`
 - **스킬**: `/lock-justification-audit` 스킬로 감사 수행
 
 ```json
@@ -78,7 +78,7 @@ lock (_syncRoot) { ... }
 
 ## 팀 통신 프로토콜
 - **수신**: 리더로부터 시작 신호 + `lock-free-enforcer`로부터 `necessary_locks` 목록
-- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "lock-justification-auditor", "output": "_workspace/02_lockjustification_findings.json", "score": N}` 전송
+- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "lock-justification-auditor", "output": "_workspace/concurrency-guard/02_lockjustification_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `lock-justification-audit` 태스크를 claim한다
 - **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 
@@ -89,4 +89,4 @@ lock (_syncRoot) { ... }
 
 ## 협업
 - **lock-free-enforcer**: 해당 에이전트의 "necessary" 분류 결과를 받아 감사 우선순위를 결정한다.
-- **deadlock-analyzer**: 락 위치 및 컨텍스트 정보를 `_workspace/02_lockjustification_findings.json`으로 간접 공유한다.
+- **deadlock-analyzer**: 락 위치 및 컨텍스트 정보를 `_workspace/concurrency-guard/02_lockjustification_findings.json`으로 간접 공유한다.

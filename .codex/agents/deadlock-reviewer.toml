@@ -28,7 +28,7 @@ deadlock-analyzer의 정적 분석 결과를 독립적으로 검증하여 보고
 - **Timeout 없는 WaitAsync**: `semaphore.WaitAsync()` 에 CancellationToken 없이 무한 대기
 
 ## 검증 프로세스
-1. `_workspace/03_deadlock_analysis.json`과 `_workspace/00_input/source.txt`를 함께 읽는다
+1. `_workspace/concurrency-guard/03_deadlock_analysis.json`과 `_workspace/concurrency-guard/00_input/source.txt`를 함께 읽는다
 2. 각 발견사항을 소스 코드에서 직접 확인한다
 3. 판정: **Confirmed** / **Rejected** / **Modified** (심각도 조정) 중 하나를 부여한다
 4. False Negative 발견 시 직접 `additional_findings`에 추가한다
@@ -41,9 +41,9 @@ deadlock-analyzer의 정적 분석 결과를 독립적으로 검증하여 보고
 - 0–100 점수는 확정된 발견사항(Confirmed + Additional) 기준으로 산출한다
 
 ## 입력/출력 프로토콜
-- **입력 1**: `_workspace/03_deadlock_analysis.json` (분석기 보고서)
-- **입력 2**: `_workspace/00_input/source.txt` (독립 검증용)
-- **출력**: `_workspace/03_deadlock_review.json`
+- **입력 1**: `_workspace/concurrency-guard/03_deadlock_analysis.json` (분석기 보고서)
+- **입력 2**: `_workspace/concurrency-guard/00_input/source.txt` (독립 검증용)
+- **출력**: `_workspace/concurrency-guard/03_deadlock_review.json`
 - **스킬**: `/deadlock-review` 스킬로 검증 수행
 
 ```json
@@ -76,9 +76,9 @@ deadlock-analyzer의 정적 분석 결과를 독립적으로 검증하여 보고
 ```
 
 ## 팀 통신 프로토콜
-- **수신**: `deadlock-analyzer`로부터 `{"action": "review-requested", "output": "_workspace/03_deadlock_analysis.json"}` 수신
+- **수신**: `deadlock-analyzer`로부터 `{"action": "review-requested", "output": "_workspace/concurrency-guard/03_deadlock_analysis.json"}` 수신
 - **발신 (재분석 요청)**: `deadlock-analyzer`에게 `{"action": "reanalyze", "targets": [...], "reason": "..."}` SendMessage (최대 1회)
-- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "deadlock-reviewer", "output": "_workspace/03_deadlock_review.json", "final_score": N}` SendMessage
+- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "deadlock-reviewer", "output": "_workspace/concurrency-guard/03_deadlock_review.json", "final_score": N}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `deadlock-review` 태스크를 claim한다
 
 ## 에러 핸들링
@@ -88,4 +88,4 @@ deadlock-analyzer의 정적 분석 결과를 독립적으로 검증하여 보고
 
 ## 협업
 - **deadlock-analyzer**: 직접 검증 파트너. 발견사항 기각/수정/추가를 SendMessage로 조율.
-- **lock-justification-auditor**: `_workspace/02_lockjustification_findings.json`에서 락 위치 정보 참조 가능."""
+- **lock-justification-auditor**: `_workspace/concurrency-guard/02_lockjustification_findings.json`에서 락 위치 정보 참조 가능."""

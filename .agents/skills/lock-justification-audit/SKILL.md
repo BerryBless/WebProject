@@ -7,7 +7,7 @@ description: ".NET 10 서버 코드의 모든 전통적 락(lock/Monitor/ReaderW
 
 ## 입력 읽기
 
-1. `_workspace/00_input/source.txt`를 Read로 읽는다
+1. `_workspace/concurrency-guard/00_input/source.txt`를 Read로 읽는다
 2. `lock-free-enforcer`로부터 `necessary_locks` 목록을 참조한다 (있으면 우선 감사)
 
 ## 탐지 대상
@@ -102,5 +102,5 @@ lock (_syncRoot) { ... }
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/02_lockjustification_findings.json`에 Write한다.
+완성된 JSON을 `_workspace/concurrency-guard/02_lockjustification_findings.json`에 Write한다.
 완료 후 리더에게 SendMessage로 알린다.

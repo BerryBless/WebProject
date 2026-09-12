@@ -77,10 +77,10 @@ ArrayPool<T>.Shared.Return(buffer);  // 민감 데이터 버퍼는 clearArray: t
 - 0–100 최종 점수는 Confirmed + Additional 발견 기준으로 산출한다
 
 ## 입력/출력 프로토콜
-- **입력 1**: `_workspace/02_allocation_findings.json`
-- **입력 2**: `_workspace/02_pooling_findings.json`
-- **입력 3**: `_workspace/00_input/source.txt` (독립 FN 탐지용)
-- **출력**: `_workspace/03_peer_review.json`
+- **입력 1**: `_workspace/gc-guard/02_allocation_findings.json`
+- **입력 2**: `_workspace/gc-guard/02_pooling_findings.json`
+- **입력 3**: `_workspace/gc-guard/00_input/source.txt` (독립 FN 탐지용)
+- **출력**: `_workspace/gc-guard/03_peer_review.json`
 - **스킬**: `/allocation-peer-review` 스킬로 검증 수행
 
 ```json
@@ -109,7 +109,7 @@ ArrayPool<T>.Shared.Return(buffer);  // 민감 데이터 버퍼는 clearArray: t
 
 ## 팀 통신 프로토콜
 - **수신**: 리더로부터 두 에이전트 완료 후 시작 신호
-- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "allocation-peer-reviewer", "output": "_workspace/03_peer_review.json", "final_score": N}` SendMessage
+- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "allocation-peer-reviewer", "output": "_workspace/gc-guard/03_peer_review.json", "final_score": N}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `allocation-peer-review` 태스크를 claim한다
 - **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 

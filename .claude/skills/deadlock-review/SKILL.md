@@ -7,8 +7,8 @@ description: "deadlock-analyzer가 생성한 .NET 10 데드락 정적 분석 보
 
 ## 입력 읽기
 
-1. `_workspace/03_deadlock_analysis.json` — 분석기 보고서
-2. `_workspace/00_input/source.txt` — 독립 검증용 소스 코드
+1. `_workspace/concurrency-guard/03_deadlock_analysis.json` — 분석기 보고서
+2. `_workspace/concurrency-guard/00_input/source.txt` — 독립 검증용 소스 코드
 
 ## 검증 프로세스
 
@@ -97,5 +97,5 @@ final_score = max(0, 100 - penalty)
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/03_deadlock_review.json`에 Write한다.
+완성된 JSON을 `_workspace/concurrency-guard/03_deadlock_review.json`에 Write한다.
 리더에게 완료 SendMessage를 전송한다.

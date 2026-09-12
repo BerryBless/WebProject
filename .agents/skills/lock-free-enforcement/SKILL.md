@@ -7,7 +7,7 @@ description: ".NET 10 고성능 서버 코드에서 전통적 락(lock/Monitor/M
 
 ## 입력 읽기
 
-`_workspace/00_input/source.txt`를 Read로 읽는다.
+`_workspace/concurrency-guard/00_input/source.txt`를 Read로 읽는다.
 diff 형식이면 `+` 줄(추가된 코드)에 집중한다.
 
 ## 탐지 패턴
@@ -93,5 +93,5 @@ while (Interlocked.CompareExchange(ref _node, newNode, expected) != expected)
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/02_lockfree_findings.json`에 Write한다.
+완성된 JSON을 `_workspace/concurrency-guard/02_lockfree_findings.json`에 Write한다.
 `necessary_locks` 목록을 `lock-justification-auditor`에게 SendMessage로 전달한다.

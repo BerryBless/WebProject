@@ -1,14 +1,14 @@
 ---
 name: io-loop-design
-description: ".NET 10 고성능 서버를 위해 System.IO.Pipelines 기반 비동기 IO 루프를 설계하고 C# 코드를 작성한다. PipeReader/PipeWriter, SocketAsyncEventArgs, 백프레셔, Zero-copy 파싱을 포함한 완전한 구현을 _workspace/02_io_loop/IoLoop.cs에 출력한다. io-loop-designer 에이전트 전용 스킬."
+description: ".NET 10 고성능 서버를 위해 System.IO.Pipelines 기반 비동기 IO 루프를 설계하고 C# 코드를 작성한다. PipeReader/PipeWriter, SocketAsyncEventArgs, 백프레셔, Zero-copy 파싱을 포함한 완전한 구현을 _workspace/pipeline/02_io_loop/IoLoop.cs에 출력한다. io-loop-designer 에이전트 전용 스킬."
 ---
 
 # IO Loop Design Skill
 
 ## 입력 읽기
 
-1. `_workspace/00_design_brief.md` — 서버 요구사항, 프로토콜 타입, 예상 처리량
-2. `_workspace/02_interface_contract.cs` — 디스패처와의 인터페이스 (있으면 읽기)
+1. `_workspace/pipeline/00_design_brief.md` — 서버 요구사항, 프로토콜 타입, 예상 처리량
+2. `_workspace/pipeline/02_interface_contract.cs` — 디스패처와의 인터페이스 (있으면 읽기)
 
 ## 핵심 구조: Fill-Read 분리 패턴
 
@@ -178,5 +178,5 @@ reader.AdvanceTo(buffer.Start, buffer.Start);
 
 ## 출력 저장
 
-완성된 C# 코드를 `_workspace/02_io_loop/IoLoop.cs`에 Write한다.
+완성된 C# 코드를 `_workspace/pipeline/02_io_loop/IoLoop.cs`에 Write한다.
 감독자에게 완료 SendMessage를 전송한다.

@@ -59,9 +59,9 @@ IO 루프 설계자와 스레드 디스패처 설계자를 동적으로 감독�
 - 최종 통합 문서는 아키텍처 결정 이유(ADR)를 포함한다
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_design_brief.md` (설계 요구사항)
-- **중간 산출물**: `_workspace/02_interface_contract.cs` (인터페이스 협상 결과물)
-- **최종 산출물**: `_workspace/04_pipeline_architecture.md` (통합 아키텍처 문서)
+- **입력**: `_workspace/pipeline/00_design_brief.md` (설계 요구사항)
+- **중간 산출물**: `_workspace/pipeline/02_interface_contract.cs` (인터페이스 협상 결과물)
+- **최종 산출물**: `_workspace/pipeline/04_pipeline_architecture.md` (통합 아키텍처 문서)
 - **스킬**: 별도 스킬 없음 — 에이전트 정의의 체크리스트와 프로토콜로 직접 수행
 
 ## 팀 통신 프로토콜

@@ -36,13 +36,13 @@ git-security-auditor → git-commit-writer → git-push-controller
 
 ## Phase 0: 컨텍스트 확인
 
-1. `_workspace/` 존재 여부 확인:
-   - **미존재** → 초기 실행. `_workspace/` 생성 후 Phase 1 진행
+1. `_workspace/git/` 존재 여부 확인:
+   - **미존재** → 초기 실행. `_workspace/git/` 생성 후 Phase 1 진행
    - **존재 + 사용자가 재실행 요청** → 기존 결과 파일 확인 후 단계 결정:
      - 보안 재검사 요청 → Phase 1부터 재실행
      - 커밋 메시지만 재작성 → Phase 2부터 재실행
      - 기존 메시지로 재커밋 → Phase 3부터 재실행
-   - **존재 + 새 실행** → `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 후 재생성
+   - **존재 + 새 실행** → `_workspace/git/`를 `_workspace/git_{YYYYMMDD_HHMMSS}/`로 이동 후 재생성
 
 2. `git status --porcelain` 실행:
    - 변경사항 없으면 → "커밋할 변경사항이 없습니다" 안내 후 종료
@@ -68,7 +68,7 @@ agent = Agent(
     2. git diff --staged 전체 스캔
     3. git diff 전체 스캔 (unstaged 포함)
     4. .claude/skills/commitandpush/references/security-patterns.md 의 패턴으로 민감 정보 탐지
-    5. 결과를 _workspace/01_security_result.md 에 저장
+    5. 결과를 _workspace/git/01_security_result.md 에 저장
     
     작업 디렉토리: {project_root}
     """
@@ -100,10 +100,10 @@ agent = Agent(
        ★ 반드시 접두사 판단 트리를 사용: 추가/수정/버그수정/리팩토링/문서/테스트/의존성
        ★ '자동:', 'update:', 'fix:', 'add:' 등 금지 접두사 절대 사용 금지
        ★ 파일명 나열 형식('ServerLib/Core/... 외 N개 수정') 금지 — WHY 중심 메시지 작성
-    5. 메시지를 _workspace/02_commit_message.txt 에 저장
+    5. 메시지를 _workspace/git/02_commit_message.txt 에 저장
     
     작업 디렉토리: {project_root}
-    보안 결과: _workspace/01_security_result.md (PASS 확인)
+    보안 결과: _workspace/git/01_security_result.md (PASS 확인)
     """
 )
 ```
@@ -136,13 +136,13 @@ agent = Agent(
     description="Commit and push",
     prompt="""
     
-    1. _workspace/02_commit_message.txt 에서 커밋 메시지 읽기
+    1. _workspace/git/02_commit_message.txt 에서 커밋 메시지 읽기
     2. git remote -v 로 원격 저장소 확인
     3. 현재 브랜치 확인 및 보호 브랜치 여부 체크
-    4. git commit -m "$(cat _workspace/02_commit_message.txt)" 실행
+    4. git commit -m "$(cat _workspace/git/02_commit_message.txt)" 실행
     5. pre-commit hook 실패 시 조건부 amend 처리
     6. git push (원격 있으면), 원격 없으면 로컬 커밋만
-    7. 결과를 _workspace/03_push_result.md 에 저장
+    7. 결과를 _workspace/git/03_push_result.md 에 저장
     8. 커밋 성공 시 .git/auto_commit_msg.txt 가 있으면 삭제 (Stop 훅 중복 커밋 방지)
     
     작업 디렉토리: {project_root}
@@ -155,7 +155,7 @@ agent = Agent(
 
 ## Phase 4: 결과 보고
 
-`_workspace/03_push_result.md`를 읽어 사용자에게 최종 요약 출력:
+`_workspace/git/03_push_result.md`를 읽어 사용자에게 최종 요약 출력:
 
 ```
 ✅ 커밋 & 푸시 완료

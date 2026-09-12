@@ -32,8 +32,8 @@ developer_instructions = """
 - 0–100 점수 산출 (100 = 불필요한 락 없음)
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_input/source.txt` (분석 대상 소스 코드 또는 diff)
-- **출력**: `_workspace/02_lockfree_findings.json`
+- **입력**: `_workspace/concurrency-guard/00_input/source.txt` (분석 대상 소스 코드 또는 diff)
+- **출력**: `_workspace/concurrency-guard/02_lockfree_findings.json`
 - **스킬**: `/lock-free-enforcement` 스킬로 감사 수행
 
 ```json
@@ -56,9 +56,9 @@ developer_instructions = """
 ```
 
 ## 팀 통신 프로토콜
-- **수신**: 리더로부터 `{"task": "lock-free-audit", "input": "_workspace/00_input/source.txt"}` 수신
-- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "lock-free-enforcer", "output": "_workspace/02_lockfree_findings.json", "necessary_locks": [...], "score": N}` 전송
-- **발신 (조율)**: `lock-justification-auditor`에게 `{"action": "audit-these-locks", "necessary_locks": [...], "source": "_workspace/02_lockfree_findings.json"}` SendMessage
+- **수신**: 리더로부터 `{"task": "lock-free-audit", "input": "_workspace/concurrency-guard/00_input/source.txt"}` 수신
+- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "lock-free-enforcer", "output": "_workspace/concurrency-guard/02_lockfree_findings.json", "necessary_locks": [...], "score": N}` 전송
+- **발신 (조율)**: `lock-justification-auditor`에게 `{"action": "audit-these-locks", "necessary_locks": [...], "source": "_workspace/concurrency-guard/02_lockfree_findings.json"}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `lock-free-audit` 태스크를 claim한다
 
 ## 에러 핸들링

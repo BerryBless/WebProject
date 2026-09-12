@@ -29,22 +29,22 @@ analyst ──→ builder ──→ qa
 
 ### Phase 0: 컨텍스트 확인
 
-1. `_workspace/` 존재 여부 확인
+1. `_workspace/tdd/` 존재 여부 확인
 2. 분기:
    - **미존재** → 초기 실행. Phase 1 진행
-   - **존재 + 새 기능 요청** → 새 TDD 사이클: 기존 `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동
+   - **존재 + 새 기능 요청** → 새 TDD 사이클: 기존 `_workspace/tdd/`를 `_workspace/tdd_{YYYYMMDD_HHMMSS}/`로 이동
    - **존재 + "다음 기능"/"테스트 추가"** → 누적 실행: 기존 테스트 보존하며 신규 추가
    - **존재 + "리팩토링만"** → qa 단독 재실행
 
 ### Phase 1: 프로젝트 환경 설정
 
-`_workspace/` 하위에 xUnit 테스트 프로젝트를 생성한다:
+`_workspace/tdd/` 하위에 xUnit 테스트 프로젝트를 생성한다:
 
 ```bash
-cd "$CLAUDE_PROJECT_DIR" && mkdir -p _workspace/{01_analyst/Tests,01_analyst/Src,02_builder/Src,03_qa/Src,03_qa,04_evolution}
+cd "$CLAUDE_PROJECT_DIR" && mkdir -p _workspace/tdd/{01_analyst/Tests,01_analyst/Src,02_builder/Src,03_qa/Src,03_qa,04_evolution}
 ```
 
-`_workspace/TddSession.csproj` 생성 (처음 실행 시만):
+`_workspace/tdd/TddSession.csproj` 생성 (처음 실행 시만):
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
@@ -56,7 +56,7 @@ cd "$CLAUDE_PROJECT_DIR" && mkdir -p _workspace/{01_analyst/Tests,01_analyst/Src
     <IsTestProject>true</IsTestProject>
     <RootNamespace>TddSession</RootNamespace>
     <!-- SDK 기본 **/*.cs 글로빙을 끈다: 아래 명시 Compile 항목과 중복(NETSDK1022)되고,
-         _workspace/ 에 공존하는 다른 하네스 산출물(.cs)까지 컴파일되는 것을 막는다 -->
+         _workspace/tdd/ 안의 이전 사이클 산출물(.cs)까지 컴파일되는 것을 막는다 -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
@@ -92,7 +92,7 @@ cd "$CLAUDE_PROJECT_DIR" && mkdir -p _workspace/{01_analyst/Tests,01_analyst/Src
 </Project>
 ```
 
-요구사항을 `_workspace/00_requirements.md`에 저장한다.
+요구사항을 `_workspace/tdd/00_requirements.md`에 저장한다.
 
 ### Phase 2: 실행 규칙
 
@@ -111,22 +111,22 @@ TDD 파이프라인은 **순차**이므로 각 단계는 앞 단계의 완료 �
 ```
 Agent(subagent_type="tdd-analyst", description="TDD red phase",
       prompt="당신은 TDD 분석가입니다. 프로젝트 루트는 {project_root} 입니다.
-              tdd-red-phase 스킬을 사용하여 _workspace/00_requirements.md 를 읽고 실패하는 xUnit 테스트와 스텁을
-              _workspace/01_analyst/ 에 작성하세요. 완료 후 설계한 테스트 수를 한 줄로 보고하세요.")
+              tdd-red-phase 스킬을 사용하여 _workspace/tdd/00_requirements.md 를 읽고 실패하는 xUnit 테스트와 스텁을
+              _workspace/tdd/01_analyst/ 에 작성하세요. 완료 후 설계한 테스트 수를 한 줄로 보고하세요.")
 ```
 
 **Step 2 — Green** (analyst 완료 알림 후):
 ```
 Agent(subagent_type="tdd-builder", description="TDD green phase",
-      prompt="당신은 TDD 구현자입니다. tdd-green-phase 스킬을 사용하여 _workspace/01_analyst/ 의 테스트를 통과시키는
-              최소 구현을 _workspace/02_builder/Src/ 에 작성하세요. 과잉 구현 금지.")
+      prompt="당신은 TDD 구현자입니다. tdd-green-phase 스킬을 사용하여 _workspace/tdd/01_analyst/ 의 테스트를 통과시키는
+              최소 구현을 _workspace/tdd/02_builder/Src/ 에 작성하세요. 과잉 구현 금지.")
 ```
 
 **Step 3 — Refactor/검증** (builder 완료 알림 후):
 ```
 Agent(subagent_type="tdd-qa", description="TDD refactor phase",
-      prompt="당신은 TDD QA입니다. tdd-refactor-phase 스킬을 사용하여 _workspace/TddSession.csproj 로 dotnet test 를
-              실제 실행하고 결과를 _workspace/03_qa/ 에 기록하세요. PASS/FAIL 판정과 실패 테스트 목록을 한 줄로 보고하세요.")
+      prompt="당신은 TDD QA입니다. tdd-refactor-phase 스킬을 사용하여 _workspace/tdd/TddSession.csproj 로 dotnet test 를
+              실제 실행하고 결과를 _workspace/tdd/03_qa/ 에 기록하세요. PASS/FAIL 판정과 실패 테스트 목록을 한 줄로 보고하세요.")
 ```
 
 **생성-검증 루프 규칙:**
@@ -140,13 +140,13 @@ Agent(subagent_type="tdd-qa", description="TDD refactor phase",
 ### Phase 4: harness-evolve 실행
 
 qa PASS 판정 후 `/harness-evolve` 스킬을 직접 실행한다:
-- `_workspace/` 전체를 읽어 진화 델타를 포착
-- `_workspace/04_evolution/evolution_report.md` 생성
+- `_workspace/tdd/` 전체를 읽어 진화 델타를 포착
+- `_workspace/tdd/04_evolution/evolution_report.md` 생성
 
 ### Phase 5: 정리
 
 1. 별도 팀 해제 절차 없음
-2. `_workspace/` 보존 (다음 TDD 사이클의 회귀 테스트로 사용)
+2. `_workspace/tdd/` 보존 (다음 TDD 사이클의 회귀 테스트로 사용)
 3. 결과 요약 보고:
    - Red 단계: N개 테스트 설계
    - Green 단계: N회 시도 (재작업 N회)
@@ -158,7 +158,7 @@ qa PASS 판정 후 `/harness-evolve` 스킬을 직접 실행한다:
 ## 산출물 구조
 
 ```
-_workspace/
+_workspace/tdd/
 ├── TddSession.csproj               ← xUnit 테스트 프로젝트
 ├── 00_requirements.md              ← 사용자 요구사항
 ├── 01_analyst/
@@ -184,7 +184,7 @@ _workspace/
 |------|------|
 | 요구사항 불명확 | analyst가 질문 목록 전달 → 오케스트레이터가 사용자에게 질문 |
 | builder 2회 재작업 후 FAIL | 오케스트레이터가 analyst에게 테스트 재설계 지시 또는 사용자에게 에스컬레이션 |
-| dotnet test 환경 오류 | 패키지 복원 실행 후 재시도: `dotnet restore _workspace/TddSession.csproj` |
+| dotnet test 환경 오류 | 패키지 복원 실행 후 재시도: `dotnet restore _workspace/tdd/TddSession.csproj` |
 | 빌드 오류 (네임스페이스 충돌 등) | .csproj의 Compile 항목 조정 |
 
 ---

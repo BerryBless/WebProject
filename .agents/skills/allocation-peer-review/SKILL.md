@@ -8,9 +8,9 @@ description: "heap-allocation-scanner와 pooling-enforcer의 GC 억제 분석 �
 ## 입력 읽기
 
 3개 파일을 모두 Read로 읽는다:
-1. `_workspace/02_allocation_findings.json` (heap-allocation-scanner 보고서)
-2. `_workspace/02_pooling_findings.json` (pooling-enforcer 보고서)
-3. `_workspace/00_input/source.txt` (독립 검증·FN 탐지용)
+1. `_workspace/gc-guard/02_allocation_findings.json` (heap-allocation-scanner 보고서)
+2. `_workspace/gc-guard/02_pooling_findings.json` (pooling-enforcer 보고서)
+3. `_workspace/gc-guard/00_input/source.txt` (독립 검증·FN 탐지용)
 
 ## 검증 프로세스
 
@@ -124,5 +124,5 @@ final_score = max(0, 100 - penalty)
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/03_peer_review.json`에 Write한다.
+완성된 JSON을 `_workspace/gc-guard/03_peer_review.json`에 Write한다.
 리더에게 `{"status": "done", "final_score": N}` SendMessage를 전송한다.

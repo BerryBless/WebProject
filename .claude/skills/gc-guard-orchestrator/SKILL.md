@@ -30,11 +30,11 @@ description: ".NET 10 서버 라이브러리의 GC 압력 억제를 위한 메�
 
 ### Phase 0: 컨텍스트 확인
 
-1. `_workspace/` 존재 여부 확인
+1. `_workspace/gc-guard/` 존재 여부 확인
 2. 분기:
    - **미존재** → 초기 실행. Phase 1 진행
    - **존재 + 특정 에이전트 재실행** ("ValueTask만 다시") → 부분 재실행: 해당 에이전트만 재호출 후 Phase 4(리포트) 재통합
-   - **존재 + 새 코드** → 새 실행: 기존 `_workspace/`를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 후 Phase 1
+   - **존재 + 새 코드** → 새 실행: 기존 `_workspace/gc-guard/`를 `_workspace/gc-guard_{YYYYMMDD_HHMMSS}/`로 이동 후 Phase 1
 
 ### Phase 1: 분석 대상 수집
 
@@ -54,7 +54,7 @@ find <path> -name "*.cs" | xargs cat
 gh pr diff <PR번호> -- "*.cs"
 ```
 
-수집 내용을 `_workspace/00_input/source.txt`에 저장한다.
+수집 내용을 `_workspace/gc-guard/00_input/source.txt`에 저장한다.
 빈 경우 사용자에게 대상 지정 요청 후 중지한다.
 
 ### Phase 2: 실행 규칙
@@ -73,12 +73,12 @@ gh pr diff <PR번호> -- "*.cs"
 ```
 Agent(subagent_type="heap-allocation-scanner", description="Heap allocation scan",
       prompt="당신은 heap-allocation-scanner입니다. 프로젝트 루트는 {project_root} 입니다.
-              heap-allocation-scan 스킬로 _workspace/00_input/source.txt 의 hot path 힙 할당을 탐지하고
-              _workspace/02_allocation_findings.json 에 저장하세요. 버퍼/배열 할당은 buffer_allocations 배열로 별도 표기하세요.
+              heap-allocation-scan 스킬로 _workspace/gc-guard/00_input/source.txt 의 hot path 힙 할당을 탐지하고
+              _workspace/gc-guard/02_allocation_findings.json 에 저장하세요. 버퍼/배열 할당은 buffer_allocations 배열로 별도 표기하세요.
               완료 후 건수·점수를 한 줄로 보고하세요.")
 Agent(subagent_type="pooling-enforcer", description="Pooling enforcement",
       prompt="당신은 pooling-enforcer입니다. ... pooling-enforcement 스킬로 source.txt 의 ValueTask/Span/ArrayPool 패턴을 점검하고
-              _workspace/02_pooling_findings.json 에 저장하세요. ...")
+              _workspace/gc-guard/02_pooling_findings.json 에 저장하세요. ...")
 ```
 
 **버퍼 할당 공유:** heap-allocation-scanner 완료 알림을 먼저 받으면 buffer_allocations 를
@@ -96,8 +96,8 @@ heap-allocation-scanner  →  [버퍼 할당 목록]  →  pooling-enforcer
 
 ```
 Agent(subagent_type="allocation-peer-reviewer", description="Allocation peer review",
-      prompt="allocation-peer-review 스킬로 _workspace/02_allocation_findings.json 과 _workspace/02_pooling_findings.json 을
-              _workspace/00_input/source.txt 기준으로 독립 교차 검증하고 _workspace/03_peer_review.json 에 저장하세요.")
+      prompt="allocation-peer-review 스킬로 _workspace/gc-guard/02_allocation_findings.json 과 _workspace/gc-guard/02_pooling_findings.json 을
+              _workspace/gc-guard/00_input/source.txt 기준으로 독립 교차 검증하고 _workspace/gc-guard/03_peer_review.json 에 저장하세요.")
 ```
 
 ```
@@ -110,9 +110,9 @@ source.txt (독립 FN 탐지)
 ### Phase 5: 결과 통합 및 리포트 생성
 
 3개 파일을 Read로 수집:
-- `_workspace/02_allocation_findings.json`
-- `_workspace/02_pooling_findings.json`
-- `_workspace/03_peer_review.json`
+- `_workspace/gc-guard/02_allocation_findings.json`
+- `_workspace/gc-guard/02_pooling_findings.json`
+- `_workspace/gc-guard/03_peer_review.json`
 
 **종합 점수:**
 ```
@@ -121,7 +121,7 @@ allocation_raw = allocation_findings.score  (스캐너 원점수, 참고용)
 pooling_raw = pooling_findings.score    (강제자 원점수, 참고용)
 ```
 
-**리포트 형식** (`_workspace/04_gc_guard_report.md`):
+**리포트 형식** (`_workspace/gc-guard/04_gc_guard_report.md`):
 
 ```markdown
 # GC 가드 리포트
@@ -159,7 +159,7 @@ APPROVE / REQUEST CHANGES / BLOCK
 ### Phase 6: 정리
 
 1. 별도 팀 해제 절차 없음
-2. `_workspace/` 보존
+2. `_workspace/gc-guard/` 보존
 3. 리포트 출력 + 경로 안내
 
 ---

@@ -1,13 +1,13 @@
 ---
 name: heap-allocation-scan
-description: ".NET 10 서버 라이브러리 hot path의 불필요한 힙 할당을 정밀 탐지한다. boxing/unboxing, 루프 내 new, hot path LINQ, 클로저 강제 할당, string 루프 연산을 분석하고 JSON 결과를 _workspace/02_allocation_findings.json에 출력한다. heap-allocation-scanner 에이전트 전용 스킬."
+description: ".NET 10 서버 라이브러리 hot path의 불필요한 힙 할당을 정밀 탐지한다. boxing/unboxing, 루프 내 new, hot path LINQ, 클로저 강제 할당, string 루프 연산을 분석하고 JSON 결과를 _workspace/gc-guard/02_allocation_findings.json에 출력한다. heap-allocation-scanner 에이전트 전용 스킬."
 ---
 
 # Heap Allocation Scan Skill
 
 ## 입력 읽기
 
-`_workspace/00_input/source.txt`를 Read로 읽는다.
+`_workspace/gc-guard/00_input/source.txt`를 Read로 읽는다.
 diff 형식이면 `+` 줄에 집중, 전체 파일이면 hot path 메서드를 먼저 식별한다.
 
 ## Hot Path 식별 (우선 분석 대상)
@@ -181,6 +181,6 @@ IEnumerable<int> GetValues() { yield return x; }  // hot path에서 사용 시
 
 ## 출력 저장
 
-완성된 JSON을 `_workspace/02_allocation_findings.json`에 Write한다.
+완성된 JSON을 `_workspace/gc-guard/02_allocation_findings.json`에 Write한다.
 버퍼/배열 관련 발견을 `pooling-enforcer`에게 SendMessage로 공유한다.
 리더에게 완료를 알린다.

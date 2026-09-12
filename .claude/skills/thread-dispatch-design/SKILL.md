@@ -1,14 +1,14 @@
 ---
 name: thread-dispatch-design
-description: ".NET 10 고성능 서버를 위해 Channel<T>/IThreadPoolWorkItem 기반 락-프리 스레드 디스패처를 설계하고 C# 코드를 작성한다. BoundedChannel 백프레셔, 클로저-프리 Work Item, 안전한 종료 처리를 포함한 완전한 구현을 _workspace/02_dispatcher/ThreadDispatcher.cs에 출력한다. thread-dispatcher-designer 에이전트 전용 스킬."
+description: ".NET 10 고성능 서버를 위해 Channel<T>/IThreadPoolWorkItem 기반 락-프리 스레드 디스패처를 설계하고 C# 코드를 작성한다. BoundedChannel 백프레셔, 클로저-프리 Work Item, 안전한 종료 처리를 포함한 완전한 구현을 _workspace/pipeline/02_dispatcher/ThreadDispatcher.cs에 출력한다. thread-dispatcher-designer 에이전트 전용 스킬."
 ---
 
 # Thread Dispatch Design Skill
 
 ## 입력 읽기
 
-1. `_workspace/00_design_brief.md` — 예상 처리량, 워커 수, 우선순위 요구사항
-2. `_workspace/02_interface_contract.cs` — IO 루프와의 메시지 타입 인터페이스
+1. `_workspace/pipeline/00_design_brief.md` — 예상 처리량, 워커 수, 우선순위 요구사항
+2. `_workspace/pipeline/02_interface_contract.cs` — IO 루프와의 메시지 타입 인터페이스
 
 ## 핵심 구조: Channel 기반 락-프리 디스패처
 
@@ -155,5 +155,5 @@ public sealed record DispatcherOptions
 
 ## 출력 저장
 
-완성된 C# 코드를 `_workspace/02_dispatcher/ThreadDispatcher.cs`에 Write한다.
+완성된 C# 코드를 `_workspace/pipeline/02_dispatcher/ThreadDispatcher.cs`에 Write한다.
 감독자에게 완료 SendMessage를 전송한다.

@@ -47,9 +47,9 @@ PASS/FAIL 판정만 담당하며, FAIL 시 구체적 위험 근거와 함께 파
 
 **입력:**
 - 현재 작업 디렉토리의 git 저장소 상태
-- (선택) `_workspace/00_scope.txt` — 스캔 범위 제한 지시
+- (선택) `_workspace/git/00_scope.txt` — 스캔 범위 제한 지시
 
-**출력:** `_workspace/01_security_result.md`
+**출력:** `_workspace/git/01_security_result.md`
 ```markdown
 # 보안 감사 결과
 
@@ -78,5 +78,5 @@ FAIL → 파이프라인 중단, 사용자에게 위험 내용 보고
 ## 팀 통신 프로토콜
 
 - **수신:** 오케스트레이터(commitandpush)에서 실행 요청
-- **발신:** 오케스트레이터에게 `_workspace/01_security_result.md` 경로와 판정 결과 반환
+- **발신:** 오케스트레이터에게 `_workspace/git/01_security_result.md` 경로와 판정 결과 반환
 - 다른 에이전트와 직접 통신하지 않음

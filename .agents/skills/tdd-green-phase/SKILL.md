@@ -7,8 +7,8 @@ description: "TDD Green 단계: tdd-analyst가 설계한 실패하는 테스트�
 
 ## 입력 읽기
 
-1. `_workspace/01_analyst/Tests/<FeatureName>Tests.cs` — 실패하는 테스트
-2. `_workspace/01_analyst/Src/<FeatureName>.cs` — 스텁 파일
+1. `_workspace/tdd/01_analyst/Tests/<FeatureName>Tests.cs` — 실패하는 테스트
+2. `_workspace/tdd/01_analyst/Src/<FeatureName>.cs` — 스텁 파일
 
 스텁의 인터페이스(클래스명, 메서드 서명)를 정확히 파악한다.
 
@@ -112,7 +112,7 @@ public class <FeatureName>
 
 ## 출력 저장
 
-1. 구현 파일 → `_workspace/02_builder/Src/<FeatureName>.cs`
-2. 노트 → `_workspace/02_builder/build_notes.md`
+1. 구현 파일 → `_workspace/tdd/02_builder/Src/<FeatureName>.cs`
+2. 노트 → `_workspace/tdd/02_builder/build_notes.md`
 
 저장 후 `tdd-qa`에게 SendMessage로 검증 요청을 전달한다.

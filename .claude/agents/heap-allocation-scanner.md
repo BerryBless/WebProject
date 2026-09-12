@@ -33,8 +33,8 @@ tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 - 0–100 점수 산출 (100 = hot path 불필요 할당 없음)
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_input/source.txt`
-- **출력**: `_workspace/02_allocation_findings.json`
+- **입력**: `_workspace/gc-guard/00_input/source.txt`
+- **출력**: `_workspace/gc-guard/02_allocation_findings.json`
 - **스킬**: `/heap-allocation-scan` 스킬로 분석 수행
 
 ```json
@@ -57,9 +57,9 @@ tools: Read, Glob, Grep, Bash, Write, SendMessage, Skill
 ```
 
 ## 팀 통신 프로토콜
-- **수신**: 리더로부터 `{"task": "allocation-scan", "input": "_workspace/00_input/source.txt"}` 수신
+- **수신**: 리더로부터 `{"task": "allocation-scan", "input": "_workspace/gc-guard/00_input/source.txt"}` 수신
 - **발신 (공유)**: `pooling-enforcer`에게 버퍼/배열 관련 발견을 SendMessage로 공유: `{"action": "share-buffer-allocs", "findings": [...]}`
-- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "heap-allocation-scanner", "output": "_workspace/02_allocation_findings.json", "score": N}` 전송
+- **발신 (완료)**: 리더에게 `{"status": "done", "agent": "heap-allocation-scanner", "output": "_workspace/gc-guard/02_allocation_findings.json", "score": N}` 전송
 - **작업 요청**: 공유 작업 목록에서 `heap-allocation-scan` 태스크를 claim한다
 - **리더 ID를 모르면** SendMessage 대신 **최종 응답**에 완료 상태·산출물 경로·한 줄 요약을 담아 보고한다 (오케스트레이터는 완료 알림으로 수신).
 

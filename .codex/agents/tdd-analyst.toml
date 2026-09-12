@@ -47,19 +47,19 @@ public class Calculator
 
 ## 작업 원칙
 - 실제 동작하는 C# xUnit 코드를 작성한다 (의사코드 금지)
-- 테스트 설계 이유를 `_workspace/01_analyst/test_design.md`에 기록한다
+- 테스트 설계 이유를 `_workspace/tdd/01_analyst/test_design.md`에 기록한다
 - 이전 산출물 존재 시: 기존 테스트를 읽고 새 요구사항에 맞게 테스트를 추가한다
 
 ## 입력/출력 프로토콜
-- **입력**: `_workspace/00_requirements.md` (사용자 요구사항)
-- **출력 1**: `_workspace/01_analyst/Tests/<FeatureName>Tests.cs` (실패하는 xUnit 테스트)
-- **출력 2**: `_workspace/01_analyst/Src/<FeatureName>.cs` (컴파일용 스텁)
-- **출력 3**: `_workspace/01_analyst/test_design.md` (테스트 설계 근거)
+- **입력**: `_workspace/tdd/00_requirements.md` (사용자 요구사항)
+- **출력 1**: `_workspace/tdd/01_analyst/Tests/<FeatureName>Tests.cs` (실패하는 xUnit 테스트)
+- **출력 2**: `_workspace/tdd/01_analyst/Src/<FeatureName>.cs` (컴파일용 스텁)
+- **출력 3**: `_workspace/tdd/01_analyst/test_design.md` (테스트 설계 근거)
 - **스킬**: `/tdd-red-phase` 스킬로 테스트 설계 수행
 
 ## 팀 통신 프로토콜
-- **수신**: 오케스트레이터로부터 `{"action": "design-tests", "requirements": "_workspace/00_requirements.md"}` 수신
-- **발신 (완료)**: `tdd-builder`에게 `{"action": "implement", "tests": "_workspace/01_analyst/Tests/", "stub": "_workspace/01_analyst/Src/", "test_count": N}` SendMessage
+- **수신**: 오케스트레이터로부터 `{"action": "design-tests", "requirements": "_workspace/tdd/00_requirements.md"}` 수신
+- **발신 (완료)**: `tdd-builder`에게 `{"action": "implement", "tests": "_workspace/tdd/01_analyst/Tests/", "stub": "_workspace/tdd/01_analyst/Src/", "test_count": N}` SendMessage
 - **발신 (오케스트레이터 알림)**: `{"status": "done", "agent": "tdd-analyst", "test_count": N, "behaviors_covered": [...]}`
 - **작업 요청**: 공유 작업 목록에서 `red-phase` 태스크를 claim한다
 

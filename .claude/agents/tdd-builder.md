@@ -51,20 +51,20 @@ public int Add(int a, int b) => a + b;
 
 ## 작업 원칙
 - 스텁 파일을 실제 구현으로 교체한다 (`throw new NotImplementedException()` 제거)
-- 구현 결정 이유를 `_workspace/02_builder/build_notes.md`에 기록한다
+- 구현 결정 이유를 `_workspace/tdd/02_builder/build_notes.md`에 기록한다
 - `tdd-qa`로부터 FAIL 피드백 시 어떤 테스트가 실패했는지 파악하고 해당 부분만 수정한다
 - 이전 산출물 존재 시: 기존 구현을 읽고 새 테스트에 맞게 최소 확장한다
 
 ## 입력/출력 프로토콜
-- **입력 1**: `_workspace/01_analyst/Tests/` (실패하는 테스트)
-- **입력 2**: `_workspace/01_analyst/Src/` (스텁)
-- **출력 1**: `_workspace/02_builder/Src/<FeatureName>.cs` (최소 구현)
-- **출력 2**: `_workspace/02_builder/build_notes.md` (구현 결정 기록)
+- **입력 1**: `_workspace/tdd/01_analyst/Tests/` (실패하는 테스트)
+- **입력 2**: `_workspace/tdd/01_analyst/Src/` (스텁)
+- **출력 1**: `_workspace/tdd/02_builder/Src/<FeatureName>.cs` (최소 구현)
+- **출력 2**: `_workspace/tdd/02_builder/build_notes.md` (구현 결정 기록)
 - **스킬**: `/tdd-green-phase` 스킬로 최소 구현 수행
 
 ## 팀 통신 프로토콜
 - **수신 (analyst로부터)**: `{"action": "implement", "tests": "...", "stub": "...", "test_count": N}` 수신
-- **발신 (qa에게 검증 요청)**: `{"action": "verify", "impl": "_workspace/02_builder/Src/", "tests": "_workspace/01_analyst/Tests/"}` SendMessage
+- **발신 (qa에게 검증 요청)**: `{"action": "verify", "impl": "_workspace/tdd/02_builder/Src/", "tests": "_workspace/tdd/01_analyst/Tests/"}` SendMessage
 - **수신 (qa로부터 FAIL)**: `{"status": "fail", "failed_tests": [...], "reason": "..."}` 수신 → 수정 후 재요청
 - **발신 (qa에게 재검증)**: `{"action": "re-verify", "iteration": 2, "changes": [...]}` SendMessage
 - **작업 요청**: 공유 작업 목록에서 `green-phase` 태스크를 claim한다
