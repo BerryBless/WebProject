@@ -11,9 +11,7 @@ description: >
 
 # Cross-Verify — Claude ↔ Codex 교차 검증 개발 파이프라인
 
-**실행 모드: 서브 에이전트** (에이전트 팀 아님 — 1차 산출 단계에서 상대 결론을 보기 전 독립 작성이 절대 요구라, 에이전트 간 직접 통신을 구조적으로 차단하고 파일 기반으로만 데이터를 전달한다.)
-
-**아키텍처: 파이프라인(Plan→구현→리뷰) × 생성-검증(각 단계에서 Claude·Codex 상호 검증)**
+**실행 모드: 서브 에이전트(Agent 도구) + 파일 기반 전달.** 1차 산출 단계에서 상대 결론을 보기 전 독립 작성이 절대 요구라 에이전트 간 통신은 없고, 모든 데이터는 run 디렉토리 파일로만 오간다. 각 에이전트는 최종 응답 첫 줄 JSON으로 보고한다.
 
 ```
 [오케스트레이터(메인 세션)]
@@ -23,97 +21,98 @@ description: >
 ```
 
 핵심 불변식:
-- **Codex는 실제 CLI 호출로만 참여한다.** Claude 에이전트가 Codex 역할을 흉내 내는 것은 금지. 모든 Codex 산출물 옆에는 `invoke-codex.ps1`이 남긴 `*.meta.json`(status=success)이 있어야 하며, 없으면 그 산출물은 무효다.
-- **Codex는 검증만 한다.** 프로젝트 코드 수정은 cross-implementer만 수행한다 (Codex는 read-only 샌드박스 고정).
-- **두 모델의 동의는 통과 조건이 아니라 필요 조건이다.** 최종 판정은 코드와 실제 테스트 실행 결과로 한다.
+- **Codex는 실제 CLI 호출로만 참여한다.** 모든 Codex 산출물 옆에 `invoke-codex.ps1`이 남긴 `*.meta.json`이 있어야 하고, **오케스트레이터가 직접** `status=success`, `out_sha256 == sha256(파일)`, `thread_id` 존재, `log_bytes>0`를 재검증한다. 어댑터 보고만으로 성공을 인정하지 않는다.
+- **Codex는 검증만 한다.** 코드 수정은 cross-implementer만(Codex는 read-only 샌드박스 고정).
+- **독립성은 양방향이다.** Claude 측은 `*codex*`를, Codex 측은 `_workspace/cross/**`의 다른 파일을 1차 단계에서 읽지 않는다(프롬프트 명시 + `.log` 접근 흔적 검사).
+- **두 모델의 동의는 필요 조건이지 통과 조건이 아니다.** 최종 판정은 코드와 실제 테스트 실행 결과.
+
+## Stop 훅과의 관계
+
+이 파이프라인은 사용자 확인(더러운 트리, 3라운드 미합의, 테스트 실패)으로 턴을 끝낼 수 있다. 그때 Stop 훅이 반쯤 구현된 코드를 폴백 메시지로 커밋·푸시하지 않도록:
+1. **Phase 0 시작 시 `.git/harness_commit_in_progress`(내용: run_id)를 만든다.** 훅은 이 파일이 있으면(6시간 이내) 커밋을 건너뛴다.
+2. 파이프라인이 끝나면(완료·중단 모두) 센티널을 삭제하고, 완료 시에는 WHY 메시지를 `.git/auto_commit_msg.txt`에 남겨 훅이 커밋하게 한다. 중단·실패 시에는 메시지 파일을 쓰지 않고 센티널만 지운 뒤 사용자에게 "미검증 변경이 작업 트리에 남아 있음"을 알린다(훅이 폴백 커밋하기 전에 사용자가 판단할 수 있도록 **센티널을 유지한 채** 질문하는 것도 허용 — 이 경우 답변 후 삭제).
+3. `_workspace/cross/<run>/`은 git 추적 대상이다. 중간 커밋이 생겨도 리뷰 입력 diff에서 제외한다(Phase 3.1).
+
+## 작업 디렉토리와 라운드 규칙
+
+`_workspace/cross/<YYYYMMDD_HHmmss_기능약칭>/` — 번호 규칙 `0x`=컨텍스트, `1x`=Plan, `2x`=구현, `3x`=리뷰, `9x`=최종. **보관 이동을 하지 않는다**(추적 중인 감사 기록이므로 run 디렉토리를 누적). Codex 산출물은 항상 `.meta.json`·`.log`·`.err` 동반(`.log/.err`는 gitignore).
+
+- **라운드 접미사:** 같은 단계의 재산출은 전부 `_r2`, `_r3`(조정·통합·재검토·수정·diff 모두). 오케스트레이터는 모든 에이전트 프롬프트에 **정확한 파일명**을 적고, 소비자는 항상 **가장 높은 접미사** 파일을 받는다(에이전트가 추측하지 않음).
+- **`00_manifest.json`:** 단계별 입력 해시와 채택 파일을 기록한다.
+  ```json
+  { "run_id": "…", "base_sha": "…", "requirement_sha256": "…",
+    "stages": { "plan": { "round": 1, "final_plan": "13_final_plan.md", "final_plan_sha256": "…", "verdicts": {"claude":"APPROVE","codex":"APPROVE"} },
+                "impl": { "attempts": 1, "results": "20_test_results.txt", "diff_sha256": "…" },
+                "review": { "round": 2, "adjudication": "31_review_adjudication_r2.md", "diff": "33_diff_r2.patch", "diff_sha256": "…" } },
+    "codex_calls": [ { "stage": "plan", "meta": "10_codex_plan.md.meta.json", "status": "success", "thread_id": "…", "duration_sec": 212 } ],
+    "degraded": false }
+  ```
 
 ## Phase 0: 컨텍스트 확인 및 사전 점검
 
-1. **실행 모드 판별:**
-   - `_workspace/cross/` 에 기존 run 존재 + 사용자가 부분 재실행 요청("리뷰만 다시" 등) → 해당 Phase만 재실행 (기존 run 디렉토리 재사용, 산출물은 `_r2` 접미사)
-   - 기존 run 존재 + 새 기능 요청 → 새 run 디렉토리 생성
-   - 미존재 → 초기 실행
-2. **Codex 사전 점검 (필수):** `codex login status` 실행. 실패하면 **여기서 중단**하고 사용자에게 `codex login` 필요를 보고한다. Codex 없이 진행하며 "교차 검증"이라 부르는 것은 금지 — 사용자가 명시 승인하면 "Claude 단독 (교차 검증 아님)"으로 진행·보고한다.
-3. run 디렉토리 생성: `_workspace/cross/<YYYYMMDD_HHmmss_기능약칭>/`
-4. 기준 커밋 기록: `git rev-parse HEAD` → 컨텍스트 문서에 포함. 워킹트리가 더럽면 사용자에게 알리고 계속할지 확인한다(리뷰 범위 오염 방지).
+1. **모드 판별:** 기존 run + 부분 재실행 요청("리뷰만 다시") → 해당 run 재사용. `00_manifest.json`의 해당 단계 입력 해시(요구사항·확정 계획·diff)를 현재와 비교해 **같을 때만** 부분 재실행, 다르면 상위 단계부터. 기존 run + 새 기능 → 새 run. 미존재 → 초기 실행.
+2. **Codex 사전 점검(필수):** `codex login status`. 실패 시 중단하고 `codex login` 안내. Codex 없이 진행하면서 "교차 검증"이라 부르지 않는다.
+3. **센티널 생성** `.git/harness_commit_in_progress`.
+4. **작업 트리 점검:** `git status --porcelain`에 `_workspace/cross/` 밖 변경이 있으면 사용자에게 알리고 계속할지 묻는다(센티널 유지). 사용자 확인 **후** Phase 1 시작 시점에 `git rev-parse HEAD`를 기준 커밋으로 확정하고 `00_manifest.json`에 기록한다(확인 전 HEAD를 쓰지 않는다).
+5. run 디렉토리 생성.
 
 ## Phase 1: Plan 교차 검증 (최대 3라운드)
 
-1. **컨텍스트 작성** — 오케스트레이터가 `00_context.md` 작성: 사용자 요구사항(원문), 프로젝트 규칙 요약(CLAUDE.md 관련 조항), 관련 코드 경로와 현재 구조 요지, 제약조건, 기준 커밋, 비범위.
-2. **독립 계획 (병렬)** — 동일 입력, 상대 산출물 미노출:
-   - `Agent(cross-planner, model: "opus", run_in_background: true)` mode=plan → `10_claude_plan.md`
-   - `Agent(codex-adapter, model: "opus", run_in_background: true)` 단계=plan (`prompts/plan.md` 템플릿) → `10_codex_plan.md` + meta
-3. **교환 검토 (병렬)** — 이제 서로의 계획을 노출:
-   - cross-planner mode=check → `11_claude_check_of_codex_plan.md`
-   - codex-adapter 단계=plan-check (`prompts/plan_check.md`) → `11_codex_check_of_claude_plan.md` + meta
-4. **의견 조정** — 오케스트레이터가 `12_plan_adjudication.md` 작성: 양측 지적 전수 목록화, 의견별 `채택/기각/미해결` + 근거. 요구사항 누락·잘못된 가정·과도한 설계·기존 구조 충돌·예외 처리·테스트 전략 6축 모두 다뤘는지 확인.
-5. **통합 계획** — `13_final_plan.md` 작성 (채택 의견 반영 내역 명시).
-6. **양측 재검토 (병렬)** — cross-planner mode=final-check → `14_claude_final_check.md`; codex-adapter 단계=final-check (`prompts/final_check.md`) → `14_codex_final_check.md`. 양측 APPROVE면 Phase 2로.
-7. **라운드 한도:** REQUEST-CHANGES면 조정→통합→재검토를 반복하되 최대 3라운드. 이후에도 중대한 의견 충돌이 남으면 **중단하고 사용자에게 보고**: 충돌 쟁점, 양측 근거, 선택지를 제시하고 결정을 받는다.
+1. **컨텍스트** — `00_context.md`: 요구사항 원문, 프로젝트 규칙 요약(CLAUDE.md 주석 규칙 포함), 관련 코드 경로·현재 구조, 제약, 기준 커밋, 비범위. `requirement_sha256` 기록.
+2. **독립 계획(병렬, 단일 메시지 Agent 2회)** — cross-planner mode=plan → `10_claude_plan.md`; codex-adapter stage=plan(`prompts/plan.md`) → `10_codex_plan.md`. 어댑터 프롬프트에 Claude 산출물 미포함.
+3. **Codex 증빙 재검증(오케스트레이터):** meta `status`, `out_sha256`(직접 `sha256sum`), `thread_id`, `log_bytes`. `.log`에 `claude_plan|claude_review` 접근 흔적이 있으면 독립성 위반 → 그 산출물 무효, 재호출 1회.
+4. **교환 검토(병렬)** — cross-planner mode=check → `11_claude_check_of_codex_plan.md`; codex-adapter stage=plan-check → `11_codex_check_of_claude_plan.md`.
+5. **조정** — `12_plan_adjudication.md`: 양측 지적 전수, `채택/기각/미해결` + 근거, 7축(요구사항 누락·잘못된 가정·과도한 설계·구조 충돌·예외·테스트·프로젝트 규칙) 확인.
+6. **통합 계획** — `13_final_plan.md`(채택 반영 내역 명시). manifest에 sha256.
+7. **양측 재검토(병렬)** — cross-planner mode=final-check(입력에 `12_plan_adjudication.md` 포함) → `14_claude_final_check.md`; codex-adapter stage=final-check → `14_codex_final_check.md`. 양측 마지막 줄 `VERDICT: APPROVE`면 Phase 2.
+8. **라운드:** REQUEST-CHANGES면 `12_…_r2` → `13_…_r2` → `14_…_r2`. 최대 3라운드. 이후 미합의면 중단·보고(쟁점·양측 근거·선택지).
 
 ## Phase 2: 구현과 테스트
 
-1. `Agent(cross-implementer, model: "opus")` — 입력: `00_context.md`, `13_final_plan.md`. 출력: 코드 변경 + `20_impl_notes.md`, `20_test_results.txt`(실제 `dotnet test` 실행 결과).
-2. **범위 이탈 처리:** `20_impl_notes.md`에 `[범위 이탈]` 섹션이 있으면 구현을 멈춘 상태다 → 해당 변경점을 `00_context.md`에 반영하고 **Phase 1로 회귀**한다 (경량 회귀: 이탈 항목만 양측 검토).
-3. 테스트 실패 시 implementer가 3회까지 수정 시도, 그래도 실패면 사용자 보고.
+1. `Agent(cross-implementer)` — 입력 `00_context.md`, 최고 접미사 `13_final_plan*.md`. 출력 코드 변경 + `20_impl_notes.md`, `20_test_results.txt`.
+2. `status: scope_deviation` → `00_context.md`에 반영하고 Phase 1 경량 회귀(이탈 항목만 양측 검토, `_rN`).
+3. 테스트 실패 시 구현자가 3회까지 시도. 그래도 실패면 사용자 보고(센티널 유지, 메시지 파일 미작성).
 
 ## Phase 3: 최종 코드 리뷰 교차 검증 (최대 3라운드)
 
-1. **리뷰 입력 고정** — 오케스트레이터가 준비:
-   - `git rev-parse HEAD` + 기준 커밋으로 `git diff <base> > 30_diff.patch` (**커밋되지 않은 변경 포함**), `git status --porcelain`으로 신규(untracked) 파일 목록화, 신규 파일은 diff에 안 잡히므로 `30_new_files.txt`에 경로+요지 기록.
-   - 테스트 결과·확정 계획 경로 정리.
-2. **독립 리뷰 (병렬)** — 동일 입력, 상대 리뷰 미노출:
-   - `Agent(cross-reviewer, model: "opus", run_in_background: true)` mode=review → `30_claude_review.md`
-   - `Agent(codex-adapter, model: "opus", run_in_background: true)` 단계=review (`prompts/review.md`, 타임아웃 900s) → `30_codex_review.md` + meta
-3. **상호 검증 (병렬)** — cross-reviewer mode=adjudicate → `31_claude_adjudication.md`; codex-adapter 단계=adjudicate (`prompts/adjudicate.md`) → `31_codex_adjudication.md` + meta.
-4. **조정** — 오케스트레이터가 `31_review_adjudication.md` 확정: 지적별 유효/기각/미해결 + 근거, 중복 통합, 취향([취향])과 결함 분리. 미해결 항목은 코드를 직접 확인해 판정하고, 판정 불가면 미해결로 남겨 최종 보고에 승계.
-5. **수정** — 유효 지적이 있으면 `Agent(cross-implementer)` 재호출 → `32_fix_notes.md`, `32_test_results.txt`.
-6. **재검토** — **코드가 바뀌었으므로 이전 승인은 무효.** cross-reviewer mode=reverify + codex-adapter 단계=reverify (`prompts/reverify.md`) 병렬 실행 → `33_*_reverify.md`. 양측 APPROVE + 테스트 통과면 종료.
-7. **라운드 한도:** 수정→재검토 최대 3라운드. 초과 시 남은 쟁점·근거·선택지를 사용자에게 제시.
+1. **리뷰 입력 고정(오케스트레이터):**
+   ```bash
+   git diff <base> -- . ':(exclude)_workspace/**' > 30_diff.patch
+   git ls-files --others --exclude-standard -- . ':!_workspace' | while IFS= read -r f; do git diff --no-index -- /dev/null "$f" >> 30_diff.patch || true; done
+   ```
+   신규 파일 **본문**이 patch에 들어간다(`30_new_files.txt`는 목록·요지용 보조). patch가 0바이트면 "리뷰 대상 없음"으로 중단. `diff_sha256` manifest 기록.
+2. **독립 리뷰(병렬)** — cross-reviewer mode=review → `30_claude_review.md`; codex-adapter stage=review(`prompts/review.md`) → `30_codex_review.md`. 증빙 재검증 + 독립성 검사.
+3. **상호 검증(병렬)** — cross-reviewer mode=adjudicate → `31_claude_adjudication.md`; codex-adapter stage=adjudicate → `31_codex_adjudication.md`.
+4. **조정** — `31_review_adjudication.md`: 지적별 유효/기각/미해결, 중복 통합, `[취향]` 분리. 미해결은 코드로 직접 판정, 불가면 최종 보고에 승계.
+5. **수정** — 유효 지적이 있으면 `Agent(cross-implementer)` → `32_fix_notes.md`, `32_test_results.txt`. **유효 지적이 없으면** 수정 단계를 건너뛰고 6으로 가되, 프롬프트에 "수정 없음"을 명시한다.
+6. **재검토** — 코드가 바뀌었으면 `git diff <base> -- . ':(exclude)_workspace/**' > 33_diff.patch`(+신규 파일)를 새로 만들고(수정 없음이면 `30_diff.patch` 재사용을 명시) cross-reviewer mode=reverify + codex-adapter stage=reverify(`prompts/reverify.md`, `{{DIFF_PATH}}`=`33_diff*.patch`) 병렬 → `33_*_reverify.md`. 양측 `VERDICT: APPROVE` + 테스트 통과면 종료.
+7. **라운드:** 수정→재검토 `_r2`, `_r3`. 최대 3라운드.
 
 ## 종료 및 실패 처리
 
-**완료 조건 (전부 충족):**
-- High 심각도의 미해결 결함 0건
-- 필수 테스트 실제 실행·통과 (`*_test_results.txt` 근거)
-- 양측 최종 VERDICT: APPROVE **+ 각 Codex 산출물의 meta.json status=success 전수 확인**
+**완료 조건(전부):** High 미해결 0건 · 필수 테스트 실제 통과(`*_test_results*.txt`) · 양측 최종 `VERDICT: APPROVE` · 모든 Codex meta `success` + 해시·thread_id 재검증 통과.
 
-**최종 보고 (`90_final_report.md` + 사용자 요약)에 반드시 포함:**
-- 구현 요약, 채택/기각/미해결 의견 통계와 미해결 목록
-- 실행한 테스트와 결과, **실행하지 못한 테스트와 검증 범위의 한계**
-- Codex 호출 이력 (단계별 status/duration — meta.json 집계)
+**완료 시:** `90_final_report.md`(구현 요약, 채택/기각/미해결 통계, 테스트·미실행 테스트·검증 한계, Codex 호출 이력(manifest `codex_calls`), 중간 커밋 SHA 목록) 작성 → `.git/auto_commit_msg.txt`에 WHY 메시지 작성 → 센티널 삭제 → 사용자 요약.
 
-**실패 구분 (혼동 금지):**
+**실패 구분:**
 | 상황 | 보고 |
 |------|------|
-| Codex 호출 실패(인증/타임아웃/빈 출력) 후 재시도도 실패 | "Codex 미실행 — 교차 검증 미완료". 절대 "검증 통과"로 보고하지 않음. 사용자에게 진행 여부 확인 |
-| Codex **토큰/사용량 부족**(meta status=quota) 후 재시도도 실패 | 멈추지 않고 Claude 단독으로 작업을 완료한 뒤, 보고 첫머리에 "⚠ Claude 단독 수행 — 교차 검증 아님(Codex 토큰 부족)" 명시 (에러 핸들링의 폴백 절차) |
-| 3라운드 후 의견 충돌 잔존 | "미합의" — 쟁점·양측 근거·선택지 제시 |
-| 테스트 실패 잔존 | "미완료" — 실패 테스트 원문 첨부 |
-
-## 데이터 전달 프로토콜
-
-파일 기반 (서브 에이전트 모드): `_workspace/cross/<run-id>/` 산출물 번호 규칙 — `0x`=컨텍스트, `1x`=Plan 단계, `2x`=구현, `3x`=리뷰 단계, `9x`=최종. Codex 산출물은 항상 짝 파일 `*.meta.json` 동반. 라운드 2+는 `_r2` 접미사. 중간 파일은 삭제하지 않고 보존한다(감사 추적).
+| Codex 호출 실패(인증/타임아웃/빈 출력/해시 불일치) 재시도도 실패 | "Codex 미실행 — 교차 검증 미완료". 진행 여부 확인(센티널 유지) |
+| Codex `quota` 재시도도 실패 | Claude 단독으로 완료하되 첫머리에 "⚠ Claude 단독 수행 — 교차 검증 아님(Codex 토큰 부족)". `DEGRADED.md`(사유·시점·스킵 단계), manifest `degraded: true`. "교차 검증 완료" 문구 금지 |
+| 독립성 위반 감지 | 해당 산출물 무효 + 1회 재호출. 재위반 시 그 단계는 "독립성 미보장"으로 보고 |
+| 3라운드 후 미합의 | "미합의" — 쟁점·양측 근거·선택지. 센티널 유지한 채 사용자 결정 대기 |
+| 테스트 실패 잔존 | "미완료" — 실패 원문. 메시지 파일 미작성, 센티널 삭제 후 "미검증 변경 잔존" 경고 |
 
 ## 에러 핸들링
-
-- 에이전트 실패: 1회 재호출, 재실패 시 해당 단계 실패로 사용자 보고 (부분 결과는 workspace에 보존).
-- Codex 관련 실패: codex-adapter의 에러 표 참조 (인증 오류는 재시도 없이 즉시 보고).
-- **토큰 부족 폴백 (Claude 단독 저하 모드):** Codex 호출이 토큰/사용량 한도로 실패하고(meta `status=quota`) 재시도도 실패하면, 사용자를 기다리며 멈추지 않고 **남은 파이프라인을 Claude 단독으로 계속 진행해 작업을 완료한다.**
-  1. 실패 시점부터의 Codex 단계는 스킵하고 Claude 산출물만으로 조정·판정한다 (이미 성공한 Codex 산출물은 유효하게 유지).
-  2. run 디렉토리에 `DEGRADED.md`를 기록한다: 전환 사유(meta 원문 인용)·시점·스킵된 단계 목록.
-  3. **최종 보고와 사용자 요약의 첫머리에 "⚠ Claude 단독 수행 — 교차 검증 아님 (Codex 토큰 부족)"을 명시**하고, 어느 단계까지 교차 검증됐고 어느 단계가 Claude 단독인지 구분해 피드백한다.
-  4. 이 모드에서도 "교차 검증 완료" 문구는 금지다. 완료 조건 중 "양측 VERDICT"는 "Claude 측 VERDICT + 스킵 명시"로 대체된다.
-- 충돌 의견은 삭제하지 않고 출처(Claude/Codex) 병기로 기록한다.
+- 에이전트 실패: 1회 재호출(`_rN`이 아닌 같은 파일명 덮어쓰기), 재실패 시 단계 실패 보고.
+- codex-adapter 실패 유형은 어댑터 에러 표 참조. 인증 오류는 재시도 없이 보고. quota 재시도 결과가 인증·실행 오류면 quota 폴백이 아니라 그 유형으로 처리.
+- 충돌 의견은 삭제하지 않고 출처(Claude/Codex) 병기.
 
 ## 테스트 시나리오
-
-**정상 흐름:** "EchoPacket에 타임스탬프 필드를 교차 검증으로 추가해줘" → Phase 0 점검 통과 → 양측 독립 계획 → 교환·조정·통합 → 구현+테스트 → 양측 독립 리뷰 → 조정·수정·재검토 → APPROVE×2 + 테스트 통과 → 최종 보고.
-
-**에러 흐름 1 (Codex 인증 만료):** Phase 0의 `codex login status` 실패 → 즉시 중단, "codex login 후 재실행" 안내. 교차 검증 완료 보고 없음.
-
-**에러 흐름 2 (리뷰 3라운드 초과):** High 지적 1건이 3라운드 후에도 유효/기각 미합의 → 쟁점 요약 + Claude 근거 + Codex 근거 + 선택지(수정안 A/B/보류)를 사용자에게 제시하고 대기.
+**정상:** "`/weatherforecast` 응답에 `GeneratedAt`(UTC) 필드를 코덱스 교차 검증으로 추가해줘" → Phase 0(센티널·base) → 양측 독립 계획 → 교환·조정·통합 → 구현+테스트 → 양측 독립 리뷰 → 조정·(수정)·재검토 → APPROVE×2 + 테스트 통과 → 90 보고 + 메시지 파일 → 센티널 삭제.
+**에러 1(인증 만료):** Phase 0 `codex login status` 실패 → 중단, 센티널 삭제.
+**에러 2(리뷰 3라운드 초과):** High 1건 미합의 → 쟁점·근거·선택지 제시, 센티널 유지.
+**에러 3(quota):** review 단계 `quota` 2회 → Claude 단독 재검토, `DEGRADED.md`, 보고 첫머리 경고.
 
 ## 설치·실행 방법과 사용 예시
-
-`references/usage.md` 참조 (사전 요구사항 점검, 작은 변경으로 검증하는 실행 예시, 산출물 읽는 법).
+`references/usage.md` 참조.

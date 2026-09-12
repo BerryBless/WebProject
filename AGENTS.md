@@ -10,7 +10,7 @@
 
 **경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다. Stop 훅은 `$env:CLAUDE_PROJECT_DIR`, PowerShell 스크립트는 `$PSScriptRoot` 기준으로 루트를 계산한다. Codex 세션은 현재 작업 디렉토리(저장소 루트) 기준 상대 경로를 쓴다.
 
-**작업 디렉토리 규칙:** 하네스 산출물은 `_workspace/<하네스명>/` 하위에만 쓴다(code-review·gc-guard·concurrency-guard·pipeline·tdd·git·cross). 새 실행 시 자기 하위 디렉토리만 `_workspace/<하네스명>_{타임스탬프}/`로 보관 이동하고, `_workspace/` 루트나 다른 하네스 디렉토리는 건드리지 않는다. `.gitignore`의 `_workspace/*` 규칙으로 `cross/` 외에는 커밋되지 않는다.
+**작업 디렉토리 규칙:** 하네스 산출물은 `_workspace/<하네스명>/` 하위에만 쓴다(code-review·gc-guard·concurrency-guard·pipeline·tdd·git·cross). 새 실행 시 자기 하위 디렉토리만 `_workspace/<하네스명>_{타임스탬프}/`로 보관 이동하고, `_workspace/` 루트나 다른 하네스 디렉토리는 건드리지 않는다. 예외: `cross`는 git 추적 대상이라 **보관 이동하지 않고** run_id 하위 디렉토리를 누적한다(이동하면 추적 기록이 삭제로 커밋됨). `.gitignore`의 `_workspace/*` 규칙으로 `cross/` 외에는 커밋되지 않는다.
 
 
 **Git 훅:** `scripts/git-hooks/commit-msg`가 커밋 메시지 접두사 형식을 강제한다. 새로 클론하면 `Copy-Item scripts/git-hooks/commit-msg .git/hooks/`(PowerShell) 또는 `cp scripts/git-hooks/commit-msg .git/hooks/`로 설치할 것.
@@ -28,7 +28,7 @@
 - 본문(선택): `- ` 항목 나열
 - 마지막 줄(필수): `Co-Authored-By: Codex <noreply@openai.com>`
 
-**주의:** `.git/auto_commit_msg.txt`는 Claude Code Stop 훅의 전달 채널이므로 Codex는 이 파일을 절대 생성·수정하지 않는다 (남겨두면 다음 Claude 세션의 훅이 엉뚱한 메시지로 커밋한다).
+**주의:** `.git/auto_commit_msg.txt`와 `.git/harness_commit_in_progress`는 Claude Code Stop 훅의 전달·잠금 채널이므로 Codex는 이 파일들을 절대 생성·수정하지 않는다 (남겨두면 다음 Claude 세션의 훅이 엉뚱한 메시지로 커밋한다).
 
 **변경 이력:**
 | 날짜 | 변경 내용 | 대상 | 사유 |
@@ -37,6 +37,7 @@
 | 2026-06-03 | 파일 기반 메시지 전달로 재설계 | auto-commit.ps1 | nested claude -p 콜드스타트/stdin 취약성으로 폴백 빈발 |
 | 2026-09-10 | Codex 직접 커밋 규칙으로 분기 | AGENTS.md | Stop 훅은 Claude Code 전용이라 Codex 세션에서 메시지 파일이 잔류하는 문제 방지 |
 | 2026-09-12 | 산출물 경로를 `_workspace/git/` 하위로 격리 | commitandpush·git-*.md | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
+| 2026-09-13 | Claude↔Codex 교차 점검 반영: Stop 훅 재작성(메시지 파일 선소비·실패 시 보존, 센티널로 파이프라인 중 커밋 차단, 잠금 디렉터리로 동시 실행 배제, 파일별 민감 필터+내용 스캔, 50MB 가드, 종료 코드 검사, push 실패 노출, 항상 exit 0), 스킬 run_dir·해시 resume·질문 최소화·push-only 모드, 에이전트 PASS/WARN/FAIL 계약·`-F` 커밋·실패 후 amend 금지·needs_confirmation 반환, security-patterns 정본화(JSON 키·연결 문자열·GUID 제거·주석/예시 실제값 FAIL), `.gitignore` `.env.*`, settings 훅 옵션, Codex toml 잡종 서명·경로 교정 | auto-commit.ps1·commitandpush·references 2종·git-*.md·settings.json·.gitignore·.codex/agents | plan/harness_cross_check_0913.md Git 절 19건 |
 
 ---
 
@@ -68,7 +69,7 @@ plan/<기능명>_<MMDD>.md
 | plan/harness_audit_0911.md | 2026-09-11 | 하네스 전수조사 결과(F1~F13), 수정 내역, 오케스트레이터 5종 실행 검증, 재감사 스크립트 |
 | plan/code_review_harness_fix_0912.md | 2026-09-12 | 종합 코드 리뷰 하네스 Claude↔Codex 교차 검토 결과 16건, 설계 결정(run_dir 격리·점수 산식·판정 순서), 변경 파일, 실전 검증(96점 APPROVE), 후속 과제 처리(전 하네스 _workspace 격리) |
 | plan/gc_guard_harness_fix_0912.md | 2026-09-12 | GC 가드 하네스 Claude↔Codex 교차 점검 20건, 설계 결정(독립 병렬+피어 정본, 공통 finding 스키마, 점수·판정), .NET 기술 오답 교정 목록, 변경 파일, 검증 |
-| plan/harness_cross_check_0913.md | 2026-09-13 | 나머지 하네스 5종(동시성·파이프라인·TDD·Git·cross-verify) Claude↔Codex 교차 점검 결함표(합집합 96건), 공통 결함 6종, 권장 수정 순서. 수정 미적용 |
+| plan/harness_cross_check_0913.md | 2026-09-13 | 나머지 하네스 5종(동시성·파이프라인·TDD·Git·cross-verify) Claude↔Codex 교차 점검 결함표(합집합 96건), 공통 결함 6종, 권장 순서대로 5종 전부 수정 적용·검증(6절) |
 
 ---
 
@@ -154,6 +155,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 고성능 서버 동시성 하네스 구축 |
 | 2026-09-12 | 산출물 경로를 `_workspace/concurrency-guard/` 하위로 격리, 새 실행 시 자기 디렉토리만 보관 이동 | concurrency-guard-orchestrator·전용 스킬 4종·에이전트 4종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
+| 2026-09-13 | Claude↔Codex 교차 점검 반영: 전용 run_dir·meta 해시(analyzer 재실행 시 reviewer 필수 재실행), 저장소 루트 `combined_source.txt` 제거(케이스 B 헤더·줄번호 보존), 형제 SendMessage·claim·필요 락 공유 제거(독립 병렬 + 오케스트레이터 대조), `needs_reanalysis:bool`+`reanalysis_targets[]` 계약 통일, 공통 finding 스키마(id·context·necessary), modified 포함 중앙 점수·재정규화·판정 우선순위, deadlock-analyzer tools 명시, .NET 오답 교정(ASP.NET Core SynchronizationContext 없음→기아 분류, lock{await}=컴파일 오류, ConfigureAwait 구조 판정·library 한정, Allman lock 정규식, System.Threading.Lock/EnterScope, SemaphoreSlim(1,1) 공인 프리미티브, Channel/CD는 thread-safe≠Lock-Free, bool CAS→int, ABA 재정의), [LOCK-REQUIRED]와 <remarks> 병행 계약·remarks 정합성 검사 | concurrency-guard-orchestrator·에이전트 4종·스킬 4종·.codex/agents toml | plan/harness_cross_check_0913.md 동시성 절 21건 |
 
 ---
 
@@ -183,6 +185,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 고성능 IO 파이프라인 아키텍처 하네스 구축 |
 | 2026-09-12 | 산출물 경로를 `_workspace/pipeline/` 하위로 격리, 새 실행 시 자기 디렉토리만 보관 이동 | pipeline-architect-orchestrator·전용 스킬 3종·에이전트 4종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
+| 2026-09-13 | Claude↔Codex 교차 점검 반영: run_dir·manifest(브리프·계약·산출물 해시), 계약을 불변 입력으로 확정(형제 협상·대기·SendMessage 제거, deviation 반환), 독립 빌드 게이트(build/Pipeline.csproj + dotnet build 경고 0·오류 0)와 오케스트레이터 재검증(빌드 재실행·감사 JSON 대조), 판정 3단계·점수 산식 단일 정본, 감사 입력 완전성 필수, 재작업 상한(워커별 1회·합계 2회), 에이전트 tools 명시, 템플릿 기술 오답 교정(examined 스핀, SequenceReader await 보존 컴파일 실패, 파이프 슬라이스 채널 전달 use-after-return→풀 버퍼 소유 복사본, struct IThreadPoolWorkItem 박싱, SetBuffer(byte*) 미존재, FullMode.Drop 미존재, WhenAll 상호 취소 없음, Complete(ex)·IsCanceled·EOF 잔여 프레임, 서버 범위 TryComplete, 워커 생존, PauseWriterThreshold≥MaxFrame+Header) — 템플릿 3종 net10.0 실제 빌드 검증 | pipeline-architect-orchestrator·pipeline-supervisor·io-loop-designer·thread-dispatcher-designer·load-test-auditor·스킬 3종·.codex/agents toml | plan/harness_cross_check_0913.md 파이프라인 절 22건 |
 
 ---
 
@@ -197,3 +200,4 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | TDD Red-Green-Refactor 하네스 구축 (harness-evolve 포함) |
 | 2026-09-12 | 산출물·TddSession.csproj 경로를 `_workspace/tdd/` 하위로 격리, 새 사이클 시 자기 디렉토리만 보관 이동 | tdd-orchestrator·tdd 단계 스킬 3종·harness-evolve·에이전트 3종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
+| 2026-09-13 | Claude↔Codex 교차 점검 반영: run_dir·manifest, TddSession.csproj를 **파일 단위 우선순위(qa > builder > analyst)** 로 재설계(msbuild 평가·dotnet test 실측 검증)해 부분 리팩토링·누적 사이클·재작업 루프에서 컴파일 깨짐 제거, csproj "없으면 생성", 네임스페이스 계약(TddSession/TddSession.Tests + global using Xunit), trx 기반 로케일 무관 판정·종료 코드 보존·시도별 결과 보존, Red 증빙(빌드 성공·전원 실패) 필수, 재작업 전 03_qa/Src 무효화·회귀 실패 롤백, 승격 절차·ProjectReference 옵션, 에이전트 tools 명시·SendMessage/claim 제거, 패키지 버전 정렬(17.14.1/2.9.3/3.1.4), 예시 오류 교정(Assert.Multiple·Dictionary.GetOrAdd·정수 나눗셈·checked 리팩토링) | tdd-orchestrator·tdd-analyst/builder/qa·tdd 단계 스킬 3종·harness-evolve·.codex/agents toml | plan/harness_cross_check_0913.md TDD 절 16건 |

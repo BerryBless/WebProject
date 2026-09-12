@@ -11,7 +11,7 @@
 {{FIX_NOTES}}
 
 ## 수정 후 diff와 테스트 결과
-- 수정 diff: {{DIFF_PATH}} 파일을 직접 읽어라.
+- 수정 후 diff: {{DIFF_PATH}} 파일을 직접 읽어라 (오케스트레이터가 수정 후 새로 생성한 `33_diff*.patch`. "수정 없음" 라운드면 `30_diff.patch` 가 지정되며 그 사실이 아래 수정 내역에 명시된다).
 - 테스트 결과: {{TEST_RESULTS}}
 
 ## 지시

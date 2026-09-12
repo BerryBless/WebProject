@@ -1,205 +1,180 @@
 ---
 name: concurrency-guard-orchestrator
-description: ".NET 10 고성능 비동기 서버 라이브러리의 동시성·락·데드락을 종합 감사하는 오케스트레이터. Lock-Free 설계 강제, 락 정당화 주석 감사, 데드락 생성-검증 분석을 에이전트 팀으로 조율하고 단일 보안 리포트를 생성한다. 트리거: '동시성 검사', '락 감사', '데드락 분석', '동시성 리뷰', 'Lock-Free 검증', 'async 데드락', 'concurrency guard', '컨텐션 분석'. 후속 작업: '다시 분석', '데드락만 재검토', '락 정당화 재감사', '이전 결과 업데이트', '보완 분석'."
+description: ".NET 10 고성능 비동기 서버 라이브러리의 동시성·락·데드락을 종합 감사하는 오케스트레이터. Lock-Free 설계 강제, 락 정당화 주석 감사(독립 병렬), 데드락 생성-검증 분석(순차)을 조율하고 단일 동시성 리포트를 생성한다. 트리거(감사 의도가 명시된 요청에만): '동시성 검사', '락 감사', '데드락 분석', '동시성 리뷰', 'Lock-Free 검증', 'async 데드락', 'concurrency guard', '컨텐션 분석'. 후속 작업: '다시 분석', '데드락만 재검토', '락 정당화 재감사', '이전 결과 업데이트', '보완 분석'."
 ---
 
 # Concurrency Guard Orchestrator
 
-.NET 10 고성능 비동기 서버 라이브러리를 위한 동시성 전문 감사 팀을 조율하는 오케스트레이터.
+.NET 10 고성능 비동기 서버 라이브러리의 동시성 감사 팀을 조율하는 오케스트레이터.
 
-## 실행 모드: 하이브리드 (Agent 팬아웃 + 순차 생성-검증)
+## 실행 모드: Agent 팬아웃(2, 독립 병렬) → 순차 생성-검증(analyzer → reviewer, 재분석 최대 1회)
 
-| Phase | 모드 | 팀 구성 | 이유 |
-|-------|------|---------|------|
-| Phase A (병렬 락 감사) | 에이전트 팀 | lock-free-enforcer ↔ lock-justification-auditor | 두 에이전트가 락 목록 공유·조율 필요 |
-| Phase B (생성-검증) | 에이전트 팀 (동일 팀) | deadlock-analyzer → deadlock-reviewer | 분석기-검증자 직접 SendMessage 교환 |
-
-세션당 팀 1개 제약 → 4개 에이전트를 단일 팀으로 구성하고 `depends_on`으로 Phase A/B 순서를 모델링한다.
+**이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다.** 서브에이전트는 `Agent` 도구로 격리 실행되고 **최종 응답 1회**로 보고한다. 오케스트레이터 ID를 모르고 형제와 통신할 수 없다. 따라서:
+- lock-free-enforcer와 lock-justification-auditor는 **서로 독립적으로** 같은 입력을 감사한다(필요 락 목록 공유 없음). 두 결과의 대조는 오케스트레이터가 Phase 4에서 한다.
+- deadlock-analyzer → deadlock-reviewer는 순차 호출이며, 재분석은 reviewer JSON의 `needs_reanalysis: true` + `reanalysis_targets[]`를 오케스트레이터가 읽어 analyzer를 **새로 호출**하는 방식이다(에이전트 간 메시지 없음).
 
 ## 에이전트 구성
 
-| 팀원 | 에이전트 타입 | 스킬 | 출력 |
-|------|-------------|------|------|
-| lock-free-enforcer | lock-free-enforcer | /lock-free-enforcement | `02_lockfree_findings.json` |
-| lock-justification-auditor | lock-justification-auditor | /lock-justification-audit | `02_lockjustification_findings.json` |
-| deadlock-analyzer | deadlock-analyzer | /deadlock-static-analysis | `03_deadlock_analysis.json` |
-| deadlock-reviewer | deadlock-reviewer | /deadlock-review | `03_deadlock_review.json` |
+| 에이전트 | 스킬 | 출력 (run_dir 기준) | 단계 | 가중치 |
+|---------|------|------|------|------|
+| lock-free-enforcer | /lock-free-enforcement | `02_lockfree_findings.json` (id `LF-n`) | A 병렬 | 0.35 |
+| lock-justification-auditor | /lock-justification-audit | `02_lockjustification_findings.json` (id `LJ-n`) | A 병렬 | 0.30 |
+| deadlock-analyzer | /deadlock-static-analysis | `03_deadlock_analysis[_r2].json` (id `DA-n`) | B 순차 | — |
+| deadlock-reviewer | /deadlock-review | `03_deadlock_review[_r2].json` (id `DR-n`, `final_findings`) | B 순차 | 0.35 |
+
+## 작업 디렉토리
+
+```
+_workspace/concurrency-guard/
+├── latest.txt
+└── <run_id>/
+    ├── 00_input/{source.txt, meta.json, index.md, pr.json}
+    ├── 02_lockfree_findings.json
+    ├── 02_lockjustification_findings.json
+    ├── 03_deadlock_analysis.json        (재분석: _r2)
+    ├── 03_deadlock_review.json          (재분석: _r2)
+    └── 04_concurrency_guard_report.md
+```
+`_workspace/` 루트나 다른 하네스 디렉토리는 건드리지 않는다. **중간 파일은 반드시 run_dir 안에만 만든다**(저장소 루트에 `combined_source.txt` 같은 파일을 만들면 Stop 훅이 커밋한다).
+
+## 공통 finding 스키마 (네 에이전트 공통)
+
+```json
+{
+  "id": "LF-1 | LJ-1 | DA-1 | DR-1",
+  "severity": "critical|high|medium|low",
+  "file": "파일명:라인",
+  "pattern": "lock-replaceable|lock-necessary|interlocked-misuse|justification-missing|justification-insufficient|justification-nonstandard|remarks-inconsistent|sync-blocking|monitor-await|semaphore-release-path|lock-order|configure-await|async-void|cancellation-policy|channel-complete|lock-api-mix",
+  "lock_type": "lock|Lock|Monitor|Mutex|SemaphoreSlim|ReaderWriterLockSlim|SpinLock|null",
+  "context": "library|app|test|entrypoint|unknown",
+  "is_conditional": false,
+  "condition": "조건부 위험이면 성립 조건",
+  "detail": "메커니즘(왜 문제인지)",
+  "current_code": "…",
+  "fix_code": "동작 보존 수정. 동시성·메모리 타입 선언에는 CLAUDE.md 내부 동작 근거 // 주석, public 시그니처면 <remarks>",
+  "necessary": false
+}
+```
+- `context`: `library`(재사용 클래스 라이브러리 public/internal API) / `app`(ASP.NET Core 호스트·엔드포인트·서비스) / `test` / `entrypoint`(`Main`, `app.Run()`) / `unknown`. 데드락 심각도는 이 문맥으로 갈린다(스킬 참조).
+- `necessary: true`(LF의 "필요한 락")는 감점에서 제외되고 LJ 감사 대상 대조에만 쓴다.
+- `unknown` 문맥이면 severity 한 단계 하향.
 
 ---
 
 ## 워크플로우
 
-### Phase 0: 컨텍스트 확인
+### Phase 0: 실행 모드 결정
 
-1. `_workspace/concurrency-guard/` 존재 여부 확인
-2. 분기:
-   - **미존재** → 초기 실행. Phase 1로 진행
-   - **존재 + 특정 에이전트 재실행 요청** ("데드락만 다시") → **부분 재실행**: 해당 에이전트만 재호출, Phase 5에서 전체 리포트 재통합
-   - **존재 + 새 코드 제공** → **새 실행**: `_workspace/concurrency-guard/`를 `_workspace/concurrency-guard_{YYYYMMDD_HHMMSS}/`로 이동 후 Phase 1
+1. `latest.txt` 없음 → 초기 실행.
+2. 있으면 이전 `00_input/meta.json`을 읽고:
+   - **특정 도메인 재실행**("데드락만 다시", "락 정당화 재감사") → Phase 1로 같은 대상을 재수집해 `sha256` 비교. 동일 → 이전 run_dir 재사용, 요청 도메인만 재호출. **deadlock-analyzer를 다시 돌리면 deadlock-reviewer도 반드시 다시 돌린다**(`_r2`). 상이 → 새 실행으로 전환.
+   - 새 코드/새 대상 → 새 run_id.
+   - 재호출 실패 시 해당 도메인 "수집 실패". 옛 JSON 대체 사용 금지.
 
 ### Phase 1: 분석 대상 수집
 
-**케이스 A — 인수 없음 (현재 브랜치 diff):**
+`run_dir` 생성 후 `00_input/source.txt`·`meta.json`. Bash 도구, 상대 경로, **run_dir 안에만 쓴다**.
+
+**케이스 A — 인수 없음** (우선순위, 근거를 `meta.target`에):
 ```bash
-BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)
-git diff $BASE HEAD
+# A-1) 미커밋 .cs 변경(미추적 포함) → worktree
+if [ -n "$(git status --porcelain -- '*.cs')" ]; then
+  git diff HEAD -- '*.cs' > "$run_dir/00_input/source.txt"
+  git ls-files --others --exclude-standard -- '*.cs' | while IFS= read -r f; do git diff --no-index -- /dev/null "$f" >> "$run_dir/00_input/source.txt" || true; done
+fi
+# A-2) 깨끗 + 기본 브랜치 아님 → branch (전부 실패 시 빈 $BASE 실행 금지, 사용자에게 질문)
+for ref in main master origin/main origin/master; do BASE=$(git merge-base HEAD "$ref" 2>/dev/null) && break; done
+git diff "$BASE" HEAD -- '*.cs' > "$run_dir/00_input/source.txt"
+# A-3) BASE == HEAD → 최근 커밋 1개 → commit (리포트에 명시)
+git diff HEAD~1 HEAD -- '*.cs' > "$run_dir/00_input/source.txt"
 ```
-
-**케이스 B — 경로 지정:**
+**케이스 D — 명시 범위**: `git diff <범위> -- '*.cs'`.
+**케이스 B — 경로 지정** (파일 경계·줄번호 보존, `xargs cat` 금지):
 ```bash
-# .cs 파일들을 읽어 단일 파일로 병합
-find <path> -name "*.cs" -exec cat {} \; > combined_source.txt
+find "$path" -type f \( -name '*.cs' -o -name '*.csproj' \) -not -path '*/bin/*' -not -path '*/obj/*' -not -path '*/_workspace/*' -print0 | sort -z \
+  | while IFS= read -r -d '' f; do printf '=== FILE: %s ===\n' "$f"; cat -n "$f"; printf '\n'; done > "$run_dir/00_input/source.txt"
 ```
+`.csproj`는 SDK 종류(Web/클래스 라이브러리)와 LangVersion 확인용 — `context` 판정 근거가 된다.
+**케이스 C — PR**: `gh pr view N --json number,title,baseRefOid,headRefOid > 00_input/pr.json`, `gh pr diff N > source.txt`(경로 필터 없음, 리뷰어에게 `.cs`만 감사 지시), `git fetch origin pull/N/head`. 보충 조회는 `git show <head_sha>:<경로>`.
 
-**케이스 C — PR 번호:**
-```bash
-gh pr diff <PR번호>
-```
+**공통 마무리:** 0바이트면 중지. `lines`·`sha256` 기록, `latest.txt` 갱신. 800줄 초과 시 `index.md`(파일 | 시작 줄 | async/lock 포함 메서드). 3000줄 초과 시 범위 축소 제안, 진행 시 그룹 분할(`_g1`…) 후 리뷰어에게 전부 전달.
 
-수집 내용을 `_workspace/concurrency-guard/00_input/source.txt`에 저장한다.
-소스가 비어있으면 사용자에게 알리고 중지한다.
-
-### Phase 2: 실행 규칙
-
-**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
-- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
-- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
-- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
-- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
-- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
-
-### Phase 3: Phase A — 병렬 락 감사 (Agent 팬아웃)
-
-아래 2개를 **단일 메시지에서 동시에** 호출한다:
+### Phase 2: A단계 — 독립 병렬 락 감사 (단일 메시지에서 Agent 2회)
 
 ```
 Agent(subagent_type="lock-free-enforcer", description="Lock-free audit",
-      prompt="당신은 lock-free-enforcer입니다. 프로젝트 루트는 {project_root} 입니다.
-              lock-free-enforcement 스킬을 사용하여 _workspace/concurrency-guard/00_input/source.txt 를 감사하고
-              결과를 _workspace/concurrency-guard/02_lockfree_findings.json 에 저장하세요.
-              necessary_locks 목록은 JSON 안에 포함하세요. 완료 후 건수·점수를 한 줄로 보고하세요.")
+      prompt="당신은 동시성 가드 팀의 Lock-Free 강제자입니다. 프로젝트 루트는 현재 작업 디렉토리입니다.
+              run_dir={run_dir}, target_type={target_type}, head_sha={head_sha}.
+              lock-free-enforcement 스킬로 {run_dir}/00_input/source.txt 를 처음부터 끝까지 읽고 모든 동기화 프리미티브를 판정하세요.
+              id 는 LF-1… , 각 finding 에 context(library|app|test|entrypoint|unknown)·necessary 를 기록하세요.
+              결과를 {run_dir}/02_lockfree_findings.json 에 저장하세요. 다른 에이전트와 통신하거나 결과를 기다리지 마세요.
+              소스 수정 금지, Write 는 출력 파일에만. SendMessage 금지.
+              최종 응답 첫 줄: {\"status\":\"done\",\"output\":\"<경로>\",\"counts\":{...},\"necessary\":N,\"score\":N,\"locks_found\":true|false}")
 Agent(subagent_type="lock-justification-auditor", description="Lock justification audit",
-      prompt="당신은 lock-justification-auditor입니다. ... lock-justification-audit 스킬로 source.txt 를 감사하고
-              결과를 _workspace/concurrency-guard/02_lockjustification_findings.json 에 저장하세요. ...")
+      prompt="… lock-justification-audit 스킬로 … 모든 락 위치를 직접 탐지해(다른 에이전트의 목록을 기다리지 말고) 정당화 주석을 감사하세요.
+              id 는 LJ-1… … {run_dir}/02_lockjustification_findings.json … 최종 응답 첫 줄: {…,\"locks_found\":true|false}")
 ```
+두 최종 응답 후 **JSON 구조 검증**(필수 키 `domain, run_id, summary, findings[], counts, score, locks_found`; finding `id, severity, file, pattern, context, detail`; enum). 실패 → 1회 재호출 → "수집 실패".
 
-**필요 락 목록 공유:** lock-free-enforcer 완료 알림을 먼저 받으면 `02_lockfree_findings.json` 의
-necessary_locks 를 `SendMessage` 로 lock-justification-auditor 에게 전달한다 (아직 실행 중일 때만).
-이미 둘 다 끝났으면 Phase 5 통합 시 리더가 직접 대조한다.
+### Phase 3: B단계 — 생성-검증 (순차)
 
-```
-lock-free-enforcer  →  [necessary_locks 목록]  →  lock-justification-auditor
-      ↓                                                      ↓
-02_lockfree_findings.json                    02_lockjustification_findings.json
-```
-
-두 완료 알림을 모두 수신하면 Phase 4로 진행한다.
-
-### Phase 4: Phase B — 생성-검증 데드락 분석 (순차)
-
-**Step 1 — 분석기 호출** (lock-free-enforcer 완료 후):
+1. **analyzer**:
 ```
 Agent(subagent_type="deadlock-analyzer", description="Deadlock static analysis",
-      prompt="deadlock-static-analysis 스킬로 _workspace/concurrency-guard/00_input/source.txt 와
-              _workspace/concurrency-guard/02_lockfree_findings.json 을 분석하고 _workspace/concurrency-guard/03_deadlock_analysis.json 에 저장하세요.")
+      prompt="… deadlock-static-analysis 스킬로 {run_dir}/00_input/source.txt 를 전부 읽고(참고: {run_dir}/02_lockfree_findings.json 의 락 위치)
+              8패턴을 분석하세요. id DA-1…, context 와 is_conditional/condition 필수. 결과 {run_dir}/03_deadlock_analysis.json.
+              SendMessage 금지, 소스 수정 금지. 최종 응답 첫 줄 {…,\"async_found\":true|false}")
 ```
-
-**Step 2 — 검증자 호출** (분석기 완료 알림 후):
+2. **reviewer**(analyzer JSON 검증 후):
 ```
 Agent(subagent_type="deadlock-reviewer", description="Deadlock review",
-      prompt="deadlock-review 스킬로 _workspace/concurrency-guard/03_deadlock_analysis.json 을 독립 검증하고
-              _workspace/concurrency-guard/03_deadlock_review.json 에 저장하세요. 재분석이 필요한 항목은 needs_reanalysis 배열로 보고하세요.")
+      prompt="… deadlock-review 스킬로 {run_dir}/03_deadlock_analysis.json 을 {run_dir}/00_input/source.txt 기준으로 독립 검증하세요.
+              모든 DA-n 에 verdict(confirmed|rejected|modified)+final_severity, 누락은 DR-n 추가, final_findings 확정, fp_rate·final_score.
+              재분석이 필요하면 needs_reanalysis:true 와 reanalysis_targets:[DA-id 또는 새 패턴 설명] 을 적으세요(직접 요청 불가).
+              결과 {run_dir}/03_deadlock_review.json. SendMessage 금지.")
 ```
+3. **재분석(최대 1회)**: reviewer JSON에 `needs_reanalysis === true`이고 `reanalysis_targets`가 비어 있지 않으면 analyzer를 `reanalysis_targets`와 함께 재호출 → `03_deadlock_analysis_r2.json` → reviewer 재호출 → `03_deadlock_review_r2.json`. 2라운드 후 남은 쟁점은 `disputed`로 리포트에 승계한다.
+4. JSON 검증: reviewer `verdicts[]`(id·verdict·final_severity·reason), `additional_findings[]`, `final_findings[]`, `fp_rate`, `needs_reanalysis`(bool), `reanalysis_targets`(array), `final_score`. 실패 → 1회 재호출 → "검증 미완료".
 
-**Step 3 — 재분석 (최대 1회):** 검증 결과에 needs_reanalysis 가 있으면 deadlock-analyzer 를
-해당 항목 목록과 함께 1회 재호출하고, 이어서 deadlock-reviewer 를 1회 재호출한다.
+### Phase 4: 결과 통합 및 리포트
 
-```
-deadlock-analyzer → [분석 완료] → deadlock-reviewer
-                                        ↓
-                         [기각/수정/추가 발견]
-                                        ↓
-                    재분석 필요? → deadlock-analyzer (최대 1회)
-                                        ↓
-                         [최종 확정] → 리더 완료 알림
-```
-
-최대 2라운드(초기 분석 + 1회 재분석) 보장.
-
-### Phase 5: 결과 통합 및 리포트 생성
-
-4개 파일을 Read로 수집:
-- `_workspace/concurrency-guard/02_lockfree_findings.json`
-- `_workspace/concurrency-guard/02_lockjustification_findings.json`
-- `_workspace/concurrency-guard/03_deadlock_analysis.json`
-- `_workspace/concurrency-guard/03_deadlock_review.json`
-
-**종합 점수 계산:**
-```
-lockfree_score         (lock-free-enforcer)
-lockjustification_score (lock-justification-auditor)
-deadlock_final_score   (deadlock-reviewer의 final_score)
-
-overall = lockfree_score * 0.35
-        + lockjustification_score * 0.30
-        + deadlock_final_score * 0.35
-```
-
-**리포트 형식** (`_workspace/concurrency-guard/04_concurrency_guard_report.md`):
-
+1. **채택 파일**: 도메인별 최고 접미사. 데드락 도메인의 finding 집합은 reviewer `final_findings`(confirmed+modified+additional). reviewer 미완료면 analyzer 원본을 **미검증** 표시로 사용.
+2. **교차 대조(오케스트레이터가 수행):**
+   - LF `necessary: true` 락마다 같은 `file`의 LJ finding이 있는지 확인. 없으면 LJ가 놓친 것 → `unverified`에 "LJ 미탐지 락: LF-n"로 기록(감점 없음, 리포트 표기).
+   - LF `lock-replaceable`인데 LJ가 `[LOCK-REQUIRED]` 충족으로 본 락 → 양쪽 유지하되 리포트에 "교체 가능하나 정당화됨"으로 묶는다.
+   - 같은 위치의 `lock-order`가 LF와 DA에 모두 있으면 DA만 남기고 LF 점수 재계산.
+3. **도메인 점수 재계산(결정적):** `necessary: true` 제외
+   ```
+   score_d = max(0, 100 − 25×critical − 12×high − 5×medium − 2×low)
+   ```
+   LJ 도메인은 critical이 없다(있으면 high로 강등). 에이전트 자가 점수와 5점 이상 차이면 병기.
+4. **종합(성공 도메인 재정규화, 정수 반올림):** `overall = round(Σ w_d×score_d / Σ w_d)`, w = LF 0.35 · LJ 0.30 · 데드락 0.35. 검토 완료율 `k/3`.
+5. **분석 대상 부재:** 세 도메인 모두 `locks_found:false`·`async_found:false`면 상태 "분석 대상 없음", 판정 "해당 없음".
+6. **판정(우선순위):** ① 판정 보류 — 데드락 검증 미완료 또는 도메인 2개 이상 수집 실패 ② 해당 없음 ③ BLOCK — critical ≥ 1 또는 overall < 60 ④ REQUEST CHANGES — high ≥ 1 또는 overall < 80 또는 부분 검토 ⑤ APPROVE.
+7. `{run_dir}/04_concurrency_guard_report.md`:
 ```markdown
 # 동시성 가드 리포트
-생성: {datetime} | 대상: {target}
+**생성:** … | **run_id:** … | **대상:** {target_type} — {target} (head …) | **검토 완료율:** k/3 | **데드락 검증:** 완료(라운드 N)/미완료
 
 ## 종합 건강 점수
-| 도메인 | 점수 | Critical | High | Medium | Low |
-|--------|------|----------|------|--------|-----|
-| 🔓 Lock-Free | XX | N | N | N | N |
-| 📝 락 정당화 | XX | — | N | N | N |
-| ⚡ 데드락 위험 | XX | N | N | N | N |
-| **종합** | **XX** | **N** | **N** | **N** | **N** |
+| 도메인 | 점수 | Critical | High | Medium | Low | 상태 |
+|---|---|---|---|---|---|---|
+| 🔓 Lock-Free | XX | N | N | N | N | 성공 (necessary N건 제외) |
+| 📝 락 정당화 | XX | — | N | N | N | 성공 |
+| ⚡ 데드락 | XX | N | N | N | N | 검증 완료 (confirmed N·modified N·rejected N·추가 N, FP NN%) |
+| **종합** | **XX** | … | 재정규화 가중치 |
 
-## CRITICAL — 즉시 수정 필수
-[CRITICAL 발견사항 — 데드락 즉각 재현 가능]
-
-## HIGH — 머지 전 수정
-[HIGH 발견사항]
-
-## 락 정당화 주석 미비 목록
-[주석 없거나 불충분한 락 위치 목록]
-[각 항목에 필수 주석 템플릿 제공]
-
+## CRITICAL / HIGH  (id, pattern, 위치, context, 조건, 문제, 수정 코드)
+## 락 정당화 미비 목록 (LJ, 필수 주석 템플릿 포함)
+## 필요한 락 (LF necessary, 참고) · 교체 가능하나 정당화됨
 ## Medium / Low
-[요약]
-
-## 총평 및 판정
-APPROVE / REQUEST CHANGES / BLOCK
+## 기각된 발견 (DR rejected, 사유) · 쟁점(disputed)
+## 검증 불가 항목
+## 판정: APPROVE / REQUEST CHANGES / BLOCK / 해당 없음 / 판정 보류
 ```
 
-### Phase 6: 정리
-
-1. 별도 팀 해제 절차 없음
-2. `_workspace/concurrency-guard/` 보존
-3. 리포트 내용 출력 + 경로 안내
-
----
-
-## 데이터 흐름
-
-```
-Phase 1: source.txt 수집
-    ↓
-Phase 2: 실행 규칙 확인
-    ↓
-Phase 3: Agent 2개 동시 호출 [lock-free-enforcer] ↔ [lock-justification-auditor]
-         락 목록 공유 via SendMessage
-    ↓
-Phase 4: [deadlock-analyzer] → [deadlock-reviewer] → (재분석 가능, 1회)
-    ↓
-Phase 5: 4개 JSON 통합 → concurrency_guard_report.md
-    ↓
-Phase 6: 보고
-```
+### Phase 5: 보고
+run_dir 보존. 리포트 본문 + 경로 안내.
 
 ---
 
@@ -207,25 +182,18 @@ Phase 6: 보고
 
 | 상황 | 처리 |
 |------|------|
-| 에이전트 1개 실패 | 동일 프롬프트로 1회 재호출 → 재실패 시 해당 도메인 "수집 실패"로 표시 |
-| lock-justification-auditor가 necessary_locks 미수신 | 소스 전체에서 직접 락 탐지로 전환 |
-| deadlock-reviewer 재분석 요청 타임아웃 | 기존 분석 결과로 검증 진행 |
-| 의견 불일치 3개+ | `disputed_findings`로 기록, 리더가 사용자에게 중재 요청 |
-
----
+| source.txt 0바이트 | 중지, 대상 지정 요청 |
+| merge-base 전부 실패 | 빈 `$BASE` 금지, 사용자에게 베이스/범위 요청 |
+| 기본 브랜치·깨끗한 트리 | 최근 커밋 1개 + 리포트 명시 |
+| A단계 에이전트 실패/검증 실패 | 1회 재호출 → "수집 실패", 판정 상한 REQUEST CHANGES |
+| analyzer 실패 | 1회 재호출 → 데드락 도메인 "수집 실패", 판정 보류 |
+| reviewer 실패 | 1회 재호출 → analyzer 원본을 미검증으로 표시, 판정 보류 |
+| 재분석 2라운드 후 쟁점 잔존 | `disputed`로 승계, 판정은 확정 finding으로만 |
+| 부분 재실행인데 해시 상이 | 새 실행으로 전환 |
+| 최종 응답 미수신 | 능동 타임아웃 없음. 사용자에게 알리고 지시 시 "수집 실패" 확정 |
 
 ## 테스트 시나리오
 
-### 정상 흐름
-1. 사용자: "이 PR의 동시성 검사해줘 #23"
-2. Phase 1: `gh pr diff 23` → source.txt
-3. Phase 3: lock-free-enforcer가 `lock(_sync)` 3개 발견, 1개는 replaceable, 2개는 necessary. lock-justification-auditor에게 necessary_locks 전달.
-4. lock-justification-auditor: 2개 necessary 락 중 1개는 [LOCK-REQUIRED] 없음 → HIGH 발견
-5. Phase 4: deadlock-analyzer가 `.Result` 1개(CRITICAL), `ConfigureAwait` 누락 2개(MEDIUM) 발견
-6. deadlock-reviewer: `.Result` 발견 확인(Confirmed), ConfigureAwait 중 1개는 Main에서만 호출 → 기각(Rejected)
-7. Phase 5: 종합 리포트 생성, CRITICAL 1건 → BLOCK 판정
-
-### 에러 흐름 (deadlock-reviewer 응답 없음)
-1. Phase 4에서 deadlock-reviewer 타임아웃 (10분 초과)
-2. 리더가 기존 `03_deadlock_analysis.json`으로 직접 Phase 5 진행
-3. 리포트에 "⚠️ 데드락 검증 미완료 — 분석 결과 미검증" 명시
+**정상:** "Server/ 락 감사해줘" → 케이스 B(`=== FILE ===`) → A단계: LF `lock(_sync)` 3건(1 replaceable, 2 necessary) / LJ 3건 중 1건 `[LOCK-REQUIRED]` 없음(high) → B단계: DA `.Result`(context=library, critical conditional) 1건 + ConfigureAwait(library) 2건 → DR: `.Result` confirmed, ConfigureAwait 1건 `context=test`로 rejected → 재분석 불필요 → Phase 4: LF 92 / LJ 88 / 데드락 75 → overall 85, high 1건 → REQUEST CHANGES.
+**재분석:** DR가 `needs_reanalysis:true, reanalysis_targets:["DA-2","semaphore-release-path in Cache.cs"]` → analyzer `_r2` → reviewer `_r2` → 리포트에 라운드 2 표기.
+**에러:** reviewer JSON 검증 실패 2회 → 데드락 도메인 미검증, 판정 보류.

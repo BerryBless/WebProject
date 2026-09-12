@@ -129,7 +129,12 @@ foreach ($name in $expected) {
         if ($a -ne $b) { $bad += "$name/$rel 내용 상이" }
     }
 }
-Add-Result "6. Codex 미러 동기화 (제외: $($MirrorExcluded -join ', '))" ($bad.Count -eq 0) $bad
+# Claude 전용 에이전트(Codex 재호출·교차 검증 역할)는 .codex/agents 에도 없어야 한다 (재귀 방지)
+$codexAgentsDir = Join-Path $Root '.codex/agents'
+foreach ($n in @('codex-adapter', 'cross-planner', 'cross-reviewer', 'cross-implementer')) {
+    if (Test-Path -LiteralPath (Join-Path $codexAgentsDir "$n.toml")) { $bad += ".codex/agents/$n.toml: Claude 전용 에이전트가 Codex 측에 노출됨" }
+}
+Add-Result "6. Codex 미러 동기화 (제외: $($MirrorExcluded -join ', '); .codex/agents 재귀 검사 포함)" ($bad.Count -eq 0) $bad
 
 # ---- 7. 서명 일관성 -------------------------------------------------------------
 $bad = @()

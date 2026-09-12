@@ -1,138 +1,59 @@
 ---
 name: tdd-refactor-phase
-description: "TDD Refactor 단계: dotnet test를 실제 실행하여 Green 여부를 검증하고, 테스트 통과 시 리팩토링 포인트를 가이드하며 회귀 테스트를 수행한다. Review Gate: PASS 없이 다음 단계 진행 불가. tdd-qa 에이전트 전용 스킬."
+description: "TDD Refactor 단계: dotnet test(trx)를 실제 실행하여 Green 여부를 로케일 무관하게 판정하고, PASS 시 동작 보존 리팩토링을 제안·적용한 뒤 회귀 테스트로 확인한다. 시도별 결과를 보존하고 회귀 실패 시 롤백 절차를 수행한다. Review Gate: PASS 없이 다음 단계 진행 불가. tdd-qa 에이전트 전용 스킬."
 ---
 
 # TDD Refactor Phase Skill
 
 ## 입력 읽기
+1. `{run_dir}/TddSession.csproj` — 없으면 `error`(오케스트레이터 책임)
+2. `{run_dir}/01_analyst/Tests/*.cs`, `{run_dir}/02_builder/Src/*.cs`, 기존 `03_qa/Src/*.cs`(있으면 — 오케스트레이터가 재작업 전 비웠어야 함)
+3. attempt 번호(프롬프트)
 
-1. `_workspace/tdd/01_analyst/Tests/<FeatureName>Tests.cs` — 테스트 파일
-2. `_workspace/tdd/02_builder/Src/<FeatureName>.cs` — 구현 파일
-
-## Step 1: 프로젝트 파일 확인 및 테스트 실행 준비
-
-`_workspace/tdd/TddSession.csproj`가 존재하는지 확인한다.
-없으면 오케스트레이터에게 알린다 (Phase 1에서 생성했어야 함).
-
-## Step 2: dotnet test 실행
-
+## Step 1: 테스트 실행 (테스트 실행 계약)
 ```bash
-# 빌드 먼저
-cd "$CLAUDE_PROJECT_DIR" && dotnet build _workspace/tdd/TddSession.csproj
-
-# 테스트 실행 (상세 출력)
-dotnet test _workspace/tdd/TddSession.csproj \
-  --logger "console;verbosity=detailed" \
-  --no-build \
-  2>&1 | tee _workspace/tdd/03_qa/test_results.txt
+dotnet test "$run_dir/TddSession.csproj" --nologo --logger "trx;LogFileName=qa_attempt$N.trx" --results-directory "$run_dir/03_qa/results" > "$run_dir/03_qa/test_results_attempt$N.txt" 2>&1; echo "exit=$?" >> "$run_dir/03_qa/test_results_attempt$N.txt"
 ```
+- 종료 코드를 파일에 남긴다(`| tee`로 가리지 않는다). 시도별 파일은 덮어쓰지 않는다
+- 판정은 trx의 `<Counters total="" passed="" failed="" …>`(콘솔 `통과:/실패:/Passed:` 문자열에 의존하지 않는다)
+- 복원 실패 → `dotnet restore` 1회 후 재시도. 파일 잠금 → `dotnet build-server shutdown` 후 재시도
 
-## Step 3: 결과 분석 및 판정
+## Step 2: 판정
+| 조건 | verdict |
+|---|---|
+| 빌드 성공 · `total ≥ 1` · `failed == 0` · testhost 정상 종료 | **PASS** |
+| 빌드 실패 | FAIL — 컴파일 오류 원문을 `failed_tests`에 |
+| `failed > 0` | FAIL — 테스트명·메시지·Expected/Actual |
+| `total == 0` 또는 결과 파일 없음 | FAIL — "테스트 발견 실패/실행 오류"(PASS로 취급 금지) |
 
-### PASS 판정 기준
-```
-✅ Build: 성공
-✅ Passed: N (전체 테스트 수)
-✅ Failed: 0
-✅ Skipped: 0 (스킵된 테스트 있으면 이유 기록)
-```
+FAIL 피드백 형식(최종 응답 `failed_tests`): `{"name":"CalculatorTests.Add_TwoPositives_ReturnsSum","message":"Assert.Equal() Failure: Expected 5, Actual -1","hint":"Add 가 a-b 를 반환"}`
 
-### FAIL 판정 → builder 반환
-```
-❌ Build 실패 → 컴파일 오류 전체를 builder에게 전달
-❌ Failed > 0 → 실패 테스트명 + 오류 메시지 + 기대값 vs 실제값을 builder에게 전달
-```
+## Step 3: Refactor 제안·적용 (PASS 후에만)
+**동작 보존 변경만:** Fake Implementation 제거(테스트가 이미 강제할 때), 중복 추출, 이름 개선, 메서드 분리, 상수 추출, CLAUDE.md 주석 규칙 보완(public `<remarks>` 3항목, 선언부 근거 주석).
+**금지:** 새 기능·정책 변경(`checked(a+b)` 같은 오버플로우 정책은 새 Red 사이클 후보로만 기록), 시그니처 변경, 성능 최적화.
+적용할 파일만 `{run_dir}/03_qa/Src/<Feature>.cs`에 쓴다(파일 우선순위로 builder 파일을 덮음. 전체 스냅샷 불필요).
 
-**FAIL 피드백 형식:**
-```
-실패 테스트: Calculator_Tests.Add_TwoPositives_ReturnsSum
-오류: Assert.Equal() Failure
-  Expected: 5
-  Actual:   0
-원인 추정: Add 메서드가 항상 0을 반환함
-```
-
-## Step 4: Refactor 가이드 (PASS 후에만)
-
-### 코드 냄새 체크리스트
-
-```csharp
-// ❌ 중복 코드 → 메서드 추출
-public int AddAndDouble(int a, int b) => (a + b) * 2;
-public int AddAndTriple(int a, int b) => (a + b) * 3;
-// ✅ 리팩토링
-public int AddAndMultiply(int a, int b, int factor) => (a + b) * factor;
-
-// ❌ 매직 넘버
-if (retryCount > 3) throw new Exception();
-// ✅ 상수 추출
-private const int MaxRetryCount = 3;
-
-// ❌ Fake Implementation이 남아 있음
-public int Add(int a, int b) => 5; // ← 여러 테스트를 통과시키는 하드코딩
-// ✅ 실제 구현으로 대체 (테스트가 이미 이를 강제함)
-
-// ❌ 긴 메서드 (30줄+)
-public Result Process(Input input) { /* 50줄 */ }
-// ✅ 책임별 메서드 분리
-
-// ❌ 불명확한 변수명
-var x = users.Where(u => u.a > 18).ToList();
-// ✅
-var adultUsers = users.Where(u => u.Age > 18).ToList();
-```
-
-### 리팩토링 우선순위
-1. **Fake Implementation 제거** — 가장 먼저 (테스트가 이미 요구하면)
-2. **중복 제거** — 같은 코드가 3회 이상 반복되면
-3. **이름 개선** — 의미가 불명확한 식별자
-4. **메서드 분리** — 단일 책임 원칙 위반
-5. **상수 추출** — 매직 넘버/문자열
-
-### 리팩토링 금지 사항
-- 현재 테스트가 검증하지 않는 새 기능 추가 금지
-- 인터페이스 변경 (메서드 서명 변경) 금지
-- 성능 최적화 (아직 필요성 미증명) 금지
-
-## Step 5: 회귀 테스트
-
-리팩토링 코드를 `_workspace/tdd/03_qa/Src/`에 저장한 후:
-
+## Step 4: 회귀 테스트 + 롤백
 ```bash
-dotnet test _workspace/tdd/TddSession.csproj \
-  --logger "console;verbosity=detailed"
+dotnet test "$run_dir/TddSession.csproj" --nologo --logger "trx;LogFileName=qa_attempt${N}_regression.trx" --results-directory "$run_dir/03_qa/results" > "$run_dir/03_qa/test_results_attempt${N}_regression.txt" 2>&1; echo "exit=$?" >> …
 ```
+- 전부 통과 → 적용 확정
+- 실패 → **해당 `03_qa/Src` 파일을 삭제**하고 다시 실행해 builder 상태 PASS를 재확인. `refactor_guide.md`에 "미적용(회귀): 사유" 기록. 파일을 남겨두면 이후 모든 빌드가 깨진 코드를 보게 된다
 
-리팩토링 후에도 동일한 테스트가 모두 통과해야 한다.
-회귀 발생 시 리팩토링을 롤백하고 안전한 수준으로 재시도한다.
+## Step 5: 테스트 품질 감사 (제안만)
+AAA 구조, 독립성, 이름, 단일 검증, 매직 어설션 → `refactor_guide.md`의 "테스트 품질" 절.
 
-## refactor_guide.md 작성
-
+## refactor_guide.md (시도별 누적)
 ```markdown
-# Refactor Phase 결과
-
-## 테스트 실행 결과
-- 빌드: 성공/실패
-- 전체: N개
-- 통과: N개
-- 실패: N개
-
-## 판정: PASS / FAIL
-
-## Refactor 제안 사항
-| # | 위치 | 냄새 유형 | 제안 | 우선순위 |
-|---|------|---------|------|---------|
-| 1 | ClassName:라인 | 중복 코드 | ... | High |
-
-## 회귀 테스트 결과
-리팩토링 후 전체 N개 테스트 통과 확인.
+# Refactor Phase 결과 — Attempt N
+## 테스트 실행: 빌드 / total / passed / failed / trx 경로 / exit
+## 판정: PASS | FAIL (+ failed_tests)
+## Refactor 제안 | # | 위치 | 냄새 | 제안 | 적용 여부 |
+## 회귀 테스트: regression trx / 결과 / 롤백 목록
+## 다음 사이클 후보(동작 변경이라 미적용): …
+## 테스트 품질
 ```
 
-## 출력 저장
-
-1. 테스트 실행 결과 → `_workspace/tdd/03_qa/test_results.txt`
-2. 리팩토링 가이드 → `_workspace/tdd/03_qa/refactor_guide.md`
-3. 리팩토링 적용 코드 → `_workspace/tdd/03_qa/Src/` (선택)
-
-PASS 판정 후 오케스트레이터에게 완료 SendMessage를 전송한다.
+## 출력
+1. `{run_dir}/03_qa/results/*.trx`, `test_results_attempt*.txt`, `refactor_guide.md`, `03_qa/Src/*.cs`(변경 파일만). Write는 `03_qa/`에만
+2. 최종 응답 첫 줄 `{"status":"done|error","attempt":N,"verdict":"PASS|FAIL","build_ok":true,"total":N,"passed":N,"failed":N,"skipped":N,"failed_tests":[…],"trx":"…","refactor":{"proposed":N,"applied":[…],"reverted":[…],"regression_trx":"…","regression_passed":true}}`. SendMessage 사용 금지(FAIL은 오케스트레이터가 builder에게 전달)

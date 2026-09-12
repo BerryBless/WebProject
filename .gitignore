@@ -497,3 +497,12 @@ _workspace/*
 !_workspace/cross/**
 _workspace/cross/**/*.err
 _workspace/cross/**/*.log
+
+# 환경 변수·비밀 파일: .env 변형 전부 제외, 샘플만 허용 (Stop 훅 민감 파일 필터와 동일 기준)
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json

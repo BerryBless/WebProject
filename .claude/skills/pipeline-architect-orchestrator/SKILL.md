@@ -1,152 +1,119 @@
 ---
 name: pipeline-architect-orchestrator
-description: "System.IO.Pipelines 기반 고성능 서버 라이브러리의 IO 루프·스레드 디스패처를 감독자 패턴으로 설계하고 부하 테스트 감사까지 수행하는 오케스트레이터. 트리거: 'Pipelines 설계', 'IO 루프 구현', '디스패처 설계', 'Zero-copy 서버', 'Kestrel 패턴', '고성능 IO', 'PipeReader 설계', 'Channel 디스패처'. 후속 작업: '다시 설계', 'IO 루프 재작업', '디스패처 수정', '감사 재실행', '이전 결과 개선'."
+description: "System.IO.Pipelines 기반 고성능 서버 라이브러리의 IO 루프·스레드 디스패처를 감독자 패턴으로 설계하고, 독립 빌드 게이트와 부하 테스트 감사까지 수행하는 오케스트레이터. 트리거(설계 의도가 명시된 요청에만): 'Pipelines 설계', 'IO 루프 구현', '디스패처 설계', 'Zero-copy 서버', 'Kestrel 패턴', '고성능 IO', 'PipeReader 설계', 'Channel 디스패처'. 후속 작업: '다시 설계', 'IO 루프 재작업', '디스패처 수정', '감사 재실행', '이전 결과 개선'."
 ---
 
 # Pipeline Architect Orchestrator
 
-System.IO.Pipelines 기반 IO 루프와 Channel<T> 기반 스레드 디스패처를 감독자 패턴으로 설계·검증하는 오케스트레이터.
+System.IO.Pipelines 기반 IO 루프와 Channel<T> 기반 디스패처를 감독자 패턴으로 설계·빌드·감사하는 오케스트레이터.
 
-## 실행 모드: 감독자 패턴 (Agent 중첩 호출)
+## 실행 모드: 감독자 패턴 (Agent 중첩 호출) + 오케스트레이터 독립 검증
+
+**이 빌드에는 팀 도구가 없다.** 오케스트레이터는 `pipeline-supervisor` **1개**를 `Agent`로 호출하고, 감독자는 자신의 `Agent` 도구로 워커 2개(병렬)와 감사자 1개(순차)를 호출한다. 워커끼리는 통신하지 않는다 — **인터페이스 계약은 감독자가 먼저 확정해 파일로 넘기는 불변 입력**이며, 워커는 준수 불가 시 최종 응답에 `deviation`을 적어 반환한다(협상·대기 없음). 감독자의 한 줄 보고는 신뢰하지 않고 오케스트레이터가 산출물·빌드·감사 JSON을 **직접 재검증**한다.
 
 ```
-[오케스트레이터] → Agent(pipeline-supervisor)
-    └── [pipeline-supervisor] (감독자/리더) — 자신이 Agent 도구로 워커를 호출
-            ├── 감독: [io-loop-designer] (워커 1)
-            ├── 감독: [thread-dispatcher-designer] (워커 2)
-            └── 위임: [load-test-auditor] (검증자)
+[오케스트레이터] ─Agent→ [pipeline-supervisor]
+                            ├─ 02_interface_contract.cs 확정
+                            ├─Agent(병렬)→ io-loop-designer, thread-dispatcher-designer
+                            ├─ build/Pipeline.csproj 생성 + dotnet build (경고 0·오류 0)
+                            ├─Agent→ load-test-auditor
+                            └─ 04_pipeline_architecture.md
+[오케스트레이터] ─ 산출물 존재·빌드 재실행·감사 JSON verdict 대조 → 사용자 보고
 ```
-
-감독자가 두 워커의 설계를 동적으로 조율하고, 품질 게이트 통과 후 감사자에게 위임한다.
 
 ## 에이전트 구성
 
-| 팀원 | 에이전트 타입 | 역할 | 출력 |
-|------|-------------|------|------|
-| pipeline-supervisor | pipeline-supervisor | 감독, 조율, 통합 | `04_pipeline_architecture.md` |
-| io-loop-designer | io-loop-designer | IO 루프 설계 | `02_io_loop/IoLoop.cs` |
-| thread-dispatcher-designer | thread-dispatcher-designer | 디스패처 설계 | `02_dispatcher/ThreadDispatcher.cs` |
-| load-test-auditor | load-test-auditor | 부하 테스트 감사 | `03_load_test_audit.md` |
+| 에이전트 | 역할 | 스킬 | 출력 (run_dir 기준) |
+|---------|------|------|------|
+| pipeline-supervisor | 계약 확정·감독·빌드 게이트·통합 | 없음(에이전트 정의) | `02_interface_contract.cs`, `build/`, `04_pipeline_architecture.md`, `00_manifest.json` |
+| io-loop-designer | IO 루프 구현 | /io-loop-design | `02_io_loop/IoLoop.cs` |
+| thread-dispatcher-designer | 디스패처 구현 | /thread-dispatch-design | `02_dispatcher/ThreadDispatcher.cs` |
+| load-test-auditor | 부하 관점 감사 | /load-test-audit | `03_load_test_audit[_rN].json` + `.md` |
+
+## 작업 디렉토리
+
+```
+_workspace/pipeline/
+├── latest.txt
+└── <run_id>/                       # YYYYMMDD_HHmmss_약칭
+    ├── 00_design_brief.md
+    ├── 00_manifest.json            # brief_sha256, contract_sha256, artifacts{path: sha256}, build{ok, warnings, errors}, audit{round, verdict}, rework_count
+    ├── 02_interface_contract.cs
+    ├── 02_io_loop/IoLoop.cs
+    ├── 02_dispatcher/ThreadDispatcher.cs
+    ├── build/Pipeline.csproj       # net10.0 classlib, 위 3개 .cs 를 Compile Include
+    ├── 03_load_test_audit[_rN].json / .md
+    └── 04_pipeline_architecture.md
+```
+`_workspace/` 루트·다른 하네스 디렉토리는 건드리지 않는다. 보관 이동은 자기 디렉토리만.
+
+**build/Pipeline.csproj 템플릿:**
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>CS1591</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../02_interface_contract.cs" />
+    <Compile Include="../02_io_loop/*.cs" />
+    <Compile Include="../02_dispatcher/*.cs" />
+  </ItemGroup>
+</Project>
+```
 
 ---
 
 ## 워크플로우
 
-### Phase 0: 컨텍스트 확인
+### Phase 0: 실행 모드 결정
+1. `latest.txt` 없음 → 초기 실행.
+2. 있으면 `00_manifest.json`을 읽고:
+   - **특정 워커 재작업**("IO 루프 다시") → 같은 run_dir. 브리프·계약 해시가 같을 때만 해당 워커 재호출(감독자 경유). **재작업 후에는 빌드 게이트·감사(`_rN`)·04 문서를 반드시 다시 만든다**(옛 APPROVE가 새 코드에 붙지 않도록). 해시 상이 → 새 실행.
+   - 새 요구사항 → 새 run_id.
 
-1. `_workspace/pipeline/` 존재 여부 확인
-2. 분기:
-   - **미존재** → 초기 실행. Phase 1 진행
-   - **존재 + 특정 재작업** ("IO 루프 다시") → 부분 재실행: 해당 워커만 재할당
-   - **존재 + 새 요구사항** → 새 실행: `_workspace/pipeline/`를 `_workspace/pipeline_{YYYYMMDD_HHMMSS}/`로 이동
-
-### Phase 1: 설계 브리프 수집
-
-사용자 입력에서 다음을 파악하여 `_workspace/pipeline/00_design_brief.md`에 저장:
-
+### Phase 1: 설계 브리프
+사용자 입력으로 `00_design_brief.md` 작성. **메시지 최대 크기는 필수**(백프레셔 하드 제약의 입력). 부족하면 프로토콜·처리량·최대 크기만 질문한다.
 ```markdown
 # Pipeline 설계 브리프
-
-## 서버 요구사항
-- 프로토콜: [HTTP/WebSocket/Custom Binary/기타]
-- 예상 동시 연결: [N개]
-- 예상 처리량: [N rps / N msg/s]
-- 메시지 최대 크기: [N KB]
-
-## 성능 목표
-- 레이턴시 목표: [N ms p99]
-- 메모리 한계: [N MB per connection]
-- GC 일시정지 허용: [있음/없음]
-
-## 제약사항
-- .NET 버전: [net10.0]
-- 특이 사항: [...]
+## 서버 요구사항: 프로토콜 / 동시 연결 / 처리량(msg/s) / 메시지 최대 크기(KB, 필수) / 헤더 형식
+## 성능 목표: p99 레이턴시 / 연결당 메모리 / GC 일시정지 허용
+## 종료·오류 정책: 연결 끊김 시 잔여 프레임 처리, 서버 종료 시 drain 여부, 핸들러 예외 정책
+## 제약: net10.0, 디스패처 범위(서버 공유 / 연결별), 특이 사항
 ```
-
-브리프가 불충분하면 사용자에게 핵심 항목(프로토콜, 처리량 목표)만 질문한다.
+`brief_sha256`을 manifest에 기록.
 
 ### Phase 2: 감독자 호출
 
-**공통 실행 규칙 (이 빌드에는 TeamCreate/TaskCreate/TaskGet/TeamDelete 팀 도구가 없다):**
-- 병렬 실행이 필요한 에이전트는 **한 메시지 안에서 `Agent` 도구를 여러 번 호출**해 동시에 띄운다.
-- 각 프롬프트에 프로젝트 루트, 입력 파일, 출력 파일 경로, "완료 시 severity별 건수·점수를 한 줄로 보고"를 명시한다.
-- 완료는 **task-notification(완료 알림)** 으로 수신한다. 후속 지시가 필요하면 `SendMessage(to=<agentId>)` 로 보낸다.
-- 순차 의존 단계는 앞 단계의 완료 알림을 받은 뒤 다음 `Agent` 를 호출한다.
-- 에이전트 1개 실패 시 동일 프롬프트로 1회 재호출, 재실패 시 해당 도메인을 "수집 실패"로 표기하고 계속한다.
-
-오케스트레이터는 **감독자 1개만** 호출하고, 워커·감사자 호출은 감독자가 자신의 `Agent` 도구로 수행한다.
-
 ```
 Agent(subagent_type="pipeline-supervisor", description="Pipeline design supervision",
-      prompt="당신은 파이프라인 설계 팀의 감독자입니다. 프로젝트 루트는 {project_root} 입니다.
-              _workspace/pipeline/00_design_brief.md 를 읽고 아래 절차를 수행하세요.
-              1) 인터페이스 계약을 _workspace/pipeline/02_interface_contract.cs 에 작성
-              2) Agent 도구로 io-loop-designer 와 thread-dispatcher-designer 를 단일 메시지에서 동시에 호출
-                 (각각 io-loop-design / thread-dispatch-design 스킬 사용,
-                  산출물 _workspace/pipeline/02_io_loop/IoLoop.cs, _workspace/pipeline/02_dispatcher/ThreadDispatcher.cs)
-              3) 두 완료 알림 수신 후 품질 게이트 체크리스트로 검토, 불합격 시 해당 워커를 issues 목록과 함께 1회 재호출
-              4) Agent 도구로 load-test-auditor 를 호출 (load-test-audit 스킬, 산출물 _workspace/pipeline/03_load_test_audit.md)
-              5) BLOCK 판정이면 해당 워커 1회 재작업 후 재감사
-              6) _workspace/pipeline/04_pipeline_architecture.md 에 최종 아키텍처 문서 작성
-              완료 후 감사 판정(APPROVE/BLOCK)과 산출물 경로를 한 줄로 보고하세요.")
+      prompt="당신은 파이프라인 설계 팀의 감독자입니다. 프로젝트 루트는 현재 작업 디렉토리입니다. run_dir={run_dir}.
+              {run_dir}/00_design_brief.md 를 읽고 에이전트 정의의 절차대로:
+              1) 계약 템플릿(에이전트 정의)에 따라 {run_dir}/02_interface_contract.cs 를 확정(브리프의 최대 프레임으로 PauseWriterThreshold ≥ MaxFrame+Header 를 만족시킬 것).
+              2) 단일 메시지에서 Agent 로 io-loop-designer 와 thread-dispatcher-designer 를 동시에 호출(계약은 불변 입력, deviation 은 최종 응답으로만 수집).
+              3) 두 최종 응답 JSON 을 검증하고 deviation 이 있으면 계약 v2 로 갱신 후 두 워커를 1회 재호출(최대 1회).
+              4) {run_dir}/build/Pipeline.csproj 를 만들고 dotnet build 를 실행해 경고 0·오류 0 을 확인(실패 시 해당 워커에게 컴파일 오류 원문으로 1회 재호출).
+              5) 품질 게이트 체크리스트(CLAUDE.md 주석 규칙 포함) 통과 후 Agent 로 load-test-auditor 호출.
+              6) 감사 verdict 가 BLOCK 또는 REQUEST CHANGES 면 해당 워커 1회 재작업 → 빌드 → 재감사(_r2). 총 재작업 상한: 워커별 1회, 합계 2회.
+              7) {run_dir}/04_pipeline_architecture.md(ADR 포함) 와 00_manifest.json 작성.
+              프로젝트 소스는 수정하지 마세요. SendMessage 사용 금지. 워커에게 대기·협상을 요구하지 마세요.
+              최종 응답 첫 줄: {\"status\":\"done|failed\",\"verdict\":\"APPROVE|REQUEST CHANGES|BLOCK|null\",\"audit_file\":\"…\",\"build\":{\"ok\":true,\"warnings\":0,\"errors\":0},\"rework_count\":N,\"artifacts\":[…],\"manifest\":\"…\"}")
 ```
 
-### Phase 3: 감독자 주도 설계 실행 (감독자 내부 절차)
+### Phase 3: 오케스트레이터 독립 검증
+1. `artifacts`의 파일이 모두 존재하고 비어 있지 않은지 확인. `00_manifest.json`의 sha256과 실제 파일 해시 대조.
+2. **빌드 재실행:** `dotnet build {run_dir}/build/Pipeline.csproj -nologo -v q` → 경고 0·오류 0이 아니면 감독자 보고를 기각하고 `failed`.
+3. `03_load_test_audit[_rN].json`을 Read해 `verdict`·`counts`·`score`를 감독자 보고와 대조. 불일치 → 감사 JSON을 정본으로 채택하고 리포트에 명시.
+4. 감사 JSON 구조 검증: `verdict ∈ {APPROVE, REQUEST CHANGES, BLOCK}`, `findings[]`(id·severity·area·file·detail·fix), `inputs_complete: true`. `inputs_complete:false`면 판정 무효 → 감독자 1회 재호출.
+5. 최종 판정은 감사 JSON verdict. 미해결 BLOCK/RC가 남은 채 재작업 상한에 도달했으면 그대로 보고(APPROVE로 바꾸지 않는다).
 
-**Step 1 — 인터페이스 계약 (병렬 시작 전)**
-```
-감독자가 브리프에서 ParsedMessage 타입·파이프 용량을 결정 → _workspace/pipeline/02_interface_contract.cs 작성
-```
-
-**Step 2 — 병렬 설계 (Agent 팬아웃, 단일 메시지)**
-```
-Agent(subagent_type="io-loop-designer",          prompt="... interface_contract.cs 를 준수하여 IoLoop.cs 작성 ...")
-Agent(subagent_type="thread-dispatcher-designer", prompt="... interface_contract.cs 를 준수하여 ThreadDispatcher.cs 작성 ...")
-```
-
-**Step 3 — 품질 게이트 (각 완료 알림 수신 시)**
-```
-감독자가 산출물 파일 Read → 체크리스트 확인
-합격 → 다음 단계
-불합격 → 해당 워커를 {"action": "revision-required", "issues": [...]} 와 함께 재호출 (1회)
-```
-
-**Step 4 — 감사 위임**
-```
-두 워커 품질 게이트 통과 → Agent(subagent_type="load-test-auditor", prompt="... 두 파일 감사 → 03_load_test_audit.md")
-```
-
-**Step 5 — 통합**
-```
-감사 완료 → 감독자가 _workspace/pipeline/04_pipeline_architecture.md 작성
-```
-
-**감독자 개입 조건:**
-- 워커 완료 알림이 10분+ 없음: 현재까지 산출물로 진행, 미완료 부분은 감독자가 직접 보완
-- 재작업 요청 1회 후 미해결: 감독자가 해당 부분 직접 보완
-- BLOCK 감사 결과: 해당 워커에게 재작업 지시 (1회 한도)
-
-### Phase 4: 정리
-
-1. 별도 팀 해제 절차 없음
-2. `_workspace/pipeline/` 보존
-3. 최종 아키텍처 문서 경로 안내
-
----
-
-## 산출물 구조
-
-```
-_workspace/pipeline/
-├── 00_design_brief.md              ← 설계 요구사항
-├── 02_interface_contract.cs        ← IO 루프 ↔ 디스패처 인터페이스
-├── 02_io_loop/
-│   └── IoLoop.cs                   ← IO 루프 구현 (io-loop-designer)
-├── 02_dispatcher/
-│   └── ThreadDispatcher.cs         ← 디스패처 구현 (thread-dispatcher-designer)
-├── 03_load_test_audit.md           ← 부하 테스트 감사 결과
-└── 04_pipeline_architecture.md     ← 통합 아키텍처 문서 (감독자)
-```
+### Phase 4: 보고
+run_dir 보존. `04_pipeline_architecture.md` 요약 + 감사 판정 + 빌드 결과 + 재작업 횟수 + 경로 안내.
 
 ---
 
@@ -154,27 +121,16 @@ _workspace/pipeline/
 
 | 상황 | 처리 |
 |------|------|
-| 워커 응답 없음 | 감독자가 재지시 → 재응답 없으면 해당 파트 감독자가 직접 처리 |
-| 인터페이스 합의 실패 | 감독자가 중재안 직접 제시 |
-| BLOCK 감사 후 재작업 실패 | 감사 보고서에 미해결 BLOCK 명시하고 APPROVE 불가 판정 |
-| 설계 브리프 불충분 | 핵심 항목만 사용자에게 질문 (프로토콜, 목표 처리량) |
-
----
+| 브리프에 최대 프레임 크기 없음 | 질문 후 진행(추정 금지) |
+| 감독자 실패/JSON 없음 | 1회 재호출(프롬프트에 "기존 산출물 검사 후 미완 단계부터 재개") → 재실패 시 실패 보고 |
+| 워커 실패 | 감독자가 1회 재호출 → 재실패 시 감독자가 직접 구현하지 **않고** `failed`로 보고(미완 부분 명시) |
+| 빌드 실패 | 컴파일 오류 원문과 함께 해당 워커 1회 재호출 → 재실패 시 `failed` |
+| 감사 BLOCK/RC | 워커 1회 재작업 → 빌드 → 재감사 `_r2`. 상한 도달 시 미해결 판정 그대로 보고 |
+| 감사 입력 불완전 | 판정 무효, 감독자 1회 재호출 |
+| 오케스트레이터 재검증 불일치 | 감사 JSON·실제 빌드 결과를 정본으로. 감독자 보고는 리포트에 "불일치" 표기 |
+| 최종 응답 미수신 | 능동 타임아웃 없음. 사용자에게 알리고 지시 시 실패 확정. 미완 산출물을 감독자가 덮어쓰게 하지 않는다 |
 
 ## 테스트 시나리오
-
-### 정상 흐름
-1. 사용자: "TCP 이진 프로토콜 서버 파이프라인 설계해줘, 100k rps 목표"
-2. Phase 1: 브리프 작성 (TCP/이진/100k rps/net10.0)
-3. 인터페이스 협상: `ParsedMessage { ReadOnlySequence<byte> Payload; long ConnectionId; }`
-4. IO 루프 설계: FillPipeAsync + ReadPipeAsync + 16KB 백프레셔
-5. 디스패처 설계: BoundedChannel(capacity:1000) + 8 워커 + struct Work Item
-6. 품질 게이트: 두 설계 모두 통과
-7. 부하 감사: APPROVE (CRITICAL 0건)
-8. 아키텍처 문서 생성
-
-### 에러 흐름 (BLOCK 발견)
-1. IO 루프 초안에서 `reader.AdvanceTo` 누락 → CRITICAL
-2. 감독자가 io-loop-designer에게 재작업 지시
-3. 재작업 후 AdvanceTo 추가 → 재감사 → APPROVE
-4. 아키텍처 문서에 "초기 설계에서 AdvanceTo 누락 → 수정 완료" 기록
+**정상:** "TCP 이진 프로토콜, 100k msg/s, 최대 프레임 64KB, 서버 공유 디스패처" → 계약(`ParsedMessage` = 풀 버퍼 소유 복사본, `IMessageDispatcher.DispatchAsync`, `PauseWriterThreshold = 2×(64KB+8)`) → 두 워커 병렬 → 빌드 0/0 → 감사 APPROVE(score 100) → 04 문서.
+**BLOCK 흐름:** IO 루프 초안이 입력 부족 시 `examined = consumed`로 스핀 → 감사 CRITICAL(`examined-spin`) → io-loop-designer 재작업 → 빌드 → `_r2` APPROVE → 04 문서에 "초안 스핀 결함 → 수정" 기록.
+**실패 흐름:** 재작업 후에도 빌드 오류 → `failed`, 컴파일 오류 원문 보고.

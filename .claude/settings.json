@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pwsh -NonInteractive -File \"$env:CLAUDE_PROJECT_DIR\\scripts\\auto-commit.ps1\"",
+            "command": "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"$env:CLAUDE_PROJECT_DIR\\scripts\\auto-commit.ps1\"",
             "shell": "powershell",
             "timeout": 120,
             "statusMessage": "변경사항 자동 커밋 중...",

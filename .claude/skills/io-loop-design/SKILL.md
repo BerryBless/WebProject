@@ -1,182 +1,312 @@
 ---
 name: io-loop-design
-description: ".NET 10 고성능 서버를 위해 System.IO.Pipelines 기반 비동기 IO 루프를 설계하고 C# 코드를 작성한다. PipeReader/PipeWriter, SocketAsyncEventArgs, 백프레셔, Zero-copy 파싱을 포함한 완전한 구현을 _workspace/pipeline/02_io_loop/IoLoop.cs에 출력한다. io-loop-designer 에이전트 전용 스킬."
+description: ".NET 10 고성능 서버를 위해 System.IO.Pipelines 기반 비동기 IO 루프를 설계하고 C# 코드를 작성한다. 계약(불변)의 PipeOptions·메시지 타입을 준수해 Fill/Read 루프, 소유권 분리 메시지, 상호 취소, 오류 전파를 갖춘 컴파일되는 구현을 {run_dir}/02_io_loop/IoLoop.cs에 출력한다. io-loop-designer 에이전트 전용 스킬."
 ---
 
 # IO Loop Design Skill
 
 ## 입력 읽기
+1. `{run_dir}/00_design_brief.md` — 프로토콜, 처리량, **메시지 최대 크기**, 종료·오류 정책
+2. `{run_dir}/02_interface_contract.cs` — **불변 입력.** `ParsedMessage`(풀 버퍼 소유 복사본), `IMessageDispatcher`, `PipelineConstants`(백프레셔 상수). 없으면 작업하지 않고 `error` 보고
 
-1. `_workspace/pipeline/00_design_brief.md` — 서버 요구사항, 프로토콜 타입, 예상 처리량
-2. `_workspace/pipeline/02_interface_contract.cs` — 디스패처와의 인터페이스 (있으면 읽기)
+## 설계 규칙 (감사 체크리스트와 1:1)
+| 규칙 | 이유 |
+|---|---|
+| `PauseWriterThreshold ≥ MaxFrameSize + HeaderSize` (계약 상수 사용) | 작으면 완전한 프레임이 도착하기 전에 writer가 pause되고 reader는 consumed를 못 옮겨 **교착** |
+| 입력 부족 시 `AdvanceTo(consumed, buffer.End)` | `examined == consumed`면 파이프가 새 데이터 없음을 모르고 같은 버퍼를 즉시 재반환 → **CPU 100% 스핀** |
+| `SequenceReader<byte>`는 동기 헬퍼 안에서만 | ref struct는 await를 가로질러 보존 불가(컴파일 오류) |
+| 디스패치 전 페이로드를 풀 버퍼로 1회 복사 | `AdvanceTo`가 세그먼트를 풀에 반환하므로 파이프 슬라이스를 채널로 넘기면 **use-after-return**. 이 복사는 Zero-copy 위반이 아니라 소유권 이전이다 |
+| 링크된 CTS로 상호 취소 | `Task.WhenAll`은 상대 루프를 끝내지 않는다. 리더가 죽어도 `ReceiveAsync`는 데이터가 올 때까지 대기 |
+| `CompleteAsync(ex)`로 오류 전파, `IsCanceled` 처리 | 예외 없는 Complete는 잘린 스트림을 정상 EOF로 오인시킨다 |
+| EOF 시 잔여 부분 프레임은 프로토콜 오류 | 조용히 버리면 데이터 손상이 숨는다 |
+| `Socket.ReceiveAsync(Memory<byte>, …)` 사용 | 소켓당 `AwaitableSocketAsyncEventArgs`를 내부 캐시. 직접 SAEA 관리·`Pin` 불필요. `SetBuffer(byte*, int)` 오버로드는 **존재하지 않는다** |
+| `useSynchronizationContext: false` | 서버에는 컨텍스트가 없고 캡처 비용만 든다 |
+| CLAUDE.md: public `<remarks>` 3항목, `Pipe/PipeOptions/Memory/SequenceReader/IMemoryOwner/CTS` 선언부 근거 `//` | 프로젝트 규칙. 감사 대상 |
 
-## 핵심 구조: Fill-Read 분리 패턴
-
-System.IO.Pipelines의 핵심 패턴은 **FillPipeAsync**(소켓 → Pipe 쓰기)와 **ReadPipeAsync**(Pipe → 파싱) 분리다.
-
-```csharp
-public sealed class IoLoop : IAsyncDisposable
-{
-    private readonly PipeOptions _pipeOptions;
-
-    public IoLoop()
-    {
-        _pipeOptions = new PipeOptions(
-            // 백프레셔: writer가 16KB 이상 쌓이면 reader가 읽을 때까지 FlushAsync 대기
-            pauseWriterThreshold: 16 * 1024,
-            resumeWriterThreshold: 8 * 1024,
-            minimumSegmentSize: 4096,
-            useSynchronizationContext: false  // 고성능 서버에서 SynchronizationContext 불필요
-        );
-    }
-
-    public async Task ProcessConnectionAsync(Socket socket, CancellationToken ct)
-    {
-        var pipe = new Pipe(_pipeOptions);
-
-        // FillPipe와 ReadPipe를 병렬 실행 — 한쪽이 완료되면 다른 쪽도 종료
-        await Task.WhenAll(
-            FillPipeAsync(socket, pipe.Writer, ct),
-            ReadPipeAsync(pipe.Reader, ct)
-        );
-    }
-}
+## 백프레셔 기준 (계약이 결정, 여기서는 산출 근거)
 ```
+PauseWriterThreshold  = max(2 × (MaxFrame + Header), 프로파일 기본값)
+ResumeWriterThreshold = PauseWriterThreshold / 2
+MinimumSegmentSize    = 4KB(기본) / 8~16KB(고처리량·대형 프레임)
+```
+| 프로파일 | 기본값(프레임이 작을 때) |
+|---|---|
+| 고처리량(>100k msg/s) | 64KB / 32KB / 8KB |
+| 균형 | 16KB / 8KB / 4KB |
+| 저지연 | **min 은 여전히 2×(MaxFrame+Header)** — 4KB/2KB 같은 값은 프레임이 그보다 작을 때만 |
 
-## FillPipeAsync 구현 패턴
+## 참조 구현 (빌드 검증: net10.0, TreatWarningsAsErrors, 경고 0·오류 0 — 2026-09-13)
+계약 템플릿의 타입(`Pipeline.Contract`)과 함께 컴파일된다. 브리프에 맞게 프레임 파서(`TryParseMessage`)와 연결 식별자 전달만 조정한다.
 
 ```csharp
-private static async Task FillPipeAsync(
-    Socket socket,
-    PipeWriter writer,
-    CancellationToken ct)
+// ===== 02_interface_contract.cs (계약 템플릿 — 감독자가 확정) =====
+// 02_interface_contract.cs — IO 루프 ↔ 디스패처 계약 (감독자가 확정, 워커에게는 불변 입력)
+using System.Buffers;
+using System.IO.Pipelines;
+
+namespace Pipeline.Contract;
+
+/// <summary>IO 루프가 파싱해 디스패처로 넘기는 메시지. 파이프 버퍼와 수명이 분리된 <b>소유 복사본</b>이다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> Not Thread-safe. 생산자(IO 루프)가 만들고 소비자(워커) 1개가 처리·해제한다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 메시지당 풀 버퍼 1개(<see cref="IMemoryOwner{T}"/>)를 빌린다. 파이프 세그먼트를 참조하지
+/// 않으므로 <c>PipeReader.AdvanceTo</c> 이후에도 유효하다. <b>소유권은 소비자에게 이전</b>되며 소비자가 반드시 <see cref="Dispose"/>로 반환한다.</description></item>
+/// <item><description><b>Blocking:</b> 즉시 반환(값 타입 컨테이너).</description></item>
+/// </list>
+/// </remarks>
+public readonly struct ParsedMessage : IDisposable
 {
-    const int MinimumBufferSize = 4096;
+    // IMemoryOwner<byte>: MemoryPool<byte>.Shared(ArrayPool 기반)에서 빌린 버퍼의 소유 핸들.
+    // 파이프 세그먼트를 가리키는 ReadOnlySequence 대신 이것을 쓰는 이유는 AdvanceTo 가 세그먼트를 풀에 반환한 뒤에도
+    // 워커가 안전하게 읽어야 하기 때문이다(use-after-return 방지). Dispose 시 풀로 되돌아간다.
+    private readonly IMemoryOwner<byte> _owner;
 
-    try
+    public ParsedMessage(long connectionId, ushort messageType, IMemoryOwner<byte> owner, int length)
     {
-        while (!ct.IsCancellationRequested)
+        ConnectionId = connectionId;
+        MessageType = messageType;
+        _owner = owner;
+        Length = length;
+    }
+
+    public long ConnectionId { get; }
+    public ushort MessageType { get; }
+    public int Length { get; }
+
+    // ReadOnlyMemory<byte>: 풀 버퍼 위의 (ref, offset, length) 뷰라 슬라이스에 할당이 없고, 실제 길이만 노출해
+    // Rent 가 더 큰 버퍼를 돌려준 나머지 영역이 소비자에게 보이지 않게 한다.
+    public ReadOnlyMemory<byte> Payload => _owner.Memory.Slice(0, Length);
+
+    /// <summary>풀 버퍼를 반환한다. 소비자가 처리 완료 후 정확히 1회 호출한다.</summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Not Thread-safe. 소유자 1개만 호출.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation guaranteed. 중복 호출은 풀 오염이므로 금지.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
+    /// </list>
+    /// </remarks>
+    public void Dispose() => _owner.Dispose();
+}
+
+/// <summary>IO 루프가 파싱한 메시지를 워커에게 넘기는 단일 진입점.</summary>
+/// <remarks>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> Thread-safe. 여러 연결(IO 루프)이 동시에 호출할 수 있다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 큐 공간이 있으면 할당 0(동기 완료 ValueTask). 꽉 찼을 때만 대기자 등록 1회.
+/// 메시지 소유권은 호출 성공 시 디스패처로 이전된다(실패·취소 시 호출자가 Dispose).</description></item>
+/// <item><description><b>Blocking:</b> 비동기(Non-blocking). 채널이 꽉 차면 공간이 날 때까지 await — 이것이 백프레셔다.</description></item>
+/// </list>
+/// </remarks>
+public interface IMessageDispatcher
+{
+    ValueTask DispatchAsync(ParsedMessage message, CancellationToken ct);
+}
+
+/// <summary>브리프에서 확정한 파이프·프레이밍 상수. 두 워커가 같은 값을 쓴다.</summary>
+public static class PipelineConstants
+{
+    public const int HeaderSize = 8;                 // [int Length][ushort Type][ushort Reserved]
+    public const int MaxFrameSize = 64 * 1024;       // 브리프 "메시지 최대 크기"
+    // 하드 제약: PauseWriterThreshold ≥ MaxFrameSize + HeaderSize. 작으면 완전한 프레임이 오기 전에 writer 가 pause 되어 교착한다.
+    public const int PauseWriterThreshold = 2 * (MaxFrameSize + HeaderSize);
+    public const int ResumeWriterThreshold = PauseWriterThreshold / 2;
+    public const int MinimumSegmentSize = 4096;
+
+    // PipeOptions: useSynchronizationContext=false 로 continuation 을 스레드풀에 직접 게시(서버에는 컨텍스트가 없고 캡처 비용만 든다).
+    public static readonly PipeOptions ReceivePipeOptions = new(
+        pauseWriterThreshold: PauseWriterThreshold,
+        resumeWriterThreshold: ResumeWriterThreshold,
+        minimumSegmentSize: MinimumSegmentSize,
+        useSynchronizationContext: false);
+}
+
+// ===== 02_io_loop/IoLoop.cs =====
+// 02_io_loop/IoLoop.cs — System.IO.Pipelines 기반 수신 루프 템플릿 (io-loop-design 스킬)
+using System.Buffers;
+using System.Buffers.Binary;
+using System.IO.Pipelines;
+using System.Net.Sockets;
+using Pipeline.Contract;
+
+namespace Pipeline.Io;
+
+/// <summary>소켓 1개당 Fill(소켓→Pipe)·Read(Pipe→파싱→디스패치) 두 루프를 돌리는 수신 IO 루프.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> 인스턴스는 연결 간 공유되지만 상태가 없어 Thread-safe. 연결별 상태는 메서드 지역에만 있다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 연결당 Pipe 1개 + 링크된 CTS 1개. 수신 경로는 파이프 세그먼트 풀을 쓰므로 정상 상태 할당 0.
+/// 메시지당 풀 버퍼 1개를 빌려 디스패처로 소유권을 넘긴다.</description></item>
+/// <item><description><b>Blocking:</b> 비동기(Non-blocking). 소켓 수신·FlushAsync·ReadAsync·DispatchAsync 전부 await.</description></item>
+/// </list>
+/// </remarks>
+public sealed class IoLoop
+{
+    private readonly IMessageDispatcher _dispatcher;
+
+    public IoLoop(IMessageDispatcher dispatcher) => _dispatcher = dispatcher;
+
+    /// <summary>연결 하나를 종료(EOF·오류·취소)까지 처리한다.</summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 연결마다 1회 호출. 동일 소켓으로 동시 호출 금지.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Pipe·CTS·Task 2개(연결당 고정 비용).</description></item>
+    /// <item><description><b>Blocking:</b> 비동기. 두 루프가 모두 끝나야 반환한다.</description></item>
+    /// </list>
+    /// </remarks>
+    public async Task ProcessConnectionAsync(Socket socket, long connectionId, CancellationToken ct)
+    {
+        var pipe = new Pipe(PipelineConstants.ReceivePipeOptions);
+        // CancellationTokenSource(linked): 한쪽 루프가 오류로 끝나면 다른 루프도 깨우기 위한 연결 수명 토큰.
+        // Task.WhenAll 은 상대 루프를 종료시키지 않으므로(리더가 죽어도 ReceiveAsync 는 데이터가 올 때까지 대기) 명시적 취소가 필요하다.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        Task fill = FillPipeAsync(socket, pipe.Writer, linked);
+        Task read = ReadPipeAsync(pipe.Reader, connectionId, linked);
+        await Task.WhenAll(fill, read).ConfigureAwait(false);
+    }
+
+    private static async Task FillPipeAsync(Socket socket, PipeWriter writer, CancellationTokenSource linked)
+    {
+        CancellationToken ct = linked.Token;
+        Exception? error = null;
+        try
         {
-            // Zero-copy: 파이프 내부 버퍼를 직접 요청 (새 배열 할당 없음)
-            Memory<byte> buffer = writer.GetMemory(MinimumBufferSize);
+            while (true)
+            {
+                // GetMemory: 파이프 세그먼트 풀에서 직접 쓰기 영역을 받아 복사 없이 수신한다.
+                Memory<byte> buffer = writer.GetMemory(PipelineConstants.MinimumSegmentSize);
+                // Socket.ReceiveAsync(Memory): 소켓당 AwaitableSocketAsyncEventArgs 를 내부 캐시하므로 수신마다 SAEA 할당이 없다.
+                int bytesRead = await socket.ReceiveAsync(buffer, SocketFlags.None, ct).ConfigureAwait(false);
+                if (bytesRead == 0) break;                                   // 정상 EOF
+                writer.Advance(bytesRead);
 
-            int bytesRead = await socket
-                .ReceiveAsync(buffer, SocketFlags.None, ct)
-                .ConfigureAwait(false);
-
-            if (bytesRead == 0) break; // 연결 정상 종료
-
-            // 실제 수신된 바이트만큼 파이프 커서 전진
-            writer.Advance(bytesRead);
-
-            // 리더에게 데이터 통보 + 백프레셔 확인
-            FlushResult result = await writer.FlushAsync(ct).ConfigureAwait(false);
-
-            // 리더가 파이프를 닫았으면 (예: 애플리케이션 종료) 즉시 탈출
-            if (result.IsCompleted) break;
+                FlushResult flush = await writer.FlushAsync(ct).ConfigureAwait(false);
+                if (flush.IsCompleted || flush.IsCanceled) break;           // 리더 종료 또는 CancelPendingFlush
+            }
+        }
+        catch (OperationCanceledException) { /* 연결 수명 취소 — 정상 종료 경로 */ }
+        catch (SocketException ex) when (IsConnectionReset(ex)) { /* 상대가 끊음 — 리더에게는 EOF 로 보인다 */ }
+        catch (Exception ex) { error = ex; }
+        finally
+        {
+            // 예외를 넘겨야 리더의 ReadAsync 가 잘린 스트림을 정상 EOF 로 오인하지 않는다.
+            await writer.CompleteAsync(error).ConfigureAwait(false);
+            if (error is not null) linked.Cancel();                          // 리더도 깨운다
         }
     }
-    catch (OperationCanceledException) { /* 정상 취소 */ }
-    catch (SocketException ex) when (IsConnectionReset(ex)) { /* 클라이언트 강제 종료 */ }
-    finally
+
+    private async Task ReadPipeAsync(PipeReader reader, long connectionId, CancellationTokenSource linked)
     {
-        // ⚠ 모든 종료 경로에서 반드시 호출 — 미호출 시 ReadPipeAsync 무한 대기
-        await writer.CompleteAsync().ConfigureAwait(false);
-    }
-}
-
-private static bool IsConnectionReset(SocketException ex) =>
-    ex.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionAborted;
-```
-
-## ReadPipeAsync 구현 패턴 (Zero-copy 파싱)
-
-```csharp
-private async Task ReadPipeAsync(
-    PipeReader reader,
-    CancellationToken ct)
-{
-    try
-    {
-        while (!ct.IsCancellationRequested)
+        CancellationToken ct = linked.Token;
+        Exception? error = null;
+        try
         {
-            ReadResult result = await reader.ReadAsync(ct).ConfigureAwait(false);
-            ReadOnlySequence<byte> buffer = result.Buffer;
-
-            SequencePosition consumed = buffer.Start;
-            SequencePosition examined = buffer.End;
-
-            try
+            while (true)
             {
-                // SequenceReader로 Zero-copy 파싱 — buffer.ToArray() 절대 금지
-                var seqReader = new SequenceReader<byte>(buffer);
+                ReadResult result = await reader.ReadAsync(ct).ConfigureAwait(false);
+                ReadOnlySequence<byte> buffer = result.Buffer;
+                if (result.IsCanceled) break;                                // CancelPendingRead 로 깨어남
 
-                while (TryParseMessage(ref seqReader, out ParsedMessage? message))
+                SequencePosition consumed = buffer.Start;
+                SequencePosition examined = buffer.End;
+                bool needMore = false;
+                try
                 {
-                    // 파싱된 메시지를 디스패처로 전달
-                    await _dispatcher.DispatchAsync(message, ct).ConfigureAwait(false);
-                    consumed = seqReader.Position;
+                    // 파싱은 동기 헬퍼에서만 한다: SequenceReader<byte>(ref struct)는 await 를 가로질러 보존할 수 없다.
+                    while (TryParseMessage(buffer.Slice(consumed), connectionId, out ParsedMessage message, out SequencePosition next))
+                    {
+                        consumed = next;
+                        try
+                        {
+                            // 소유권 이전: 성공하면 워커가 Dispose, 실패·취소면 여기서 Dispose
+                            await _dispatcher.DispatchAsync(message, ct).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            message.Dispose();
+                            throw;
+                        }
+                    }
+                    needMore = true;
+                }
+                finally
+                {
+                    // 완전 소비면 examined=consumed 로 두어도 되지만, 입력 부족으로 빠져나온 경우 examined 는 반드시 buffer.End 다.
+                    // consumed 와 같은 위치를 examined 로 주면 파이프가 "새 데이터 없음"으로 보지 않아 같은 버퍼를 즉시 재반환 → CPU 100% 스핀.
+                    reader.AdvanceTo(consumed, needMore ? buffer.End : consumed);
                 }
 
-                examined = result.IsCompleted ? buffer.End : seqReader.Position;
+                if (result.IsCompleted)
+                {
+                    // writer 가 끝났는데 미완성 프레임이 남아 있으면 프로토콜 오류다(조용히 버리지 않는다).
+                    if (!buffer.Slice(consumed).IsEmpty)
+                        throw new InvalidDataException($"connection {connectionId}: truncated frame ({buffer.Slice(consumed).Length} bytes)");
+                    break;
+                }
             }
-            finally
-            {
-                // ⚠ 반드시 호출 — consumed까지 버퍼 해제, examined까지 다음에 재제공
-                reader.AdvanceTo(consumed, examined);
-            }
-
-            if (result.IsCompleted) break; // FillPipeAsync가 종료됐고 버퍼도 비었으면 종료
+        }
+        catch (OperationCanceledException) { /* 정상 취소 */ }
+        catch (Exception ex) { error = ex; }
+        finally
+        {
+            await reader.CompleteAsync(error).ConfigureAwait(false);
+            if (error is not null) linked.Cancel();                          // Fill 루프의 ReceiveAsync 를 깨운다
         }
     }
-    finally
+
+    /// <summary>프레임 하나를 파싱해 풀 버퍼로 복사한 메시지를 만든다. 입력 부족이면 false, 손상이면 예외.</summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 순수 함수. Thread-safe.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 성공 시 풀 버퍼 1개 Rent(소유권은 반환 메시지로 이전). 실패 시 0.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 즉시 반환.</description></item>
+    /// </list>
+    /// </remarks>
+    private static bool TryParseMessage(ReadOnlySequence<byte> input, long connectionId, out ParsedMessage message, out SequencePosition next)
     {
-        // ⚠ 파이프 반대쪽(writer)에게 읽기 완료 알림
-        reader.Complete();
+        message = default;
+        next = input.Start;
+        // SequenceReader<byte>: 세그먼트 경계를 넘는 정수 읽기를 복사 없이 처리하는 ref struct. 이 메서드 안에서만 살아야 한다.
+        var reader = new SequenceReader<byte>(input);
+        if (!reader.TryReadLittleEndian(out int length) || !reader.TryReadLittleEndian(out short type) || !reader.TryReadLittleEndian(out short _))
+            return false;                                                    // 헤더 부족
+        if (length < 0 || length > PipelineConstants.MaxFrameSize)
+            throw new InvalidDataException($"connection {connectionId}: invalid frame length {length}");
+        if (reader.Remaining < length)
+            return false;                                                    // 본문 부족 → examined=End 로 더 받는다
+
+        // MemoryPool<byte>.Shared: ArrayPool 기반 풀에서 length 이상 버퍼를 빌린다. 파이프 세그먼트 참조를 워커에게 넘기지 않기 위한 1회 복사.
+        IMemoryOwner<byte> owner = MemoryPool<byte>.Shared.Rent(length);
+        input.Slice(reader.Position, length).CopyTo(owner.Memory.Span);
+        reader.Advance(length);
+        message = new ParsedMessage(connectionId, unchecked((ushort)type), owner, length);
+        next = reader.Position;
+        return true;
     }
+
+    private static bool IsConnectionReset(SocketException ex) =>
+        ex.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionAborted or SocketError.OperationAborted;
 }
 ```
 
-## 백프레셔 설계 기준
-
-| 서버 유형 | PauseWriterThreshold | ResumeWriterThreshold | MinimumSegmentSize |
-|---------|---------------------|----------------------|-------------------|
-| 고처리량 (>100k rps) | 64KB | 32KB | 8KB |
-| 균형 (기본) | 16KB | 8KB | 4KB |
-| 저지연 | 4KB | 2KB | 1KB |
-| 파일 IO | 256KB | 128KB | 16KB |
-
-`useSynchronizationContext: false` — 고성능 서버에서는 항상 설정.
-
-## SocketAsyncEventArgs 재사용 패턴 (고급)
-
-소켓당 SocketAsyncEventArgs를 미리 생성하고 재사용하면 per-receive 할당을 제거한다:
-
+## AdvanceTo 요약
 ```csharp
-// PipeWriter.GetMemory로 받은 버퍼를 SAEA에 직접 연결
-Memory<byte> buffer = writer.GetMemory(minimumSize);
-MemoryHandle handle = buffer.Pin();
-saea.SetBuffer(
-    (byte*)handle.Pointer,
-    buffer.Length);  // unsafe 컨텍스트 필요 시
+// 완전 소비: consumed == examined == 파싱 끝
+reader.AdvanceTo(next, next);
+// 입력 부족: consumed 는 마지막 완전 프레임 끝, examined 는 반드시 buffer.End
+reader.AdvanceTo(consumed, buffer.End);
+// 금지: 입력 부족인데 examined == consumed → 스핀
 ```
 
-표준 사용 패턴에서는 `Socket.ReceiveAsync(Memory<byte>)` 오버로드가 내부적으로 SAEA를 풀링하므로 일반적으로 직접 관리 불필요.
+## 자체 점검 (저장 전)
+- [ ] 계약 타입·시그니처를 바꾸지 않았다(바꿔야 하면 `deviation`)
+- [ ] `examined` 규칙, 소유권 복사, 링크된 CTS, `Complete(ex)`, `IsCanceled`, EOF 잔여 프레임
+- [ ] public 멤버 `<remarks>`, 선언부 근거 주석
+- [ ] `{run_dir}/build/Pipeline.csproj`가 있으면 `dotnet build -nologo -v q`로 경고 0·오류 0 확인
 
-## AdvanceTo 올바른 사용
-
-```csharp
-// ✅ 완전한 메시지 1개 파싱 완료
-reader.AdvanceTo(consumed: afterMessage, examined: afterMessage);
-
-// ✅ 불완전한 메시지 — consumed는 이전, examined는 현재 끝
-reader.AdvanceTo(consumed: buffer.Start, examined: buffer.End);
-
-// ❌ 항상 같은 위치 전달 — 파이프 진행 없음 → 무한 루프
-reader.AdvanceTo(buffer.Start, buffer.Start);
-```
-
-## 출력 저장
-
-완성된 C# 코드를 `_workspace/pipeline/02_io_loop/IoLoop.cs`에 Write한다.
-감독자에게 완료 SendMessage를 전송한다.
+## 출력
+1. `{run_dir}/02_io_loop/IoLoop.cs`에 Write(이 디렉토리에만)
+2. 최종 응답 첫 줄 `{"status":"done|failed","output":"<경로>","deviation":[…],"build_checked":true|false,"pause_threshold":N,"max_frame":N}`. SendMessage 사용 금지(형제와 협의하지 않는다)

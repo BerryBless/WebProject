@@ -1,120 +1,147 @@
-# invoke-codex.ps1 — Codex CLI 비대화형 실호출 래퍼 (cross-verify 하네스 전용)
+# invoke-codex.ps1 — Codex CLI 비대화형 실호출 래퍼 (cross-verify·codex 스킬 공용)
 #
-# 목적: 실제 Codex CLI(codex exec)를 호출하고, "실제로 실행되었다"는 증빙(meta JSON)을 남긴다.
-#       exit code·소요 시간·출력 크기를 기록하므로, Claude 에이전트가 Codex 출력을 위조하면
-#       meta 파일 부재/불일치로 즉시 탐지된다.
+# 목적: 실제 Codex CLI(codex exec)를 호출하고 "실제로 실행되었다"는 증빙(meta JSON)을 남긴다.
 #
 # 사용:
-#   pwsh -File invoke-codex.ps1 -PromptFile <프롬프트.md> -OutFile <응답저장.md> [-TimeoutSec 600] [-Cd <작업루트>]
+#   pwsh -NoProfile -File invoke-codex.ps1 -PromptFile <프롬프트.md> -OutFile <응답저장.md> [-TimeoutSec 540] [-Cd <작업루트>] [-Sandbox read-only]
 #
 # 결과:
-#   - OutFile        : Codex의 최종 응답 (codex exec -o)
-#   - OutFile+.meta.json : { status, exit_code, duration_sec, out_bytes, started_at, cmd }
-#     status = "success" | "timeout" | "error" | "empty-output" | "quota"
-#     quota  = 사용량/토큰 한도 실패 — 오케스트레이터가 Claude 단독 폴백(저하 모드)으로 전환하는 트리거
-#   - exit code      : success=0, 그 외=1  (호출 실패는 검증 통과와 반드시 구분할 것)
+#   - OutFile             : Codex 최종 응답 (codex exec -o)
+#   - OutFile.log         : 이벤트 스트림(stdout, --json JSONL) — thread_id·토큰 사용량·오류 이벤트
+#   - OutFile.err         : stderr
+#   - OutFile.meta.json   : { status, exit_code, duration_sec, out_bytes, out_sha256, prompt_sha256, log_bytes,
+#                             thread_id, codex_version, cmd, started_at, finished_at, err_tail, sandbox, attempt_id }
+#     status = success | timeout | error | empty-output | quota
+#   - exit code           : success=0, 그 외=1
 #
-# 안전 규칙:
-#   - 샌드박스는 read-only 고정 — Codex는 검증 역할이므로 프로젝트 코드를 절대 수정하지 않는다.
-#   - 프롬프트는 stdin으로 전달(-) — 커맨드라인 길이 제한·이스케이프 문제를 회피한다.
+# 설계 규칙 (plan/harness_cross_check_0913.md cross 절 반영):
+#   - 상태는 정확히 한 번만 기록한다. 실패 경로에서 Write-Error 를 쓰지 않는다
+#     ($ErrorActionPreference='Stop' 아래에서 Write-Error 가 예외로 승격돼 catch 가 meta 를 덮어쓰는 결함 제거).
+#   - 시도마다 .log/.err 를 새로 만든다 (이전 quota 로그로 새 실패를 오분류하지 않기 위해).
+#   - quota 판별은 .err 와 .log 양쪽의 오류 줄(ERROR/error: 접두)만 본다.
+#   - 경로는 전부 절대 경로로 정규화하고 Start-Process 인자는 개별 인용한다 (공백 경로 안전).
+#   - 툴 타임아웃(600s) 안에서 끝나도록 TimeoutSec 기본 540, 최대 570 으로 제한한다.
 
 param(
     [Parameter(Mandatory = $true)][string]$PromptFile,
     [Parameter(Mandatory = $true)][string]$OutFile,
-    [int]$TimeoutSec = 600,
-    [string]$Cd = ""
+    [int]$TimeoutSec = 540,
+    [string]$Cd = "",
+    [ValidateSet('read-only', 'workspace-write')][string]$Sandbox = 'read-only'
 )
 
 $ErrorActionPreference = 'Stop'
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+if ($TimeoutSec -gt 570) { $TimeoutSec = 570 }   # PowerShell/Bash 툴 상한 600s 안에서 meta 를 쓸 여유 확보
 
-# 작업 루트 자동 인식: 이 스크립트는 <repo>/.claude/skills/cross-verify/scripts/ 에 위치하므로 4단계 상위가 저장소 루트.
-# 디렉터리 이름 변경에 영향받지 않도록 절대 경로를 하드코딩하지 않는다.
+# 작업 루트: CLAUDE_PROJECT_DIR 우선, 없으면 <repo>/.claude/skills/cross-verify/scripts 의 4단계 상위
 if (-not $Cd) {
     $Cd = if ($env:CLAUDE_PROJECT_DIR) { $env:CLAUDE_PROJECT_DIR } else { (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path }
 }
-$metaFile = "$OutFile.meta.json"
-$logFile  = "$OutFile.log"       # codex 진행 이벤트(stdout) — 디버깅용
-$errFile  = "$OutFile.err"       # stderr — 인증 오류 등 원인 판별용
-$startedAt = Get-Date
+$Cd         = [IO.Path]::GetFullPath($Cd)
+$PromptFile = [IO.Path]::GetFullPath($PromptFile)
+$OutFile    = [IO.Path]::GetFullPath($OutFile)
+$metaFile   = "$OutFile.meta.json"
+$logFile    = "$OutFile.log"
+$errFile    = "$OutFile.err"
+$startedAt  = Get-Date
+$attemptId  = [guid]::NewGuid().ToString('N').Substring(0, 12)
+$script:metaWritten = $false
 
-function Write-Meta([string]$status, [int]$exitCode) {
-    $outBytes = (Test-Path $OutFile) ? (Get-Item $OutFile).Length : 0
-    [ordered]@{
-        status       = $status
-        exit_code    = $exitCode
-        duration_sec = [math]::Round(((Get-Date) - $startedAt).TotalSeconds, 1)
-        out_file     = $OutFile
-        out_bytes    = $outBytes
-        started_at   = $startedAt.ToString('o')
-        prompt_file  = $PromptFile
-        sandbox      = 'read-only'
-    } | ConvertTo-Json | Set-Content -Path $metaFile -Encoding utf8
+function Get-Sha256([string]$Path) {
+    if (-not (Test-Path $Path -PathType Leaf)) { return $null }
+    return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
-
-# 사용량/토큰 한도 실패 판별 — err 파일 전체를 검사한다. 예외·비정상종료·빈출력 등 모든 실패 경로에서
-# 동일 기준으로 분류해, 오케스트레이터가 Claude 단독 폴백을 일관되게 판단하도록 한다.
-# 'token' 단독 매칭은 인증 토큰 오류와 혼동되므로 제외하고 한도 관련 표현만 매칭한다.
+function Get-Tail([string]$Path, [int]$N = 5) {
+    if (-not (Test-Path $Path)) { return '' }
+    return ((Get-Content $Path -Tail $N -Encoding UTF8) -join ' | ')
+}
+function Get-ThreadId {
+    if (-not (Test-Path $logFile)) { return $null }
+    foreach ($line in (Get-Content $logFile -Encoding UTF8 -TotalCount 50)) {
+        if ($line -match '"thread_id"\s*:\s*"([^"]+)"') { return $Matches[1] }
+    }
+    return $null
+}
 function Test-QuotaError {
-    if (-not (Test-Path $errFile)) { return $false }
-    $t = Get-Content $errFile -Raw
-    return [bool]($t -match "(?i)rate[ _-]?limit|usage[ _-]?limit|hit your (usage|limit)|too many requests|quota|\b429\b|insufficient[ _-]?(credits|quota)|usage cap|limit reached|purchase more credits")
+    # 오류 줄만 검사한다 (프롬프트 에코·정상 문장 속 'limit' 오탐 방지)
+    $lines = @()
+    foreach ($f in @($errFile, $logFile)) { if (Test-Path $f) { $lines += Get-Content $f -Tail 40 -Encoding UTF8 } }
+    foreach ($l in $lines) {
+        if ($l -match '(?i)(ERROR|error"?\s*:|"type"\s*:\s*"error")' -and
+            $l -match "(?i)rate[ _-]?limit|usage[ _-]?limit|hit your (usage|limit)|too many requests|quota|\b429\b|insufficient[ _-]?(credits|quota)|usage cap|limit reached|purchase more credits") { return $true }
+    }
+    return $false
+}
+function Write-Meta([string]$status, [int]$exitCode, [string[]]$cmd) {
+    if ($script:metaWritten) { return }          # 상태는 한 번만 확정
+    $script:metaWritten = $true
+    [ordered]@{
+        status        = $status
+        exit_code     = $exitCode
+        duration_sec  = [math]::Round(((Get-Date) - $startedAt).TotalSeconds, 1)
+        out_file      = $OutFile
+        out_bytes     = (Test-Path $OutFile) ? (Get-Item $OutFile).Length : 0
+        out_sha256    = Get-Sha256 $OutFile
+        prompt_file   = $PromptFile
+        prompt_sha256 = Get-Sha256 $PromptFile
+        log_file      = $logFile
+        log_bytes     = (Test-Path $logFile) ? (Get-Item $logFile).Length : 0
+        thread_id     = Get-ThreadId
+        codex_version = $script:codexVersion
+        cmd           = $cmd
+        cd            = $Cd
+        sandbox       = $Sandbox
+        attempt_id    = $attemptId
+        started_at    = $startedAt.ToString('o')
+        finished_at   = (Get-Date).ToString('o')
+        err_tail      = Get-Tail $errFile 5
+    } | ConvertTo-Json -Depth 4 | Set-Content -Path $metaFile -Encoding utf8NoBOM
+}
+function Fail([string]$status, [int]$exitCode, [string[]]$cmd, [string]$message) {
+    Write-Meta $status $exitCode $cmd
+    [Console]::Error.WriteLine("invoke-codex: [$status] $message")
+    exit 1
 }
 
-if (-not (Test-Path $PromptFile)) { Write-Meta 'error' -1; Write-Error "프롬프트 파일 없음: $PromptFile"; exit 1 }
+if (-not (Test-Path $PromptFile)) { Fail 'error' -1 @() "프롬프트 파일 없음: $PromptFile" }
 
-# codex.cmd: npm 전역 셰이 — CreateProcess가 .cmd를 %COMSPEC% 경유로 실행하므로 리다이렉트와 함께 직접 기동 가능
 $codex = (Get-Command codex.cmd -ErrorAction SilentlyContinue) ?? (Get-Command codex -CommandType Application -ErrorAction SilentlyContinue)
-if (-not $codex) { Write-Meta 'error' -1; Write-Error "codex CLI를 PATH에서 찾을 수 없음 — npm install -g @openai/codex"; exit 1 }
+if (-not $codex) { Fail 'error' -1 @() "codex CLI 를 PATH 에서 찾을 수 없음 — npm install -g @openai/codex" }
+try { $script:codexVersion = ((& $codex.Source --version 2>$null) -join '').Trim() } catch { $script:codexVersion = $null }
 
-# 이전 출력 잔재 제거: 오래된 응답이 이번 호출 결과로 오인되는 것을 방지
-Remove-Item -Path $OutFile, $metaFile -ErrorAction SilentlyContinue
+# 시도별 산출물 초기화 (이전 실행 잔재로 인한 오판 방지)
+Remove-Item -Path $OutFile, $metaFile, $logFile, $errFile -ErrorAction SilentlyContinue
 
-$args = @(
-    'exec',
-    '-s', 'read-only',        # 검증 역할 — 쓰기 금지 샌드박스 고정
-    '-C', $Cd,                 # AGENTS.md·코드를 읽을 프로젝트 루트
-    '--color', 'never',        # 로그 파일에 ANSI 코드 미포함
-    '-o', $OutFile,            # 최종 응답만 파일로 분리 수집
-    '-'                        # 프롬프트를 stdin에서 읽음
-)
+$cmdArgs = @('exec', '-s', $Sandbox, '-C', $Cd, '--color', 'never', '--json', '-o', $OutFile, '-')
+# Start-Process -ArgumentList 는 배열 요소를 인용하지 않으므로 공백 포함 인자를 직접 인용한다
+$quoted = $cmdArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }
 
 try {
-    $proc = Start-Process -FilePath $codex.Source -ArgumentList $args `
-        -RedirectStandardInput $PromptFile `
-        -RedirectStandardOutput $logFile `
-        -RedirectStandardError $errFile `
+    $proc = Start-Process -FilePath $codex.Source -ArgumentList $quoted -WorkingDirectory $Cd `
+        -RedirectStandardInput $PromptFile -RedirectStandardOutput $logFile -RedirectStandardError $errFile `
         -NoNewWindow -PassThru
 
     if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
-        $proc.Kill($true)   # 자식 프로세스 트리까지 종료
-        Write-Meta 'timeout' -1
-        Write-Error "Codex 호출 타임아웃 (${TimeoutSec}s) — 검증 통과 아님"
-        exit 1
+        try { $proc.Kill($true) } catch { }
+        Fail 'timeout' -1 $cmdArgs "Codex 호출 타임아웃 (${TimeoutSec}s) — 검증 통과 아님"
     }
+    $code = $proc.ExitCode
+    $isQuota = Test-QuotaError
 
-    $isQuota = Test-QuotaError   # 한도 실패는 exit code가 정상이든 아니든 err 텍스트로 판별
-
-    if ($proc.ExitCode -ne 0) {
-        Write-Meta ($isQuota ? 'quota' : 'error') $proc.ExitCode
-        $errTail = (Test-Path $errFile) ? (((Get-Content $errFile -Raw) -split "`n" | Select-Object -Last 5) -join ' | ') : ''
-        Write-Error "Codex 호출 실패 ($($isQuota ? '토큰/사용량 한도' : 'error'), exit $($proc.ExitCode)): $errTail"
-        exit 1
+    if ($code -ne 0) {
+        Fail ($isQuota ? 'quota' : 'error') $code $cmdArgs "Codex 호출 실패 ($($isQuota ? '토큰/사용량 한도' : 'error'), exit $code): $(Get-Tail $errFile 5)"
     }
-
     if (-not (Test-Path $OutFile) -or (Get-Item $OutFile).Length -eq 0) {
-        # exit 0이어도 한도 메시지가 err에 있으면 quota로 분류 (일부 실패는 0으로 종료하고 출력만 비움)
-        Write-Meta ($isQuota ? 'quota' : 'empty-output') $proc.ExitCode
-        Write-Error "Codex가 응답 파일을 생성하지 않음$($isQuota ? ' (토큰/사용량 한도)' : '') — 검증 통과 아님"
-        exit 1
+        Fail ($isQuota ? 'quota' : 'empty-output') $code $cmdArgs "Codex 가 응답 파일을 생성하지 않음$($isQuota ? ' (토큰/사용량 한도)' : '')"
     }
 
-    Write-Meta 'success' $proc.ExitCode
-    Write-Output "OK: $OutFile ($((Get-Item $OutFile).Length) bytes, $([math]::Round(((Get-Date)-$startedAt).TotalSeconds,1))s)"
+    Write-Meta 'success' $code $cmdArgs
+    Write-Output "OK: $OutFile ($((Get-Item $OutFile).Length) bytes, $([math]::Round(((Get-Date)-$startedAt).TotalSeconds,1))s, thread=$(Get-ThreadId))"
     exit 0
 }
 catch {
-    # 예외 경로에서도 한도 여부를 판별해 quota를 놓치지 않는다 (Start-Process/WaitForExit 예외 포함).
-    Write-Meta ((Test-QuotaError) ? 'quota' : 'error') -1
-    Write-Error "Codex 호출 예외: $($_.Exception.Message)"
+    if (-not $script:metaWritten) { Write-Meta ((Test-QuotaError) ? 'quota' : 'error') -1 $cmdArgs }
+    [Console]::Error.WriteLine("invoke-codex: [exception] $($_.Exception.Message)")
     exit 1
 }

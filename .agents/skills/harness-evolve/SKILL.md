@@ -1,117 +1,61 @@
 ---
 name: harness-evolve
-description: "TDD 사이클 완료 후 초기 요구사항 명세와 최종 구현 코드 사이의 델타(진화)를 포착한다. 요구사항 명세 vs 테스트 설계 vs 최소 구현 vs 리팩토링 후 코드의 변화를 추적하고, TDD 사이클에서 발견된 암묵적 요구사항과 설계 결정을 기록한다. 모든 TDD 하네스 실행 종료 시 자동 실행되며 /harness-evolve로 수동 호출도 가능."
+description: "TDD 사이클 완료 후 초기 요구사항 명세와 최종 구현 코드 사이의 델타(진화)를 포착한다. manifest·요구사항 버전·테스트 설계·구현 노트·시도별 trx 를 근거로 요구사항 명확화, 암묵적 요구사항, 구현 궤적, 거부된 설계, 커버리지 갭을 기록한다. 증거 없는 항목은 '확인 불가'로 표시한다. tdd-orchestrator 가 Phase 4에서 직접 실행하며 /harness-evolve 로 수동 호출도 가능."
 ---
 
 # Harness Evolve Skill
 
-TDD 사이클의 진화 궤적을 포착하여 초기 명세와 최종 코드 사이의 갭을 분석한다.
+TDD 사이클의 진화 궤적을 포착해 초기 명세와 최종 코드 사이의 갭을 분석한다. 오케스트레이터(메인 세션)가 직접 실행한다 — 별도 에이전트·SendMessage 없음.
 
-## 입력 읽기 (모두 Read)
-
+## 입력 읽기 (`run_dir`은 `_workspace/tdd/latest.txt` 또는 인수)
 ```
-_workspace/tdd/00_requirements.md          ← 초기 요구사항 (T=0)
-_workspace/tdd/01_analyst/test_design.md   ← Red 단계 설계 근거
-_workspace/tdd/01_analyst/Tests/           ← 설계된 테스트 집합
-_workspace/tdd/02_builder/build_notes.md   ← Green 단계 구현 결정
-_workspace/tdd/02_builder/Src/             ← 최소 구현
-_workspace/tdd/03_qa/refactor_guide.md     ← Refactor 결정
-_workspace/tdd/03_qa/Src/ (있으면)         ← 리팩토링 후 최종 코드
-_workspace/tdd/03_qa/test_results.txt      ← 최종 테스트 결과
+{run_dir}/00_manifest.json                 ← 시도 횟수·판정·채택 trx (Green 시도 수의 유일한 근거)
+{run_dir}/00_requirements.md, 00_requirements_c*.md   ← 요구사항 버전들 (T=0 은 첫 파일)
+{run_dir}/01_analyst/test_design.md, Tests/, results/red_attempt*.trx
+{run_dir}/02_builder/build_notes.md (시도별 누적), Src/
+{run_dir}/03_qa/refactor_guide.md (시도별 누적), Src/ (있으면), results/qa_attempt*.trx, *_regression.trx
 ```
+**최종 테스트 결과**는 manifest `final_results`가 가리키는 trx(리팩토링이 있었으면 `_regression.trx`)다. 리팩토링 전 로그를 최종으로 쓰지 않는다.
+**최종 소스**는 `03_qa/Src`(우선) + `02_builder/Src`(나머지) — csproj 파일 우선순위와 동일.
 
-## 델타 포착 5개 차원
+## 델타 5차원
 
-### Δ1: 요구사항 명확화 델타
-초기 요구사항에서 모호했던 부분이 TDD 과정에서 어떻게 구체화됐는지.
+### Δ1 요구사항 명확화
+| 초기 요구사항 | 구체화된 요구사항 | 발견 단계 | 근거 파일 |
 
-```markdown
-## 요구사항 명확화
-| 초기 요구사항 | 구체화된 요구사항 | 발견 단계 |
-|-------------|----------------|---------|
-| "숫자를 더한다" | "int 범위 내 두 정수의 합을 반환한다" | Red (테스트 설계) |
-| "잘못된 입력 처리" | "null 입력 시 ArgumentNullException, 0 나눗셈 시 DivideByZeroException" | Red |
-```
+### Δ2 발견된 암묵적 요구사항
+| 발견 | 단계 | 테스트 이름 | 처리 | 근거 |
 
-### Δ2: 발견된 암묵적 요구사항
-초기 명세에 없었지만 TDD 과정에서 발견된 요구사항.
+### Δ3 구현 진화 궤적 (동작 보존 리팩토링만 Refactor 행에)
+| 단계 | 구현 | 변화 이유 |
+| Red | 스텁 | 컴파일용 |
+| Green (Fake) | `return 5` | 단일 테스트 |
+| Green (일반화) | `return a + b` | 삼각측량 |
+| Refactor | `const int MaxRetry = 3` 추출 / 메서드 분리 | 동작 보존 |
+`checked(a + b)` 같은 정책 변경은 Refactor가 아니라 "다음 사이클 후보"에 적는다.
 
-```markdown
-## 발견된 암묵적 요구사항
-| 발견 사항 | 발견 단계 | 테스트 이름 | 처리 |
-|---------|---------|-----------|-----|
-| 빈 문자열 입력 처리 필요 | Red | Parse_EmptyString_ThrowsArgEx | 테스트 추가 |
-| 음수 입력 허용 여부 | Green | (발견 후 analyst에게 질문) | 명세 보완 |
-```
+### Δ4 거부된 설계
+| 항목 | 이유 | 단계 | 근거(build_notes/refactor_guide) |
 
-### Δ3: 구현 진화 궤적
-코드가 어떻게 발전했는지 (Fake → 실제 → 리팩토링).
-
-```markdown
-## 구현 진화 궤적
-| 단계 | 구현 방식 | 변화 이유 |
-|------|---------|---------|
-| Red | 스텁 (NotImplementedException) | 테스트 컴파일용 |
-| Green (Fake) | `return 5` | 단일 테스트 통과 |
-| Green (일반화) | `return a + b` | 복수 테스트 삼각측량 |
-| Refactor | `return checked(a + b)` | 오버플로우 테스트 추가 |
-```
-
-### Δ4: 거부된 설계
-TDD 과정에서 검토됐지만 명시적으로 거부된 구현.
-
-```markdown
-## 거부된 설계
-| 거부 항목 | 거부 이유 | 단계 |
-|---------|---------|-----|
-| 결과 캐싱 | 현재 테스트 불필요 | Green |
-| ICalculator 인터페이스 | YAGNI — 요구 없음 | Refactor |
-| 오버플로우 체크 | 요구사항에 명시 없음 | Green |
-```
-
-### Δ5: 테스트 커버리지 갭
-최종 코드에서 테스트로 커버되지 않는 경로.
-
-```markdown
-## 테스트 커버리지 갭
+### Δ5 테스트 커버리지 갭
 | 미커버 경로 | 위치 | 권장 조치 |
-|-----------|------|---------|
-| int.MaxValue + 1 오버플로우 | Add 메서드 | 다음 TDD 사이클에서 추가 |
-| 네거티브 나눗셈 | Divide | 요구사항 명세 확인 필요 |
-```
 
-## 진화 요약 생성
+## 증거 규율
+- Green 시도 횟수·QA 판정·회귀 결과는 **manifest와 trx**에서만 가져온다. 없으면 "확인 불가"
+- 요구사항 버전이 여러 개면 사이클별로 Δ1·Δ2를 나눈다
 
+## 리포트 (`{run_dir}/04_evolution/evolution_report.md`)
 ```markdown
 # TDD 진화 리포트
-생성: {datetime}  |  기능: {feature name}
-
-## TDD 사이클 요약
-- Red: N개 테스트 설계 (Happy: N, Edge: N, Error: N)
-- Green: N회 시도 (재작업: N회)
-- Refactor: N개 개선 포인트 (적용: N개)
-
-## 핵심 진화 포인트
-1. {가장 중요한 발견}
-2. {두 번째 중요한 발견}
-3. ...
-
-## 초기 명세 충실도
-- 명세 요구사항 N개 중 N개 구현 완료 (N%)
-- 발견된 암묵적 요구사항: N개
-- 다음 사이클 추천 항목: N개
-
-## 최종 테스트 현황
-- 전체: N개 통과 / N개 설계
-- 회귀: 없음 / N개 (상세: ...)
-
-## 다음 TDD 사이클 추천
-| 기능/케이스 | 근거 | 우선순위 |
-|-----------|------|---------|
-| ... | ... | High |
+생성: {datetime} | run_id | 기능(사이클 목록)
+## 사이클 요약
+- Red: N개 테스트 (Happy/Edge/Error), Red 증빙 trx
+- Green: 시도 N회 (재작업 N회) — manifest 근거
+- Refactor: 제안 N / 적용 N / 롤백 N — regression trx
+## 핵심 진화 포인트 (상위 3)
+## 초기 명세 충실도: 요구 N개 중 N개 구현 / 암묵 요구 N개 / open_questions 잔존 N개
+## 최종 테스트 현황: total/passed/failed (final_results trx) / 회귀 없음|N개
+## 다음 TDD 사이클 추천 | 기능/케이스 | 근거 | 우선순위 |
+## 확인 불가 항목
 ```
-
-## 출력 저장
-
-`_workspace/tdd/04_evolution/evolution_report.md`에 Write한다.
-오케스트레이터에게 `{"status": "done", "evolution_report": "...", "next_cycle_items": [...]}` 전달.
+저장 후 오케스트레이터(현재 세션)가 Phase 5 보고에 요약을 포함한다.

@@ -6,7 +6,7 @@
 
 - Codex 실행 증빙: 1차(09-12 22:30, 5개 병렬)는 전부 사용량 한도로 실패(각 ~85k 토큰 소모 후 `usage limit`). 2차(09-13 01:04~01:22, 순차)에서 5개 모두 exit 0, 출력 10~16KB.
 - 프롬프트: 스크래치패드 `codex_{harness}_prompt.txt`(공통 런타임 사실 + 하네스별 파일 목록·도메인 검증 항목). 이 문서는 두 결과의 합집합이며, 표의 C/X 열은 Claude/Codex 발견 여부다.
-- **이 문서는 점검 결과다. 수정은 아직 적용하지 않았다.**
+- 점검 결과와 이후 적용한 수정(6절)을 함께 기록한다.
 
 ## 2. 공통 결함 (5개 하네스 전부 또는 대부분)
 
@@ -158,6 +158,14 @@
 4. **파이프라인** — 컴파일 게이트(검증 csproj + `dotnet build`), 판정 계약 통일, 템플릿의 스핀 루프·소유권·박싱·존재하지 않는 API 교정.
 5. **TDD** — csproj 파일 단위 덮어쓰기, 네임스페이스 템플릿, Red 증빙, 결과 로그 누적, 승격 절차.
 
-## 6. 변경 파일
+## 6. 수정 적용 결과 (2026-09-13, 권장 순서대로 전부 적용)
 
-없음(점검만 수행). Codex 원문은 스크래치패드 `codex_{concurrency,pipeline,tdd,git,cross}_out.md`, Claude 원문은 서브에이전트 최종 응답(이 문서에 통합).
+| 순서 | 하네스 | 핵심 수정 | 검증 |
+|---|---|---|---|
+| 1 | Git 자동 커밋 | `auto-commit.ps1` 재작성(메시지 파일 선소비·실패 보존, 센티널 `.git/harness_commit_in_progress`, 잠금 디렉터리, 파일별 민감 필터 + 내용 스캔, 50MB 가드, 종료 코드·push 실패 노출, 항상 exit 0), 스킬 run_dir·해시 resume·질문 최소화·push-only, 에이전트 PASS/WARN/FAIL·`-F`·amend 금지·needs_confirmation, security-patterns 정본화, `.gitignore` `.env.*`, settings 훅 옵션, toml 잡종 서명·경로 교정 | 정규식 단위 테스트, 임시 저장소 종단 테스트 7건(T1~T7) 모두 의도대로 |
+| 2 | cross-verify / codex | `invoke-codex.ps1` 재작성(상태 1회 확정, Write-Error 제거, `--json`으로 thread_id·해시·cmd 기록, 시도별 로그, quota 오류줄 한정, 경로 절대화·인자 인용, TimeoutSec≤570), 오케스트레이터 meta 재검증·독립성 `.log` 검사, 센티널·기준 커밋 시점·diff `_workspace/**` 제외·신규 파일 본문·`33_diff`·manifest·최고 접미사·VERDICT 토큰, 에이전트 tools 명시, `.codex/agents`에서 Claude 전용 4종 제거 + 감사 항목 추가, codex 스킬 stdin 호출·review 옵션·thread_id 재개 | 래퍼 실호출 성공(6초, thread_id·out_sha256 기록) |
+| 3 | 동시성 가드 | run_dir·해시(analyzer 재실행 시 reviewer 재실행), 루트 `combined_source.txt` 제거, 독립 병렬 + 오케스트레이터 대조, `needs_reanalysis` 계약 통일, 공통 스키마·context·necessary, 중앙 점수·판정, tools 명시, .NET 오답 교정(ASP.NET Core 컨텍스트, lock{await} 컴파일 오류, ConfigureAwait 구조 판정, Allman 정규식, System.Threading.Lock, SemaphoreSlim(1,1), thread-safe≠Lock-Free, bool CAS, ABA) | 하네스 감사 PASS |
+| 4 | 파이프라인 | run_dir·manifest, 계약 불변 입력·deviation, 독립 빌드 게이트 + 오케스트레이터 재검증, 판정 단일 정본, 감사 입력 완전성, 재작업 상한, tools 명시, 템플릿 교정(examined 스핀, SequenceReader await, 소유 복사본, struct WorkItem 박싱, SetBuffer(byte*)·FullMode.Drop 미존재, 상호 취소, Complete(ex), 서버 범위 TryComplete, PauseWriterThreshold≥MaxFrame+Header) | 템플릿 3종 net10.0 `TreatWarningsAsErrors` 빌드 경고 0·오류 0 |
+| 5 | TDD | run_dir·manifest, 파일 단위 우선순위 csproj, 네임스페이스 계약, trx 판정·시도 보존, Red 증빙, 재작업 무효화·회귀 롤백, 승격 절차, tools 명시, 예시 오류 교정, 패키지 버전 정렬 | csproj msbuild 평가(qa A.cs 채택·analyst B.cs 스텁 유지) + dotnet test 실측(1 통과·1 실패) |
+
+부수 정리: `_workspace/` 루트의 0911 스모크 고아 산출물을 `_workspace/legacy_20260911/`로 이동(미추적), CLAUDE.md 작업 디렉토리 규칙에 cross 예외 명시, 미착수 항목은 PreToolUse 쓰기 범위 훅뿐.

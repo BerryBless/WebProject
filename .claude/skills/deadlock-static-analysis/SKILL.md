@@ -1,179 +1,84 @@
 ---
 name: deadlock-static-analysis
-description: ".NET 10 async/await 코드에서 데드락 발생 가능한 모든 패턴(동기 블로킹, lock+await, SemaphoreSlim 누수, ConfigureAwait 누락, 락 순서 불일치 등)을 정적 분석으로 탐지하고 상세 보고서를 작성한다. deadlock-analyzer 에이전트가 사용하는 전용 스킬."
+description: ".NET 10 async/await 코드에서 데드락·스레드풀 기아·해제 누락 가능성이 있는 패턴(동기 블로킹, Monitor/Lock 보유 중 await, SemaphoreSlim 해제 경로, 락 순서, ConfigureAwait, async void, 취소 정책, Channel 완료)을 문맥(library/app/test/entrypoint)별 조건부 위험으로 정적 분석한다. deadlock-analyzer 에이전트 전용 스킬."
 ---
 
 # Deadlock Static Analysis Skill
 
 ## 입력 읽기
+1. `{run_dir}/00_input/meta.json` → `run_id`, `target_type`, `head_sha`
+2. `{run_dir}/00_input/source.txt` **전체** Read(분할 허용). `{run_dir}/02_lockfree_findings.json`이 있으면 락 위치 참고(없어도 진행)
+3. 재분석 호출이면 프롬프트의 `reanalysis_targets`를 먼저 처리하고 `reanalysis_response[]`에 기록
 
-1. `_workspace/concurrency-guard/00_input/source.txt` — 분석 대상 소스
-2. `_workspace/concurrency-guard/02_lockfree_findings.json` — 락 위치 참조 (있으면 읽기)
+## 문맥(context) 판정 — 심각도의 전제
+| context | 판단 근거 | 의미 |
+|---|---|---|
+| `library` | 클래스 라이브러리 SDK, public/internal API, 호출자 미상 | 호출자가 SynchronizationContext·제한 스케줄러를 쓸 수 있음 → 동기 블로킹은 **critical(conditional)** |
+| `app` | `Microsoft.NET.Sdk.Web`, 엔드포인트·미들웨어·호스티드 서비스 | **ASP.NET Core에는 SynchronizationContext가 없다.** 동기 블로킹은 데드락이 아니라 **스레드풀 기아**(부하 시 정지) → high |
+| `entrypoint` | `static Main`, `app.Run()`, 콘솔 부트스트랩 | 컨텍스트 없음 → 제외(정보성) |
+| `test` | `*Tests*` 프로젝트, xUnit/NUnit 어트리뷰트 | 제외 또는 low |
+| `unknown` | 판단 불가 | 한 단계 하향 + `unverified` |
 
 ## 8대 탐지 패턴
 
-### Pattern 1: 동기 블로킹 (CRITICAL)
-
+### Pattern 1: `sync-blocking`
+수신자가 `Task`/`ValueTask`인 `.Result`, `.Wait(…)`, `.GetAwaiter().GetResult()`만 대상이다. `IdentityResult.Result`, `Monitor.Wait`, `SemaphoreSlim.Wait`, `ManualResetEventSlim.Wait`는 해당 없음(수신자 타입을 선언·시그니처로 확인).
+- `library` → critical, `is_conditional: true`, `condition: "호출자가 SynchronizationContext(UI/레거시 ASP.NET) 또는 제한 스케줄러에서 호출"`
+- `app` → high (`scenario`에 "요청 급증 시 스레드풀 고갈로 전체 지연", 데드락이라고 쓰지 않음)
+- `entrypoint`/`test` → 제외 또는 low
+- **컨텍스트가 없어도** 락 순환·제한 스케줄러(`ConcurrentExclusiveSchedulerPair` 등)로 교착할 수 있으므로 그런 정황이 보이면 conditional 유지
 ```csharp
-// 탐지 대상
-\.Result\b
-\.Wait\(\)
-\.Wait\(\d              // Wait(timeout) 포함
-GetAwaiter\(\)\.GetResult\(\)
+// library, critical(conditional)
+public Data Get() => _http.GetStringAsync(url).Result;
+// 수정: 진정한 async 또는 별도 동기 API. ConfigureAwait(false)는 라이브러리 내부 await 에 적용
+public async Task<Data> GetAsync(CancellationToken ct) => Parse(await _http.GetStringAsync(url, ct).ConfigureAwait(false));
 ```
 
-**분석 방법:**
-- 해당 호출이 async 메서드 내부 또는 async 콜 체인에서 호출되는지 확인
-- 순수 콘솔 앱/Worker Service의 `static void Main`에서 호출이면 SynchronizationContext 없으므로 conditional risk
-- 라이브러리 코드(public API)에서 호출이면 unconditional risk (호출자가 GUI/ASP.NET일 수 있음)
+### Pattern 2: `monitor-await`
+- 직접 `lock (x) { await … }`는 **컴파일 오류(CS1996)** 다. 데드락으로 보고하지 말고 `pattern: "compile-error"` 정보성으로 기록.
+- 실제 대상: `Monitor.Enter` + `try { await } finally { Monitor.Exit }`, `using (_lock.EnterScope()) { await }`(System.Threading.Lock도 스레드 친화적). 문제는 "continuation이 **다른 스레드**에서 재개되어 `Exit`이 `SynchronizationLockException`을 던지거나 락을 쥔 채 대기하는 것"이다(continuation이 이동 못 한다는 설명은 오답).
+- 수정: `SemaphoreSlim(1,1)` + `WaitAsync` + try/finally.
 
-```csharp
-// CRITICAL 예시
-public async Task<Data> GetDataAsync()
-{
-    return _http.GetStringAsync(url).Result; // 데드락 위험
-}
+### Pattern 3: `semaphore-release-path`
+줄 간격이 아니라 **경로**를 추적한다: 취득(`await WaitAsync(…)` 또는 `Wait(…)`) 뒤 정상 return·예외·취소·조기 return·루프 break 각각에서 Release가 정확히 1회인가.
+- `WaitAsync(timeout)`/`Wait(timeout)`이 `false`를 반환했는데 Release하는 것도 결함(카운트 초과 → `SemaphoreFullException`)
+- try/finally의 **존재**가 안전의 증거가 아니다(취득이 try 안에 있으면 취득 실패에도 Release). 소유권 이전(다른 메서드가 Release 책임)이 명시되면 정상
 
-// 수정
-public async Task<Data> GetDataAsync()
-{
-    return await _http.GetStringAsync(url).ConfigureAwait(false);
-}
-```
+### Pattern 4: `lock-order`
+같은 실행 경로에서 프리미티브를 **중첩 보유**한 순서만 본다(순차 취득·해제는 해당 없음). A→B와 B→A가 동시에 실행 가능한 경로에 존재하면 high. Init 단계 전용 경로와 Runtime 전용 경로처럼 동시 실행 불가면 conditional.
 
-### Pattern 2: lock 내부 await (CRITICAL)
+### Pattern 5: `configure-await` (library만, medium)
+정규식이 아니라 **구조**로 판정한다: `await <식>` 의 식 끝에 `.ConfigureAwait(` 가 없는가. `await using`/`await foreach`는 `ConfigureAwait`가 다른 위치에 붙는다(누락 판정 시 그 위치 확인). `Task.WhenAll/WhenAny`도 `.ConfigureAwait(false)` 적용 가능하므로 예외가 아니다.
+- `app`/`test`/`entrypoint` 문맥은 **보고하지 않는다**(SynchronizationContext 없음). 접근성(public/internal)만으로 library를 판단하지 않는다.
+- 누락은 교착의 증거가 아니라 라이브러리 관례 위반이다(medium, 데드락 시나리오 요구 없음).
 
-```csharp
-// 탐지: lock 블록 내 await
-lock\s*\([^)]+\)\s*\{[^}]*\bawait\b
-// 또는 Monitor + try + await 조합
-Monitor\.Enter.*\n.*try.*\n.*await
-```
+### Pattern 6: `async-void` (medium)
+`async\s+void\s+\w+\s*\(` — 이벤트 핸들러 시그니처(`object? sender, …EventArgs`)와 `async void` 람다 이벤트 구독은 제외하되, 그 안에 try/catch가 없으면 low로 "미처리 예외 시 프로세스 종료" 기록.
 
-C# 컴파일러가 `lock` 블록 안 `await`를 허용하지 않으므로, `Monitor.Enter` + `try/finally` + `await` 패턴으로 우회한 경우를 탐지한다.
+### Pattern 7: `cancellation-policy` (medium, 데드락 아님)
+public async 메서드가 `CancellationToken`을 받지 않거나 내부 호출에 전달하지 않음. **무한 대기의 증명이 아니다.** 탈출 경로(타임아웃·완료 보장)가 전혀 없을 때만 high.
 
-```csharp
-// CRITICAL: Monitor로 우회한 lock+await
-Monitor.Enter(_syncRoot);
-try
-{
-    var data = await FetchAsync(); // continuation이 다른 스레드 → Monitor 소유 스레드와 불일치
-    _cache = data;
-}
-finally { Monitor.Exit(_syncRoot); }
+### Pattern 8: `channel-complete` (low)
+`Channel.Create*` 후 `Writer.Complete()/TryComplete()` 호출이 종료 경로에 없음. 소비자가 `ReadAllAsync(ct)`로 취소 가능하면 low, 취소 토큰도 없으면 medium. 소유자(연결별/서버별)를 명시.
 
-// 수정: SemaphoreSlim(1,1)로 교체
-await _semaphore.WaitAsync().ConfigureAwait(false);
-try { var data = await FetchAsync().ConfigureAwait(false); _cache = data; }
-finally { _semaphore.Release(); }
-```
+### 추가: `lock-api-mix` (critical)
+같은 상태를 어떤 경로는 `Monitor`/`lock(object)`, 다른 경로는 `System.Threading.Lock`으로 보호 → 상호배제가 성립하지 않음.
 
-### Pattern 3: SemaphoreSlim 해제 경로 누락 (HIGH)
+## 심각도 요약 (context 반영 후)
+| 심각도 | 패턴 |
+|---|---|
+| critical | library `sync-blocking`(conditional), `monitor-await`, `lock-api-mix` |
+| high | app `sync-blocking`(기아), `semaphore-release-path`(반복 경로), `lock-order`(동시 실행 가능) |
+| medium | library `configure-await`, `async-void`, `cancellation-policy`, 예외 경로 1곳 Release 누락 |
+| low | `channel-complete`(취소 가능), 정보성 |
 
-```csharp
-// 탐지: WaitAsync 후 try/finally 없는 Release
-await\s+\w+\.WaitAsync\(
-// 위 패턴 다음에 try { ... } finally { ... Release() } 구조 없음
-```
+## 재현 시나리오 (finding마다)
+1. 트리거 조건 2. 대기 지점과 호출 스택 3. 탈출 불가(또는 기아) 이유. conditional이면 조건이 성립하는 구체적 호출자 예.
 
-**분석:** WaitAsync 호출 후 5~20줄 내에 `try {` + `finally { ... .Release() }` 구조가 없으면 보고.
+## 점수
+`score = max(0, 100 − 25c − 12h − 5m − 2l)`(참고용). 확정은 reviewer `final_findings`로 오케스트레이터가 계산.
 
-```csharp
-// HIGH: finally 없음
-await _semaphore.WaitAsync();
-var result = await ProcessAsync(); // 예외 시 Release 미호출
-_semaphore.Release();
-
-// 수정
-await _semaphore.WaitAsync().ConfigureAwait(false);
-try
-{
-    var result = await ProcessAsync().ConfigureAwait(false);
-}
-finally
-{
-    _semaphore.Release();
-}
-```
-
-### Pattern 4: 복수 SemaphoreSlim 취득 순서 불일치 (HIGH)
-
-동일 메서드 또는 직접 호출 체인에서 두 개 이상의 SemaphoreSlim(또는 lock)을 취득하는 패턴을 찾는다.
-
-**분석:**
-- 메서드 A: `semA` → `semB` 순서로 취득
-- 메서드 B: `semB` → `semA` 순서로 취득
-- 두 패턴이 모두 존재하면 교착 가능 → HIGH
-
-### Pattern 5: ConfigureAwait(false) 누락 (MEDIUM)
-
-라이브러리 코드(public/internal 메서드)에서 `await` 뒤에 `.ConfigureAwait(false)` 없는 경우.
-
-```csharp
-// 탐지: await expr; (ConfigureAwait 없음)
-await [^(ConfigureAwait][^\n]+;
-```
-
-예외: `await using`, `await foreach`, `Task.WhenAll/Any` 직접 사용 — 이 경우 ConfigureAwait 위치가 다름.
-
-```csharp
-// MEDIUM: 라이브러리 코드
-public async Task<T> GetAsync<T>(string url)
-{
-    var response = await _http.GetAsync(url); // ConfigureAwait(false) 누락
-    return await response.Content.ReadFromJsonAsync<T>();
-}
-```
-
-### Pattern 6: async void (MEDIUM)
-
-```csharp
-async\s+void\s+\w+\s*\(
-// 이벤트 핸들러 시그니처 제외: (object sender, EventArgs e) 또는 (object? sender, ...)
-```
-
-이벤트 핸들러(`EventHandler` 시그니처)의 `async void`는 허용. 나머지는 MEDIUM.
-
-### Pattern 7: CancellationToken 미전파 (MEDIUM)
-
-public async 메서드가 `CancellationToken` 파라미터를 받지 않거나, 받아도 내부 async 호출에 전달하지 않는 패턴.
-
-```csharp
-// MEDIUM: Token 누락
-public async Task ProcessAsync()  // CancellationToken 파라미터 없음
-{
-    await Task.Delay(10000);  // 취소 불가
-}
-
-// 수정
-public async Task ProcessAsync(CancellationToken cancellationToken = default)
-{
-    await Task.Delay(10000, cancellationToken).ConfigureAwait(false);
-}
-```
-
-### Pattern 8: Channel 완료 미처리 (LOW)
-
-`Channel.CreateUnbounded/Bounded` 생성 후 `Writer.Complete()` 또는 `Writer.TryComplete()` 호출이 없는 경우.
-`ReadAllAsync()` 사용 시 Complete 없으면 영구 대기.
-
-## 위험도 점수 기준
-
-| 위험도 | 패턴 |
-|--------|------|
-| **CRITICAL** | 즉시 데드락 재현 가능 (Pattern 1, 2) |
-| **HIGH** | 특정 타이밍/예외 조건에서 교착 (Pattern 3, 4) |
-| **MEDIUM** | 호출 환경에 따라 교착 가능 (Pattern 5, 6, 7) |
-| **LOW** | 잠재적 무한 대기 (Pattern 8) |
-
-## 재현 시나리오 작성 가이드
-
-각 발견사항마다 아래를 포함한다:
-1. **트리거 조건**: 어떤 상황(요청 패턴, 예외 발생 등)에서 데드락이 촉발되는가
-2. **호출 스택**: 어디서 블로킹이 시작되고 어디서 기다리는가
-3. **탈출 불가 이유**: 왜 두 스레드/작업이 서로를 영구히 기다리는가
-
-## 출력 저장
-
-완성된 JSON을 `_workspace/concurrency-guard/03_deadlock_analysis.json`에 Write한다.
-`deadlock-reviewer`에게 SendMessage로 검증 요청을 전송한다.
+## 출력
+1. 공통 finding 스키마(id `DA-n`, `context`, `is_conditional/condition`, `scenario`, `fix_code`에 CLAUDE.md 근거 주석)로 `{run_dir}/03_deadlock_analysis[_r2].json`에 Write. Write는 이 파일에만
+2. 패턴 없음 → `async_found:false`, `findings:[]`, score 100
+3. 최종 응답 첫 줄 `{"status":"done","output":"<경로>","iteration":N,"counts":{...},"score":N,"async_found":true|false}`. SendMessage 사용 금지(reviewer에게 직접 요청하지 않는다)
