@@ -144,7 +144,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 2026-06-09 | 보안 가드 감사 | security-reviewer | 해킹·DDoS 공격 표면 점검 (리포트 plan/security_audit_0609.md) |
 | 2026-09-11 | TeamCreate 의존 제거, Agent 팬아웃 방식으로 재작성, 리뷰어 tools 제한 | code-review-orchestrator·reviewer 4종 | 하네스 전수조사: 이 빌드에 팀 도구가 없어 실행 불가 |
 | 2026-09-12 | 전용 run_dir(`_workspace/code-review/<run_id>/`) 격리, 팀 시대 프로토콜(SendMessage·claim) 제거, 기본 브랜치 빈 diff 폴백, 원본 diff 보존, 결정적 점수 산식·재정규화·판정 우선순위, JSON 구조 검증, 트리거 축소, 스킬 체크리스트 오류 교정 | code-review-orchestrator·reviewer 4종·review 스킬 4종·.codex/agents toml | Claude↔Codex 교차 검토(plan/code_review_harness_fix_0912.md) 16건 |
-| 2026-09-13 | 쓰기 범위 훅 도입: `scripts/hooks/guard-write-scope.ps1`(PreToolUse, deny JSON), 감사·리뷰 에이전트 24종 프론트매터 `hooks:` + settings.json `-Mode map`(agent_type 판별), 감사 항목 8 추가 | guard-write-scope.ps1·에이전트 24종·settings.json·harness-audit.ps1 | plan/harness_cross_check_0913.md 미착수 항목 해소. 프론트매터 훅은 세션 시작 시 읽혀(CLI 문자열 확인) 이번 세션 프로브에서 미발동 — 재시작 후 검증 필요 |
+| 2026-09-13 | 쓰기 범위 훅 도입: `scripts/hooks/guard-write-scope.ps1`(PreToolUse, deny JSON), 감사·리뷰 에이전트 24종 프론트매터 `hooks:` + settings.json `-Mode map`(agent_type 판별), 감사 항목 8 추가 | guard-write-scope.ps1·에이전트 24종·settings.json·harness-audit.ps1 | plan/harness_cross_check_0913.md 미착수 항목 해소. 프론트매터 훅은 세션 시작 시 읽혀(CLI 문자열 확인) 이번 세션 프로브에서 미발동 → 재시작 후 프로브로 차단 동작 확인(소스·타 하네스 경로 거부, 자기 run_dir 허용) |
 
 ---
 
