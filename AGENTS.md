@@ -67,6 +67,7 @@ plan/<기능명>_<MMDD>.md
 |------|------|------|
 | plan/harness_audit_0911.md | 2026-09-11 | 하네스 전수조사 결과(F1~F13), 수정 내역, 오케스트레이터 5종 실행 검증, 재감사 스크립트 |
 | plan/code_review_harness_fix_0912.md | 2026-09-12 | 종합 코드 리뷰 하네스 Claude↔Codex 교차 검토 결과 16건, 설계 결정(run_dir 격리·점수 산식·판정 순서), 변경 파일, 실전 검증(96점 APPROVE), 후속 과제 처리(전 하네스 _workspace 격리) |
+| plan/gc_guard_harness_fix_0912.md | 2026-09-12 | GC 가드 하네스 Claude↔Codex 교차 점검 20건, 설계 결정(독립 병렬+피어 정본, 공통 finding 스키마, 점수·판정), .NET 기술 오답 교정 목록, 변경 파일, 검증 |
 
 ---
 
@@ -166,6 +167,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 |------|----------|------|------|
 | 2026-06-02 | 초기 구성 | 전체 | .NET 10 서버 GC 억제 메모리 최적화 하네스 구축 |
 | 2026-09-12 | 산출물 경로를 `_workspace/gc-guard/` 하위로 격리, 새 실행 시 자기 디렉토리만 보관 이동 | gc-guard-orchestrator·전용 스킬 3종·에이전트 3종 | 모든 하네스가 `_workspace/` 루트를 공유해 산출물 파일명이 충돌하고 Phase 0 전체 이동이 타 하네스 산출물을 파괴(code-review 하네스 교차 검토에서 확인) |
+| 2026-09-12 | Codex 교차 점검 결과 반영: 전용 run_dir·해시 기반 부분 재실행(피어 리뷰 필수 재실행), 형제 간 SendMessage·claim 제거, pooling-enforcer tools 명시, 경로 모드 파일 헤더·줄번호 보존, 공통 finding 스키마(id·hot_path 3등급·necessary), modified 포함 중앙 점수 재계산·판정 우선순위·"분석 대상 없음" 상태, .NET 기술 오답 교정(캡처 없는 람다 캐싱, Count() 무할당, string.Format 박싱 전 버전, Split 동치, ArrayPool 풀 미스·소유권, stackalloc 조건, Task.FromResult 캐시, C# 13 Span·params span), fix_code에 CLAUDE.md 주석 규칙 | gc-guard-orchestrator·에이전트 3종·스킬 3종·.codex/agents toml | Claude↔Codex 교차 점검 20건(plan/gc_guard_harness_fix_0912.md) |
 
 ---
 
