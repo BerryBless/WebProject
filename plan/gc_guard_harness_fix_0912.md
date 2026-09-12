@@ -93,9 +93,19 @@ pwsh scripts/harness-audit.ps1
 ```
 실전 실행: `WebProject.Api/` 경로 모드 — 결과는 8절.
 
-## 8. 실전 검증 결과
+## 8. 실전 검증 결과 (2026-09-13, run_id 20260912_220820)
 
-(실행 후 기입)
+`WebProject.Api/` 경로 모드로 3-에이전트 전체 실행. 리포트 `_workspace/gc-guard/20260912_220820/04_gc_guard_report.md`.
+
+| 항목 | 결과 |
+|------|------|
+| A단계 | scanner 88(HA-1..5, hot path confirmed) / enforcer 100(PE-1 necessary), 형제 통신 없이 독립 완료, 재시도 0 |
+| 피어 리뷰 | verdict 6건: confirmed 2 · modified 2 · rejected 1(HA-5 초기화 경로) · 병합 1(HA-4→PE-1), 추가 FN 0, fp_rate 0.17 |
+| fix_code 검증 | HA-2 원안의 가변 `public static string[]`·XML 주석 누락 지적(CLAUDE.md 규칙), PE-1 원안의 `DateTime.Now` 호이스팅이 동작 변경임을 지적 → 두 건 모두 `modified`로 보정본 제시 |
+| 점수 | 피어 final_score 88 = 오케스트레이터 재계산 88, 판정 **APPROVE** |
+| 특이 | 피어 리뷰어가 JSON 저장 직후 API 세션 한도(429)로 최종 응답 없이 종료. JSON 구조 검증을 통과해 "집계의 단일 근거는 파일" 규칙으로 정상 통합됨 |
+
+확인된 하네스 동작: 공통 finding 스키마와 id 참조, `hot_path` 3등급(HA-5의 `confirmed`/`is_hot_path:false` 상충을 피어가 잡아냄), `necessary` 감점 제외, 동일 위치 병합, `modified` 감점 포함, 동작 보존·주석 규칙 검증. 코드 관점 결론은 코드 리뷰 하네스와 동일한 지점(`Program.cs:22-35` 핸들러)을 가리키며, static 람다 + `Summaries` 정적 노출 리팩토링 하나로 medium 2건이 해소된다.
 
 ## 9. 향후 확장 포인트
 
