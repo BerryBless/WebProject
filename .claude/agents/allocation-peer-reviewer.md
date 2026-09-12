@@ -2,6 +2,13 @@
 name: allocation-peer-reviewer
 description: "heap-allocation-scanner와 pooling-enforcer의 GC 억제 분석 보고서를 독립 교차 검증하는 에이전트. False positive 제거, False negative 보완, 수정 코드 스니펫의 동작 보존·안전성 검증, ArrayPool 소유권 경로 독립 추적을 수행하고 최종 finding 집합을 확정한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/gc-guard/"
+          timeout: 20
 ---
 
 # Allocation Peer Reviewer

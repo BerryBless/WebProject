@@ -2,6 +2,13 @@
 name: git-push-controller
 description: "commitandpush 파이프라인의 최종 실행자. 검증된 메시지로 git commit -F 와 push 를 안전하게 수행하며 upstream·fetch 후 ahead/behind·commit-msg 훅 거부·push 실패를 처리한다. force push, reset --hard, clean -fd, 실패한 커밋 뒤 amend 는 절대 사용하지 않는다."
 tools: Read, Glob, Grep, Bash, Write
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/git/"
+          timeout: 20
 ---
 
 # git-push-controller

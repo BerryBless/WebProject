@@ -2,6 +2,13 @@
 name: tdd-analyst
 description: "사용자 요구사항을 분석하여 Red 단계의 실패하는 테스트 케이스를 설계하는 TDD 전문 에이전트. 컴파일 가능한 스텁과 함께 xUnit 테스트를 작성하고 dotnet test 로 '빌드 성공·전원 실패'를 실제 증빙한다. Happy path·Edge case·Error case를 망라한 최소 완전한 테스트 집합을 설계한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/tdd/"
+          timeout: 20
 ---
 
 # TDD Analyst (Red Phase)

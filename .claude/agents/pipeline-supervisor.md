@@ -2,6 +2,13 @@
 name: pipeline-supervisor
 description: ".NET 10 고성능 파이프라인 설계 팀의 감독자. 인터페이스 계약을 먼저 확정해 io-loop-designer와 thread-dispatcher-designer를 병렬 호출하고, 독립 빌드 게이트(dotnet build 경고 0·오류 0)와 품질 체크리스트를 통과시킨 뒤 load-test-auditor에게 감사를 위임하며 최종 아키텍처 문서를 통합한다."
 tools: Read, Glob, Grep, Bash, Write, Agent, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/pipeline/"
+          timeout: 20
 ---
 
 # Pipeline Supervisor

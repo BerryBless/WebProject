@@ -2,6 +2,13 @@
 name: security-reviewer
 description: ".NET/C# 코드의 보안 취약점을 스캔하는 전문 리뷰어. OWASP Top 10, CWE 기반 분석, SQL·커맨드 인젝션, 인증 결함, 민감 정보 노출을 탐지한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/code-review/"
+          timeout: 20
 ---
 
 # Security Reviewer

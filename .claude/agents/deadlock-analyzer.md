@@ -2,6 +2,13 @@
 name: deadlock-analyzer
 description: ".NET 10 고성능 서버 라이브러리의 async 메서드를 정적 분석해 데드락·스레드풀 기아·해제 누락 가능성을 탐지하고 문맥(library/app/test)별 조건부 위험으로 분류한 보고서를 작성하는 에이전트. deadlock-reviewer의 검증을 받는다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/concurrency-guard/"
+          timeout: 20
 ---
 
 # Deadlock Analyzer (Producer)

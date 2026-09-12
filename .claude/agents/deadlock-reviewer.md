@@ -2,6 +2,13 @@
 name: deadlock-reviewer
 description: "deadlock-analyzer가 생성한 정적 분석 보고서를 독립 검증하는 에이전트. False positive 기각, False negative 보완, 심각도 조정을 거쳐 최종 finding 집합과 점수를 확정하고, 필요 시 재분석 대상을 JSON으로 표시한다. 생성-검증 패턴의 Reviewer 역할."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/concurrency-guard/"
+          timeout: 20
 ---
 
 # Deadlock Reviewer

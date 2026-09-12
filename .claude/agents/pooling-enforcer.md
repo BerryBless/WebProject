@@ -2,6 +2,13 @@
 name: pooling-enforcer
 description: ".NET 10 서버 라이브러리 hot path에서 ValueTask, ReadOnlySpan<T>, ArrayPool<T>.Shared 등 현업 검증된 GC 억제 기법의 사용을 강제하는 에이전트. 잘못된 Task 반환, Substring 복사, 미풀링 버퍼, ArrayPool 소유권 위반을 탐지하고 동작을 보존하는 교체 코드를 제시한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/gc-guard/"
+          timeout: 20
 ---
 
 # Pooling Enforcer

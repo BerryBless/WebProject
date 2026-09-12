@@ -2,6 +2,13 @@
 name: architecture-reviewer
 description: ".NET/C# 코드의 아키텍처 품질을 감사하는 전문 리뷰어. SOLID 원칙 위반, 레이어 경계 침범, 결합도·응집도 문제, 설계 패턴 오용을 탐지한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/code-review/"
+          timeout: 20
 ---
 
 # Architecture Reviewer

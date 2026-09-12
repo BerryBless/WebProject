@@ -2,6 +2,13 @@
 name: tdd-qa
 description: "tdd-builder의 구현을 dotnet test(trx)로 실제 검증하여 Green 여부를 판정하고, PASS 시 리팩토링을 가이드·적용하며 회귀 테스트를 수행하는 TDD QA 에이전트. Review Gate: PASS 판정 없이는 다음 단계로 진행 불가. 시도별 결과 파일을 보존한다."
 tools: Read, Glob, Grep, Bash, Write, Edit, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/tdd/"
+          timeout: 20
 ---
 
 # TDD QA (Refactor Phase / Review Gate)

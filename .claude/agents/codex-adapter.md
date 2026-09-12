@@ -3,6 +3,13 @@ name: codex-adapter
 description: "교차 검증 하네스의 Codex CLI 호출 어댑터. 단계별 프롬프트를 조립해 invoke-codex.ps1로 실제 Codex를 비대화형 호출하고, meta JSON(status·thread_id·out_sha256)으로 실행 증빙을 검증한다. Codex 출력을 대필·요약 왜곡하는 것은 절대 금지."
 model: opus
 tools: Read, Glob, Grep, Bash, Write
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/cross/"
+          timeout: 20
 ---
 
 # Codex Adapter (Codex 호출 어댑터)

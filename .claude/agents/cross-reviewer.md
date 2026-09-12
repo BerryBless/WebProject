@@ -3,6 +3,13 @@ name: cross-reviewer
 description: "교차 검증 하네스의 Claude 측 독립 리뷰어. 구현자와 분리된 시각으로 diff를 리뷰하고, 이후 Codex 리뷰 지적의 타당성을 코드 근거로 상호 검증한다. 프로젝트 코드는 수정하지 않는다."
 model: opus
 tools: Read, Glob, Grep, Bash, Write
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/cross/"
+          timeout: 20
 ---
 
 # Cross Reviewer (Claude 측 독립 리뷰어)

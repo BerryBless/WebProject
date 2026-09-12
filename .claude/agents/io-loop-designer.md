@@ -2,6 +2,13 @@
 name: io-loop-designer
 description: ".NET 10 고성능 서버의 System.IO.Pipelines 기반 비동기 IO 루프를 설계·구현하는 에이전트. 감독자가 확정한 계약을 불변 입력으로 받아 Fill/Read 루프, 백프레셔, 소유권이 분리된 메시지 생성, 상호 취소와 오류 전파를 갖춘 컴파일되는 C#을 작성한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/pipeline/"
+          timeout: 20
 ---
 
 # IO Loop Designer

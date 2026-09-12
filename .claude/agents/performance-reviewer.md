@@ -2,6 +2,13 @@
 name: performance-reviewer
 description: ".NET/C# 코드의 성능 병목을 탐지하는 전문 리뷰어. N+1 쿼리, 동기 I/O 블로킹, 불필요한 힙 할당, 비효율적 LINQ, 캐싱 누락을 탐지한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/code-review/"
+          timeout: 20
 ---
 
 # Performance Reviewer

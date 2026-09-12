@@ -13,6 +13,7 @@
     5. 이 빌드에 없는 팀 도구(TeamCreate/TaskCreate/TaskGet/TeamDelete) 참조 없음
     6. Codex 미러 = .claude/skills − {cross-verify, codex}, 공통 파일 내용 동일(commitandpush 서명 줄 예외)
     7. Co-Authored-By 서명 일관성 (.claude 측 = Claude, .agents 측 = Codex)
+    8. 쓰기 범위 훅: guard-write-scope.ps1 AgentMap 과 감사·리뷰 에이전트 프론트매터 PreToolUse 훅 일치, settings.json map 모드 훅 존재
   결과: 항목별 PASS/FAIL 표. FAIL이 하나라도 있으면 exit 1.
 
 .EXAMPLE
@@ -148,6 +149,31 @@ foreach ($h in $codexSig) { $bad += "미러 측 비표준 서명 $($h.Filename):
 $mixed = Get-ChildItem -LiteralPath $MirrorDir -Recurse -File -Filter '*.md' | Select-String -Pattern 'Codex .*<noreply@anthropic\.com>'
 foreach ($h in $mixed) { $bad += "잡종 서명 $($h.Filename):$($h.LineNumber)" }
 Add-Result "7. Co-Authored-By 서명 일관성" ($bad.Count -eq 0) $bad
+
+# ---- 8. 쓰기 범위 훅 (감사·리뷰 전용 에이전트) ---------------------------------------
+# guard-write-scope.ps1 의 $AgentMap 과 에이전트 프론트매터 훅이 일치해야 한다. 구현 역할(cross-implementer)은 훅이 없어야 한다.
+$bad = @()
+$guard = Join-Path $Root 'scripts/hooks/guard-write-scope.ps1'
+if (-not (Test-Path -LiteralPath $guard)) { $bad += 'scripts/hooks/guard-write-scope.ps1 없음' }
+else {
+    $guardText = Get-Content -LiteralPath $guard -Raw
+    $map = @{}
+    foreach ($m in [regex]::Matches($guardText, "'([a-z][a-z0-9-]+)'\s*=\s*'(_workspace/[a-z-]+/)'")) { $map[$m.Groups[1].Value] = $m.Groups[2].Value }
+    foreach ($f in $agentFiles) {
+        $text = Get-Content -LiteralPath $f.FullName -Raw
+        $end = $text.IndexOf("`n---", 3); $fmText = if ($end -gt 0) { $text.Substring(0, $end) } else { '' }
+        $hookMatch = [regex]::Match($fmText, 'guard-write-scope\.ps1 -Allow (\S+)')
+        if ($map.ContainsKey($f.BaseName)) {
+            if (-not $hookMatch.Success) { $bad += "$($f.Name): 프론트매터 쓰기 범위 훅 없음(기대 $($map[$f.BaseName]))" }
+            elseif ($hookMatch.Groups[1].Value.Trim('"') -ne $map[$f.BaseName]) { $bad += "$($f.Name): 훅 접두사 $($hookMatch.Groups[1].Value) != AgentMap $($map[$f.BaseName])" }
+            if ($fmText -notmatch '(?m)^hooks:\s*$' -or $fmText -notmatch '(?m)^\s+PreToolUse:\s*$') { $bad += "$($f.Name): hooks/PreToolUse 키 구조 오류" }
+        } elseif ($hookMatch.Success) { $bad += "$($f.Name): AgentMap 에 없는데 훅 선언됨" }
+    }
+    foreach ($n in $map.Keys) { if ($agentNames -notcontains $n) { $bad += "AgentMap '$n' 에 해당하는 에이전트 파일 없음" } }
+    $settings = Get-Content -LiteralPath (Join-Path $Root '.claude/settings.json') -Raw
+    if ($settings -notmatch 'guard-write-scope\.ps1 -Mode map') { $bad += 'settings.json 에 PreToolUse map 모드 훅 없음' }
+}
+Add-Result "8. 쓰기 범위 훅 (AgentMap $($map.Count)개 ↔ 프론트매터)" ($bad.Count -eq 0) $bad
 
 # ---- 출력 ----------------------------------------------------------------------
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 200 | Write-Host

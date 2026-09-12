@@ -6,11 +6,14 @@
 
 **구성(2026-09-11):** `WebProject.sln`(.NET 10) 아래 `WebProject.Api`(ASP.NET Core 최소 API, `Microsoft.NET.Sdk.Web`)와 `WebProject.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것.
 
-**하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 검사한다. 하네스 파일을 고치면 실행해 PASS를 확인할 것.
+**하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(쓰기 범위 훅 포함). 하네스 파일을 고치면 실행해 PASS를 확인할 것.
 
 **경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다. Stop 훅은 `$env:CLAUDE_PROJECT_DIR`, PowerShell 스크립트는 `$PSScriptRoot` 기준으로 루트를 계산한다. Codex 세션은 현재 작업 디렉토리(저장소 루트) 기준 상대 경로를 쓴다.
 
 **작업 디렉토리 규칙:** 하네스 산출물은 `_workspace/<하네스명>/` 하위에만 쓴다(code-review·gc-guard·concurrency-guard·pipeline·tdd·git·cross). 새 실행 시 자기 하위 디렉토리만 `_workspace/<하네스명>_{타임스탬프}/`로 보관 이동하고, `_workspace/` 루트나 다른 하네스 디렉토리는 건드리지 않는다. 예외: `cross`는 git 추적 대상이라 **보관 이동하지 않고** run_id 하위 디렉토리를 누적한다(이동하면 추적 기록이 삭제로 커밋됨). `.gitignore`의 `_workspace/*` 규칙으로 `cross/` 외에는 커밋되지 않는다.
+
+**쓰기 범위 훅:** 감사·리뷰 전용 서브에이전트 24종(구현 역할 `cross-implementer` 제외)은 `scripts/hooks/guard-write-scope.ps1` PreToolUse 훅으로 Write/Edit 대상이 자기 하네스 디렉터리(`_workspace/<하네스명>/`) 밖이면 거부된다. 1차 방어선은 각 에이전트 프론트매터의 `hooks:`(`-Allow <접두사>`), 2차 방어선은 `.claude/settings.json`의 프로젝트 훅(`-Mode map`, 훅 입력의 `agent_type`으로 판별. 메인 세션·구현 에이전트는 통과). **두 훅 모두 세션 시작 시 읽히므로 변경 후 세션을 재시작해야 적용된다.** 적용 확인은 감사·리뷰 에이전트에게 `_workspace/<하네스>/probe/` 와 `WebProject.Api/` 에 각각 Write 를 시도하게 해 후자만 거부되는지 본다.
+
 
 
 **Git 훅:** `scripts/git-hooks/commit-msg`가 커밋 메시지 접두사 형식을 강제한다. 새로 클론하면 `Copy-Item scripts/git-hooks/commit-msg .git/hooks/`(PowerShell) 또는 `cp scripts/git-hooks/commit-msg .git/hooks/`로 설치할 것.
@@ -141,6 +144,7 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 | 2026-06-09 | 보안 가드 감사 | security-reviewer | 해킹·DDoS 공격 표면 점검 (리포트 plan/security_audit_0609.md) |
 | 2026-09-11 | TeamCreate 의존 제거, Agent 팬아웃 방식으로 재작성, 리뷰어 tools 제한 | code-review-orchestrator·reviewer 4종 | 하네스 전수조사: 이 빌드에 팀 도구가 없어 실행 불가 |
 | 2026-09-12 | 전용 run_dir(`_workspace/code-review/<run_id>/`) 격리, 팀 시대 프로토콜(SendMessage·claim) 제거, 기본 브랜치 빈 diff 폴백, 원본 diff 보존, 결정적 점수 산식·재정규화·판정 우선순위, JSON 구조 검증, 트리거 축소, 스킬 체크리스트 오류 교정 | code-review-orchestrator·reviewer 4종·review 스킬 4종·.codex/agents toml | Claude↔Codex 교차 검토(plan/code_review_harness_fix_0912.md) 16건 |
+| 2026-09-13 | 쓰기 범위 훅 도입: `scripts/hooks/guard-write-scope.ps1`(PreToolUse, deny JSON), 감사·리뷰 에이전트 24종 프론트매터 `hooks:` + settings.json `-Mode map`(agent_type 판별), 감사 항목 8 추가 | guard-write-scope.ps1·에이전트 24종·settings.json·harness-audit.ps1 | plan/harness_cross_check_0913.md 미착수 항목 해소. 프론트매터 훅은 세션 시작 시 읽혀(CLI 문자열 확인) 이번 세션 프로브에서 미발동 — 재시작 후 검증 필요 |
 
 ---
 

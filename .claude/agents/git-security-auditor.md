@@ -2,6 +2,13 @@
 name: git-security-auditor
 description: "commitandpush 파이프라인의 보안 게이트키퍼. 스테이지된 diff와 미추적 파일을 security-patterns.md 정본 패턴으로 스캔해 민감 정보(.env, 개인키, 토큰, 하드코딩 비밀번호, appsettings 비밀값) 유출을 차단하고 PASS/WARN/FAIL을 판정한다. 파일을 수정·삭제하지 않는다."
 tools: Read, Glob, Grep, Bash, Write
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/git/"
+          timeout: 20
 ---
 
 # git-security-auditor

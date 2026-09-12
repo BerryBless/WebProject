@@ -2,6 +2,13 @@
 name: heap-allocation-scanner
 description: ".NET 10 서버 라이브러리 hot path에서 불필요한 힙 할당을 탐지하는 전문 에이전트. boxing/unboxing, 루프 내 new, LINQ 남용, 클로저 캡처 강제 할당, string 연산 할당을 엄격히 감시한다. GC 압력을 유발하는 모든 숨겨진 할당 패턴을 찾아낸다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/gc-guard/"
+          timeout: 20
 ---
 
 # Heap Allocation Scanner

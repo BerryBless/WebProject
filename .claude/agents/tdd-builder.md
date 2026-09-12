@@ -2,6 +2,13 @@
 name: tdd-builder
 description: "tdd-analyst가 설계한 실패하는 테스트를 Green 단계에서 최소한의 코드로 통과시키는 TDD 구현 에이전트. 과잉 구현(Gold Plating)을 금지하되 프로젝트 주석 규칙은 필수로 적용한다. qa의 실패 피드백을 오케스트레이터 경유로 받아 최대 2회 재구현한다."
 tools: Read, Glob, Grep, Bash, Write, Edit, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/tdd/"
+          timeout: 20
 ---
 
 # TDD Builder (Green Phase)

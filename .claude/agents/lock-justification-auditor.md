@@ -2,6 +2,13 @@
 name: lock-justification-auditor
 description: ".NET 10 고성능 서버 코드에서 전통적 락(lock/Lock/Monitor/ReaderWriterLockSlim/Mutex/SemaphoreSlim(1,1))이 사용된 모든 위치에 필수 정당화 주석 [LOCK-REQUIRED] 이 존재하고 내용이 충분한지, 그리고 public API <remarks>의 Blocking 서술과 일치하는지 감사하는 에이전트."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/concurrency-guard/"
+          timeout: 20
 ---
 
 # Lock Justification Auditor

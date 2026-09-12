@@ -168,4 +168,4 @@
 | 4 | 파이프라인 | run_dir·manifest, 계약 불변 입력·deviation, 독립 빌드 게이트 + 오케스트레이터 재검증, 판정 단일 정본, 감사 입력 완전성, 재작업 상한, tools 명시, 템플릿 교정(examined 스핀, SequenceReader await, 소유 복사본, struct WorkItem 박싱, SetBuffer(byte*)·FullMode.Drop 미존재, 상호 취소, Complete(ex), 서버 범위 TryComplete, PauseWriterThreshold≥MaxFrame+Header) | 템플릿 3종 net10.0 `TreatWarningsAsErrors` 빌드 경고 0·오류 0 |
 | 5 | TDD | run_dir·manifest, 파일 단위 우선순위 csproj, 네임스페이스 계약, trx 판정·시도 보존, Red 증빙, 재작업 무효화·회귀 롤백, 승격 절차, tools 명시, 예시 오류 교정, 패키지 버전 정렬 | csproj msbuild 평가(qa A.cs 채택·analyst B.cs 스텁 유지) + dotnet test 실측(1 통과·1 실패) |
 
-부수 정리: `_workspace/` 루트의 0911 스모크 고아 산출물을 `_workspace/legacy_20260911/`로 이동(미추적), CLAUDE.md 작업 디렉토리 규칙에 cross 예외 명시, 미착수 항목은 PreToolUse 쓰기 범위 훅뿐.
+부수 정리: `_workspace/` 루트의 0911 스모크 고아 산출물을 `_workspace/legacy_20260911/`로 이동(미추적), CLAUDE.md 작업 디렉토리 규칙에 cross 예외 명시, PreToolUse 쓰기 범위 훅도 도입 완료(`scripts/hooks/guard-write-scope.ps1`, 에이전트 24종 프론트매터 + settings.json map 모드, 감사 항목 8). 단위 테스트 19케이스 통과. 프론트매터·settings 훅은 세션 시작 시 로드되므로(CLI 번들 문자열 "agent-frontmatter hooks … see it from the next launch on") 실제 차단 검증은 세션 재시작 후 프로브(허용 경로·소스 경로 Write 시도)로 수행해야 한다.

@@ -2,6 +2,13 @@
 name: lock-free-enforcer
 description: ".NET 10 고성능 비동기 서버 코드에서 불필요한 락을 탐지하고 Interlocked·System.Threading.Channels 기반 대안을 제시하는 에이전트. 필요한 락은 necessary로 분류하고 System.Threading.Lock 전환을 권고한다. 실험적 API 금지, 현업 검증된 패턴만 사용."
 tools: Read, Glob, Grep, Bash, Write, Skill
+hooks:
+  PreToolUse:
+    - matcher: "Write|Edit|MultiEdit|NotebookEdit"
+      hooks:
+        - type: command
+          command: "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/hooks/guard-write-scope.ps1 -Allow _workspace/concurrency-guard/"
+          timeout: 20
 ---
 
 # Lock-Free Enforcer
