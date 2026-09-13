@@ -1,0 +1,82 @@
+# 20_test_results.txt — /health 엔드포인트 최초 구현 검증 결과
+run: 20260913_070000_health-endpoint / base_sha: 524f5a730867ce59e226bd4f9332961b8b8df6f8
+실행 위치: E:\project\WebProject (모든 명령 동일)
+실행 일자: 2026-09-13 15:53:30 +0900
+
+요약
+  게이트 1 빌드(기준 커밋 상태, 베이스라인): 오류 0 / 경고 0
+  게이트 2 빌드(구현 후): 오류 0 / 경고 0  → 신규 경고 0 (게이트 충족)
+  게이트 3 필터 테스트(HealthEndpointTests): 전체 2 / 통과 2 / 실패 0 / 건너뜀 0
+  게이트 4 전체 테스트: 전체 11 / 통과 11 / 실패 0 / 건너뜀 0 (회귀 0)
+  실패 테스트: 없음 (실패 메시지 원문 없음)
+  시도 횟수: 1 (재시도 없음). 307 미관측 → 계획 §5 HTTPS 폴백 미적용. LinkGenerator 경로 성공 → 계획 §6 대안 미적용.
+
+===================================================================
+[0] 베이스라인 빌드 — 코드 변경 전(작업 트리 깨끗, _workspace 만 미추적)
+명령: dotnet build WebProject.sln -c Release   (아래는 콘솔 출력 전사 — tee 캡처가 아니라 관측 그대로 옮긴 것이며, 증분 빌드 특성상 복원 문구·경과 시간은 재실행 시 달라질 수 있다)
+-------------------------------------------------------------------
+  복원할 프로젝트를 확인하는 중...
+  E:\project\WebProject\WebProject.Sample\WebProject.Sample.csproj을(를) 84밀리초 동안 복원했습니다.
+  E:\project\WebProject\WebProject.Api\WebProject.Api.csproj을(를) 900밀리초 동안 복원했습니다.
+  E:\project\WebProject\WebProject.Api.Tests\WebProject.Api.Tests.csproj을(를) 912밀리초 동안 복원했습니다.
+  WebProject.Sample -> E:\project\WebProject\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> E:\project\WebProject\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+빌드했습니다.
+    경고 0개
+    오류 0개
+
+경과 시간: 00:00:04.03
+
+===================================================================
+[1] 구현 후 빌드
+명령: dotnet build WebProject.sln -c Release   (아래는 콘솔 출력 전사 — tee 캡처가 아니라 관측 그대로 옮긴 것이며, 증분 빌드 특성상 복원 문구·경과 시간은 재실행 시 달라질 수 있다)
+-------------------------------------------------------------------
+  복원할 프로젝트를 확인하는 중...
+  복원할 모든 프로젝트가 최신 상태입니다.
+  WebProject.Sample -> E:\project\WebProject\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> E:\project\WebProject\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+빌드했습니다.
+    경고 0개
+    오류 0개
+
+경과 시간: 00:00:01.40
+판정: 베이스라인과 동일하게 경고 0 → 신규 파일·삽입 코드에서 기인한 경고 없음.
+      (CS8602 미발생 → Assert.NotNull(raw) 이후 null 역참조 경고 없음. CS0121 미발생 → GetPathByName 오버로드 모호성 없음.)
+
+===================================================================
+[2] 필터 테스트
+ 명령: dotnet test WebProject.sln -c Release --no-build --filter "FullyQualifiedName~HealthEndpointTests"
+종료 코드: 0
+-------------------------------------------------------------------
+E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll(.NETCoreApp,Version=v10.0)에 대한 테스트 실행
+지정된 패턴과 일치한 총 테스트 파일 수는 1개입니다.
+
+통과!  - 실패:     0, 통과:     2, 건너뜀:     0, 전체:     2, 기간: 1 s - WebProject.Api.Tests.dll (net10.0)
+
+===================================================================
+[3] 전체 테스트
+명령: dotnet test WebProject.sln -c Release --no-build
+종료 코드: 0
+-------------------------------------------------------------------
+E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll(.NETCoreApp,Version=v10.0)에 대한 테스트 실행
+지정된 패턴과 일치한 총 테스트 파일 수는 1개입니다.
+
+통과!  - 실패:     0, 통과:    11, 건너뜀:     0, 전체:    11, 기간: 178 ms - WebProject.Api.Tests.dll (net10.0)
+
+===================================================================
+[4] 변경 범위 확인 (계획 §7.1 / §7.7)
+명령: git status --short --untracked-files=all -- . ':(exclude)_workspace'
+-------------------------------------------------------------------
+시작 시점: (출력 없음 — 제품·테스트 트리 깨끗)
+종료 시점:
+ M WebProject.Api/Program.cs
+?? WebProject.Api.Tests/HealthEndpointTests.cs
+
+명령: git diff --numstat -- WebProject.Api/Program.cs
+  20      0       WebProject.Api/Program.cs      → 삽입 20줄, 삭제 0줄(기존 줄 무변경)
+명령: git diff --no-index --numstat -- /dev/null WebProject.Api.Tests/HealthEndpointTests.cs
+  126     0       nul => WebProject.Api.Tests/HealthEndpointTests.cs  → 신규 126줄

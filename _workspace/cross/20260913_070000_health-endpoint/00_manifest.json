@@ -1,0 +1,185 @@
+{
+  "run_id": "20260913_070000_health-endpoint",
+  "base_sha": "524f5a730867ce59e226bd4f9332961b8b8df6f8",
+  "requirement_sha256": "36c8d2295f441321626dd084397a37530aebf20d4e855e1755a4be639d95705b",
+  "stages": {
+    "plan": {
+      "round": 2,
+      "adjudication": "12_plan_adjudication_r2.md",
+      "final_plan": "13_final_plan_r2.md",
+      "final_plan_sha256": "447f28b805a41e4645d8d5d5d5e01a476ddedb8777b20728027329c00a77b2a7",
+      "verdicts": {
+        "claude": "APPROVE",
+        "codex": "APPROVE"
+      },
+      "round1": {
+        "adjudication": "12_plan_adjudication.md",
+        "final_plan": "13_final_plan.md",
+        "final_plan_sha256": "9e7e65ce0c00ac1ad89f695fd4a4d124be2c71a557c5af51bccc1818295d7745",
+        "verdicts": {
+          "claude": "APPROVE",
+          "codex": "REQUEST-CHANGES"
+        }
+      },
+      "claude_final_check": "14_claude_final_check_r2.md",
+      "codex_final_check": "14_codex_final_check_r2.md"
+    },
+    "impl": {
+      "plan_input": "13_final_plan_r2.md",
+      "attempts": 1,
+      "notes": "20_impl_notes.md",
+      "results": "20_test_results.txt",
+      "tests": {
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0
+      },
+      "changed_files": [
+        "WebProject.Api/Program.cs",
+        "WebProject.Api.Tests/HealthEndpointTests.cs"
+      ]
+    },
+    "review": {
+      "round": 1,
+      "diff": "30_diff.patch",
+      "diff_sha256": "bdfe2e0591a990975e545fc39af3b15e109c9cb17c1eabc8aebd4391e32cbb4d",
+      "new_files": "30_new_files.txt",
+      "verdicts": {
+        "codex_review": "APPROVE",
+        "claude_review": "APPROVE",
+        "codex_adjudication": "APPROVE",
+        "claude_adjudication": "APPROVE",
+        "codex_reverify": "APPROVE",
+        "claude_reverify": "APPROVE"
+      },
+      "claude_review": "30_claude_review.md",
+      "codex_review": "30_codex_review.md",
+      "claude_adjudication": "31_claude_adjudication.md",
+      "codex_adjudication": "31_codex_adjudication.md",
+      "adjudication": "31_review_adjudication.md",
+      "valid_findings": {
+        "high": 0,
+        "med": 0,
+        "low": 2
+      },
+      "fix": {
+        "round": 1,
+        "notes": "32_fix_notes.md",
+        "results": "32_test_results.txt",
+        "captures": [
+          "32_baseline_build_capture.txt",
+          "32_build_capture.txt",
+          "32_build_capture_noincremental.txt",
+          "32_test_capture_filtered.txt",
+          "32_test_capture_all.txt"
+        ],
+        "tests": {
+          "passed": 11,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "reverify_diff": "33_diff.patch",
+      "reverify_diff_sha256": "36edc359b85c2bd8dda0a54e1b14ba49adce11580718cd43aa76faeadf6944dd",
+      "claude_reverify": "33_claude_reverify.md",
+      "codex_reverify": "33_codex_reverify.md"
+    }
+  },
+  "codex_calls": [
+    {
+      "stage": "plan",
+      "meta": "10_codex_plan.md.meta.json",
+      "status": "success",
+      "thread_id": "01a0978a-a748-7fd3-92f6-ae6922ee92ba",
+      "out_sha256": "c93ddc48f67620792d906c5d1b3628d430e8a96ef3f7fd800cadd26b9e457ef0",
+      "duration_sec": 87.6,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0
+    },
+    {
+      "stage": "plan-check",
+      "meta": "11_codex_check_of_claude_plan.md.meta.json",
+      "status": "success",
+      "thread_id": "01a09790-9ce6-7410-a9fb-d75a3085ce43",
+      "out_sha256": "c6b66d4290177dd6b4a4f6b4e70517da748109d0bf0ff2cccf0672782ccc76d3",
+      "duration_sec": 105.4,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0
+    },
+    {
+      "stage": "final-check",
+      "round": 1,
+      "meta": "14_codex_final_check.md.meta.json",
+      "status": "success",
+      "thread_id": "01a09973-b857-7fe2-a35f-6827d4a2d71a",
+      "out_sha256": "a2921bb5dd35b8aeefb6e158d23bc866dd74655a3504e7118cfd2a1a0a164937",
+      "duration_sec": 68.8,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0,
+      "verdict": "REQUEST-CHANGES"
+    },
+    {
+      "stage": "final-check",
+      "round": 2,
+      "meta": "14_codex_final_check_r2.md.meta.json",
+      "status": "success",
+      "thread_id": "01a09981-04b3-7240-8dac-bfded012f7db",
+      "out_sha256": "b4276eb2e7850e4e025da4571f39d5c3def0570dc291e9b4dd5fd5d699483bb7",
+      "duration_sec": 47.4,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0,
+      "verdict": "APPROVE"
+    },
+    {
+      "stage": "review",
+      "round": 1,
+      "meta": "30_codex_review.md.meta.json",
+      "status": "success",
+      "thread_id": "01a09990-db8c-74e3-ab46-b6ecc84e40ad",
+      "out_sha256": "bc9fa95616b80ecfedc42abcf9f598e21fab847c6c95e1fbc25573e93e3a5ed8",
+      "duration_sec": 51.9,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0,
+      "verdict": "APPROVE",
+      "findings": {
+        "high": 0,
+        "med": 0,
+        "low": 0
+      }
+    },
+    {
+      "stage": "adjudicate",
+      "round": 1,
+      "meta": "31_codex_adjudication.md.meta.json",
+      "status": "success",
+      "thread_id": "01a09997-af06-7ec1-9c23-11fb2177c498",
+      "out_sha256": "8368184cd50bc56a39ac5e6eff44d1ca5af0323a6d56e8dd9a3e3e23fb7188be",
+      "duration_sec": 40,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0,
+      "verdict": "APPROVE"
+    },
+    {
+      "stage": "reverify",
+      "round": 1,
+      "meta": "33_codex_reverify.md.meta.json",
+      "status": "success",
+      "thread_id": "01a099a6-a4e6-7442-a292-4fba3109dc8e",
+      "out_sha256": "1a546fb36270baa2066085a92b08090387eda5d93e9b73c41b34c19d965f35a1",
+      "duration_sec": 26.2,
+      "orchestrator_reverified": true,
+      "independence_log_matches": 0,
+      "verdict": "APPROVE"
+    }
+  ],
+  "degraded": false,
+  "final": {
+    "report": "90_final_report.md",
+    "status": "completed",
+    "orchestrator_final_run": {
+      "build": "0 warnings / 0 errors",
+      "tests": "11 passed / 0 failed / 0 skipped"
+    },
+    "high_open": 0
+  }
+}

@@ -1,0 +1,12 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  WebProject.Sample -> E:\project\WebProject\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> E:\project\WebProject\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.20
+exit=0

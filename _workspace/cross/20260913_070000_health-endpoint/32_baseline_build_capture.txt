@@ -1,0 +1,14 @@
+  Determining projects to restore...
+  Restored C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Sample\WebProject.Sample.csproj (in 52 ms).
+  Restored C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api\WebProject.Api.csproj (in 138 ms).
+  Restored C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api.Tests\WebProject.Api.Tests.csproj (in 165 ms).
+  WebProject.Sample -> C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.54
+exit=0

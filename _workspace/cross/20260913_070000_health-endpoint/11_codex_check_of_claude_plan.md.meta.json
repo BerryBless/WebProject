@@ -1,0 +1,33 @@
+{
+  "status": "success",
+  "exit_code": 0,
+  "duration_sec": 105.4,
+  "out_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\11_codex_check_of_claude_plan.md",
+  "out_bytes": 10148,
+  "out_sha256": "c6b66d4290177dd6b4a4f6b4e70517da748109d0bf0ff2cccf0672782ccc76d3",
+  "prompt_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\11_codex_plan_check_prompt.md",
+  "prompt_sha256": "1ef4afd8aecb3a4aaf3180049f9632f4399f4e9b2c5582e5433bc4c400d42e86",
+  "log_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\11_codex_check_of_claude_plan.md.log",
+  "log_bytes": 90880,
+  "thread_id": "01a09790-9ce6-7410-a9fb-d75a3085ce43",
+  "codex_version": "codex-cli 0.154.0",
+  "cmd": [
+    "exec",
+    "-s",
+    "read-only",
+    "-C",
+    "E:\\project\\WebProject",
+    "--color",
+    "never",
+    "--json",
+    "-o",
+    "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\11_codex_check_of_claude_plan.md",
+    "-"
+  ],
+  "cd": "E:\\project\\WebProject",
+  "sandbox": "read-only",
+  "attempt_id": "de11ecfaa003",
+  "started_at": "2026-09-13T06:40:31.4606152+09:00",
+  "finished_at": "2026-09-13T06:42:16.9026762+09:00",
+  "err_tail": ""
+}

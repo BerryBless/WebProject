@@ -1,0 +1,33 @@
+{
+  "status": "success",
+  "exit_code": 0,
+  "duration_sec": 51.9,
+  "out_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\30_codex_review.md",
+  "out_bytes": 1808,
+  "out_sha256": "bc9fa95616b80ecfedc42abcf9f598e21fab847c6c95e1fbc25573e93e3a5ed8",
+  "prompt_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\30_codex_review_prompt.md",
+  "prompt_sha256": "22b4d44d814c6f3a7bd9decaaa1ff3eb4430ca29d2d4907089440dec5ea4e6d9",
+  "log_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\30_codex_review.md.log",
+  "log_bytes": 94765,
+  "thread_id": "01a09990-db8c-74e3-ab46-b6ecc84e40ad",
+  "codex_version": "codex-cli 0.154.0",
+  "cmd": [
+    "exec",
+    "-s",
+    "read-only",
+    "-C",
+    "E:\\project\\WebProject",
+    "--color",
+    "never",
+    "--json",
+    "-o",
+    "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\30_codex_review.md",
+    "-"
+  ],
+  "cd": "E:\\project\\WebProject",
+  "sandbox": "read-only",
+  "attempt_id": "469e9b2df865",
+  "started_at": "2026-09-13T16:00:00.9887447+09:00",
+  "finished_at": "2026-09-13T16:00:52.9280927+09:00",
+  "err_tail": "2026-09-13T07:00:01.964093Z ERROR codex_models_manager::manager: failed to load models cache: EOF while parsing a value at line 1 column 0"
+}

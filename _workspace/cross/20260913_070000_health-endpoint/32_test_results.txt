@@ -1,0 +1,145 @@
+# 32_test_results.txt — 리뷰 수정 라운드 1 검증 결과 (/health)
+run: 20260913_070000_health-endpoint / base_sha: 524f5a730867ce59e226bd4f9332961b8b8df6f8
+실행 위치: E:\project\WebProject (베이스라인 빌드만 스크래치 트리에서 실행)
+실행 일자: 2026-09-13 16:15:28 ~ 16:16:09 +0900 (캡처 파일 mtime 실측, stat -c '%y')
+수정 내용: HealthEndpointTests.cs Fact 1 에 속성 개수 단정 1줄(+// 주석 1줄) 추가 (R-C2). 소스 그 외 무변경.
+
+R-C1 대응: 아래 모든 출력은 **수기 전사가 아니라 리다이렉트 캡처 원문**이다.
+  실제 캡처 파일(같은 디렉터리, 이 파일에 전문 인용):
+    32_baseline_build_capture.txt        (기준 커밋 트리 빌드)
+    32_build_capture.txt                 (구현 후 빌드)
+    32_build_capture_noincremental.txt   (구현 후 --no-incremental 재빌드)
+    32_test_capture_filtered.txt         (HealthEndpointTests 필터 테스트)
+    32_test_capture_all.txt              (전체 테스트)
+  각 캡처 파일 마지막 줄 `exit=<code>` 는 해당 명령의 종료 코드를 셸이 덧붙인 것이다.
+  로케일: 판정이 한국어 메시지 파싱에 의존하지 않도록 DOTNET_CLI_UI_LANGUAGE=en 으로 통일해 5개 명령 전부 캡처했다
+  (라운드 1 의 한국어 출력과 언어만 다르고 수치·게이트는 동일 의미).
+
+요약
+  게이트 1 빌드(기준 커밋 트리, 베이스라인): 0 Warning / 0 Error, exit=0
+  게이트 2 빌드(구현 후): 0 Warning / 0 Error, exit=0  → 신규 경고 0
+  게이트 2' 빌드(구현 후, --no-incremental): 0 Warning / 0 Error, exit=0  → 증분 생략으로 경고가 숨지 않았음을 확인
+  게이트 3 필터 테스트(HealthEndpointTests): Total 2 / Passed 2 / Failed 0 / Skipped 0, exit=0
+  게이트 4 전체 테스트: Total 11 / Passed 11 / Failed 0 / Skipped 0, exit=0 (회귀 0)
+  실패 테스트: 없음 (실패 메시지 원문 없음)
+  시도 횟수: 1 (빌드·테스트 재시도 없음)
+
+실행 순서(중요): 소스 수정 → 빌드 → 테스트. 두 테스트 명령 모두 `--no-build` 이므로
+빌드를 먼저 실행하지 않으면 수정 전 DLL 로 통과해 새 단정이 실행되지 않았을 수 있다. 위 순서로 실제 실행했다.
+실행 순서의 기계적 증거(파일 mtime, `stat -c '%y'` 실측):
+  16:15:28.063  32_baseline_build_capture.txt        (베이스라인 빌드 완료)
+  16:15:40.417  WebProject.Api.Tests/HealthEndpointTests.cs   (소스 수정 시각)
+  16:15:48.551  32_build_capture.txt                 (구현 후 빌드 완료)
+  16:15:56.951  WebProject.Api.Tests/bin/Release/net10.0/WebProject.Api.Tests.dll  (테스트 어셈블리 재생성 시각)
+  16:15:57.154  32_build_capture_noincremental.txt   (비증분 재빌드 완료)
+  16:16:03.372  32_test_capture_filtered.txt         (필터 테스트 완료)
+  16:16:09.462  32_test_capture_all.txt              (전체 테스트 완료)
+  → 테스트 어셈블리 mtime(16:15:56.951) 이 소스 수정 시각(16:15:40.417) 보다 뒤이고 두 테스트 실행보다 앞이므로,
+    `--no-build` 실행이 **새 단정이 포함된 어셈블리**를 대상으로 했음이 자기 보고가 아닌 파일 시각으로 확인된다.
+
+===================================================================
+[0] 베이스라인 빌드 — 기준 커밋 트리(워크트리 무변경)
+재현 방법(워크트리를 건드리지 않음, git stash/checkout 미사용):
+  git archive 524f5a730867ce59e226bd4f9332961b8b8df6f8 | tar -xf - -C <스크래치>/baseline
+  <스크래치>/baseline 에서: DOTNET_CLI_UI_LANGUAGE=en dotnet build WebProject.sln -c Release > 32_baseline_build_capture.txt 2>&1
+스크래치 경로: C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline (프로젝트 밖)
+--- 32_baseline_build_capture.txt 전문 ---
+  Determining projects to restore...
+  Restored C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Sample\WebProject.Sample.csproj (in 52 ms).
+  Restored C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api\WebProject.Api.csproj (in 138 ms).
+  Restored C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api.Tests\WebProject.Api.Tests.csproj (in 165 ms).
+  WebProject.Sample -> C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> C:\Users\aaa\AppData\Local\Temp\claude\E--project-WebProject\4f775bcd-7956-42df-9a92-6924fb67f91c\scratchpad\baseline\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.54
+exit=0
+--- (끝) ---
+비고: 스크래치 트리에는 obj/bin 이 없어 전 프로젝트가 새로 복원·컴파일되며, 세 프로젝트 모두 컴파일 결과(-> *.dll)가 출력된다.
+
+===================================================================
+[1] 구현 후 빌드
+명령: DOTNET_CLI_UI_LANGUAGE=en dotnet build WebProject.sln -c Release > 32_build_capture.txt 2>&1
+--- 32_build_capture.txt 전문 ---
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  WebProject.Sample -> E:\project\WebProject\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> E:\project\WebProject\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.20
+exit=0
+--- (끝) ---
+
+[1'] 구현 후 빌드 — 증분 배제(베이스라인과 동일 조건 대조용)
+명령: DOTNET_CLI_UI_LANGUAGE=en dotnet build WebProject.sln -c Release --no-incremental > 32_build_capture_noincremental.txt 2>&1
+--- 32_build_capture_noincremental.txt 전문 ---
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  WebProject.Sample -> E:\project\WebProject\WebProject.Sample\bin\Release\net10.0\WebProject.Sample.dll
+  WebProject.Api -> E:\project\WebProject\WebProject.Api\bin\Release\net10.0\WebProject.Api.dll
+  WebProject.Api.Tests -> E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.42
+exit=0
+--- (끝) ---
+판정: 베이스라인·증분·비증분 모두 0 Warning / 0 Error → 이번 수정(1줄 단정 + 주석)에서 기인한 신규 경고 없음.
+      베이스라인(클린 트리 전체 컴파일) Time Elapsed 00:00:01.54 vs 비증분 재빌드 00:00:01.42 로 동일 자릿수 →
+      두 캡처 모두 타깃을 건너뛴 것이 아니라 실제 컴파일을 수행했음을 보강한다.
+      System.Linq 는 테스트 csproj 의 <ImplicitUsings>enable</ImplicitUsings> 로 이미 스코프에 있어 using 추가 없이 컴파일됨(CS1061 미발생).
+
+===================================================================
+[2] 필터 테스트
+명령: DOTNET_CLI_UI_LANGUAGE=en dotnet test WebProject.sln -c Release --no-build --filter "FullyQualifiedName~HealthEndpointTests" > 32_test_capture_filtered.txt 2>&1
+--- 32_test_capture_filtered.txt 전문 ---
+Test run for E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 194 ms - WebProject.Api.Tests.dll (net10.0)
+exit=0
+--- (끝) ---
+
+===================================================================
+[3] 전체 테스트
+명령: DOTNET_CLI_UI_LANGUAGE=en dotnet test WebProject.sln -c Release --no-build > 32_test_capture_all.txt 2>&1
+--- 32_test_capture_all.txt 전문 ---
+Test run for E:\project\WebProject\WebProject.Api.Tests\bin\Release\net10.0\WebProject.Api.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11, Duration: 178 ms - WebProject.Api.Tests.dll (net10.0)
+exit=0
+--- (끝) ---
+
+===================================================================
+[4] 변경 범위 확인
+명령: git status --short --untracked-files=all -- . ':(exclude)_workspace'
+-------------------------------------------------------------------
+ M WebProject.Api/Program.cs
+?? WebProject.Api.Tests/HealthEndpointTests.cs
+  → 정확히 2줄. 이번 라운드 캡처 파일 5종은 run 디렉터리(_workspace/cross/...) 안이라 이 pathspec 에서 제외된다.
+
+명령: git diff --numstat -- WebProject.Api/Program.cs
+  20      0       WebProject.Api/Program.cs        → 이번 라운드 변경 없음(라운드 1과 동일)
+명령: git apply --check -R --include=WebProject.Api/Program.cs 30_diff.patch
+  (출력 없음 = 성공) → 리뷰된 diff 를 현재 워크트리에 역적용할 수 있다 = Program.cs 가 리뷰 시점과 내용 동일(줄 수 일치보다 강한 근거)
+명령: git diff --no-index --numstat -- /dev/null WebProject.Api.Tests/HealthEndpointTests.cs
+  129     0       nul => WebProject.Api.Tests/HealthEndpointTests.cs   → 126줄 → 129줄 (+3: 빈 줄 1 + 주석 1 + 단정 1)
+
+===================================================================
+[5] 검증 한계 (조정 기록 A절 "Codex 표현 제한 2건" 반영)
+  - `--no-build` 실행은 직전 빌드 산출물을 재사용하므로 그 자체로 강제 재컴파일을 증명하지 않는다. 본 라운드는 수정→빌드→테스트 순서로 실행했고,
+    머리말의 mtime 표(소스 16:15:40 < 테스트 DLL 16:15:56 < 테스트 실행 16:16:03/16:16:09)로 새 단정이 포함된 어셈블리가 실행 대상이었음을 보강했다.
+  - 삭제 0줄은 기존 줄이 수정되지 않았다는 기계적 사실일 뿐 동작 보존의 증명은 아니다. 동작 보존은 전체 테스트 11/11 로만 뒷받침된다.
+  - 시각 창 단정(InRange)은 시스템 시계에 의존하며, 시계 역행·보정 시 이론적으로 흔들릴 수 있다(계획 수용 사항).

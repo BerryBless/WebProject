@@ -1,0 +1,33 @@
+{
+  "status": "success",
+  "exit_code": 0,
+  "duration_sec": 40.0,
+  "out_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\31_codex_adjudication.md",
+  "out_bytes": 2857,
+  "out_sha256": "8368184cd50bc56a39ac5e6eff44d1ca5af0323a6d56e8dd9a3e3e23fb7188be",
+  "prompt_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\31_codex_adjudicate_prompt.md",
+  "prompt_sha256": "18187080bd1f34f317df1950a37ffa6c195379a46f417af04db10c39b0ec80d8",
+  "log_file": "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\31_codex_adjudication.md.log",
+  "log_bytes": 19354,
+  "thread_id": "01a09997-af06-7ec1-9c23-11fb2177c498",
+  "codex_version": "codex-cli 0.154.0",
+  "cmd": [
+    "exec",
+    "-s",
+    "read-only",
+    "-C",
+    "E:\\project\\WebProject",
+    "--color",
+    "never",
+    "--json",
+    "-o",
+    "E:\\project\\WebProject\\_workspace\\cross\\20260913_070000_health-endpoint\\31_codex_adjudication.md",
+    "-"
+  ],
+  "cd": "E:\\project\\WebProject",
+  "sandbox": "read-only",
+  "attempt_id": "ce4c47c859fe",
+  "started_at": "2026-09-13T16:07:28.6782344+09:00",
+  "finished_at": "2026-09-13T16:08:08.6739032+09:00",
+  "err_tail": ""
+}
