@@ -1,6 +1,6 @@
 ---
 name: harness-evolve
-description: "TDD 사이클 완료 후 초기 요구사항 명세와 최종 구현 코드 사이의 델타(진화)를 포착한다. manifest·요구사항 버전·테스트 설계·구현 노트·시도별 trx 를 근거로 요구사항 명확화, 암묵적 요구사항, 구현 궤적, 거부된 설계, 커버리지 갭을 기록한다. 증거 없는 항목은 '확인 불가'로 표시한다. tdd-orchestrator 가 Phase 4에서 직접 실행하며 /harness-evolve 로 수동 호출도 가능."
+description: "TDD 사이클 후 초기 요구사항과 최종 코드 사이의 델타(명확화·암묵 요구·구현 궤적·거부된 설계·커버리지 갭)를 증거 기반으로 기록한다. tdd-orchestrator Phase 4 또는 /harness-evolve 수동 호출."
 ---
 
 # Harness Evolve Skill

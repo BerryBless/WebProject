@@ -1,6 +1,6 @@
 ---
 name: lock-justification-audit
-description: ".NET 10 서버 코드의 모든 락(lock/System.Threading.Lock/Monitor/ReaderWriterLockSlim/Mutex/SemaphoreSlim(1,1)) 위치에 표준 정당화 주석([LOCK-REQUIRED])이 존재하고 내용이 충분한지, public API <remarks>의 Blocking 서술과 일치하는지 감사한다. lock-justification-auditor 에이전트 전용 스킬."
+description: ".NET 10 서버 코드의 모든 락 위치에 [LOCK-REQUIRED] 주석이 충분히 존재하고 public API <remarks>의 Blocking 서술과 일치하는지 감사한다. lock-justification-auditor 전용."
 ---
 
 # Lock Justification Audit Skill

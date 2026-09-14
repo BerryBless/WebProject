@@ -1,6 +1,6 @@
 ---
 name: style-review
-description: ".NET/C# 코드의 스타일과 유지보수성을 심층 감사한다. C# 네이밍 컨벤션, 메서드 복잡도, 중복, XML 문서화(프로젝트 필수 remarks 포함), 테스트 커버리지 갭을 평가하고 JSON 결과를 {run_dir}/02_style_findings.json에 출력한다. style-reviewer 에이전트가 사용하는 전용 스킬."
+description: ".NET/C# 스타일(네이밍, 복잡도, 중복, XML 문서화·필수 remarks, 테스트 갭)을 감사해 JSON을 {run_dir}/02_style_findings.json에 출력한다. style-reviewer 전용."
 ---
 
 # Style Review Skill

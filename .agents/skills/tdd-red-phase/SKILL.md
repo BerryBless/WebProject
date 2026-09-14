@@ -1,6 +1,6 @@
 ---
 name: tdd-red-phase
-description: "TDD Red 단계: 사용자 요구사항을 분석하여 구현 없이 실패하는 xUnit 테스트 케이스를 설계하고, 컴파일 가능한 스텁과 함께 작성한 뒤 dotnet test(trx)로 '빌드 성공·새 테스트 전원 실패'를 증빙한다. tdd-analyst 에이전트 전용 스킬."
+description: "TDD Red 단계: 요구사항에서 실패하는 xUnit 테스트와 컴파일 가능한 스텁을 설계하고 dotnet test(trx)로 '빌드 성공·전원 실패'를 증빙한다. tdd-analyst 전용."
 ---
 
 # TDD Red Phase Skill

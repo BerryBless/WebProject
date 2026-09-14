@@ -1,6 +1,6 @@
 ---
 name: tdd-green-phase
-description: "TDD Green 단계: tdd-analyst가 설계한 실패하는 테스트를 최소한의 코드로 통과시킨다. Fake It → Obvious Implementation → Triangulation 순서로 가장 단순한 구현을 작성하며 Gold Plating을 금지하되 프로젝트 주석 규칙은 필수로 적용한다. tdd-builder 에이전트 전용 스킬."
+description: "TDD Green 단계: 실패하는 테스트를 Fake It → Obvious → Triangulation 순으로 최소 코드로 통과시킨다. Gold Plating 금지, 프로젝트 주석 규칙 필수. tdd-builder 전용."
 ---
 
 # TDD Green Phase Skill

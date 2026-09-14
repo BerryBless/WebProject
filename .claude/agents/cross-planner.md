@@ -1,6 +1,6 @@
 ---
 name: cross-planner
-description: "교차 검증 하네스의 Claude 측 플래너. 요구사항 컨텍스트만으로 독립 구현 계획을 작성하고, 이후 Codex 계획을 검토하며, 통합 계획을 재검토한다. 프로젝트 코드는 절대 수정하지 않는다."
+description: "교차 검증 하네스의 Claude 측 플래너. 독립 구현 계획 작성, Codex 계획 검토, 통합 계획 재검토를 수행한다. 프로젝트 코드 수정 금지."
 model: opus
 tools: Read, Glob, Grep, Bash, Write
 hooks:

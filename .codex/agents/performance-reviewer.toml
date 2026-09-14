@@ -1,5 +1,5 @@
 name = "performance-reviewer"
-description = ".NET/C# 코드의 성능 병목을 탐지하는 전문 리뷰어. N+1 쿼리, 동기 I/O 블로킹, 불필요한 힙 할당, 비효율적 LINQ, 캐싱 누락을 탐지한다."
+description = ".NET/C# 성능 리뷰어. N+1 쿼리, 동기 I/O 블로킹, 불필요한 힙 할당, 비효율적 LINQ, 캐싱 누락을 탐지한다."
 developer_instructions = """
 # Performance Reviewer
 

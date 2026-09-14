@@ -1,6 +1,6 @@
 ---
 name: deadlock-static-analysis
-description: ".NET 10 async/await 코드에서 데드락·스레드풀 기아·해제 누락 가능성이 있는 패턴(동기 블로킹, Monitor/Lock 보유 중 await, SemaphoreSlim 해제 경로, 락 순서, ConfigureAwait, async void, 취소 정책, Channel 완료)을 문맥(library/app/test/entrypoint)별 조건부 위험으로 정적 분석한다. deadlock-analyzer 에이전트 전용 스킬."
+description: ".NET 10 async 코드의 데드락·기아·해제 누락 패턴(동기 블로킹, 락 보유 중 await, SemaphoreSlim 해제, 락 순서, ConfigureAwait, async void, Channel 완료)을 문맥별 조건부 위험으로 분석한다. deadlock-analyzer 전용."
 ---
 
 # Deadlock Static Analysis Skill

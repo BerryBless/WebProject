@@ -1,7 +1,8 @@
 ---
 name: security-reviewer
-description: ".NET/C# 코드의 보안 취약점을 스캔하는 전문 리뷰어. OWASP Top 10, CWE 기반 분석, SQL·커맨드 인젝션, 인증 결함, 민감 정보 노출을 탐지한다."
+description: ".NET/C# 보안 리뷰어. OWASP Top 10·CWE 기반으로 인젝션, 인증 결함, 민감 정보 노출을 탐지한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit"

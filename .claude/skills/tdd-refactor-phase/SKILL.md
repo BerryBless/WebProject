@@ -1,6 +1,6 @@
 ---
 name: tdd-refactor-phase
-description: "TDD Refactor 단계: dotnet test(trx)를 실제 실행하여 Green 여부를 로케일 무관하게 판정하고, PASS 시 동작 보존 리팩토링을 제안·적용한 뒤 회귀 테스트로 확인한다. 시도별 결과를 보존하고 회귀 실패 시 롤백 절차를 수행한다. Review Gate: PASS 없이 다음 단계 진행 불가. tdd-qa 에이전트 전용 스킬."
+description: "TDD Refactor 단계: dotnet test(trx)로 Green을 판정하고 PASS 시 동작 보존 리팩토링 적용·회귀 확인, 실패 시 롤백. PASS 없이 다음 단계 불가. tdd-qa 전용."
 ---
 
 # TDD Refactor Phase Skill

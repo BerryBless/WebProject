@@ -1,10 +1,6 @@
 ---
 name: codex
-description: >
-  Claude Code 세션 안에서 OpenAI Codex CLI(`codex exec`)를 세컨드 오피니언·교차 검증·병렬 작업자로
-  호출하는 스킬. 트리거: 'codex', '코덱스', 'codex에게 물어봐', 'codex 의견', '세컨드 오피니언',
-  'codex 리뷰', 'codex로 검증', '교차 리뷰', 'codex한테 시켜'. 후속: 'codex 이어서', 'codex 다시'.
-  기본은 read-only 샌드박스로 안전하게 실행하고, 파일 수정 위임은 사용자 확인 후 workspace-write로 실행한다.
+description: "Claude Code 세션 안에서 OpenAI Codex CLI(codex exec)를 세컨드 오피니언·교차 검증·병렬 작업자로 호출한다. 트리거: 'codex', '코덱스', 'codex에게 물어봐', '세컨드 오피니언', 'codex 리뷰', '교차 리뷰'. 후속: 'codex 이어서', 'codex 다시'. 기본 read-only, 파일 수정 위임은 사용자 확인 후."
 ---
 
 # Codex 호출 스킬 (Claude ↔ Codex 협업)

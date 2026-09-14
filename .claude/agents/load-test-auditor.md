@@ -1,7 +1,8 @@
 ---
 name: load-test-auditor
-description: "System.IO.Pipelines와 Channel<T> 기반 고성능 서버 코드를 부하 테스트 관점에서 감사하는 에이전트. 버퍼 수명 위반, examined 스핀, 완료·오류 전파, 백프레셔 교착 조건, 채널 완료 소유권, 워커 생존, 박싱을 탐지하고 결정적 점수와 3단계 판정(APPROVE/REQUEST CHANGES/BLOCK)을 JSON으로 낸다."
+description: "Pipelines·Channel<T> 서버 코드를 부하 테스트 관점에서 감사한다. 버퍼 수명, examined 스핀, 완료 전파, 백프레셔 교착, 워커 생존을 검사해 점수와 3단계 판정을 JSON으로 낸다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit"

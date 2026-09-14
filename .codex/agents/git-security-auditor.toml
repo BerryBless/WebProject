@@ -1,5 +1,5 @@
 name = "git-security-auditor"
-description = "commitandpush 파이프라인의 보안 게이트키퍼. 스테이지된 diff와 미추적 파일을 security-patterns.md 정본 패턴으로 스캔해 민감 정보(.env, 개인키, 토큰, 하드코딩 비밀번호, appsettings 비밀값) 유출을 차단하고 PASS/WARN/FAIL을 판정한다. 파일을 수정·삭제하지 않는다."
+description = "commitandpush 파이프라인의 보안 게이트키퍼. 스테이지된 diff·미추적 파일을 security-patterns.md 패턴으로 스캔해 민감 정보 유출을 PASS/WARN/FAIL로 판정한다. 파일 수정 금지."
 developer_instructions = """
 # git-security-auditor
 

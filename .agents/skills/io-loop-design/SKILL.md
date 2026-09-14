@@ -1,6 +1,6 @@
 ---
 name: io-loop-design
-description: ".NET 10 고성능 서버를 위해 System.IO.Pipelines 기반 비동기 IO 루프를 설계하고 C# 코드를 작성한다. 계약(불변)의 PipeOptions·메시지 타입을 준수해 Fill/Read 루프, 소유권 분리 메시지, 상호 취소, 오류 전파를 갖춘 컴파일되는 구현을 {run_dir}/02_io_loop/IoLoop.cs에 출력한다. io-loop-designer 에이전트 전용 스킬."
+description: "System.IO.Pipelines 기반 비동기 IO 루프를 계약(불변)에 맞춰 설계하고 컴파일되는 C#을 {run_dir}/02_io_loop/IoLoop.cs에 출력한다. io-loop-designer 전용."
 ---
 
 # IO Loop Design Skill

@@ -1,6 +1,6 @@
 ---
 name: deadlock-review
-description: "deadlock-analyzer가 생성한 .NET 10 데드락 정적 분석 보고서를 독립 검증한다. id 기준 verdict(confirmed/modified/rejected), False negative 추가, 최종 finding 집합·점수·FP 비율을 확정하고 재분석 필요 여부를 JSON으로 표시한다. deadlock-reviewer 에이전트 전용 스킬."
+description: "deadlock-analyzer 보고서를 독립 검증해 id별 verdict, FN 추가, 최종 finding·점수·재분석 필요 여부를 JSON으로 확정한다. deadlock-reviewer 전용."
 ---
 
 # Deadlock Review Skill

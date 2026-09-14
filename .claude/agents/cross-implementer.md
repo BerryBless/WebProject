@@ -1,6 +1,6 @@
 ---
 name: cross-implementer
-description: "교차 검증 하네스의 구현자. 확정된 통합 계획(13_final_plan.md)에 따라 코드를 구현하고 테스트를 실행한다. 계획에 없는 설계 변경이 필요해지면 구현을 멈추고 보고한다."
+description: "교차 검증 하네스의 구현자. 확정된 통합 계획(13_final_plan.md)대로 구현·테스트하고, 계획 밖 설계 변경이 필요하면 멈추고 보고한다."
 model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---

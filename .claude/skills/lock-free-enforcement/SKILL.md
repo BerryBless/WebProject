@@ -1,6 +1,6 @@
 ---
 name: lock-free-enforcement
-description: ".NET 10 고성능 서버 코드에서 동기화 프리미티브(lock/System.Threading.Lock/Monitor/Mutex/SemaphoreSlim/ReaderWriterLockSlim/SpinLock)를 탐지하고, Interlocked·Channel·동시성 컬렉션으로 호출자 락을 제거할 수 있는지(동작 보존 조건 포함) 판정한다. lock-free-enforcer 에이전트 전용 스킬."
+description: ".NET 10 서버 코드의 동기화 프리미티브를 탐지하고 Interlocked·Channel·동시성 컬렉션으로 제거 가능한지(동작 보존 조건 포함) 판정한다. lock-free-enforcer 전용."
 ---
 
 # Lock-Free Enforcement Skill

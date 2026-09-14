@@ -1,6 +1,6 @@
 ---
 name: performance-review
-description: ".NET/C# 코드의 성능 병목을 심층 탐지한다. N+1 쿼리, async/await 오용, 힙 할당 압박, LINQ 비효율, 캐싱 누락을 분석하고 JSON 결과를 {run_dir}/02_performance_findings.json에 출력한다. performance-reviewer 에이전트가 사용하는 전용 스킬."
+description: ".NET/C# 성능 병목(N+1, async 오용, 힙 할당, LINQ, 캐싱 누락)을 탐지해 JSON을 {run_dir}/02_performance_findings.json에 출력한다. performance-reviewer 전용."
 ---
 
 # Performance Review Skill

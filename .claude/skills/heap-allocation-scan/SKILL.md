@@ -1,6 +1,6 @@
 ---
 name: heap-allocation-scan
-description: ".NET 10 서버 라이브러리 hot path의 불필요한 힙 할당을 정밀 탐지한다. boxing/unboxing, 루프 내 new, hot path LINQ, 캡처 클로저, string 연산, 암묵적 배열을 분석하고 공통 finding 스키마 JSON을 {run_dir}/02_allocation_findings.json에 출력한다. heap-allocation-scanner 에이전트 전용 스킬."
+description: ".NET 10 서버 hot path의 힙 할당(boxing, 루프 내 new, LINQ, 클로저, string, 암묵적 배열)을 탐지해 JSON을 {run_dir}/02_allocation_findings.json에 출력한다. heap-allocation-scanner 전용."
 ---
 
 # Heap Allocation Scan Skill

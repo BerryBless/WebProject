@@ -1,6 +1,6 @@
 ---
 name: allocation-peer-review
-description: "heap-allocation-scanner와 pooling-enforcer의 GC 억제 분석 보고서 2개를 독립 교차 검증한다. False positive 기각, False negative 보완, 수정 코드의 동작 보존·소유권 검증, ArrayPool 종료 경로 독립 추적을 수행하고 최종 finding 집합과 점수를 {run_dir}/03_peer_review.json에 확정한다. allocation-peer-reviewer 에이전트 전용 스킬."
+description: "heap-allocation-scanner·pooling-enforcer 보고서 2개를 독립 교차 검증해 최종 finding과 점수를 {run_dir}/03_peer_review.json에 확정한다. allocation-peer-reviewer 전용."
 ---
 
 # Allocation Peer Review Skill

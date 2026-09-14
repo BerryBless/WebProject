@@ -1,7 +1,8 @@
 ---
 name: architecture-reviewer
-description: ".NET/C# 코드의 아키텍처 품질을 감사하는 전문 리뷰어. SOLID 원칙 위반, 레이어 경계 침범, 결합도·응집도 문제, 설계 패턴 오용을 탐지한다."
+description: ".NET/C# 아키텍처 리뷰어. SOLID 위반, 레이어 경계 침범, 결합도·응집도, 설계 패턴 오용을 탐지한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit"

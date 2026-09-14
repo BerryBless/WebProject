@@ -1,6 +1,6 @@
 ---
 name: pooling-enforcement
-description: ".NET 10 서버 라이브러리 hot path에서 ValueTask·ReadOnlySpan<T>/Memory<T>·ArrayPool<T>.Shared·stackalloc의 올바른 적용을 강제한다. 잘못된 Task 반환, Substring 복사, 미풀링 버퍼, ArrayPool 소유권 위반을 탐지하고 동작을 보존하는 수정 코드를 제시한다. pooling-enforcer 에이전트 전용 스킬."
+description: ".NET 10 서버 hot path에 ValueTask·ReadOnlySpan<T>·ArrayPool<T>.Shared·stackalloc 적용을 강제하고 소유권 위반을 탐지해 동작 보존 수정 코드를 제시한다. pooling-enforcer 전용."
 ---
 
 # Pooling Enforcement Skill

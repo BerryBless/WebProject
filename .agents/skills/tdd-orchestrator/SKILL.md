@@ -1,6 +1,6 @@
 ---
 name: tdd-orchestrator
-description: "TDD(테스트 주도 개발) 하네스를 실행하는 오케스트레이터. 사용자 요구사항 입력 시 analyst(Red)→builder(Green)→qa(Refactor)를 순차 Agent 호출로 조율하고, 실행별 run_dir·파일 단위 소스 우선순위 csproj·trx 기반 판정·시도 로그를 유지하며, 최종에 harness-evolve로 진화 델타를 포착하고 실제 프로젝트 승격 여부를 확인한다. 트리거: 'TDD 해줘', '테스트 먼저 작성', 'Red-Green-Refactor', '기능 구현해줘 (TDD)', 'TDD 사이클', '테스트 주도 개발'. 후속: '다음 기능 TDD', '테스트 추가해줘', 'TDD 재실행', '리팩토링 가이드', '진화 리포트 보여줘'."
+description: "TDD 오케스트레이터. analyst(Red)→builder(Green)→qa(Refactor)를 순차 조율하고 run_dir·trx 판정·시도 로그를 유지하며 harness-evolve로 델타를 포착한다. 트리거: 'TDD 해줘', '테스트 먼저 작성', 'Red-Green-Refactor', 'TDD 사이클', '테스트 주도 개발'. 후속: '다음 기능 TDD', 'TDD 재실행', '진화 리포트 보여줘'."
 ---
 
 # TDD Orchestrator

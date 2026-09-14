@@ -1,6 +1,6 @@
 ---
 name: gc-guard-orchestrator
-description: ".NET 10 서버 라이브러리의 GC 압력 억제를 위한 메모리 최적화 팀을 조율하는 오케스트레이터. 힙 할당 스캐너와 풀링 강제자가 독립 병렬 감사 후 피어 리뷰어가 교차 검증하여 단일 GC 가드 리포트를 생성한다. 트리거(감사 의도가 명시된 요청에만): 'GC 억제', '힙 할당 감사', '메모리 최적화', 'ArrayPool 검사', 'ValueTask 검증', 'Span 적용', 'boxing 탐지', 'GC 압력 분석', '메모리 최적화 리뷰'. 후속 작업: '다시 분석', 'GC 재검토', '할당 보완', '이전 결과 업데이트', 'ValueTask만 다시'."
+description: ".NET 10 서버 GC 압력 억제 오케스트레이터. 힙 할당 스캐너·풀링 강제자 병렬 감사 후 피어 리뷰로 교차 검증. 트리거(감사 의도 명시 시): 'GC 억제', '힙 할당 감사', '메모리 최적화', 'ArrayPool 검사', 'ValueTask 검증', 'boxing 탐지', 'GC 압력 분석'. 후속: '다시 분석', 'GC 재검토', 'ValueTask만 다시'."
 ---
 
 # GC Guard Orchestrator

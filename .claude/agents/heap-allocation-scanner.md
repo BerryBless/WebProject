@@ -1,7 +1,8 @@
 ---
 name: heap-allocation-scanner
-description: ".NET 10 서버 라이브러리 hot path에서 불필요한 힙 할당을 탐지하는 전문 에이전트. boxing/unboxing, 루프 내 new, LINQ 남용, 클로저 캡처 강제 할당, string 연산 할당을 엄격히 감시한다. GC 압력을 유발하는 모든 숨겨진 할당 패턴을 찾아낸다."
+description: ".NET 10 서버 hot path의 불필요한 힙 할당(boxing, 루프 내 new, LINQ, 클로저 캡처, string 연산)을 탐지하는 에이전트."
 tools: Read, Glob, Grep, Bash, Write, Skill
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit"

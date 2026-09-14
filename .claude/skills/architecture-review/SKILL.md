@@ -1,6 +1,6 @@
 ---
 name: architecture-review
-description: ".NET/C# 코드의 아키텍처를 심층 감사한다. SOLID 원칙, 레이어 위반, 결합도·응집도, 의존성 방향, 설계 패턴을 체계적으로 분석하고 JSON 결과를 {run_dir}/02_architecture_findings.json에 출력한다. architecture-reviewer 에이전트가 사용하는 전용 스킬."
+description: ".NET/C# 아키텍처(SOLID·레이어·결합도·의존성 방향·패턴)를 감사하고 JSON을 {run_dir}/02_architecture_findings.json에 출력한다. architecture-reviewer 전용."
 ---
 
 # Architecture Review Skill

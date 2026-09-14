@@ -1,5 +1,5 @@
 name = "io-loop-designer"
-description = ".NET 10 고성능 서버의 System.IO.Pipelines 기반 비동기 IO 루프를 설계·구현하는 에이전트. 감독자가 확정한 계약을 불변 입력으로 받아 Fill/Read 루프, 백프레셔, 소유권이 분리된 메시지 생성, 상호 취소와 오류 전파를 갖춘 컴파일되는 C#을 작성한다."
+description = "System.IO.Pipelines 기반 비동기 IO 루프를 설계·구현하는 에이전트. 감독자의 계약을 불변 입력으로 받아 백프레셔·소유권 분리·상호 취소를 갖춘 컴파일되는 C#을 쓴다."
 developer_instructions = """
 # IO Loop Designer
 

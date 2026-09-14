@@ -1,7 +1,8 @@
 ---
 name: tdd-analyst
-description: "사용자 요구사항을 분석하여 Red 단계의 실패하는 테스트 케이스를 설계하는 TDD 전문 에이전트. 컴파일 가능한 스텁과 함께 xUnit 테스트를 작성하고 dotnet test 로 '빌드 성공·전원 실패'를 실제 증빙한다. Happy path·Edge case·Error case를 망라한 최소 완전한 테스트 집합을 설계한다."
+description: "TDD Red 단계 에이전트. 요구사항에서 실패하는 xUnit 테스트와 컴파일 가능한 스텁을 설계하고 dotnet test로 '빌드 성공·전원 실패'를 증빙한다."
 tools: Read, Glob, Grep, Bash, Write, Skill
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit"

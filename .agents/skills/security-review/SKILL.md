@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: ".NET/C# 코드의 보안 취약점을 심층 스캔한다. OWASP Top 10, CWE 기반 분석으로 인젝션·인증·민감정보 노출·CSRF·권한 결함을 탐지하고 JSON 결과를 {run_dir}/02_security_findings.json에 출력한다. security-reviewer 에이전트가 사용하는 전용 스킬."
+description: ".NET/C# 보안 취약점(OWASP Top 10·CWE: 인젝션·인증·민감정보·CSRF·권한)을 스캔해 JSON을 {run_dir}/02_security_findings.json에 출력한다. security-reviewer 전용."
 ---
 
 # Security Review Skill

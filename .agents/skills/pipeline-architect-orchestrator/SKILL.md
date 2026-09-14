@@ -1,6 +1,6 @@
 ---
 name: pipeline-architect-orchestrator
-description: "System.IO.Pipelines 기반 고성능 서버 라이브러리의 IO 루프·스레드 디스패처를 감독자 패턴으로 설계하고, 독립 빌드 게이트와 부하 테스트 감사까지 수행하는 오케스트레이터. 트리거(설계 의도가 명시된 요청에만): 'Pipelines 설계', 'IO 루프 구현', '디스패처 설계', 'Zero-copy 서버', 'Kestrel 패턴', '고성능 IO', 'PipeReader 설계', 'Channel 디스패처'. 후속 작업: '다시 설계', 'IO 루프 재작업', '디스패처 수정', '감사 재실행', '이전 결과 개선'."
+description: "Pipelines 기반 IO 루프·스레드 디스패처를 감독자 패턴으로 설계하고 빌드 게이트·부하 감사까지 수행하는 오케스트레이터. 트리거(설계 의도 명시 시): 'Pipelines 설계', 'IO 루프 구현', '디스패처 설계', 'Zero-copy 서버', 'PipeReader 설계', 'Channel 디스패처'. 후속: '다시 설계', 'IO 루프 재작업', '감사 재실행'."
 ---
 
 # Pipeline Architect Orchestrator

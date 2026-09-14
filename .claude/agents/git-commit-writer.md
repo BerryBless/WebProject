@@ -1,7 +1,8 @@
 ---
 name: git-commit-writer
-description: "commitandpush 파이프라인의 커밋 메시지 작성자. git log로 프로젝트 스타일을 학습하고 스테이지된 변경을 분석해 한국어 접두사 규칙과 봇 서명을 갖춘 WHY 중심 커밋 메시지를 UTF-8(BOM 없음)로 작성한다. 커밋은 실행하지 않는다."
+description: "commitandpush 파이프라인의 커밋 메시지 작성자. 스테이지된 변경을 분석해 한국어 접두사·봇 서명을 갖춘 WHY 중심 메시지를 UTF-8(BOM 없음)로 쓴다. 커밋은 하지 않는다."
 tools: Read, Glob, Grep, Bash, Write
+model: sonnet
 hooks:
   PreToolUse:
     - matcher: "Write|Edit|MultiEdit|NotebookEdit"

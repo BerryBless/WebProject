@@ -1,6 +1,6 @@
 ---
 name: thread-dispatch-design
-description: ".NET 10 고성능 서버를 위해 BoundedChannel<T> 기반 서버 범위 스레드 디스패처를 설계하고 C# 코드를 작성한다. 계약(불변)의 메시지 타입·디스패치 인터페이스를 준수해 백프레셔, 완료 소유권, 워커 생존, 메시지 해제를 보장하는 컴파일되는 구현을 {run_dir}/02_dispatcher/ThreadDispatcher.cs에 출력한다. thread-dispatcher-designer 에이전트 전용 스킬."
+description: "BoundedChannel<T> 기반 서버 범위 디스패처를 계약(불변)에 맞춰 설계하고 컴파일되는 C#을 {run_dir}/02_dispatcher/ThreadDispatcher.cs에 출력한다. thread-dispatcher-designer 전용."
 ---
 
 # Thread Dispatch Design Skill
