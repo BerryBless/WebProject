@@ -29,7 +29,7 @@
 /// </remarks>
 ```
 
-- 시각은 항상 `DateTimeOffset.UtcNow`(Npgsql `timestamptz`는 오프셋 0만 허용). ID는 `Guid.CreateVersion7()`.
+- 시각은 항상 `DbClock.UtcNow()`(`Infrastructure/Data/DbClock.cs`, UTC + **마이크로초 절삭**). Npgsql 은 `timestamptz` 저장 시 100ns 틱을 마이크로초로 절삭하므로, 절삭하지 않은 값을 응답으로 돌려주면 재조회 값과 마지막 자릿수가 달라진다. ID는 `Guid.CreateVersion7()`.
 - JSON: enum은 문자열만(`JsonStringEnumConverter(allowIntegerValues: false)`, 정수 입력은 400), 속성명 camelCase(기본값). 오류 응답은 전부 `ProblemDetails`. 바인딩 실패는 예외 대신 400(`RouteHandlerOptions.ThrowOnBadRequest=false`).
 - 모든 쓰기 요청(POST/PUT/DELETE)은 `X-Requested-With: XMLHttpRequest` 헤더가 필수다(CSRF 방어, 없으면 403). 테스트 클라이언트는 `ApiFactory.CreateClient()`가 자동으로 붙인다.
 - Codex 교차 검증(2026-09-17) 반영 사항은 문서 끝 "Codex 교차 검증 반영" 절 참조.
@@ -48,7 +48,7 @@ WebProject.Api/
   appsettings.json / appsettings.Development.json  # 수정: ConnectionStrings, WriteAccess, Attachments, ForwardedHeaders
   Domain/ItemKind.cs, ItemStatus.cs, Item.cs, Note.cs, NoteItemLink.cs, TaskItem.cs, Tag.cs, ItemTag.cs, NoteTag.cs, Attachment.cs
   Contracts/ItemDtos.cs, NoteDtos.cs, TaskDtos.cs, TagDtos.cs, AttachmentDtos.cs, DashboardDtos.cs, MeDto.cs, ValidationErrors.cs
-  Infrastructure/Data/AppDbContext.cs, TagResolver.cs, DtoMapping.cs, UniqueViolation.cs, Migrations/*
+  Infrastructure/Data/AppDbContext.cs, TagResolver.cs, DtoMapping.cs, DbClock.cs, UniqueViolation.cs, Migrations/*
   Infrastructure/Access/IWriteAccessPolicy.cs, WriteAccessOptions.cs, IpAllowlistWriteAccessPolicy.cs, RequireWriteAccessFilter.cs, WriteAccessServiceCollectionExtensions.cs
   Infrastructure/Storage/IAttachmentStore.cs, AttachmentOptions.cs, FileSystemAttachmentStore.cs, ImageSignature.cs
   Features/ApiEndpoints.cs
@@ -211,7 +211,7 @@ public sealed class Item
     public string Description { get; set; } = string.Empty;
     public ItemStatus Status { get; set; } = ItemStatus.Planned;
     public DateOnly? DueDate { get; set; }
-    /// <summary>소속 영역(Kind=Area인 Item). 영역 자신은 null.</summary>
+    /// <summary>소속 영역: Kind=Area 이거나 보관된 영역(Kind=Archive &amp;&amp; PreviousKind=Area)인 Item. 영역 자신은 null.</summary>
     public Guid? AreaId { get; set; }
     public Item? Area { get; set; }
     /// <summary>노션 페이지 ID(32 hex). 재가져오기 멱등성 키.</summary>
@@ -355,6 +355,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasIndex(x => new { x.Kind, x.SortOrder });
             // 영역 삭제 시 소속 항목의 AreaId만 null로 (항목은 남김)
             e.HasOne(x => x.Area).WithMany().HasForeignKey(x => x.AreaId).OnDelete(DeleteBehavior.SetNull);
+            // 불변식: Archive(3)이면 PreviousKind 는 Project/Area/Resource(0~2) 중 하나, 그 외에는 null. 손상 데이터가 애초에 저장되지 않게 DB 가 막는다.
+            e.ToTable(t => t.HasCheckConstraint("CK_Item_PreviousKind",
+                "(\"Kind\" = 3 AND \"PreviousKind\" IN (0, 1, 2)) OR (\"Kind\" <> 3 AND \"PreviousKind\" IS NULL)"));
         });
         b.Entity<Note>(e =>
         {
@@ -499,7 +502,9 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     public ApiFactory(PostgresContainerFixture pg) : this(pg, new Dictionary<string, string?>()) { }
 
-    public ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings)
+    // xUnit 2.x 는 클래스 픽스처에 public 인스턴스 생성자가 정확히 하나여야 한다. 설정 오버라이드용은 internal 로 두어
+    // 같은 테스트 어셈블리에서 직접 new 할 수 있게 하되 픽스처 생성 경로에는 보이지 않게 한다.
+    internal ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings)
     {
         // 클래스마다 새 DB 이름을 써서 테스트 간 데이터 간섭을 없앤다. Migrate()가 DB를 생성한다.
         var csb = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
@@ -621,7 +626,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `WebProject.Api.Tests/Infrastructure/IpAllowlistWriteAccessPolicyTests.cs`, `WebProject.Api.Tests/Features/MeEndpointsTests.cs`, `WebProject.Api.Tests/Features/ForwardedHeadersTests.cs`
 
 **Interfaces:**
-- Produces: `IWriteAccessPolicy.CanWrite(HttpContext) : bool`; `RequireWriteAccessFilter : IEndpointFilter`(정책 거부 → 403, `X-Requested-With: XMLHttpRequest` 헤더 없음 → 403 CSRF 방어); `WriteAccessServiceCollectionExtensions.UseTrustedForwardedHeaders(this WebApplication)`; `ApiEndpoints.MapApiEndpoints(this IEndpointRouteBuilder)`가 `(RouteGroupBuilder read, RouteGroupBuilder write)` 두 그룹을 만들고 각 Feature의 `Map<X>Endpoints(read, write)`를 호출; 테스트 `ApiFactory.WriteAccess.Allow` (bool) 스위치, `ApiFactory.CreateClient()`는 `X-Requested-With` 기본 헤더를 붙인다, 설정 키 `"Test:UseRealWritePolicy"="true"`면 가짜 정책으로 바꾸지 않는다.
+- Produces: `IWriteAccessPolicy.CanWrite(HttpContext) : bool`; `RequireWriteAccessFilter : IEndpointFilter`(정책 거부 → 403, `X-Requested-With: XMLHttpRequest` 헤더 없음 → 403 CSRF 방어. 단, 필터는 인수 바인딩 뒤에 실행되므로 잘못된 JSON·Content-Type 은 먼저 400/415 가 된다); `WriteAccessServiceCollectionExtensions.UseTrustedForwardedHeaders(this WebApplication)`; `ApiEndpoints.MapApiEndpoints(this IEndpointRouteBuilder)`가 `(RouteGroupBuilder read, RouteGroupBuilder write)` 두 그룹을 만들고 각 Feature의 `Map<X>Endpoints(read, write)`를 호출; 테스트 `ApiFactory.WriteAccess.Allow` (bool) 스위치, `ApiFactory.CreateClient()`는 `X-Requested-With` 기본 헤더를 붙인다, 설정 키 `"Test:UseRealWritePolicy"="true"`면 가짜 정책으로 바꾸지 않는다.
 
 - [ ] **Step 1: 정책 단위 테스트 작성** — `WebProject.Api.Tests/Infrastructure/IpAllowlistWriteAccessPolicyTests.cs`
 
@@ -1145,7 +1150,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `WebProject.Api/Contracts/ValidationErrors.cs`, `ItemDtos.cs`, `NoteDtos.cs`, `TaskDtos.cs`, `TagDtos.cs`
-- Create: `WebProject.Api/Infrastructure/Data/TagResolver.cs`, `DtoMapping.cs`, `UniqueViolation.cs`
+- Create: `WebProject.Api/Infrastructure/Data/TagResolver.cs`, `DtoMapping.cs`, `DbClock.cs`, `UniqueViolation.cs`
 - Create: `WebProject.Api/Features/Items/ItemEndpoints.cs`, `ItemValidation.cs`
 - Modify: `WebProject.Api.Tests/Features/ForwardedHeadersTests.cs` (Skip 제거)
 - Modify: `WebProject.Api/Features/ApiEndpoints.cs`
@@ -1160,8 +1165,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `NoteItemRefDto(Guid Id, ItemKind Kind, string Title)`, `NoteDetailDto(Guid Id, string Title, string ContentMarkdown, NoteItemRefDto[] Items, string[] Tags, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)`, `UpsertNoteRequest(string Title, string? ContentMarkdown, Guid[]? ItemIds, string[]? TagNames)`, `PagedNotesDto(NoteSummaryDto[] Items, int Total)`
   - `TaskDto(Guid Id, string Title, bool IsDone, DateTimeOffset? CompletedAt, DateOnly? DueDate, Guid? ItemId, int SortOrder, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)`, `UpsertTaskRequest(string Title, DateOnly? DueDate, Guid? ItemId, int SortOrder, bool IsDone = false)`
   - `TagDto(Guid Id, string Name, string? Color, int ItemCount, int NoteCount)`
-  - `TagResolver.ResolveAsync(AppDbContext db, IEnumerable<string>? names, CancellationToken ct) : Task<List<Tag>>`, `TagResolver.Validate(IEnumerable<string>? names, ValidationErrors errors, string field)` (50자 초과·공백만 → 오류), `TagResolver.MaxLength = 50`
-  - `UniqueViolation.Is(DbUpdateException) : bool` (PostgreSQL 23505 판정) — 동시 생성 경쟁은 409 `ProblemDetails`로 응답
+  - `TagResolver.ResolveAsync(AppDbContext db, IEnumerable<string>? names, CancellationToken ct) : Task<List<Tag>>`, `TagResolver.Validate(IEnumerable<string>? names, ValidationErrors errors, string field)` (정규화 후 50자 초과 → 오류, 공백만인 항목은 무시), `TagResolver.MaxLength = 50`
+  - `DbClock.UtcNow() : DateTimeOffset` (UTC, 마이크로초 절삭 — 모든 엔티티 시각의 단일 출처)
+  - `UniqueViolation.Is(DbUpdateException) : bool` (PostgreSQL 23505 유니크 + 23503 FK 위반 판정) — 검증→저장 사이 경쟁은 409 `ProblemDetails`로 응답
   - 응답의 `Tags` 배열은 항상 **정규화 이름 오름차순**(`StringComparer.Ordinal`)으로 정렬된다(입력 순서 보존 안 함)
   - `DtoMapping.ToSummary(this Item)`, `ToSummary(this Note)`, `ToDetail(this Note)`, `ToDto(this TaskItem)` (모두 Include 로드된 네비게이션 전제)
   - `ValidationErrors` 빌더 → `TypedResults.ValidationProblem(errors)`
@@ -1369,6 +1375,69 @@ public sealed class ItemEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         await client.PostAsync($"/api/items/{area.Id}/restore", null);
         var kindChange = await client.PutAsJsonAsync($"/api/items/{area.Id}", NewItem(ItemKind.Project, "영역→프로젝트"), TestJson.Options);
         Assert.Equal(HttpStatusCode.BadRequest, kindChange.StatusCode);
+    }
+
+    [Fact]
+    public async Task Restore_WithCorruptedPreviousKind_Returns409_AndDbRejectsCorruption()
+    {
+        using var client = factory.CreateClient();
+        var p = await CreateAsync(client, NewItem(ItemKind.Project, "손상 복원"));
+        await client.PostAsync($"/api/items/{p.Id}/archive", null);
+
+        // DB CHECK 제약이 손상 저장 자체를 막는다(Archive 인데 PreviousKind=null).
+        await using (var scope = factory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var ex = await Assert.ThrowsAnyAsync<Exception>(() =>
+                db.Items.Where(i => i.Id == p.Id).ExecuteUpdateAsync(s => s.SetProperty(i => i.PreviousKind, (ItemKind?)null)));
+            Assert.Contains("CK_Item_PreviousKind", ex.ToString());
+        }
+
+        // 제약을 잠시 내리고 손상을 만든 뒤 복원 API 가 409 로 거부하는지 확인한다.
+        await using (var scope = factory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"Items\" DROP CONSTRAINT \"CK_Item_PreviousKind\"");
+            await db.Items.Where(i => i.Id == p.Id).ExecuteUpdateAsync(s => s.SetProperty(i => i.PreviousKind, (ItemKind?)null));
+        }
+        try
+        {
+            var res = await client.PostAsync($"/api/items/{p.Id}/restore", null);
+            Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        }
+        finally
+        {
+            await using var scope = factory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Items.Where(i => i.Id == p.Id).ExecuteDeleteAsync();
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"Items\" ADD CONSTRAINT \"CK_Item_PreviousKind\" CHECK ((\"Kind\" = 3 AND \"PreviousKind\" IN (0, 1, 2)) OR (\"Kind\" <> 3 AND \"PreviousKind\" IS NULL))");
+        }
+    }
+
+    [Fact]
+    public async Task AreaKindChange_And_ChildCreate_AreSerialized_ByRowLock()
+    {
+        using var client = factory.CreateClient();
+        var area = await CreateAsync(client, NewItem(ItemKind.Area, "잠금 영역"));
+
+        // 동시에 (a) 영역→Project 변경, (b) 그 영역에 자식 생성을 반복한다. 어떤 인터리빙에서도 "Project 를 AreaId 로 참조" 상태가 남으면 안 된다.
+        for (var round = 0; round < 5; round++)
+        {
+            var change = client.PutAsJsonAsync($"/api/items/{area.Id}", NewItem(ItemKind.Project, "잠금 영역"), TestJson.Options);
+            var child = client.PostAsJsonAsync("/api/items", NewItem(ItemKind.Resource, $"자식 {round}", area.Id), TestJson.Options);
+            await Task.WhenAll(change, child);
+
+            await using var scope = factory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var parent = await db.Items.AsNoTracking().SingleAsync(i => i.Id == area.Id);
+            var dangling = await db.Items.AsNoTracking().AnyAsync(i => i.AreaId == area.Id && parent.Kind != ItemKind.Area);
+            Assert.False(dangling, $"round {round}: Kind={parent.Kind} 인 항목을 AreaId 로 참조하는 자식이 있음");
+
+            // 다음 라운드를 위해 원상 복구
+            await db.Items.Where(i => i.AreaId == area.Id).ExecuteDeleteAsync();
+            await client.PutAsJsonAsync($"/api/items/{area.Id}", NewItem(ItemKind.Area, "잠금 영역"), TestJson.Options);
+        }
     }
 
     [Fact]
@@ -1587,6 +1656,32 @@ public static class DtoMapping
 ```
 
 ```csharp
+// DbClock.cs
+namespace WebProject.Api.Infrastructure.Data;
+
+/// <summary>DB 에 저장되는 모든 시각의 단일 출처. UTC 이며 마이크로초로 절삭한다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> Thread-safe. 무상태.</description></item>
+/// <item><description><b>Memory Allocation:</b> Zero-allocation(struct 반환).</description></item>
+/// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
+/// </list>
+/// Npgsql 은 timestamptz 를 마이크로초 단위로 기록하므로 100ns 틱을 미리 절삭해야 "저장 전 값 == 재조회 값" 이 성립한다.
+/// </remarks>
+public static class DbClock
+{
+    private const long TicksPerMicrosecond = 10;
+
+    public static DateTimeOffset UtcNow()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new DateTimeOffset(now.Ticks - now.Ticks % TicksPerMicrosecond, TimeSpan.Zero);
+    }
+}
+```
+
+```csharp
 // UniqueViolation.cs
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -1594,20 +1689,22 @@ using Npgsql;
 
 namespace WebProject.Api.Infrastructure.Data;
 
-/// <summary>"조회 후 없으면 추가" 경쟁(태그 동시 생성, 같은 해시 첨부 동시 업로드)으로 유니크 인덱스에 걸렸는지 판정한다.</summary>
+/// <summary>검증 뒤 저장 사이의 경쟁으로 DB 제약에 걸렸는지 판정한다: 유니크(23505, 태그 동시 생성·같은 해시 첨부)와 FK(23503, 검증 직후 참조 대상이 삭제됨).</summary>
 /// <remarks>단일 사용자라도 여러 탭·병렬 업로드로 발생할 수 있다. 호출자는 true 이면 409 ProblemDetails("다시 시도")로 응답한다.
 /// 재시도를 서버가 대신 하지 않는 이유: 실패한 SaveChanges 뒤 변경 추적기 상태 정리가 복잡하고, 클라이언트 재시도가 더 단순·투명하다.</remarks>
 public static class UniqueViolation
 {
     public const string PostgresUniqueViolationState = "23505";
+    public const string PostgresForeignKeyViolationState = "23503";
 
+    /// <summary>유니크 또는 FK 제약 위반이면 true. 이름은 하위 호환을 위해 유지한다.</summary>
     public static bool Is(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: PostgresUniqueViolationState };
+        ex.InnerException is PostgresException { SqlState: PostgresUniqueViolationState or PostgresForeignKeyViolationState };
 
     public static ProblemHttpResult Conflict() => TypedResults.Problem(
         statusCode: StatusCodes.Status409Conflict,
-        title: "동시 생성 충돌",
-        detail: "같은 이름의 태그 또는 같은 내용의 첨부가 동시에 만들어졌습니다. 요청을 다시 보내 주세요.");
+        title: "동시 변경 충돌",
+        detail: "같은 이름의 태그·같은 내용의 첨부가 동시에 만들어졌거나, 참조하려는 항목이 방금 삭제되었습니다. 최신 상태를 다시 조회한 뒤 요청을 다시 보내 주세요.");
 }
 ```
 
@@ -1652,6 +1749,9 @@ public static class ItemValidation
             errors.Add(nameof(req.Kind), "보관된 항목의 종류는 복원 후에만 바꿀 수 있습니다.");
 
         // 유효 Kind = 요청 Kind, 단 보관 항목은 PreviousKind 기준으로 영역 여부를 판단한다.
+        // 손상 데이터(PreviousKind 가 null/Archive/미정의)는 DB CHECK 가 막지만, 우회 유입 시에도 조용히 처리하지 않고 거부한다.
+        if (isArchived && !IsRestorableKind(existing!.PreviousKind))
+            errors.Add(nameof(req.Kind), "보관 데이터가 손상되었습니다(PreviousKind 없음). 복구 절차가 필요합니다.");
         var effectiveKind = isArchived ? existing!.PreviousKind : req.Kind;
         if (effectiveKind == ItemKind.Area && req.AreaId is not null)
             errors.Add(nameof(req.AreaId), "영역은 다른 영역에 속할 수 없습니다.");
@@ -1671,6 +1771,10 @@ public static class ItemValidation
         }
         return errors;
     }
+
+    /// <summary>복원 가능한 종류: Project/Area/Resource. null·Archive·미정의 값은 손상으로 본다.</summary>
+    public static bool IsRestorableKind(ItemKind? kind) =>
+        kind is ItemKind.Project or ItemKind.Area or ItemKind.Resource;
 }
 ```
 
@@ -1730,17 +1834,28 @@ public static class ItemEndpoints
         return TypedResults.Ok(new ItemDetailDto(item.ToSummary(), notes.Select(n => n.ToSummary()).ToArray(), tasks.Select(t => t.ToDto()).ToArray()));
     }
 
+    /// <summary>영역 불변식(AreaId → Area/보관된 Area, 참조 중 영역의 종류 변경 금지)을 검증부터 저장까지 직렬화하기 위해
+    /// 관련 영역 행을 <c>SELECT … FOR UPDATE</c> 로 잠근다. 자식 생성·수정은 부모 영역 행을, 영역 자신의 수정은 자기 행을 잠그므로
+    /// "A 가 참조 없음 확인 → B 가 자식 삽입 → A 가 Kind 변경" 순서가 불가능해진다. 트랜잭션 종료 시 잠금 해제.</summary>
+    private static Task LockItemRowAsync(AppDbContext db, Guid id, CancellationToken ct) =>
+        // FOR UPDATE: 같은 행을 잠그려는 다른 트랜잭션은 이 트랜잭션이 커밋/롤백될 때까지 대기한다(PostgreSQL 행 수준 잠금).
+        db.Database.ExecuteSqlAsync($"SELECT 1 FROM \"Items\" WHERE \"Id\" = {id} FOR UPDATE", ct);
+
     private static async Task<Results<Created<ItemSummaryDto>, ValidationProblem, ProblemHttpResult>> CreateAsync(AppDbContext db, UpsertItemRequest req, CancellationToken ct)
     {
+        // 트랜잭션: 부모 잠금 → 검증 → 저장이 한 단위여야 잠금이 의미가 있다.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (req.AreaId is Guid parentId) await LockItemRowAsync(db, parentId, ct);
+
         var errors = await ItemValidation.ValidateAsync(db, req, existing: null, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        var now = DateTimeOffset.UtcNow;
+        var now = DbClock.UtcNow();
         var item = new Item { CreatedAt = now };
         Apply(item, req, now);
         item.ItemTags.AddRange((await TagResolver.ResolveAsync(db, req.TagNames, ct)).Select(t => new ItemTag { Item = item, Tag = t }));
         db.Items.Add(item);
-        try { await db.SaveChangesAsync(ct); }
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException ex) when (UniqueViolation.Is(ex)) { return UniqueViolation.Conflict(); }
 
         var created = await WithSummaryIncludes(db).FirstAsync(i => i.Id == item.Id, ct);
@@ -1749,13 +1864,18 @@ public static class ItemEndpoints
 
     private static async Task<Results<Ok<ItemSummaryDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateAsync(AppDbContext db, Guid id, UpsertItemRequest req, CancellationToken ct)
     {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // 자기 행(영역이면 종류 변경 검사 보호)과 새 부모 영역 행을 잠근다. 잠금 순서를 Id 오름차순으로 고정해 교착을 피한다.
+        foreach (var lockId in new[] { id, req.AreaId ?? id }.Distinct().Order())
+            await LockItemRowAsync(db, lockId, ct);
+
         var item = await db.Items.Include(i => i.ItemTags).FirstOrDefaultAsync(i => i.Id == id, ct);
         if (item is null) return TypedResults.NotFound();
 
         var errors = await ItemValidation.ValidateAsync(db, req, item, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        Apply(item, req, DateTimeOffset.UtcNow);
+        Apply(item, req, DbClock.UtcNow());
         // Clear() 후 같은 (ItemId, TagId)를 다시 Add하면 EF가 Deleted 항목과 키 충돌을 일으키므로 차집합으로 동기화한다.
         var tags = await TagResolver.ResolveAsync(db, req.TagNames, ct);
         var desired = tags.Select(t => t.Id).ToHashSet();
@@ -1764,7 +1884,7 @@ public static class ItemEndpoints
         {
             if (!item.ItemTags.Any(link => link.TagId == tag.Id)) item.ItemTags.Add(new ItemTag { Item = item, Tag = tag });
         }
-        try { await db.SaveChangesAsync(ct); }
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException ex) when (UniqueViolation.Is(ex)) { return UniqueViolation.Conflict(); }
 
         var updated = await WithSummaryIncludes(db).FirstAsync(i => i.Id == id, ct);
@@ -1786,7 +1906,7 @@ public static class ItemEndpoints
 
         item.PreviousKind = item.Kind;
         item.Kind = ItemKind.Archive;
-        item.UpdatedAt = DateTimeOffset.UtcNow;
+        item.UpdatedAt = DbClock.UtcNow();
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok((await WithSummaryIncludes(db).FirstAsync(i => i.Id == id, ct)).ToSummary());
     }
@@ -1797,10 +1917,13 @@ public static class ItemEndpoints
         if (item is null) return TypedResults.NotFound();
         if (item.Kind != ItemKind.Archive)
             return TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, title: "보관되지 않은 항목입니다.");
+        if (!ItemValidation.IsRestorableKind(item.PreviousKind))
+            return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "보관 데이터 손상",
+                detail: "PreviousKind 가 없어 어떤 종류로 복원할지 알 수 없습니다. DB 복구 절차가 필요합니다.");
 
-        item.Kind = item.PreviousKind ?? ItemKind.Resource;
+        item.Kind = item.PreviousKind!.Value;
         item.PreviousKind = null;
-        item.UpdatedAt = DateTimeOffset.UtcNow;
+        item.UpdatedAt = DbClock.UtcNow();
         await db.SaveChangesAsync(ct);
         return TypedResults.Ok((await WithSummaryIncludes(db).FirstAsync(i => i.Id == id, ct)).ToSummary());
     }
@@ -1825,7 +1948,7 @@ public static class ItemEndpoints
 - [ ] **Step 6: 테스트 통과 확인**
 
 Run: `dotnet test WebProject.Api.Tests --filter "FullyQualifiedName~ItemEndpointsTests"`
-Expected: 15개 PASS. (반환 유니온 `Results<...>`에 결과 타입이 빠지면 500이 아니라 **컴파일 오류**가 난다.)
+Expected: 17개 PASS. (반환 유니온 `Results<...>`에 결과 타입이 빠지면 500이 아니라 **컴파일 오류**가 난다.) `ItemEndpointsTests` 상단 using 에 `Microsoft.EntityFrameworkCore`, `Microsoft.Extensions.DependencyInjection`, `WebProject.Api.Infrastructure.Data` 를 추가한다.
 그다음 `ForwardedHeadersTests.WriteWithoutCsrfHeader_Returns403_EvenFromAllowedIp`의 `Skip`을 제거하고 `dotnet test WebProject.Api.Tests --filter "FullyQualifiedName~ForwardedHeadersTests"` → 4개 PASS.
 
 - [ ] **Step 7: 전체 테스트 + 커밋**
@@ -2052,8 +2175,10 @@ public sealed class NoteEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Equal(2, page2!.Items.Length);
         Assert.Empty(page1.Items.Select(n => n.Id).Intersect(page2.Items.Select(n => n.Id)));
 
+        // take 상한(200) 자체는 데이터 5개로는 관측할 수 없다. 여기서는 과대 take 가 오류 없이 처리되는 것만 확인하고,
+        // 상한값은 NoteEndpoints.MaxTake 상수와 문서 계약으로 고정한다.
         var tooBig = await client.GetFromJsonAsync<PagedNotesDto>($"/api/notes?itemId={item.Id}&take=9999", TestJson.Options);
-        Assert.Equal(5, tooBig!.Items.Length); // take 는 200 으로 잘리고 Total 은 그대로
+        Assert.Equal(5, tooBig!.Items.Length);
 
         // '%' 를 문자 그대로 검색. 다른 4개 노트도 "100"을 포함하므로 이스케이프가 없으면(%100%% 패턴) 5개 전부 매칭되어 실패한다.
         var escaped = await client.GetFromJsonAsync<PagedNotesDto>($"/api/notes?itemId={item.Id}&q=100%25", TestJson.Options);
@@ -2206,7 +2331,7 @@ public static class NoteEndpoints
         var errors = await NoteValidation.ValidateAsync(db, req, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        var now = DateTimeOffset.UtcNow;
+        var now = DbClock.UtcNow();
         var note = new Note { CreatedAt = now };
         await ApplyAsync(db, note, req, now, ct);
         db.Notes.Add(note);
@@ -2225,7 +2350,7 @@ public static class NoteEndpoints
         var errors = await NoteValidation.ValidateAsync(db, req, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        await ApplyAsync(db, note, req, DateTimeOffset.UtcNow, ct);
+        await ApplyAsync(db, note, req, DbClock.UtcNow(), ct);
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException ex) when (UniqueViolation.Is(ex)) { return UniqueViolation.Conflict(); }
 
@@ -2360,7 +2485,7 @@ public sealed class TaskEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
 
         var second = (await (await client.PutAsJsonAsync($"/api/tasks/{task.Id}", new UpsertTaskRequest("PUT 완료", null, null, 0, IsDone: true), TestJson.Options))
             .Content.ReadFromJsonAsync<TaskDto>(TestJson.Options))!;
-        Assert.Equal(first.CompletedAt, second.CompletedAt); // 이미 완료면 CompletedAt 유지
+        Assert.Equal(first.CompletedAt, second.CompletedAt); // 이미 완료면 CompletedAt 유지. DbClock 이 마이크로초로 절삭하므로 저장 전 값과 재조회 값이 같다.
 
         var reopened = (await (await client.PutAsJsonAsync($"/api/tasks/{task.Id}", new UpsertTaskRequest("PUT 완료", null, null, 0, IsDone: false), TestJson.Options))
             .Content.ReadFromJsonAsync<TaskDto>(TestJson.Options))!;
@@ -2431,7 +2556,7 @@ using WebProject.Api.Infrastructure.Data;
 
 namespace WebProject.Api.Features.Tasks;
 
-/// <summary>/api/tasks 읽기·쓰기 엔드포인트. 완료 상태는 toggle로만 바뀐다.</summary>
+/// <summary>/api/tasks 읽기·쓰기 엔드포인트. 완료 상태는 PUT 의 IsDone(멱등) 또는 toggle(편의)로 바뀐다.</summary>
 public static class TaskEndpoints
 {
     private const int TitleMax = 200;
@@ -2471,28 +2596,30 @@ public static class TaskEndpoints
         return errors;
     }
 
-    private static async Task<Results<Created<TaskDto>, ValidationProblem>> CreateAsync(AppDbContext db, UpsertTaskRequest req, CancellationToken ct)
+    private static async Task<Results<Created<TaskDto>, ValidationProblem, ProblemHttpResult>> CreateAsync(AppDbContext db, UpsertTaskRequest req, CancellationToken ct)
     {
         var errors = await ValidateAsync(db, req, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        var now = DateTimeOffset.UtcNow;
+        var now = DbClock.UtcNow();
         var task = new TaskItem { CreatedAt = now };
         Apply(task, req, now);
         db.Tasks.Add(task);
-        await db.SaveChangesAsync(ct);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (UniqueViolation.Is(ex)) { return UniqueViolation.Conflict(); } // 검증 직후 항목이 삭제된 경쟁(23503)
         return TypedResults.Created($"/api/tasks/{task.Id}", task.ToDto());
     }
 
-    private static async Task<Results<Ok<TaskDto>, NotFound, ValidationProblem>> UpdateAsync(AppDbContext db, Guid id, UpsertTaskRequest req, CancellationToken ct)
+    private static async Task<Results<Ok<TaskDto>, NotFound, ValidationProblem, ProblemHttpResult>> UpdateAsync(AppDbContext db, Guid id, UpsertTaskRequest req, CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (task is null) return TypedResults.NotFound();
         var errors = await ValidateAsync(db, req, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        Apply(task, req, DateTimeOffset.UtcNow);
-        await db.SaveChangesAsync(ct);
+        Apply(task, req, DbClock.UtcNow());
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException ex) when (UniqueViolation.Is(ex)) { return UniqueViolation.Conflict(); }
         return TypedResults.Ok(task.ToDto());
     }
 
@@ -2506,7 +2633,7 @@ public static class TaskEndpoints
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (task is null) return TypedResults.NotFound();
-        var now = DateTimeOffset.UtcNow;
+        var now = DbClock.UtcNow();
         task.IsDone = !task.IsDone;
         task.CompletedAt = task.IsDone ? now : null;
         task.UpdatedAt = now;
@@ -2625,6 +2752,16 @@ public sealed class FileSystemAttachmentStoreTests : IDisposable
     }
 
     [Fact]
+    public void OpenRead_RootRelativeWithDotSegments_IsRejected()
+    {
+        var store = Create();
+        Directory.CreateDirectory(Path.Combine(_root, "ab"));
+        File.WriteAllBytes(Path.Combine(_root, "ab", "y.bin"), [1]);
+        Assert.Null(store.OpenRead("ab/../../y.bin"));
+        Assert.NotNull(store.OpenRead("ab/../ab/y.bin")); // 루트 안에 머무는 정규화는 허용
+    }
+
+    [Fact]
     public void Ctor_RootWithTrailingSeparator_StillOpensFiles()
     {
         var withSlash = new FileSystemAttachmentStore(Options.Create(new AttachmentOptions { RootPath = _root + Path.DirectorySeparatorChar }));
@@ -2738,7 +2875,8 @@ public static class ImageSignature
 
     public static (string ContentType, string Extension)? Detect(ReadOnlySpan<byte> head)
     {
-        if (head.Length >= 8 && head[..8].SequenceEqual([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        // 제네릭 SequenceEqual<T> 에 컬렉션 식을 넘기면 원소 int 리터럴 때문에 T 추론이 흔들릴 수 있어 <byte> 를 명시한다.
+        if (head.Length >= 8 && head[..8].SequenceEqual<byte>([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
             return ("image/png", ".png");
         if (head.Length >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF)
             return ("image/jpeg", ".jpg");
@@ -2821,10 +2959,11 @@ public sealed class FileSystemAttachmentStore : IAttachmentStore
         // 경로가 내용 해시(+시그니처에서 유도한 확장자)만으로 결정되므로 같은 내용은 언제 올려도 같은 파일 하나로 수렴한다.
         var relative = $"{sha[..2]}/{sha}{extension.ToLowerInvariant()}";
         var finalPath = Path.Combine(_root, relative);
-        Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
 
         try
         {
+            // 디렉터리 생성 실패까지 같은 정리 범위에 두어 어떤 경로로 실패해도 tmp 가 남지 않게 한다.
+            Directory.CreateDirectory(Path.GetDirectoryName(finalPath)!);
             // overwrite:false 이동. 두 업로드가 동시에 여기 오면 한쪽만 성공하고 다른 쪽은 IOException 이 난다.
             File.Move(tmpPath, finalPath, overwrite: false);
         }
@@ -2842,9 +2981,10 @@ public sealed class FileSystemAttachmentStore : IAttachmentStore
     public Stream? OpenRead(string relativePath)
     {
         var full = Path.GetFullPath(Path.Combine(_root, relativePath));
-        // 정규화된 경로가 루트 아래가 아니면 경로 탈출 시도 → 거부. Windows 는 대소문자 무시 파일시스템이라 비교도 맞춘다.
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        if (!full.StartsWith(_root + Path.DirectorySeparatorChar, comparison) || !File.Exists(full))
+        // 루트 기준 상대 경로를 다시 계산해 ".." 로 시작하거나 절대 경로가 되면 루트 밖(경로 탈출) → 거부.
+        // 문자열 접두사 비교와 달리 루트가 "/" 나 "C:\" 여도 구분자 중복 문제가 없고, Windows 대소문자 차이도 GetRelativePath 가 흡수한다.
+        var rel = Path.GetRelativePath(_root, full);
+        if (rel == "." || rel.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(rel) || !File.Exists(full))
         {
             return null;
         }
@@ -2874,7 +3014,7 @@ public static class AttachmentStorageServiceCollectionExtensions
 ```
 Program.cs: `builder.Services.AddWriteAccess(...)` 다음에 `builder.Services.AddAttachmentStorage(builder.Configuration, builder.Environment);` (using `WebProject.Api.Infrastructure.Storage`). `appsettings.json`에 `"Attachments": { "RootPath": "data/attachments", "MaxBytes": 10485760 }` 추가. `.gitignore`에 `WebProject.Api/data/` 추가.
 
-- [ ] **Step 4: 저장소 테스트 통과 확인** — Run: `dotnet test WebProject.Api.Tests --filter "FullyQualifiedName~FileSystemAttachmentStoreTests"` → 3개 PASS.
+- [ ] **Step 4: 저장소 테스트 통과 확인** — Run: `dotnet test WebProject.Api.Tests --filter "FullyQualifiedName~FileSystemAttachmentStoreTests"` → 6개 PASS, `ImageSignatureTests` 3개 PASS.
 
 - [ ] **Step 5: 엔드포인트 통합 테스트** — `WebProject.Api.Tests/Features/AttachmentEndpointsTests.cs`
 
@@ -3038,7 +3178,7 @@ public static class AttachmentEndpoints
             SizeBytes = stored.SizeBytes,
             StoragePath = stored.RelativePath,
             Sha256 = stored.Sha256,
-            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DbClock.UtcNow(),
         };
         db.Attachments.Add(attachment);
         try
@@ -3303,4 +3443,19 @@ Codex(`codex exec`, read-only, thread `01a0aef2-2e62-7931-88d4-7fbda5da083a`)가
 | 운영 | CI 리눅스 전환을 Plan 4 까지 미루면 Plan 1 회귀 검증 불가 | Task 10 Step 4 |
 | 보류 | 첨부 미참조 정리, 태그 Color API, DB readiness, 바인딩 전 정책 검사 | Plan 1 범위 밖(스펙 7절 확장 포인트) |
 
-**2차 검증 상태:** 반영본에 대한 Codex 2차 검증(thread `01a0af0d-815c-7913-8291-efd758bce008`)은 실행 중 Codex 사용량 한도(`status=quota`, 재시도 가능 시각 2026-09-18 00:38 KST)로 산출물 없이 중단됐다. 한도 해제 후 `scratchpad/codex_prompt2.md` 프롬프트로 재실행해 이 표를 갱신할 것. 구현 착수 전 2차 검증 결과를 먼저 반영하는 편이 안전하다.
+### 2차 검증 (2026-09-18, thread `01a0b03a-7a90-7632-bef1-f365117ae3ce`, status=success)
+
+1차 반영 항목은 전부 "반영됨/부분 반영" 판정(잘못 반영 1건 = B-1). 새로 반영한 것:
+
+| 구분 | 지적 | 반영 |
+|---|---|---|
+| 필수 | `ApiFactory` public 생성자 2개 → xUnit 클래스 픽스처 생성 실패 | 설정용 생성자 `internal` |
+| 필수 | Npgsql 이 timestamptz 를 마이크로초로 절삭해 저장 전 값 ≠ 재조회 값 | `DbClock.UtcNow()`(마이크로초 절삭) 단일 출처, 엔드포인트 전부 교체 |
+| 필수 | 영역 종류 변경과 자식 생성의 경쟁으로 불변식 파괴 | Items 생성·수정을 트랜잭션 + 부모/자기 행 `FOR UPDATE` 잠금(Id 순)으로 직렬화, 경쟁 테스트 추가 |
+| 필수 | 손상 `PreviousKind` 를 Resource 로 임의 복원 | DB CHECK `CK_Item_PreviousKind`, 검증·복원에서 손상 시 409, 테스트 추가 |
+| 확신 낮음 | PNG `SequenceEqual` 제네릭 추론 | `<byte>` 명시 |
+| 권장 | 참조 대상 삭제 경쟁(23503) 500 | `UniqueViolation.Is` 가 23503 도 판정 → 409, Tasks 에도 catch 추가 |
+| 권장 | tmp 정리 범위·파일시스템 루트 접두사 검사 | `CreateDirectory` 를 try 안으로, `Path.GetRelativePath` 기반 탈출 검사 + 테스트 |
+| 권장 | 문서 불일치(AreaId 주석, Validate 설명, toggle summary, 테스트 개수, 페이지 상한 테스트 한계) | 수정 |
+| 의견 | 헤더 없으면 "항상 403" 은 과도(바인딩 오류가 먼저 400/415) | Interfaces 문구에 명시 |
+| 수용 | offset 페이지네이션의 쓰기 중 중복·누락, Total 스냅샷 차이, 시그니처 판정은 디코딩 검증이 아님 | 단일 사용자 범위에서 문서화된 제한으로 둔다 |
