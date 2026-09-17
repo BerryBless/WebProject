@@ -40,6 +40,7 @@
   },
   "enabledPlugins": {
     "harness@harness-marketplace": true,
-    "superpowers@claude-plugins-official": false
+    "superpowers@claude-plugins-official": false,
+    "superpowers@superpowers-marketplace": true
   }
 }

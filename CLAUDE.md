@@ -4,13 +4,15 @@
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-11):** `WebProject.sln`(.NET 10) 아래 두 프로젝트가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것.
+**구성(2026-09-17):** `WebProject.sln`(.NET 10) 아래 두 .NET 프로젝트와 SPA 디렉터리가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/para_notes_0917.md`(PARA 노트앱) 참조.
 - `WebProject.Api` — ASP.NET Core 최소 API(`Microsoft.NET.Sdk.Web`). 통합 테스트 접근용으로 `Program`을 `public partial`로 노출한다.
 - `WebProject.Api.Tests` — xUnit + `Microsoft.AspNetCore.Mvc.Testing`. CI의 `dotnet test` 게이트가 실제로 검사하는 대상이다.
+- `WebProject.Web` — React 19 + TypeScript + Vite SPA(예정, 3단계). `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다.
+- `deploy/` — docker-compose(caddy·api·postgres)·Caddyfile·`.env.example`(예정, 5단계).
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(프론트매터, 참조 실존, 절대경로, 팀 도구, 미러 동기화·Codex 에이전트 재귀, 서명, 쓰기 범위 훅). 하네스 파일을 고치면 실행해 PASS를 확인할 것. 감사 결과와 수정 이력은 `plan/harness_audit_0911.md` 참조.
 
-**토큰 절감 규칙(2026-09-14):** 하네스별 변경 이력은 `plan/harness_changelog.md` 에만 기록한다(CLAUDE.md 에는 포인터만). 에이전트·스킬 `description` 은 트리거 키워드 + 한 문장 역할로 짧게 유지한다(본문은 호출 시에만 로드). 서브에이전트는 프론트매터 `model:` 로 기본 `sonnet`, 코드 생성·감독·cross 계열만 `opus` 를 쓴다. superpowers 플러그인은 이 프로젝트에서 비활성(`.claude/settings.json`).
+**토큰 절감 규칙(2026-09-14):** 하네스별 변경 이력은 `plan/harness_changelog.md` 에만 기록한다(CLAUDE.md 에는 포인터만). 에이전트·스킬 `description` 은 트리거 키워드 + 한 문장 역할로 짧게 유지한다(본문은 호출 시에만 로드). 서브에이전트는 프론트매터 `model:` 로 기본 `sonnet`, 코드 생성·감독·cross 계열만 `opus` 를 쓴다. superpowers 플러그인은 `superpowers-marketplace` 버전만 활성(`.claude/settings.json`, 2026-09-17), 기능 작업은 brainstorming → writing-plans → executing-plans 흐름을 따른다.
 
 **경로 규칙:** 절대 경로(`E:\project\...`)를 설정·스크립트에 하드코딩하지 않는다. Stop 훅은 `$env:CLAUDE_PROJECT_DIR`, PowerShell 스크립트는 `$PSScriptRoot` 기준으로 루트를 계산한다.
 
@@ -80,6 +82,7 @@ plan/<기능명>_<MMDD>.md
 | plan/gc_guard_harness_fix_0912.md | 2026-09-12 | GC 가드 하네스 Claude↔Codex 교차 점검 20건, 설계 결정(독립 병렬+피어 정본, 공통 finding 스키마, 점수·판정), .NET 기술 오답 교정 목록, 변경 파일, 검증 |
 | plan/harness_cross_check_0913.md | 2026-09-13 | 나머지 하네스 5종(동시성·파이프라인·TDD·Git·cross-verify) Claude↔Codex 교차 점검 결함표(합집합 96건), 공통 결함 6종, 권장 순서대로 5종 전부 수정 적용·검증(6절) |
 | plan/harness_changelog.md | 2026-09-14 | 하네스별 변경 이력 표(CLAUDE.md에서 분리), 토큰 절감 조치 기록 |
+| plan/para_notes_0917.md | 2026-09-17 | PARA 노트앱 홈페이지 설계: 단일 사용자·IP 화이트리스트 쓰기, React+Vite SPA, PostgreSQL/EF Core, 노션 zip 가져오기·내보내기, Caddy compose 배포, 5단계 구현 계획 |
 
 ---
 
