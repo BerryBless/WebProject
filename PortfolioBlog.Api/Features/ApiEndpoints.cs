@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Features.Auth;
 using PortfolioBlog.Api.Features.Posts;
+using PortfolioBlog.Api.Features.Series;
 using PortfolioBlog.Api.Infrastructure.Access;
 
 namespace PortfolioBlog.Api.Features;
@@ -35,6 +36,7 @@ public static class ApiEndpoints
         var api = app.MapGroup("/api").RequireHost(adminHost).RequireAuthorization(AuthServiceCollectionExtensions.PolicyName);
         api.MapAuthEndpoints();
         api.MapPostEndpoints();
+        api.MapSeriesEndpoints();
         return api;
     }
 }
