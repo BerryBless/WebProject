@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
+using ColorCode;
 using PortfolioBlog.Api.Infrastructure.Markdown;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
@@ -243,6 +244,155 @@ public sealed class MarkdownRendererTests
 
         var again = Renderer.Render("```csharp\nvar a = 1;\n```\n");
         Assert.NotNull(Parse(again).QuerySelector("div.csharp span.keyword"));
+    }
+
+    /// <summary>종료되지 않은 <c>/*</c> 블록 주석 뒤에 <paramref name="lines"/>줄의 그럴듯한 함수 정의를 붙인다. ColorCode의 C 계열 문법이
+    /// 이 패턴에서 블록 주석 종료를 찾으려고 지수적으로 되짚는다(백트래킹). 함수 이름은 일부러 <c>computeI</c>로 고정해(치환하지 않음)
+    /// 테스트가 내용을 확인할 때 리터럴로 찾을 수 있게 하고, 뒤에 붙는 숫자만 줄 번호로 바꿔 줄마다 살짝 다르게 만든다.</summary>
+    private static string UnterminatedCommentBody(int lines)
+    {
+        var sb = new StringBuilder("/* TODO: finish this\n");
+        for (var i = 1; i <= lines; i++) sb.Append($"function computeI(source, index) {{ return source[index] + {i}; }}\n");
+        return sb.ToString();
+    }
+
+    /// <summary>종료되지 않은 블록 주석 뒤에 붙인 코드가 C 계열 문법에서 예전에는(시간 예산 도입 전) 최소 6~7초(20줄)부터 60초 초과(25줄)까지
+    /// 걸렸던 것이, 시간 예산(<see cref="HighlightingCodeBlockRenderer.MaxHighlightMilliseconds"/> + 정규식 매치 타임아웃) 도입 후에는
+    /// 5초 안에 끝나는지 6개 언어에서 검증한다. 예산을 넘겨 일반 코드블록으로 떨어지더라도 내용(<c>computeI</c>)은 이스케이프된 채로 남아야 한다.</summary>
+    /// <param name="language">ColorCode가 아는 C 계열 언어 id.</param>
+    [Theory]
+    [InlineData("javascript")]
+    [InlineData("c#")]
+    [InlineData("cpp")]
+    [InlineData("java")]
+    [InlineData("php")]
+    [InlineData("typescript")]
+    public void Render_UnterminatedBlockComment_IsBoundedByTime(string language)
+    {
+        var markdown = $"```{language}\n{UnterminatedCommentBody(40)}```\n";
+        var stopwatch = Stopwatch.StartNew();
+        var html = Renderer.Render(markdown);
+        stopwatch.Stop();
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"{language}이(가) {stopwatch.Elapsed}만에 끝났습니다(5초 상한 초과).");
+        AssertInert(html);
+        var code = Parse(html).QuerySelector("pre > code");
+        Assert.NotNull(code);
+        Assert.Contains("computeI", code!.TextContent, StringComparison.Ordinal);
+    }
+
+    /// <summary>줄 길이 예산(400자) 이내인 줄이라도 <c>/*a</c>를 반복해 "블록 주석 열기 후보"를 잔뜩 만들면 여전히 느릴 수 있다는 가설을
+    /// 시간 예산으로 막는지 검증한다(길이 예산만으로는 이 패턴을 못 거른다 — 모든 줄이 예산 이내이기 때문이다).</summary>
+    [Fact]
+    public void Render_CommentOpenFlood_IsBoundedByTime()
+    {
+        var line = string.Concat(Enumerable.Repeat("/*a", 134))[..400]; // 정확히 400자(줄 예산 경계) 한 줄
+        var body = string.Concat(Enumerable.Repeat(line + "\n", 49));
+        var markdown = $"```javascript\n{body}```\n";
+        var stopwatch = Stopwatch.StartNew();
+        Renderer.Render(markdown);
+        stopwatch.Stop();
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"{stopwatch.Elapsed}만에 끝났습니다(5초 상한 초과).");
+    }
+
+    /// <summary>지수 폭발 블록 3개를 한 문서에 넣어도 전체 렌더가 시간 예산 하나를 공유해 합리적인 시간 안에 끝나며(블록마다 독립된 예산이 아니다),
+    /// 같은 렌더러 인스턴스로 그 다음에 렌더링한 작은 문서는 다시 강조되는지(예산이 렌더러가 아니라 렌더 1회에 매인다) 검증한다.</summary>
+    [Fact]
+    public void Render_ThreeExponentialBlocks_ShareOneTimeBudget()
+    {
+        var block = $"```javascript\n{UnterminatedCommentBody(40)}```\n\n";
+        var markdown = string.Concat(Enumerable.Repeat(block, 3));
+        var stopwatch = Stopwatch.StartNew();
+        Renderer.Render(markdown);
+        stopwatch.Stop();
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(8), $"{stopwatch.Elapsed}만에 끝났습니다(8초 상한 초과).");
+
+        var again = Renderer.Render("```csharp\nvar a = 1;\n```\n");
+        Assert.NotNull(Parse(again).QuerySelector("div.csharp span.keyword"));
+    }
+
+    /// <summary>시간 예산을 다 쓴 블록 하나가 같은 문서의 다른(정상) 블록까지 강조를 못 받게 막지 않는지 검증한다 — 폴백은 블록 단위다.</summary>
+    [Fact]
+    public void Render_TimedOutBlock_DoesNotDisableLaterBlocks()
+    {
+        var markdown = $"```javascript\n{UnterminatedCommentBody(40)}```\n\n```csharp\nvar a = 1;\n```\n";
+        var html = Renderer.Render(markdown);
+        AssertInert(html);
+        var body = Parse(html);
+        Assert.Empty(body.QuerySelectorAll("div.javascript")); // 첫 블록은 시간 예산 소진으로 일반 코드블록
+        Assert.NotNull(body.QuerySelector("div.csharp span.keyword")); // 둘째 블록은 정상 강조
+    }
+
+    /// <summary>블록 길이 상한(라운드 1의 <c>MaxHighlightBlockLength</c>)을 없앤 회귀 테스트: 평범한 소스 파일이 20,000자를 넘는 정도로 길어도
+    /// (문서 예산 60,000자 이내) 강조가 끊기지 않아야 한다. 예전 20,000자 블록 상한은 "8KB 1줄=1,197ms"라는 잘못된 근거로 만들어졌었다
+    /// (실제로는 400자 이하 줄이면 선형이라 20,000자 블록도 수십~수백 ms에 불과하다).</summary>
+    [Fact]
+    public void Render_OrdinaryLongSourceFile_IsHighlighted()
+    {
+        const string line = "var value = ComputeSomethingWithLongerName(inputArgument, indexNumber);\n"; // 약 74자, 줄 예산(400자)에 한참 못 미친다
+        var code = string.Concat(Enumerable.Repeat(line, 300));
+        Assert.True(code.Length > 20_000, $"샘플 총 길이가 20,000자를 못 넘음: {code.Length}");
+        Assert.True(code.Length <= 60_000, $"샘플 총 길이가 문서 예산(60,000자)을 넘음: {code.Length}");
+        var markdown = $"```csharp\n{code}```\n";
+        var html = Renderer.Render(markdown);
+        Assert.NotNull(Parse(html).QuerySelector("div.csharp span.keyword"));
+    }
+
+    /// <summary>시간 제한 컴파일러·전용 언어 저장소로 교체한 것이 토큰화 결과 자체를 바꾸지 않았는지(중첩 언어 강조 포함) 언어별로 핀 고정한다.
+    /// 기본 포매터를 직접 호출하는 것은 이 테스트에서만 허용된다 — 운영 코드(<see cref="HighlightingCodeBlockRenderer"/>)는 항상 시간 제한 경로만 쓴다.</summary>
+    /// <param name="languageId">ColorCode 언어 id. <see cref="Languages.FindById"/>가 <c>null</c>을 돌려주면(이 버전이 모르는 언어) 건너뛴다.</param>
+    [Theory]
+    [InlineData("csharp")]
+    [InlineData("javascript")]
+    [InlineData("html")]
+    [InlineData("css")]
+    [InlineData("sql")]
+    [InlineData("python")]
+    [InlineData("powershell")]
+    [InlineData("xml")]
+    [InlineData("json")]
+    public void BoundedFormatter_MatchesDefaultFormatterOutput(string languageId)
+    {
+        var language = Languages.FindById(languageId);
+        if (language is null) return; // ColorCode.Core 2.0.15가 모르는 언어 id — 브리프가 건너뛰도록 명시했다
+
+        var code = languageId switch
+        {
+            "csharp" => "public class C { public int Add(int a, int b) => a + b; }",
+            "javascript" => "function add(a, b) { return a + b; }",
+            "html" => "<html><head><style>body { color: red; }</style></head><body><script>var a = 1;</script></body></html>",
+            "css" => "body { color: red; margin: 0; }",
+            "sql" => "SELECT * FROM Posts WHERE Id = 1;",
+            "python" => "def add(a, b):\n    return a + b\n",
+            "powershell" => "Get-ChildItem -Path C:\\temp | Where-Object { $_.Length -gt 100 }",
+            "xml" => "<root><child attr=\"1\">text</child></root>",
+            "json" => "{\"a\": 1, \"b\": [1, 2, 3]}",
+            _ => throw new ArgumentOutOfRangeException(nameof(languageId)),
+        };
+
+        var expected = new HtmlClassFormatter().GetHtmlString(code, language);
+        var deadlineParser = new DeadlineLanguageParser(HighlightingCodeBlockRenderer.SharedParser, isBudgetExceeded: () => false);
+        var actual = new HtmlClassFormatter(languageParser: deadlineParser).GetHtmlString(code, language);
+
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>제목이 평문과 인라인 코드(백틱)를 섞을 때 id가 문서 순서를 지키는지 검증한다(라운드 1은 리터럴을 전부 모은 뒤 코드를 전부 붙여 순서가 깨졌었다).
+    /// 강조(<c>**bold**</c>)·링크처럼 그 자체는 글자가 아닌 인라인도 자식 글자가 정확히 한 번, 제자리에서 뽑히는지 함께 확인한다.</summary>
+    /// <param name="markdown">제목 한 줄짜리 마크다운.</param>
+    /// <param name="expectedId">문서 순서가 지켜졌을 때 나와야 하는 id.</param>
+    [Theory]
+    [InlineData("## Install `npm` first", "install-npm-first")]
+    [InlineData("## `code` tail", "code-tail")]
+    [InlineData("## a `b` c `d` e", "a-b-c-d-e")]
+    [InlineData("## **bold** and `code` mix", "bold-and-code-mix")]
+    [InlineData("## `ArrayPool<T>` 사용법", "arraypoolt-사용법")]
+    [InlineData("## [link text](https://example.test) after", "link-text-after")]
+    public void Render_HeadingIds_KeepDocumentOrder_WithInlineCode(string markdown, string expectedId)
+    {
+        var html = Renderer.Render(markdown);
+        var heading = Parse(html).QuerySelector("h2");
+        Assert.NotNull(heading);
+        Assert.Equal(expectedId, heading!.Id);
     }
 
     /// <summary>제목 id는 선형 슬러그화로 생성되고, 중복은 서로 다른 id로 풀리며, 길이는 상한(80자) 이내이고, 위험 문자가 섞이지 않는지 검증한다.</summary>

@@ -7,6 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- BoundedHighlighting.cs의 internal 타입(TimeBoundedLanguageCompiler·DeadlineLanguageParser·공유 SharedParser)을
+         테스트가 직접 구성해 기본 HtmlClassFormatter 출력과 바이트 단위로 비교할 수 있어야 한다(교체가 토큰화를 바꾸지 않았음을 증명).
+         이 항목은 [assembly: InternalsVisibleTo] 특성을 자동 생성한다. -->
+    <InternalsVisibleTo Include="PortfolioBlog.Api.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Markdig" />
     <PackageReference Include="ColorCode.HTML" />
     <PackageReference Include="HtmlSanitizer" />

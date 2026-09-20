@@ -15,12 +15,13 @@ namespace PortfolioBlog.Api.Infrastructure.Markdown;
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> Thread-safe. 파이프라인과 정제기는 생성 후 바꾸지 않으며 호출마다 새 문서·렌더러·DOM을 만든다. 싱글턴으로 등록한다.</description></item>
 /// <item><description><b>Memory Allocation:</b> 입력 크기에 비례(AST + 중간 HTML + 정제용 DOM + 출력 문자열). 반환 문자열의 소유권은 호출자.</description></item>
-/// <item><description><b>Blocking:</b> 호출 스레드에서 동기 실행되는 CPU 작업이며 취소할 수 없다. 코드 강조 예산(<see cref="HighlightingCodeBlockRenderer"/>)과
-/// 선형 제목 id(<see cref="HeadingIds"/>)를 적용한 뒤로는, 리뷰가 측정한 병적 코드·제목 입력(수정 전 최대 12분 25초)이 전부 1초 미만으로 끝난다.
-/// 다만 Markdig 자체의 인라인 파서는 적대적 인라인 구문에서는 여전히 초선형이며 라이브러리 밖에서 고칠 수 없다
-/// (수정 전 측정: <c>[a](</c> 40,000회=160KB 약 4.2초, <c>`a`</c> 40,000회 약 2.5초) — 그래서 호출부가 반드시 동시 실행 수를 제한해야 한다
-/// (미리보기 엔드포인트는 이미 제한한다; Plan 2B의 공개 페이지는 렌더링한 HTML을 캐시하거나 렌더 동시성을 게이트해야 한다).
-/// 첫 렌더링에는 ColorCode 등의 정적 초기화 비용(약 185ms)이 한 번 더 붙는다.</description></item>
+/// <item><description><b>Blocking:</b> 호출 스레드에서 동기 실행되는 CPU 작업이며 취소할 수 없다. 코드 강조는 길이 예산과 시간 예산을 함께 걸어
+/// (<see cref="HighlightingCodeBlockRenderer"/> 참조) 렌더 1회당 대략 <see cref="HighlightingCodeBlockRenderer.MaxHighlightMilliseconds"/> +
+/// <see cref="TimeBoundedLanguageCompiler.MatchTimeout"/>(약 2,250ms)를 넘지 않고, 제목 id는 선형(<see cref="HeadingIds"/>)이다.
+/// 그래도 Markdig 자체의 두 파서는 적대적 입력에서 여전히 초선형이며 라이브러리 밖에서 고칠 수 없다 — 인라인 파서(<c>[a](</c> 51,000회=204KB 약 8,486ms)와
+/// 블록 파서(목록 마커 <c>- </c> 68,000회=204KB 약 6,567ms; 17,000회 577ms, 34,000회 1,877ms) 둘 다다. 인라인 파서만 걸리는 게 아니다.
+/// 그래서 호출부가 반드시 동시 실행 수를 제한해야 한다(미리보기 엔드포인트는 이미 제한한다; Plan 2B의 공개 페이지는 렌더링한 HTML을 캐시하거나
+/// 렌더 동시성을 게이트해야 한다). 첫 렌더링에는 ColorCode 등의 정적 초기화 비용(약 185ms)이 한 번 더 붙는다.</description></item>
 /// </list>
 /// HTML을 저장하지 않고 요청마다 렌더링하므로 이 클래스의 보안 수정은 과거 글 전체에 즉시 적용된다.
 /// </remarks>

@@ -125,8 +125,9 @@ public static class PostEndpoints
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        // 저장 즉시 공개되는 글이 공개 페이지 렌더링을 영원히 500으로 만들지 못하도록, 저장 전에 한 번 렌더링해 본다(결과 HTML은 버린다).
-        // 요청당 렌더 1회를 더 지불하는 대신 "저장된 글은 항상 렌더 가능하다"는 불변식을 얻는다.
+        // 이 확인이 보장하는 것: 저장되는 글은 예외 없이 렌더링되고, 강조 시간도 상한(HighlightingCodeBlockRenderer 참조) 안에서 끝난다.
+        // 남는 위험: Markdig 자체 파서의 초선형 잔존 비용(적대적 입력에서만, 최대 수 초)은 이 저장 요청 자체에도 그대로 적용된다 — 이건 여기서 막지 못한다.
+        // 요청당 렌더 1회를 더 지불하는 대신 "저장된 글은 항상 렌더 가능하고 강조 시간도 유계다"는 불변식을 얻는다.
         if (!TryRenderOrAddError(renderer, req.ContentMarkdown!, errors)) return TypedResults.ValidationProblem(errors.ToDictionary());
 
         if (await db.Posts.AnyAsync(p => p.Slug == req.Slug, ct)) return DbConflict.Problem($"slug '{req.Slug}'는 이미 쓰이고 있습니다.");
@@ -188,7 +189,8 @@ public static class PostEndpoints
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        // 저장 즉시 공개되는 글이 공개 페이지 렌더링을 영원히 500으로 만들지 못하도록, 저장 전에 한 번 렌더링해 본다(결과 HTML은 버린다).
+        // 이 확인이 보장하는 것: 저장되는 글은 예외 없이 렌더링되고, 강조 시간도 상한(HighlightingCodeBlockRenderer 참조) 안에서 끝난다.
+        // 남는 위험: Markdig 자체 파서의 초선형 잔존 비용(적대적 입력에서만, 최대 수 초)은 이 저장 요청 자체에도 그대로 적용된다 — 이건 여기서 막지 못한다.
         if (!TryRenderOrAddError(renderer, req.ContentMarkdown!, errors)) return TypedResults.ValidationProblem(errors.ToDictionary());
 
         if (post.Version != req.Version) return StaleVersion();

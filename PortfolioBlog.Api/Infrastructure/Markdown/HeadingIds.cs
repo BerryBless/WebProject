@@ -29,8 +29,17 @@ internal static class HeadingIds
             {
                 // HeadingBlock은 LeafBlock이라 Descendants<T>()를 이 블록 자신에 직접 걸면 안으로 들어가지 못한다(document.Descendants가 ContainerBlock
                 // 순회 중에만 LeafBlock.Inline으로 다리를 놓기 때문). Inline 트리의 시작점인 heading.Inline(ContainerInline)에서 바로 순회해야 한다.
-                foreach (var literal in heading.Inline.Descendants<LiteralInline>()) text.Append(literal.Content.ToString());
-                foreach (var code in heading.Inline.Descendants<CodeInline>()) text.Append(code.Content);
+                // 타입별로 따로 순회하면(LiteralInline 전부 → CodeInline 전부) 원래 글자 순서가 깨진다(라운드 1의 결함) —
+                // 한 번의 순회에서 타입을 판별해야 문서 순서가 그대로 보존된다. 강조·링크 등 다른 인라인 노드 자체는 아무것도 보태지 않지만,
+                // 그 자식(글자)은 Descendants()가 어차피 재귀적으로 방문하므로 별도 처리가 필요 없다.
+                foreach (var descendant in heading.Inline.Descendants())
+                {
+                    switch (descendant)
+                    {
+                        case LiteralInline literal: text.Append(literal.Content.ToString()); break;
+                        case CodeInline code: text.Append(code.Content); break;
+                    }
+                }
             }
 
             var baseSlug = Slug(text.ToString());
