@@ -179,6 +179,37 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
         Assert.False(await IsAuthenticatedAsync(owner));
     }
 
+    /// <summary>비밀번호 해시가 바뀌면(회전) 그 전에 발급된 세션 쿠키가 다른 인스턴스에서도 지문 불일치로 거부되는지 검증한다.
+    /// 대조군(factory C)은 해시가 그대로인 별도 인스턴스가 같은 쿠키를 여전히 인증된 것으로 받아들이는지 확인해,
+    /// factory B의 거부가 Data Protection 키 링 불일치가 아니라 비밀번호 지문 검사에서 비롯됨을 증명한다
+    /// (한 프로세스의 모든 <see cref="ApiFactory"/>는 기본 Data Protection 키 링과 고정 애플리케이션 이름을 공유하고,
+    /// 각 팩토리는 자신의 DB를 가지며 그 안에 시드되는 <c>SessionEpoch</c>는 전부 1로 같다).</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 격리된 <see cref="ApiFactory"/> 3개(<c>a</c>·<c>b</c>·<c>c</c>)만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 격리된 팩토리 3개와 클라이언트·응답 여러 개.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 로그인·조회 요청을 순차 <c>await</c>한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public async Task HashRotation_RevokesSessions_ButControlFactoryWithSameHashStillAccepts()
+    {
+        using var a = new ApiFactory(pg, new Dictionary<string, string?>());
+        var cookie = await a.LoginAndGetCookieAsync();
+
+        using var b = new ApiFactory(pg, new Dictionary<string, string?>
+        {
+            ["Admin:PasswordHash"] = AdminCredential.Hash("dummy-rotated-password-0921"), // 테스트 전용 더미 값(실제 비밀번호 아님)
+        });
+        using var probeB = b.CreateAdminClient(handleCookies: false);
+        Assert.False(await IsAuthenticatedAsync(probeB, cookie)); // 지문이 달라져 거부된다
+
+        using var c = new ApiFactory(pg, new Dictionary<string, string?>()); // 대조군: 해시가 그대로다
+        using var probeC = c.CreateAdminClient(handleCookies: false);
+        Assert.True(await IsAuthenticatedAsync(probeC, cookie)); // DP 키 링·epoch 문제가 아님을 증명한다
+    }
+
     /// <summary>세션이 절대 수명(12시간) 안에서는 활동이 있어도 연장되지 않고(sliding 없음), 수명을 넘기면 무효가 되는지
     /// 격리된 팩토리의 시계를 실제로 전진시켜 검증한다.</summary>
     /// <remarks>
@@ -229,6 +260,30 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
         client.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, "203.0.113.200");
         using var other = await client.PostAsJsonAsync(Login, new { password = ApiFactory.Password });
         Assert.Equal(HttpStatusCode.NoContent, other.StatusCode);
+    }
+
+    /// <summary>IPv4 주소와 그 IPv4-mapped IPv6 표기(<c>::ffff:a.b.c.d</c>)가 같은 IP별 로그인 속도 제한 예산을 공유하는지 검증한다.
+    /// 정규화 없이 파티션 키를 만들면 듀얼스택 소켓이 같은 클라이언트를 두 표기로 오갈 때마다 별도 예산이 생겨 IP별 한도가 사실상 두 배로 늘어난다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 격리된 <see cref="ApiFactory"/>(<c>limited</c>)만 사용하므로 다른 테스트의 속도 제한 상태와 섞이지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 격리된 팩토리·클라이언트 각 1개와 반복 요청·응답.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 로그인 요청들을 순차 <c>await</c>한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public async Task Login_RateLimit_TreatsIpv4MappedAddressAsSameIp()
+    {
+        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "1" });
+        using var client = limited.CreateAdminClient(handleCookies: false); // 기본 원본 IP: ApiFactory.AllowedIp(순수 IPv4 표기)
+        using var first = await client.PostAsJsonAsync(Login, new { password = "wrong" });
+        Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode); // 이 1회로 IP별 예산(1)을 소진한다
+
+        client.DefaultRequestHeaders.Remove(RemoteIpStartupFilter.HeaderName);
+        client.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, "::ffff:" + ApiFactory.AllowedIp); // 같은 IP의 IPv4-mapped IPv6 표기
+        using var second = await client.PostAsJsonAsync(Login, new { password = ApiFactory.Password });
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode); // 비밀번호가 맞아도 같은 예산이라 429여야 한다
     }
 
     /// <summary>전역 로그인 한도는 IP가 달라도 합산되어 적용되는지 검증한다(분산된 시도로 IP별 한도를 우회할 수 없음).</summary>

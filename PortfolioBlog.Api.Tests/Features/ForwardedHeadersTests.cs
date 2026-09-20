@@ -60,6 +60,27 @@ public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
         Assert.Equal(HttpStatusCode.Forbidden, await GetMeAsync(factory, Proxy, ApiFactory.OutsiderIp));
     }
 
+    /// <summary>연결 IP·<c>X-Forwarded-For</c> 값이 IPv4-mapped IPv6 표기(<c>::ffff:a.b.c.d</c>)여도 실제 파이프라인(ForwardedHeaders 미들웨어 +
+    /// IP 허용 정책)이 IPv4 형태로 정규화해 판정하는지 검증한다. 듀얼스택 소켓은 IPv4 피어를 이 표기로 보고할 수 있다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개, 호출마다 클라이언트·응답 각 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 세 호출을 순차 <c>await</c>한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public async Task TrustedProxy_Ipv4MappedAddresses_AreNormalized()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
+        // 프록시 자신의 연결 IP가 mapped 표기여도 ForwardedHeadersMiddleware의 KnownProxies 매칭이 정규화해 신뢰한다.
+        Assert.Equal(HttpStatusCode.OK, await GetMeAsync(factory, $"::ffff:{Proxy}", ApiFactory.AllowedIp));
+        // X-Forwarded-For 안의 클라이언트 IP가 mapped 표기여도 CidrList.Contains가 정규화해 허용 CIDR과 매칭한다.
+        Assert.Equal(HttpStatusCode.OK, await GetMeAsync(factory, Proxy, $"::ffff:{ApiFactory.AllowedIp}"));
+        Assert.Equal(HttpStatusCode.Forbidden, await GetMeAsync(factory, Proxy, $"::ffff:{ApiFactory.OutsiderIp}"));
+    }
+
     /// <summary>공격자가 <c>X-Forwarded-For</c>의 맨 왼쪽에 위조 IP를 끼워 넣어도 <c>ForwardLimit=1</c> 덕분에 무시되는지 검증한다.</summary>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>

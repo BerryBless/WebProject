@@ -103,6 +103,29 @@ public sealed class AdminSurfaceTests(ApiFactory factory) : IClassFixture<ApiFac
         Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
     }
 
+    /// <summary>관리 호스트에서 대소문자 변형 경로(<c>/API/AUTH/ME</c>·<c>/Api/Posts</c>)도 <see cref="AdminSurfaceMiddleware"/> 자체가 그대로 관여해
+    /// CSRF 헤더 없이는 403으로 거부되는지 검증한다. 지금까지는 공개 호스트에서의 404 변형만 검증되어 있었는데, 그 404는 <c>RequireHost</c>만으로도
+    /// 나올 수 있어 미들웨어가 관리 호스트에서도 대소문자를 무시하고 스스로 작동한다는 보장이 되지 않았다.</summary>
+    /// <param name="path">CSRF 헤더 없이 요청할, 관리 호스트의 대소문자 변형 경로.</param>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 케이스마다 독립된 <see cref="HttpClient"/>를 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 케이스당 클라이언트·응답 각 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 요청 완료를 <c>await</c>로 대기한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Theory]
+    [InlineData("/API/AUTH/ME")]
+    [InlineData("/Api/Posts")]
+    public async Task AdminHost_CaseVariantPaths_Returns403_WithoutCsrfHeader(string path)
+    {
+        using var client = factory.CreateAdminClient();
+        client.DefaultRequestHeaders.Remove(AdminSurfaceMiddleware.CsrfHeaderName);
+        using var res = await client.GetAsync(path);
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
     /// <summary>공개 호스트에서는 허용 IP·CSRF 헤더가 있어도 <c>/api</c> 경로(대소문자 변형·그룹 루트 포함)가 전부 404인지 검증한다.</summary>
     /// <param name="path">공개 호스트로 요청할 <c>/api</c> 하위 경로(대소문자 변형·그룹 루트 포함).</param>
     /// <remarks>
