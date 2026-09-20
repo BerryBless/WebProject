@@ -285,6 +285,20 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
+    /// <summary>검색어(<c>q</c>)에 NUL(U+0000)이 섞여 있으면 500(PostgreSQL ILIKE 매개변수가 NUL을 실어 나를 수 없어 SqlState 22021로 실패)이 아니라
+    /// 필드 키 <c>q</c>를 가진 400으로 거부되는지 검증한다. <paramref name="rawQuery"/>는 테스트 안에서 <see cref="Uri.EscapeDataString(string)"/>으로
+    /// 퍼센트 인코딩한다(손으로 퍼센트 시퀀스를 쓰지 않는다).</summary>
+    /// <param name="rawQuery">NUL을 포함한 원본 검색어(인코딩 전).</param>
+    [Theory]
+    [InlineData("\0")]
+    [InlineData("a\0b")]
+    public async Task List_NulInQuery_Returns400_NotServerError(string rawQuery)
+    {
+        using var client = await factory.CreateLoggedInClientAsync();
+        using var res = await client.GetAsync("/api/posts?q=" + Uri.EscapeDataString(rawQuery));
+        Assert.Contains("q", (await ErrorsAsync(res)).Keys);
+    }
+
     /// <summary>같은 새 태그로 여섯 개의 글을 동시에 생성해도 전부 201이고 태그 행이 정확히 1개만 남는지 검증한다(ON CONFLICT DO NOTHING의 경합 흡수).</summary>
     [Fact]
     public async Task ConcurrentCreates_WithSameNewTag_BothSucceed_AndTagIsSingle()
