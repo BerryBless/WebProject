@@ -141,6 +141,34 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
     }
 
+    /// <summary>후행 개행이 붙은 slug가 500(DB CHECK 위반)이 아니라 필드 키 <c>slug</c>를 가진 400으로 거부되는지 검증한다.
+    /// .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는 문자열 끝의 단일 <c>\n</c> 앞에서도 매칭되지만
+    /// PostgreSQL <c>~</c> 연산자는 그렇지 않아, 앵커를 맞추지 않으면 형식 검증을 통과한 뒤 DB CHECK에서만 걸린다.</summary>
+    [Fact]
+    public async Task Create_SlugWithTrailingNewline_Returns400()
+    {
+        using var client = await factory.CreateLoggedInClientAsync();
+        using var res = await client.PostAsJsonAsync("/api/posts", Request("trailing-newline\n"));
+        Assert.Contains("slug", (await ErrorsAsync(res)).Keys);
+    }
+
+    /// <summary>제목·본문·태그 이름에 NUL(U+0000)이 섞여 있으면 500(PostgreSQL <c>text</c>가 NUL을 저장할 수 없어 발생)이 아니라
+    /// 해당 필드 키를 가진 400으로 거부되는지 검증한다. JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 입력에서 걸러야 한다.</summary>
+    [Fact]
+    public async Task Create_NulCharacter_Returns400_NotServerError()
+    {
+        using var client = await factory.CreateLoggedInClientAsync();
+
+        using var titleRes = await client.PostAsJsonAsync("/api/posts", Request("nul-title", title: "제목\0"));
+        Assert.Contains("title", (await ErrorsAsync(titleRes)).Keys);
+
+        using var contentRes = await client.PostAsJsonAsync("/api/posts", Request("nul-content", content: "본문\0"));
+        Assert.Contains("contentMarkdown", (await ErrorsAsync(contentRes)).Keys);
+
+        using var tagRes = await client.PostAsJsonAsync("/api/posts", Request("nul-tag", tags: ["ta\0g"]));
+        Assert.Contains("tagNames", (await ErrorsAsync(tagRes)).Keys);
+    }
+
     /// <summary>수정이 필드·태그 연결을 교체하고 version을 바꾸며 CreatedAt은 그대로 유지하는지 검증한다.</summary>
     [Fact]
     public async Task Update_ReplacesFieldsAndTags_BumpsVersion_KeepsCreatedAt()

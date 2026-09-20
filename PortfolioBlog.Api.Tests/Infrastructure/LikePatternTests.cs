@@ -1,4 +1,3 @@
-// PortfolioBlog.Api.Tests/Infrastructure/LikePatternTests.cs
 using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;

@@ -1,4 +1,3 @@
-// PortfolioBlog.Api.Tests/Infrastructure/TagResolverTests.cs
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -21,7 +20,7 @@ public sealed class TagResolverTests
     [Theory]
     [InlineData("  ASP.NET   Core ", "asp.net core")]
     [InlineData("C#", "c#")]
-    [InlineData("café", "café")]           // NFC: 결합 문자 → 단일 코드 포인트
+    [InlineData("cafe\u0301", "caf\u00e9")]           // NFC: 결합 문자 → 단일 코드 포인트
     public void Normalize_TrimsCollapsesLowercasesAndComposes(string raw, string expected) =>
         Assert.Equal(expected, TagResolver.Normalize(raw));
 

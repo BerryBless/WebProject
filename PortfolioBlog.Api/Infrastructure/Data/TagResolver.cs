@@ -67,7 +67,9 @@ public static class TagResolver
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
             var display = Display(raw);
-            if (display.Length > AppDbContext.TagMax) errors.Add(field, $"태그는 {AppDbContext.TagMax}자 이하여야 합니다: {display[..20]}…");
+            // NUL(U+0000)은 PostgreSQL text 컬럼에 저장할 수 없다(JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 여기서 걸러야 DB에서 500이 되지 않는다).
+            if (display.Contains('\0')) errors.Add(field, "태그는 제어 문자(NUL)를 포함할 수 없습니다.");
+            else if (display.Length > AppDbContext.TagMax) errors.Add(field, $"태그는 {AppDbContext.TagMax}자 이하여야 합니다: {display[..20]}…");
             else if (display.Contains('/')) errors.Add(field, $"태그에 '/'를 쓸 수 없습니다: {display}");
             else distinct.Add(display.ToLowerInvariant());
         }
@@ -100,7 +102,9 @@ public static class TagResolver
 
         var keys = wanted.Keys.ToArray();
         var existing = await db.Tags.AsNoTracking().Where(t => keys.Contains(t.NormalizedName)).Select(t => t.NormalizedName).ToListAsync(ct);
-        foreach (var (normalized, display) in wanted)
+        // 정규화 이름의 서수(Ordinal) 순으로 삽입한다: 두 저장이 같은 새 태그 집합을 반대 순서로 삽입하면 각자 다른 순서로 행을 잠가
+        // PostgreSQL이 데드락(40P01)으로 한쪽을 강제 종료할 수 있다. 모든 호출이 같은 전역 순서로 잠그면 순환 대기 자체가 생기지 않는다.
+        foreach (var (normalized, display) in wanted.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             if (existing.Contains(normalized)) continue;
             var id = Guid.CreateVersion7();
