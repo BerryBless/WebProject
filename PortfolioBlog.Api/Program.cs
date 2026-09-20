@@ -10,8 +10,18 @@ builder.Services.AddProblemDetails();
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = false);
 // 연결 문자열은 람다 안에서(=Build 이후 첫 해석 시점에) 읽는다. Global Constraints의 "설정은 Build 이후에만" 규칙.
 builder.Services.AddDbContext<AppDbContext>((sp, o) =>
-    o.UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("Default")
-        ?? throw new InvalidOperationException("ConnectionStrings:Default 설정이 없습니다.")));
+{
+    // appsettings.json의 기본값은 빈 문자열("")이라 null 병합(??)만으로는 걸러지지 않는다.
+    // IsNullOrWhiteSpace로 null·빈 문자열·공백만 있는 값을 모두 막아 Npgsql의 불명확한 소켓 오류 대신
+    // 설정 누락임을 바로 알 수 있는 예외로 빠르게 실패시킨다.
+    var connectionString = sp.GetRequiredService<IConfiguration>().GetConnectionString("Default");
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        throw new InvalidOperationException("ConnectionStrings:Default 설정이 없습니다.");
+    }
+
+    o.UseNpgsql(connectionString);
+});
 
 var app = builder.Build();
 
