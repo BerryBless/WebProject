@@ -507,6 +507,6 @@ _workspace/cross/**/*.log
 *.pfx
 secrets.json
 
-# PARA 노트앱: SPA 빌드 산출물과 배포 비밀값 (plan/para_notes_0917.md)
+# 기술 블로그: 관리 SPA 빌드 산출물과 배포 비밀값 (plan/tech_blog_0920.md)
 WebProject.Web/dist/
 deploy/.env

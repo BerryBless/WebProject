@@ -4,7 +4,7 @@
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-17):** `WebProject.sln`(.NET 10) 아래 `WebProject.Api`(ASP.NET Core 최소 API, `Microsoft.NET.Sdk.Web`)와 `WebProject.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, SPA `WebProject.Web`(React 19 + Vite)과 배포 `deploy/`(caddy·api·postgres compose)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/para_notes_0917.md`(PARA 노트앱) 참조.
+**구성(2026-09-20):** `WebProject.sln`(.NET 10) 아래 `WebProject.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`)와 `WebProject.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `WebProject.Web`(React 19 + Vite, `admin.<도메인>`에서만 서빙)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다.
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(쓰기 범위 훅 포함). 하네스 파일을 고치면 실행해 PASS를 확인할 것.
 
@@ -69,7 +69,8 @@ plan/<기능명>_<MMDD>.md
 | plan/gc_guard_harness_fix_0912.md | 2026-09-12 | GC 가드 하네스 Claude↔Codex 교차 점검 20건, 설계 결정(독립 병렬+피어 정본, 공통 finding 스키마, 점수·판정), .NET 기술 오답 교정 목록, 변경 파일, 검증 |
 | plan/harness_cross_check_0913.md | 2026-09-13 | 나머지 하네스 5종(동시성·파이프라인·TDD·Git·cross-verify) Claude↔Codex 교차 점검 결함표(합집합 96건), 공통 결함 6종, 권장 순서대로 5종 전부 수정 적용·검증(6절) |
 | plan/harness_changelog.md | 2026-09-14 | 하네스별 변경 이력 표(CLAUDE.md에서 분리), 토큰 절감 조치 기록 |
-| plan/para_notes_0917.md | 2026-09-17 | PARA 노트앱 홈페이지 설계: 단일 사용자·IP 화이트리스트 쓰기, React+Vite SPA, PostgreSQL/EF Core, 노션 zip 가져오기·내보내기, Caddy compose 배포, 5단계 구현 계획 |
+| plan/para_notes_0917.md | 2026-09-17 | **(폐기됨 → tech_blog_0920.md)** PARA 노트앱 홈페이지 설계. 결정 이력 보존용 |
+| plan/tech_blog_0920.md | 2026-09-20 | 기술 블로그 설계(PARA 대체, 보안 최우선): 공개 페이지 서버 렌더링(Razor+Markdig)·관리 SPA 서브도메인 분리, IP AND 비밀번호 세션, 마크다운 정제 파이프라인·CSP, 시리즈·검색·Atom·SEO, Codex 교차 검토 반영표, Mermaid 흐름도·시퀀스, 4단계 구현 계획 |
 
 ---
 
