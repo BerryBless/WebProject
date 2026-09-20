@@ -1,18 +1,33 @@
+using Microsoft.EntityFrameworkCore;
+using PortfolioBlog.Api.Infrastructure.Data;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+// ProblemDetails: 400/401/403/404/409/429 등 모든 오류 응답을 RFC 9457 형식으로 통일한다.
+builder.Services.AddProblemDetails();
+// 바인딩 실패(JSON 파싱 오류·잘못된 쿼리 값)를 예외(Development 기본값)가 아니라 항상 400으로 응답한다.
+builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = false);
+// 연결 문자열은 람다 안에서(=Build 이후 첫 해석 시점에) 읽는다. Global Constraints의 "설정은 Build 이후에만" 규칙.
+builder.Services.AddDbContext<AppDbContext>((sp, o) =>
+    o.UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("Default")
+        ?? throw new InvalidOperationException("ConnectionStrings:Default 설정이 없습니다.")));
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// 단일 인스턴스 배포이므로 시작 시 마이그레이션을 적용한다(스펙 3.10).
+using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+}
+
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
-app.UseHttpsRedirection();
 
 app.MapGet("/health", static () =>
     // DateTimeOffset.UtcNow: 로컬 타임존 변환(tzdata/레지스트리 조회)을 거치지 않고 시스템 UTC 틱을

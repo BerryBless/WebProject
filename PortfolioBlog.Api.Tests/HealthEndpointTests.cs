@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests;
 
@@ -23,11 +24,12 @@ namespace PortfolioBlog.Api.Tests;
 /// 호스트 초기화 비용·대기가 포함될 수 있다.</description></item>
 /// </list>
 /// </remarks>
-public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection("postgres")]
+public sealed class HealthEndpointTests : IClassFixture<ApiFactory>
 {
     // WebApplicationFactory<Program>: Program 진입점을 인메모리 TestServer로 호스팅해 커널 소켓·TCP 핸드셰이크 없이
     // 요청 파이프라인 전체(라우팅·미들웨어·직렬화)를 검증할 수 있어 통합 테스트 오버헤드가 가장 낮다.
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiFactory _factory;
 
     /// <summary>xUnit이 주입한 클래스 픽스처 팩토리를 보관한다.</summary>
     /// <param name="factory">클래스 단위로 1회 생성·공유되는 인메모리 호스트 팩토리</param>
@@ -40,7 +42,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
     /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). 호스트 기동은 여기서 일어나지 않는다.</description></item>
     /// </list>
     /// </remarks>
-    public HealthEndpointTests(WebApplicationFactory<Program> factory)
+    public HealthEndpointTests(ApiFactory factory)
     {
         _factory = factory;
     }
