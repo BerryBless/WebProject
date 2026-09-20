@@ -324,7 +324,7 @@ sequenceDiagram
 - Data Protection 키는 `dpkeys` 볼륨에 영속화, `SetApplicationName("PortfolioBlog.Api")`, 디렉터리 `0700`·API 비루트 사용자 소유, 백업 대상에서 제외.
 - 비밀번호·쿠키·요청 본문은 로그에 남기지 않는다.
 - CORS는 등록하지 않는다. `/api` 응답은 `Cache-Control: no-store`.
-- 로그인 속도 제한기는 파티션을 원시 요청 경로 문자열이 아니라 엔드포인트 메타데이터(`LoginRateLimitMetadata`)로 고른다. 경로 문자열 비교는 끝 슬래시(`/api/auth/login/`)로 우회됐다(Plan 1 구현 중 발견).
+- 로그인 속도 제한기는 파티션을 원시 요청 경로 문자열이 아니라 엔드포인트 메타데이터(`RateLimitMetadata(RateLimitPolicy.Login)`)로 고른다. 경로 문자열 비교는 끝 슬래시(`/api/auth/login/`)로 우회됐다(Plan 1 구현 중 발견).
 
 ### 3.4 API 표면
 

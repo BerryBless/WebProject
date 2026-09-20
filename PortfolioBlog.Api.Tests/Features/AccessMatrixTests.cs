@@ -171,4 +171,31 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         using var client = factory.CreateAdminClient();
         await AssertAllAsync(client, Targets().Where(t => !t.AllowsAnonymous), HttpStatusCode.Unauthorized);
     }
+
+    /// <summary><c>/api</c> 밖에 매핑해도 되는 공개 라우트의 명시적 허용 목록. 여기에 없는 라우트가 생기면 테스트가 실패한다.
+    /// Task 5가 공개 첨부 GET을, Plan 2B가 공개 페이지들을 추가한다.</summary>
+    private static readonly string[] PublicAllowlist =
+    [
+        "/health",
+        "/openapi/{documentName}.json", // Development에서만 매핑된다
+    ];
+
+    /// <summary><c>/api</c> 밖의 모든 라우트는 허용 목록에 있어야 하고 GET/HEAD만 받아야 한다 —
+    /// 관리 핸들러를 실수로 <c>/api</c> 그룹 밖에 매핑하면(그러면 어떤 접근 검사도 받지 않는다) 여기서 잡힌다.</summary>
+    [Fact]
+    public void EveryRouteOutsideApi_IsOnThePublicAllowlist_AndReadOnly()
+    {
+        using var _ = factory.CreateClient();
+        var outside = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Where(e => !(e.RoutePattern.RawText ?? string.Empty).StartsWith("/api", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        Assert.NotEmpty(outside); // 최소한 /health는 있어야 한다(열거가 비어 통과하는 일을 막는다)
+        foreach (var endpoint in outside)
+        {
+            var raw = endpoint.RoutePattern.RawText ?? string.Empty;
+            Assert.True(PublicAllowlist.Contains(raw, StringComparer.Ordinal), $"허용 목록에 없는 공개 라우트: {raw}");
+            var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
+            Assert.True(methods.Count > 0 && methods.All(m => m is "GET" or "HEAD"), $"{raw}: 공개 라우트는 GET/HEAD 전용이어야 한다(실제: {string.Join(",", methods)})");
+        }
+    }
 }

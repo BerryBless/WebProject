@@ -31,14 +31,14 @@ public static class SeriesValidation
 
         // NUL(U+0000)은 PostgreSQL text 컬럼에 저장할 수 없다(JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 여기서 걸러야 DB에서 500이 되지 않는다).
         if (string.IsNullOrEmpty(req.Slug)) errors.Add("slug", "slug는 필수입니다.");
-        else if (req.Slug.Contains('\0')) errors.Add("slug", "제어 문자(NUL)를 포함할 수 없습니다.");
+        else if (TextRules.ContainsNul(req.Slug)) errors.Add("slug", TextRules.NulMessage);
         else if (!SlugRules.IsValid(req.Slug)) errors.Add("slug", $"slug는 소문자·숫자·하이픈만 쓰고 {AppDbContext.SlugMax}자 이하여야 합니다.");
 
         if (string.IsNullOrWhiteSpace(req.Title)) errors.Add("title", "제목은 비울 수 없습니다.");
-        else if (req.Title.Contains('\0')) errors.Add("title", "제어 문자(NUL)를 포함할 수 없습니다.");
+        else if (TextRules.ContainsNul(req.Title)) errors.Add("title", TextRules.NulMessage);
         else if (req.Title.Trim().Length > AppDbContext.TitleMax) errors.Add("title", $"제목은 {AppDbContext.TitleMax}자 이하여야 합니다.");
 
-        if (req.Description?.Contains('\0') == true) errors.Add("description", "제어 문자(NUL)를 포함할 수 없습니다.");
+        if (TextRules.ContainsNul(req.Description)) errors.Add("description", TextRules.NulMessage);
         else if ((req.Description?.Trim().Length ?? 0) > AppDbContext.SeriesDescriptionMax) errors.Add("description", $"설명은 {AppDbContext.SeriesDescriptionMax}자 이하여야 합니다.");
 
         return errors;

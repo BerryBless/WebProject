@@ -67,7 +67,7 @@ public static class PostEndpoints
         if (take is < 1 or > MaxTake) errors.Add("take", $"take는 1~{MaxTake}여야 합니다.");
         var term = q?.Trim();
         // NUL(U+0000)은 ILIKE 매개변수로 PostgreSQL에 보내면 SqlState 22021로 실패한다(PostValidation과 같은 규칙).
-        if (term?.Contains('\0') == true) errors.Add("q", "제어 문자(NUL)를 포함할 수 없습니다.");
+        if (TextRules.ContainsNul(term)) errors.Add("q", TextRules.NulMessage);
         else if (term?.Length > MaxQueryLength) errors.Add("q", $"검색어는 {MaxQueryLength}자 이하여야 합니다.");
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 

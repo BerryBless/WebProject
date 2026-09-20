@@ -8,17 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.15.0" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
-    <!-- Microsoft.EntityFrameworkCore.Design(PortfolioBlog.Api 전용, PrivateAssets)가 프로젝트 참조를 통해 전이되지 않아
-         이 프로젝트의 자체 복원이 Npgsql.EntityFrameworkCore.PostgreSQL의 최소 허용 버전(10.0.4)을 그대로 선택하면서
-         PortfolioBlog.Api.dll이 컴파일된 EF Core 10.0.12와 어셈블리 버전 충돌(CS1705)이 발생한다.
-         동일 버전으로 정렬하기 위해 명시적으로 고정한다. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
   <ItemGroup>
