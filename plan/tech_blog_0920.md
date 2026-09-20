@@ -271,7 +271,7 @@ flowchart TD
     C -->|"예"| E["바인딩 → 엔드포인트"]
 ```
 
-미들웨어 순서: `ForwardedHeaders(KnownProxies = Caddy 고정 IP)` → `AllowedHosts` → 보안 헤더 → 속도 제한 → `AdminSurfaceMiddleware` → 쿠키 인증 → 인가 → 엔드포인트.
+미들웨어 순서: `ForwardedHeaders(KnownProxies = Caddy 고정 IP)` → `AllowedHosts` → 보안 헤더 → `AdminSurfaceMiddleware` → 속도 제한 → 쿠키 인증 → 인가 → 엔드포인트. **IP 검사가 속도 제한보다 앞이다**(Plan 1 작성 중 수정): 속도 제한이 앞이면 허용 IP 밖의 요청이 로그인 전역 한도를 소진해 작성자의 로그인을 막을 수 있다.
 
 **IP 판정**
 - 관리자 허용 목록(`ADMIN_ALLOWED_CIDRS`, 공백 구분)과 신뢰 프록시(`TRUSTED_PROXY_IP`)는 별도 설정이다. Caddy 주소를 허용 목록에 넣는 우회 운영은 금지한다.
@@ -324,6 +324,7 @@ sequenceDiagram
 - Data Protection 키는 `dpkeys` 볼륨에 영속화, `SetApplicationName("PortfolioBlog.Api")`, 디렉터리 `0700`·API 비루트 사용자 소유, 백업 대상에서 제외.
 - 비밀번호·쿠키·요청 본문은 로그에 남기지 않는다.
 - CORS는 등록하지 않는다. `/api` 응답은 `Cache-Control: no-store`.
+- 로그인 속도 제한기는 파티션을 원시 요청 경로 문자열이 아니라 엔드포인트 메타데이터(`LoginRateLimitMetadata`)로 고른다. 경로 문자열 비교는 끝 슬래시(`/api/auth/login/`)로 우회됐다(Plan 1 구현 중 발견).
 
 ### 3.4 API 표면
 
@@ -549,9 +550,10 @@ api.MapPostEndpoints();
 api.MapAttachmentEndpoints(); // 업로드 엔드포인트만 .DisableAntiforgery() (자체 방어 근거는 3.3절)
 
 // Features/Posts — 연결 통째 교체 + 동시성 토큰
+// 필수 필드도 nullable로 받는다: 누락을 바인딩 예외가 아니라 필드별 400으로 돌려주기 위해서다.
 public sealed record UpsertPostRequest(
-    string Slug, string Title, string Summary, string ContentMarkdown,
-    string[] TagNames, Guid? SeriesId, int? SeriesOrder, uint? Version);
+    string? Slug, string? Title, string? Summary, string? ContentMarkdown,
+    string[]? TagNames, Guid? SeriesId, int? SeriesOrder, uint? Version);
 ```
 
 ```ts
@@ -615,7 +617,7 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 
 | 계획 | 파일 | 범위 |
 |---|---|---|
-| Plan 1 | (writing-plans로 작성 예정) | 0~1단계: 문서·템플릿 정리, 도메인·DB, 접근 제어·로그인, 글·시리즈·태그 관리 API |
+| Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
 | Plan 2 | (Plan 1 완료 후) | 2단계: 마크다운 파이프라인·첨부·공개 페이지·피드·보안 헤더 |
 | Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |

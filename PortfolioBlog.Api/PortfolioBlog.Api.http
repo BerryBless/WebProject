@@ -1,6 +1,25 @@
-@PortfolioBlog.Api_HostAddress = http://localhost:5055
+@Host = https://localhost:7198
+@Password = (여기에 로컬 비밀번호 — 커밋 금지)
 
-GET {{PortfolioBlog.Api_HostAddress}}/health
-Accept: application/json
+### 상태
+GET {{Host}}/health
 
-###
+### 로그인 (쿠키는 REST 클라이언트가 보관)
+POST {{Host}}/api/auth/login
+Content-Type: application/json
+X-Requested-With: XMLHttpRequest
+Origin: {{Host}}
+
+{ "password": "{{Password}}" }
+
+### 글 생성
+POST {{Host}}/api/posts
+Content-Type: application/json
+X-Requested-With: XMLHttpRequest
+Origin: {{Host}}
+
+{ "slug": "hello-world", "title": "첫 글", "summary": "요약", "contentMarkdown": "# 안녕", "tagNames": ["dotnet"] }
+
+### 글 목록
+GET {{Host}}/api/posts?take=10
+X-Requested-With: XMLHttpRequest
