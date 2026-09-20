@@ -2,7 +2,7 @@
 
 단일 작성자용 기술 블로그입니다. 방문자에게는 **스크립트 없는 서버 렌더링 HTML**만 내보내고, 글쓰기는 **별도 서브도메인 + IP 화이트리스트 + 비밀번호 세션** 뒤에 둡니다.
 
-> **현재 상태: 설계 완료, 구현 전.** 저장소의 코드는 아직 `/health` 엔드포인트와 그 테스트뿐입니다. 아래 내용은 확정된 설계이며 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
+> **현재 상태: 1단계(관리 API·접근 제어) 완료, 공개 페이지·에디터는 구현 전.** 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API가 구현·테스트되었습니다. 방문자용 공개 페이지, 마크다운 파이프라인, 관리 에디터 SPA, 배포 구성은 아직 없습니다. 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
 
 ## 무엇을 만드나
 
@@ -214,7 +214,7 @@ PortfolioBlog.slnx
 |---|---|---|
 | 설계 | 스펙 작성, Codex 교차 검토 반영 | 완료 |
 | 0 | 솔루션 정리(`PortfolioBlog`로 개명, `.slnx` 전환, 템플릿 잔재·샘플 프로젝트 제거) | 완료 |
-| 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API | 예정 |
+| 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API | 완료 |
 | 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 예정 |
 | 3 | 관리 에디터 SPA | 예정 |
 | 4 | Docker Compose · Caddy · CI · 백업/복원 절차 | 예정 |
@@ -230,6 +230,16 @@ dotnet test  PortfolioBlog.slnx
 ```
 
 .NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다.
+
+### 로컬 실행 (API)
+
+관리 API를 직접 띄워보려면(공개 페이지·에디터는 아직 없으므로 `.http` 요청이나 REST 클라이언트로 호출합니다):
+
+1. 개발용 Postgres를 띄웁니다(`appsettings.Development.json`의 연결 문자열과 맞춤): `docker run -d --name blog-dev-pg -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=blog_dev -p 5432:5432 postgres:17-alpine`
+2. 관리자 비밀번호 해시를 user-secrets에 저장합니다(저장소에는 남지 않습니다): `dotnet user-secrets init --project PortfolioBlog.Api` 후 `dotnet run --project PortfolioBlog.Api -- hash-password`로 해시를 뽑아 `dotnet user-secrets set "Admin:PasswordHash" "<해시>" --project PortfolioBlog.Api`.
+3. `dotnet dev-certs https --trust`로 개발 인증서를 신뢰한 뒤 `dotnet run --project PortfolioBlog.Api --launch-profile https`로 실행합니다(세션 쿠키가 Secure라 https 프로필이 필요합니다).
+
+`PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록 예시 요청이 있습니다.
 
 ## 문서
 

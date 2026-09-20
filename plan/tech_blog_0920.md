@@ -324,6 +324,7 @@ sequenceDiagram
 - Data Protection 키는 `dpkeys` 볼륨에 영속화, `SetApplicationName("PortfolioBlog.Api")`, 디렉터리 `0700`·API 비루트 사용자 소유, 백업 대상에서 제외.
 - 비밀번호·쿠키·요청 본문은 로그에 남기지 않는다.
 - CORS는 등록하지 않는다. `/api` 응답은 `Cache-Control: no-store`.
+- 로그인 속도 제한기는 파티션을 원시 요청 경로 문자열이 아니라 엔드포인트 메타데이터(`LoginRateLimitMetadata`)로 고른다. 경로 문자열 비교는 끝 슬래시(`/api/auth/login/`)로 우회됐다(Plan 1 구현 중 발견).
 
 ### 3.4 API 표면
 
@@ -616,7 +617,7 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 
 | 계획 | 파일 | 범위 |
 |---|---|---|
-| Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
+| Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
 | Plan 2 | (Plan 1 완료 후) | 2단계: 마크다운 파이프라인·첨부·공개 페이지·피드·보안 헤더 |
 | Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |

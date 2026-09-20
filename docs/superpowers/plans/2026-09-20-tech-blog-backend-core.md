@@ -3637,3 +3637,23 @@ dotnet run --project PortfolioBlog.Api --launch-profile https
 **자리표시자·타입 일관성:** "TBD/TODO" 없음. `PostQueries.ListAsync`·`TagResolver.ResolveIdsAsync`·`DbConflict.Problem`·`AuthServiceCollectionExtensions.{Scheme,CookieName,PolicyName}`·`AdminSurfaceMiddleware.{CsrfHeaderName,CsrfHeaderValue}`·`ApiFactory.{AdminOrigin,PublicOrigin,AllowedIp,OutsiderIp,Password,Clock}`는 정의한 Task와 사용하는 Task에서 이름·시그니처가 같다.
 
 **사전 스파이크로 확인한 가정(2026-09-20, .NET SDK 10.0.303 + Npgsql EF 10.0.3):** `PasswordHasher<T>`는 `Microsoft.NET.Sdk.Web`에서 추가 패키지 없이 쓸 수 있다. `uint` + `IsRowVersion()`은 컬럼을 만들지 않고 `xmin`에 매핑된다. `HasCheckConstraint`·`IsDescending`·`HasData`가 기대한 DDL을 낸다. `PartitionedRateLimiter.CreateChained` + `AddOptions<RateLimiterOptions>().Configure<T>()` 조합이 컴파일된다.
+
+## 구현 중 발견해 고친 계획 결함 (2026-09-21)
+
+이 계획의 코드 블록 가운데 아래 부분은 **리뷰에서 결함으로 판정되어 구현에서는 다르게 고쳐졌다.** 이 문서를 다시 실행하거나 후속 계획(Plan 2~4)이 이 코드를 본보기로 삼을 때는 아래 교정본을 따른다.
+
+| Task | 계획의 코드 | 결함 | 구현에 반영된 교정 |
+|---|---|---|---|
+| 1 | `GetConnectionString("Default") ?? throw …` | `appsettings.json` 값이 빈 문자열이라 `??`가 작동하지 않아, 연결 문자열 누락이 명확한 설정 오류 대신 Npgsql 소켓 오류로 나타났다 | `string.IsNullOrWhiteSpace`로 검사 후 같은 예외. `ConnectionStringGuardTests` 추가 |
+| 4 | `IsLogin`이 `ctx.Request.Path.Equals("/api/auth/login", …)`로 경로 문자열을 비교 | 라우팅은 끝 슬래시를 무시하므로 `POST /api/auth/login/`이 로그인 핸들러에 도달하면서 **속도 제한 3종을 전부 우회**했다 | 로그인 엔드포인트에 `LoginRateLimitMetadata` 마커를 달고 `ctx.GetEndpoint()?.Metadata`로 판정. `LoginPath` 상수 삭제. 경로 변형 테스트 추가 |
+| 5 | `SlugRules`가 DB CHECK와 같은 패턴 문자열(`^…$`)을 .NET 정규식에 그대로 사용 | .NET의 `$`는 끝의 개행 앞에서도 매칭되지만 PostgreSQL은 아니다. 개행으로 끝나는 slug가 검증을 통과한 뒤 CHECK 제약(23514)에 걸려 400이 아닌 **500**이 됐다 | .NET 쪽만 `\A…\z`로 앵커(DB CHECK 문자열은 그대로). `SlugRulesTests` 추가 |
+| 5 | 텍스트 입력에 NUL 문자 검사 없음 | PostgreSQL `text`는 U+0000을 저장할 수 없고 JSON은 실어 나를 수 있어 500이 났다 | slug·제목·요약·본문·태그(시리즈도 동일)에서 NUL을 필드별 400으로 거부 |
+| 5 | `TagResolver`가 새 태그를 요청 순서대로 INSERT | 두 저장이 같은 새 태그들을 반대 순서로 나열하면 교착(40P01 → 500) 가능 | 정규화명 서수 순으로 INSERT해 잠금 순서를 전역으로 통일 |
+| 6 | `SeriesEndpoints`의 삭제·수정에 동시 변경 처리가 없음 | 같은 "탭 두 개" 충돌이 글 API에서는 409/404인데 시리즈 API에서는 **500**이었다(삭제 중 끼어든 글 저장의 FK 위반, 삭제된 시리즈 수정, 저장 후 재조회) | 삭제 트랜잭션 첫 문장으로 `SELECT … FOR UPDATE`, FK 위반(`PostgresException` 23503)은 409, 수정의 `DbUpdateConcurrencyException`과 재조회 실패는 404. 병렬 스트레스 테스트 추가 |
+
+**후속 계획이 지킬 규칙**
+
+1. **속도 제한 파티션은 원시 경로가 아니라 엔드포인트 메타데이터로 고른다.** Plan 2가 공개 검색·미리보기 제한기를 `GlobalLimiter` 체인에 추가할 때도 같은 방식을 쓴다.
+2. **앱 검증과 DB 제약에 같은 정규식 문자열을 공유하지 않는다.** 엔진마다 앵커·문자 클래스 의미가 다르다. 두 패턴을 따로 두고 "같은 입력 집합을 허용한다"를 테스트로 고정한다.
+3. **`ExecuteUpdateAsync`/`ExecuteDeleteAsync`의 DB 오류는 `DbUpdateException`으로 감싸이지 않고 `PostgresException` 그대로 나온다.** `DbConflict.IsConstraintRace`는 `SaveChangesAsync` 경로에만 쓸 수 있다.
+4. **NUL은 소스에서 C# 이스케이프(백슬래시-0)로만 표기한다.** 이 저장소의 도구 체인은 6글자 유니코드 이스케이프를 실제 NUL 바이트로 바꿔 소스 파일에 넣은 전례가 있다. 커밋 전에 변경 파일의 0x00 바이트를 검사한다.
