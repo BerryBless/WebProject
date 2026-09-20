@@ -11,14 +11,18 @@ namespace PortfolioBlog.Api.Infrastructure.Storage;
 /// <item><description><b>Memory Allocation:</b> 파일 크기·청크 개수와 무관하게 64KB 풀 버퍼 하나 + 스택 버퍼(헤더·FourCC·식별자 비교는 전부 <c>stackalloc</c> + <see cref="ReadOnlySpan{T}"/> 비교, 문자열 할당 없음). 선언된 길이만큼 미리 할당하지 않으므로 "길이를 속인 청크"로 메모리를 부풀릴 수 없다.</description></item>
 /// <item><description><b>Blocking:</b> 동기 스트림 I/O. 자세한 조건은 <see cref="Strip"/>의 Blocking 항목 참조.</description></item>
 /// </list>
-/// 디코더를 쓰지 않는 이유: 이미지 디코더는 그 자체가 큰 공격 표면이고, 재인코딩은 화질을 바꾼다. 컨테이너 파싱은 "허용 목록에 있는 블록만 길이만큼 복사하고 나머지는 건너뛰거나 거부"뿐이다.
+/// 디코더를 쓰지 않는 이유: 이미지 디코더는 그 자체가 큰 공격 표면이고, 재인코딩은 화질을 바꾼다. 컨테이너 파싱은 "허용 목록에 있는 블록만 길이만큼 복사하고 나머지는 건너뛰거나 거부"가 기본이지만,
+/// GIF의 그래픽 제어 확장과 반복 확장은 그 "복사"가 아니다 — 서브블록 모양을 먼저 검증한 뒤 스택 버퍼에 담아 둔 값으로 다시 조립해서 쓴다(<see cref="StripGif"/> 참조).
 /// 출력이 멱등이라(깨끗한 파일을 다시 넣으면 같은 바이트) 그 SHA-256을 저장 경로로 쓸 수 있다.
 /// 구조가 어긋나거나 허용 목록 밖의 블록을 만나면 <see cref="InvalidDataException"/> — 호출부는 이를 "지원하지 않는 이미지"(415)로 바꾼다.
 /// <para><b>남는 표면(residual, fix round 2):</b> 이 컴포넌트는 디코딩하지 않으므로 다음은 검사하지 않는다 —
 /// (1) ICC 프로파일 바이트: JPEG <c>ICC_PROFILE</c> APP2 세그먼트(세그먼트당 최대 65,521바이트, 개수 제한 없음) · PNG <c>iCCP</c> · WebP <c>ICCP</c>
 /// (측정: 임의 바이트 5MB가 JPEG의 APP2 세그먼트 80개에 실려도 그 JPEG은 여전히 디코딩된다);
 /// (2) WebP <c>ANMF</c> 프레임의 페이로드; (3) JPEG <c>DQT</c>/<c>DHT</c>/<c>SOF</c> 페이로드(여기에 임의 바이트를 넣으면 파일이 디코딩되지 않으므로
-/// 공격에 쓸모 있는 통로가 아니다); (4) PNG CRC는 복사만 하고 검증하지 않는다.
+/// 공격에 쓸모 있는 통로가 아니다); (4) PNG CRC는 복사만 하고 검증하지 않는다;
+/// (5) GIF 화상 데이터의 LZW 서브블록 체인(픽셀 데이터)은 길이만큼 그대로 복사한다 — LZW 종료 코드 뒤에 덧붙인 서브블록도
+/// 같은 서브블록 열의 일부로 보여 구분할 수 없다(측정: 여전히 재생되는 GIF 안에서 5,242,880바이트가 이렇게 살아남았다).
+/// LZW 디코더 없이는 "여기서부터 진짜 픽셀이 아니다"를 판정할 수 없다.
 /// 실제로 이들을 막는 것은 이 컴포넌트가 아니라 업로드 크기 상한·시그니처로 정한 Content-Type·<c>X-Content-Type-Options: nosniff</c>(Task 5) —
 /// 그래서 이 잔여 바이트들은 브라우저에서 실행될 수 없다.</para>
 /// </remarks>
@@ -251,9 +255,9 @@ public static class MetadataStripper
         if (type.SequenceEqual("acTL"u8) && length != 8) ThrowWrongSize();
         if (type.SequenceEqual("fcTL"u8) && length != 26) ThrowWrongSize();
         if (type.SequenceEqual("IEND"u8) && length != 0) ThrowWrongSize();
-        if (type.SequenceEqual("PLTE"u8) && (length > 768 || length % 3 != 0)) ThrowWrongSize();
+        if (type.SequenceEqual("PLTE"u8) && (length < 3 || length > 768 || length % 3 != 0)) ThrowWrongSize();
         if (type.SequenceEqual("tRNS"u8) && length > 256) ThrowWrongSize();
-        if (type.SequenceEqual("hIST"u8) && length > 512) ThrowWrongSize();
+        if (type.SequenceEqual("hIST"u8) && (length > 512 || length % 2 != 0)) ThrowWrongSize();
         if (type.SequenceEqual("sBIT"u8) && length > 4) ThrowWrongSize();
         if (type.SequenceEqual("bKGD"u8) && length > 6) ThrowWrongSize();
 
@@ -316,8 +320,8 @@ public static class MetadataStripper
         fourCc.SequenceEqual("ANIM"u8) || fourCc.SequenceEqual("ANMF"u8) || fourCc.SequenceEqual("ICCP"u8);
 
     // GIF: 헤더(6) + 논리 화면 기술자(7) [+ 전역 색상표], 이어서 블록 = 0x21 확장 | 0x2C 이미지 | 0x3B 트레일러.
-    // 확장 라벨 허용 목록: 그래픽 제어(0xF9)만 그대로 남긴다. 애플리케이션 확장(0xFF)은 식별자가 NETSCAPE2.0·ANIMEXTS1.0일 때만
-    // 반복 횟수 서브블록을 남긴다. 그 밖의 모든 라벨(주석 0xFE, 일반 텍스트 0x01, 예약·사설 라벨 0x00·0x02~0xF8 등)은 서브블록에
+    // 확장 라벨 허용 목록: 그래픽 제어(0xF9)는 모양을 검증한 뒤(크기 바이트 4, 데이터 4바이트, 종료 바이트) 남긴다 — 아니면 거부한다.
+    // 애플리케이션 확장(0xFF)은 식별자가 NETSCAPE2.0·ANIMEXTS1.0일 때만 반복 횟수 서브블록을 남긴다. 그 밖의 모든 라벨(주석 0xFE, 일반 텍스트 0x01, 예약·사설 라벨 0x00·0x02~0xF8 등)은 서브블록에
     // 임의 바이트를 담을 수 있으므로 통째로 버린다 — fix round 1 전에는 주석(0xFE)만 버려서, 같은 페이로드를 라벨만 0x01·0x42·0x00으로
     // 바꾸면 5MB까지도 그대로 살아남았다(재생 가능한 2프레임 GIF 안에서 확인됨).
     //
@@ -326,9 +330,9 @@ public static class MetadataStripper
     // 반복 확장 뒤에 임의 크기(최대 5,242,880바이트까지 확인됨)의 추가 서브블록이 그대로 살아남았다. 그래서:
     //   - 그래픽 제어(0xF9)는 GIF89a 규격대로 서브블록이 정확히 하나, 크기 4바이트여야 한다. 그 외(크기≠4, 또는 4바이트 뒤에
     //     종료 바이트가 아닌 것)는 거부한다.
-    //   - 애플리케이션 확장(0xFF)은 서브블록 열 전체를 훑어 "크기 3 + 첫 바이트 0x01"인 반복 횟수 서브블록(03 01 LL LL)만
-    //     남기고, NETSCAPE 버퍼링 서브블록(05 02 …)을 포함한 나머지는 전부 버린다. 반복 횟수 서브블록이 하나도 없으면
-    //     id를 포함해 확장 전체를 버린다(먼저 스택 버퍼에 후보를 담아 두고, 찾았을 때만 21 FF 0B <id> 헤더를 쓴다).
+    //   - 애플리케이션 확장(0xFF)은 서브블록 열 전체를 훑어 "크기 3 + 첫 바이트 0x01"인 반복 횟수 서브블록(03 01 LL LL) 중
+    //     맨 처음 찾은 하나만 남기고, 그 뒤에 나온 같은 모양의 중복과 NETSCAPE 버퍼링 서브블록(05 02 …)을 포함한 나머지는 전부 버린다.
+    //     반복 횟수 서브블록이 하나도 없으면 id를 포함해 확장 전체를 버린다(먼저 스택 버퍼에 후보를 담아 두고, 찾았을 때만 21 FF 0B <id> 헤더를 쓴다).
     private static void StripGif(Stream input, Stream output)
     {
         Span<byte> header = stackalloc byte[13]; // GIF 헤더(6) + 논리 화면 기술자(7) 고정 크기

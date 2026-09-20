@@ -454,13 +454,24 @@ public sealed class MetadataStripperTests
         }
     }
 
-    /// <summary>선언 길이가 터무니없는 세그먼트·청크는 메모리를 할당하지 않고 거부한다.</summary>
+    /// <summary>선언 길이가 터무니없는 세그먼트·청크는 메모리를 할당하지 않고 거부한다.
+    /// 첫 번째(IHDR)는 크기 표(<see cref="ValidatePngChunkSize"/>류)가 먼저 잡아낸다. 두 번째(IDAT)는 크기 표에 없는(상한 없는) 청크라
+    /// 거짓 길이가 표를 우회하고, 실제 남은 바이트가 그 길이에 못 미쳐 끊기는 일반 절단 경로(<see cref="CopyExact"/>)로 걸린다 —
+    /// 두 경로가 서로 다른 검사임을 함께 고정한다.</summary>
     [Fact]
     public void Strip_LyingLengthField_ThrowsInvalidData()
     {
         var png = Fixture("exif-text.png");
         BinaryPrimitives.WriteUInt32BigEndian(png.AsSpan(8, 4), 0x7FFFFFF0); // IHDR 길이를 2GB로
         Assert.Throws<InvalidDataException>(() => Strip(png));
+
+        var original = Fixture("exif-text.png");
+        var chunks = ParsePngChunks(original);
+        var ihdr = PngChunkBytes(original, chunks.First(c => c.Type == "IHDR"));
+        var lyingIdatHeader = PngChunk("IDAT", []); // 헤더만 만들고 아래에서 길이 필드를 거짓으로 덮어쓴다
+        BinaryPrimitives.WriteUInt32BigEndian(lyingIdatHeader.AsSpan(0, 4), 0x7FFFFFF0); // 크기 표에 없는(상한 없는) 청크의 길이를 2GB로
+        var truncatedAfterFakeIdat = Concat(original[..8], ihdr, lyingIdatHeader, Ascii("only-a-few-bytes")); // 선언 길이보다 훨씬 적은 실제 바이트만 남기고 끝낸다
+        Assert.Throws<InvalidDataException>(() => Strip(truncatedAfterFakeIdat));
     }
 
     // Write만 지원하는 seek 불가능한 스트림 — 호출자가 요청 응답 스트림 등 seek 불가능한 대상을 실수로 넘기는 상황을 흉내 낸다.
@@ -647,6 +658,8 @@ public sealed class MetadataStripperTests
     [InlineData("IHDR", 14)]
     [InlineData("PLTE", 4)]
     [InlineData("tRNS", 257)]
+    [InlineData("hIST", 511)]
+    [InlineData("PLTE", 0)]
     public void Strip_Png_FixedSizeChunkWithWrongLength_Throws(string type, int wrongLength)
     {
         var original = Fixture("exif-text.png");
