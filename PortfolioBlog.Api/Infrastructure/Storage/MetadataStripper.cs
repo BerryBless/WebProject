@@ -14,6 +14,13 @@ namespace PortfolioBlog.Api.Infrastructure.Storage;
 /// 디코더를 쓰지 않는 이유: 이미지 디코더는 그 자체가 큰 공격 표면이고, 재인코딩은 화질을 바꾼다. 컨테이너 파싱은 "허용 목록에 있는 블록만 길이만큼 복사하고 나머지는 건너뛰거나 거부"뿐이다.
 /// 출력이 멱등이라(깨끗한 파일을 다시 넣으면 같은 바이트) 그 SHA-256을 저장 경로로 쓸 수 있다.
 /// 구조가 어긋나거나 허용 목록 밖의 블록을 만나면 <see cref="InvalidDataException"/> — 호출부는 이를 "지원하지 않는 이미지"(415)로 바꾼다.
+/// <para><b>남는 표면(residual, fix round 2):</b> 이 컴포넌트는 디코딩하지 않으므로 다음은 검사하지 않는다 —
+/// (1) ICC 프로파일 바이트: JPEG <c>ICC_PROFILE</c> APP2 세그먼트(세그먼트당 최대 65,521바이트, 개수 제한 없음) · PNG <c>iCCP</c> · WebP <c>ICCP</c>
+/// (측정: 임의 바이트 5MB가 JPEG의 APP2 세그먼트 80개에 실려도 그 JPEG은 여전히 디코딩된다);
+/// (2) WebP <c>ANMF</c> 프레임의 페이로드; (3) JPEG <c>DQT</c>/<c>DHT</c>/<c>SOF</c> 페이로드(여기에 임의 바이트를 넣으면 파일이 디코딩되지 않으므로
+/// 공격에 쓸모 있는 통로가 아니다); (4) PNG CRC는 복사만 하고 검증하지 않는다.
+/// 실제로 이들을 막는 것은 이 컴포넌트가 아니라 업로드 크기 상한·시그니처로 정한 Content-Type·<c>X-Content-Type-Options: nosniff</c>(Task 5) —
+/// 그래서 이 잔여 바이트들은 브라우저에서 실행될 수 없다.</para>
 /// </remarks>
 public static class MetadataStripper
 {
@@ -24,7 +31,8 @@ public static class MetadataStripper
     /// <param name="input">현재 위치부터 읽는 원본 스트림. 소유권은 호출자에게 있으며 이 메서드는 닫거나 되감지 않는다.</param>
     /// <param name="output">결과를 쓰는 스트림. 반드시 seek 가능해야 한다(WebP는 다 쓴 뒤 RIFF 크기 필드를 되돌아가 다시 쓴다). 이 검사는 <see cref="Strip"/> 진입점에서 형식과 무관하게 한 번만 하므로 네 형식 모두 같은 방식으로 실패한다. 소유권은 호출자에게 있으며 이 메서드는 닫지 않는다.</param>
     /// <exception cref="ArgumentException"><paramref name="output"/>이 seek 불가능할 때. <c>ParamName</c>은 항상 <c>"output"</c>이다.</exception>
-    /// <exception cref="InvalidDataException">구조가 손상됐거나 파일이 잘렸거나 길이 필드가 남은 범위를 벗어나거나 허용 목록에 없는 마커/블록을 만났을 때. 이 시점에 <paramref name="output"/>에는 그때까지 남긴 블록이 이미 부분적으로 쓰여 있을 수 있다 — 호출부는 예외를 받으면 <paramref name="output"/>의 내용을 버려야 한다(부분 결과를 저장하면 안 된다).</exception>
+    /// <exception cref="InvalidDataException">구조가 손상됐거나 파일이 잘렸거나 길이 필드가 남은 범위를 벗어나거나 허용 목록에 없는 마커/블록을 만났거나 고정 크기 블록의 길이가 규격과 다를 때. 이 시점에 <paramref name="output"/>에는 그때까지 남긴 블록이 이미 부분적으로 쓰여 있을 수 있다 — 호출부는 예외를 받으면 <paramref name="output"/>의 내용을 버려야 한다(부분 결과를 저장하면 안 된다).</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="kind"/>가 <see cref="ImageKind"/>의 정의된 값이 아닐 때.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -172,6 +180,8 @@ public static class MetadataStripper
     // 남기는 청크: 화상·팔레트·투명도·색 공간·물리 해상도·APNG(IsPngKeptChunk 참조). 그 밖의 보조 청크(eXIf, tEXt, zTXt, iTXt, tIME, sPLT, 알 수 없는 것)는 버린다.
     // sPLT(제안 팔레트)는 자유 텍스트 팔레트 이름을 담고 어떤 디코더도 필수로 요구하지 않아 fix round 1에서 허용 목록에서 뺐다.
     // 첫 청크가 IHDR가 아니거나 IEND 전에 IDAT이 한 번도 없으면 거부한다 — 이전에는 "시그니처+IEND"만으로 된 빈 PNG도 통과했다.
+    // fix round 2: 허용 목록에 있다고 선언한 길이 그대로 복사하면(예: 1MB gAMA, 중복 IHDR) 구조는 "허용된 청크"지만 규격 밖이다.
+    // ValidatePngChunkSize로 고정/상한 크기를 검사하고, IHDR은 정확히 한 번만 나타나야 한다.
     // 잔여 위험(고치지 않음, 이번 라운드 범위 밖): 남기는 iCCP 청크 안의 최대 79바이트 Latin-1 프로파일 이름은 공격자가 채운 임의 텍스트다.
     private static void StripPng(Stream input, Stream output)
     {
@@ -180,6 +190,7 @@ public static class MetadataStripper
         output.Write(signature);
         Span<byte> header = stackalloc byte[8]; // 청크 길이(4) + 종류(4) 고정 크기 헤더
         var sawIdat = false;
+        var sawIhdr = false;
         var first = true;
         while (true)
         {
@@ -192,9 +203,19 @@ public static class MetadataStripper
                 if (!type.SequenceEqual("IHDR"u8)) throw new InvalidDataException("PNG은 IHDR로 시작해야 한다.");
                 first = false;
             }
+            if (type.SequenceEqual("IHDR"u8))
+            {
+                if (sawIhdr) throw new InvalidDataException("PNG에 IHDR이 두 번 나타났다.");
+                sawIhdr = true;
+            }
             if (type.SequenceEqual("IDAT"u8)) sawIdat = true;
             var total = (long)length + 4; // 데이터 + CRC
-            if (IsPngKeptChunk(type)) { output.Write(header); CopyExact(input, output, total); }
+            if (IsPngKeptChunk(type))
+            {
+                ValidatePngChunkSize(type, length);
+                output.Write(header);
+                CopyExact(input, output, total);
+            }
             else Skip(input, total);
             if (type.SequenceEqual("IEND"u8))
             {
@@ -215,9 +236,33 @@ public static class MetadataStripper
         type.SequenceEqual("fdAT"u8) || type.SequenceEqual("cICP"u8) || type.SequenceEqual("mDCv"u8) ||
         type.SequenceEqual("cLLi"u8);
 
+    // 고정/상한 크기 청크의 선언 길이를 검사한다(값 비교뿐이라 할당 없음). IDAT·fdAT·iCCP는 압축 화상 데이터·색 프로파일이라
+    // 태생적으로 크기 제한이 없어 검사하지 않는다(허용 목록에 있다는 사실만으로는 "규격에 맞는 크기"를 보장하지 않는다 — fix round 2).
+    private static void ValidatePngChunkSize(ReadOnlySpan<byte> type, uint length)
+    {
+        if (type.SequenceEqual("IHDR"u8) && length != 13) ThrowWrongSize();
+        if (type.SequenceEqual("gAMA"u8) && length != 4) ThrowWrongSize();
+        if (type.SequenceEqual("cHRM"u8) && length != 32) ThrowWrongSize();
+        if (type.SequenceEqual("sRGB"u8) && length != 1) ThrowWrongSize();
+        if (type.SequenceEqual("pHYs"u8) && length != 9) ThrowWrongSize();
+        if (type.SequenceEqual("cICP"u8) && length != 4) ThrowWrongSize();
+        if (type.SequenceEqual("mDCv"u8) && length != 24) ThrowWrongSize();
+        if (type.SequenceEqual("cLLi"u8) && length != 8) ThrowWrongSize();
+        if (type.SequenceEqual("acTL"u8) && length != 8) ThrowWrongSize();
+        if (type.SequenceEqual("fcTL"u8) && length != 26) ThrowWrongSize();
+        if (type.SequenceEqual("IEND"u8) && length != 0) ThrowWrongSize();
+        if (type.SequenceEqual("PLTE"u8) && (length > 768 || length % 3 != 0)) ThrowWrongSize();
+        if (type.SequenceEqual("tRNS"u8) && length > 256) ThrowWrongSize();
+        if (type.SequenceEqual("hIST"u8) && length > 512) ThrowWrongSize();
+        if (type.SequenceEqual("sBIT"u8) && length > 4) ThrowWrongSize();
+        if (type.SequenceEqual("bKGD"u8) && length > 6) ThrowWrongSize();
+
+        static void ThrowWrongSize() => throw new InvalidDataException("PNG 청크 크기가 규격과 다르다.");
+    }
+
     // WebP: "RIFF" + 크기(4, 리틀엔디언) + "WEBP", 이어서 청크 = FourCC(4) + 크기(4) + 데이터(+홀수면 패딩 1). VP8X 플래그: 0x08 EXIF, 0x04 XMP.
-    // 허용 목록: VP8X(정확히 10바이트일 때만 — 그 이상은 알려지지 않은 확장 필드를 실어 나를 수 있어 거부한다)·VP8 ·VP8L·ALPH·ANIM·ANMF·ICCP.
-    // 그 밖(EXIF·XMP ·JUNK·미지 FourCC)은 전부 버린다.
+    // 허용 목록: VP8X(정확히 10바이트일 때만 — 그 이상은 알려지지 않은 확장 필드를 실어 나를 수 있어 거부한다)·VP8 ·VP8L·ALPH·
+    // ANIM(정확히 6바이트, fix round 2)·ANMF·ICCP. 그 밖(EXIF·XMP ·JUNK·미지 FourCC)은 전부 버린다.
     // 잔여 위험(고치지 않음, 이번 라운드 범위 밖): ANMF 프레임의 페이로드는 통째로 복사하므로 프레임 안에 숨긴 서브청크까지는 들여다보지 않는다.
     private static void StripWebP(Stream input, Stream output)
     {
@@ -246,6 +291,7 @@ public static class MetadataStripper
             }
             else if (IsWebPKeptOtherChunk(fourCc))
             {
+                if (fourCc.SequenceEqual("ANIM"u8) && size != 6) throw new InvalidDataException("ANIM 길이가 잘못됐다."); // fix round 2: VP8X처럼 고정 6바이트다
                 sawImage |= fourCc.SequenceEqual("VP8 "u8) || fourCc.SequenceEqual("VP8L"u8) || fourCc.SequenceEqual("ANMF"u8);
                 output.Write(chunk);
                 CopyExact(input, output, padded);
@@ -274,6 +320,15 @@ public static class MetadataStripper
     // 반복 횟수 서브블록을 남긴다. 그 밖의 모든 라벨(주석 0xFE, 일반 텍스트 0x01, 예약·사설 라벨 0x00·0x02~0xF8 등)은 서브블록에
     // 임의 바이트를 담을 수 있으므로 통째로 버린다 — fix round 1 전에는 주석(0xFE)만 버려서, 같은 페이로드를 라벨만 0x01·0x42·0x00으로
     // 바꾸면 5MB까지도 그대로 살아남았다(재생 가능한 2프레임 GIF 안에서 확인됨).
+    //
+    // fix round 2: "허용 목록에 있다"(라벨이 F9 또는 id가 NETSCAPE2.0/ANIMEXTS1.0)는 것만으로는 부족했다 — kept로 판정한 블록도
+    // 서브블록 열은 0x00 종료 바이트까지 몇 개든 이어 붙을 수 있어, 그 서브블록 "개수"(SHAPE)를 검사하지 않으면 그래픽 제어 뒤나
+    // 반복 확장 뒤에 임의 크기(최대 5,242,880바이트까지 확인됨)의 추가 서브블록이 그대로 살아남았다. 그래서:
+    //   - 그래픽 제어(0xF9)는 GIF89a 규격대로 서브블록이 정확히 하나, 크기 4바이트여야 한다. 그 외(크기≠4, 또는 4바이트 뒤에
+    //     종료 바이트가 아닌 것)는 거부한다.
+    //   - 애플리케이션 확장(0xFF)은 서브블록 열 전체를 훑어 "크기 3 + 첫 바이트 0x01"인 반복 횟수 서브블록(03 01 LL LL)만
+    //     남기고, NETSCAPE 버퍼링 서브블록(05 02 …)을 포함한 나머지는 전부 버린다. 반복 횟수 서브블록이 하나도 없으면
+    //     id를 포함해 확장 전체를 버린다(먼저 스택 버퍼에 후보를 담아 두고, 찾았을 때만 21 FF 0B <id> 헤더를 쓴다).
     private static void StripGif(Stream input, Stream output)
     {
         Span<byte> header = stackalloc byte[13]; // GIF 헤더(6) + 논리 화면 기술자(7) 고정 크기
@@ -282,6 +337,7 @@ public static class MetadataStripper
         if ((header[10] & 0x80) != 0) CopyExact(input, output, 3L << ((header[10] & 0x07) + 1));
         Span<byte> application = stackalloc byte[11]; // 애플리케이션 식별자 + 인증 코드 고정 11바이트
         Span<byte> descriptor = stackalloc byte[9]; // 이미지 기술자 고정 9바이트
+        Span<byte> graphicControl = stackalloc byte[4]; // 그래픽 제어 확장은 GIF89a 규격상 항상 4바이트 고정
         var sawImage = false;
         while (true)
         {
@@ -309,14 +365,53 @@ public static class MetadataStripper
             {
                 if (ReadByte(input) != 11) throw new InvalidDataException("GIF 애플리케이션 확장 길이가 잘못됐다.");
                 ReadExact(input, application);
-                var keep = application.SequenceEqual("NETSCAPE2.0"u8) || application.SequenceEqual("ANIMEXTS1.0"u8); // 반복 횟수만 남긴다. 그 밖의 애플리케이션 데이터는 버린다
-                if (keep) { output.WriteByte(0x21); output.WriteByte(0xFF); output.WriteByte(11); output.Write(application); }
-                CopySubBlocks(input, output, keep);
+                var isLoopCandidate = application.SequenceEqual("NETSCAPE2.0"u8) || application.SequenceEqual("ANIMEXTS1.0"u8);
+                CopyGifLoopExtension(input, output, application, isLoopCandidate);
                 continue;
             }
-            var keepExtension = label == 0xF9; // 그래픽 제어만 허용 목록에 있다
-            if (keepExtension) { output.WriteByte(0x21); output.WriteByte(label); }
-            CopySubBlocks(input, output, keepExtension);
+            if (label == 0xF9)
+            {
+                if (ReadByte(input) != 4) throw new InvalidDataException("GIF 그래픽 제어 확장 형식이 잘못됐다.");
+                ReadExact(input, graphicControl);
+                if (ReadByte(input) != 0x00) throw new InvalidDataException("GIF 그래픽 제어 확장 형식이 잘못됐다.");
+                output.WriteByte(0x21); output.WriteByte(0xF9); output.WriteByte(0x04);
+                output.Write(graphicControl);
+                output.WriteByte(0x00);
+                continue;
+            }
+            CopySubBlocks(input, output, keep: false); // 그 밖의 모든 라벨(주석 0xFE, 일반 텍스트 0x01, 예약·사설 라벨)은 통째로 버린다
+        }
+    }
+
+    // 애플리케이션 확장(0xFF)의 서브블록 열을 전부 훑어 "크기 3 + 첫 바이트 0x01"인 첫 반복 횟수 서브블록만 후보 버퍼에 담아 두고,
+    // 그 밖의 서브블록(큰 페이로드, NETSCAPE 버퍼링 서브블록 05 02 …, 중복된 반복 횟수 서브블록)은 전부 버린다.
+    // 후보를 찾지 못했거나 id가 애초에 허용 목록 밖이면 21 FF 0B <id> 헤더 자체를 쓰지 않는다 — 그래서 스택 버퍼에 먼저
+    // 담아 두고 입력을 끝까지 읽은 뒤에야 무엇을 쓸지 결정한다.
+    private static void CopyGifLoopExtension(Stream input, Stream output, ReadOnlySpan<byte> applicationId, bool isLoopCandidate)
+    {
+        Span<byte> loopCount = stackalloc byte[3]; // 반복 횟수 서브블록 데이터(플래그 1 + 횟수 2) 후보 — 루프 밖에서 한 번만 할당해 재사용
+        var found = false;
+        while (true)
+        {
+            var size = ReadByte(input);
+            if (size == 0) break;
+            if (isLoopCandidate && !found && size == 3)
+            {
+                ReadExact(input, loopCount);
+                found = loopCount[0] == 0x01;
+            }
+            else
+            {
+                Skip(input, size);
+            }
+        }
+        if (found)
+        {
+            output.WriteByte(0x21); output.WriteByte(0xFF); output.WriteByte(11);
+            output.Write(applicationId);
+            output.WriteByte(0x03);
+            output.Write(loopCount);
+            output.WriteByte(0x00);
         }
     }
 

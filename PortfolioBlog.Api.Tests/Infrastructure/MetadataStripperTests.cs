@@ -531,4 +531,179 @@ public sealed class MetadataStripperTests
 
         Assert.True(allocated < 256 * 1024, $"청크 5만 개 처리에 {allocated}바이트가 할당됐다(청크 수에 비례하면 안 된다).");
     }
+
+    // === fix round 2: kept 블록의 "모양"(SHAPE) 검사 ===
+
+    private static byte[] PadTo(byte[] data, int length, byte fill = 0x41)
+    {
+        var result = new byte[length];
+        Array.Fill(result, fill);
+        data.CopyTo(result, 0);
+        return result;
+    }
+
+    private static byte[] ReplaceRange(byte[] original, int start, int removeLength, byte[] insert)
+    {
+        var result = new byte[original.Length - removeLength + insert.Length];
+        Array.Copy(original, 0, result, 0, start);
+        Array.Copy(insert, 0, result, start, insert.Length);
+        Array.Copy(original, start + removeLength, result, start + insert.Length, original.Length - start - removeLength);
+        return result;
+    }
+
+    // 첫 이미지 구분자 앞에서 주어진 라벨의 확장(0x21 <label> ...)을 찾아 그 시작 오프셋(0x21의 위치)을 돌려준다.
+    private static int FindExtensionOffset(byte[] gif, byte label)
+    {
+        var offset = GifBodyStart(gif);
+        while (gif[offset] != 0x2C)
+        {
+            var extOffset = offset;
+            var extLabel = gif[offset + 1];
+            offset += 2;
+            offset = SkipSubBlocks(gif, offset);
+            if (extLabel == label) return extOffset;
+        }
+        throw new InvalidOperationException($"라벨 0x{label:X2} 확장을 찾지 못했다.");
+    }
+
+    // extOffset(0x21 위치)에서 시작하는 애플리케이션 확장(0x21 FF <len> <id> <서브블록열> 0x00)의 끝(종료 바이트 다음) 오프셋.
+    private static int GifExtensionEnd(byte[] gif, int extOffset)
+    {
+        var idLength = gif[extOffset + 2];
+        var subBlocksStart = extOffset + 3 + idLength;
+        return SkipSubBlocks(gif, subBlocksStart);
+    }
+
+    /// <summary>그래픽 제어 확장은 GIF89a 규격상 항상 4바이트 고정이다 — 종료 바이트 대신 서브블록을 하나 더 이어 붙이면
+    /// (재생 가능한 GIF 안에서 5MB까지도 살아남던 결함) 거부해야 하고, 크기 바이트 자체가 4가 아니어도 거부해야 한다.</summary>
+    [Fact]
+    public void Strip_Gif_GraphicControlWithExtraSubBlocks_Throws()
+    {
+        var original = Fixture("comment-animated.gif");
+        var gceOffset = FindExtensionOffset(original, 0xF9);
+        var terminatorOffset = gceOffset + 7; // 21 F9 04 <4바이트 데이터> 다음이 종료 바이트(0x00)여야 한다
+        Assert.Equal(0x00, original[terminatorOffset]); // 전제: 정상 GCE는 여기서 끝난다
+
+        var extraSubBlock = Concat([0xFF], PadTo(Ascii("secret-gce-payload"), 255), [0x00]);
+        var withExtraSubBlock = ReplaceRange(original, terminatorOffset, 1, extraSubBlock);
+        Assert.Throws<InvalidDataException>(() => Strip(withExtraSubBlock));
+
+        var withWrongSize = ReplaceRange(original, gceOffset + 2, 1, [0x05]);
+        Assert.Throws<InvalidDataException>(() => Strip(withWrongSize));
+    }
+
+    /// <summary>NETSCAPE2.0·ANIMEXTS1.0 애플리케이션 확장은 반복 횟수 서브블록(크기 3, 첫 바이트 0x01)만 남기고,
+    /// 큰 페이로드 서브블록과 NETSCAPE 버퍼링 서브블록(05 02 …)은 버린다. 프레임 수는 그대로고 다시 적용해도 바이트가 같다.</summary>
+    [Theory]
+    [InlineData("NETSCAPE2.0")]
+    [InlineData("ANIMEXTS1.0")]
+    public void Strip_Gif_LoopExtension_KeepsOnlyTheLoopCountBlock(string id)
+    {
+        var original = Fixture("comment-animated.gif");
+        var extOffset = FindExtensionOffset(original, 0xFF);
+        var extEnd = GifExtensionEnd(original, extOffset);
+        var hostileExtension = Concat(
+            [0x21, 0xFF, 0x0B], Ascii(id),
+            [0x03, 0x01, 0x07, 0x00],                                      // 반복 횟수 서브블록: 크기 3, 데이터 01 07 00
+            Concat([0xFF], PadTo(Ascii("secret-loop-payload"), 255)),       // 255바이트 페이로드 서브블록 — 버려져야 한다
+            [0x05, 0x02, 0x00, 0x00, 0x00, 0x00],                          // NETSCAPE 버퍼링 서브블록 모양(크기 5, 데이터[0]=0x02) — 버려져야 한다
+            [0x00]);
+        var hostile = ReplaceRange(original, extOffset, extEnd - extOffset, hostileExtension);
+
+        var stripped = Strip(hostile);
+
+        var idBytes = Ascii(id);
+        var idPos = stripped.AsSpan().IndexOf(idBytes);
+        Assert.True(idPos >= 0, "id가 결과에 없다");
+        Assert.Equal(new byte[] { 0x03, 0x01, 0x07, 0x00, 0x00 }, stripped[(idPos + idBytes.Length)..(idPos + idBytes.Length + 5)]);
+        Assert.False(Contains(stripped, "secret-loop-payload"));
+        Assert.Equal(CountGifFrames(Fixture("comment-animated.gif")), CountGifFrames(stripped));
+        Assert.Equal(stripped, Strip(stripped)); // 멱등
+    }
+
+    /// <summary>반복 횟수 서브블록이 하나도 없는 애플리케이션 확장(페이로드 서브블록만 있음)은 id를 포함해 통째로 버려진다 — 프레임은 그대로 남는다.</summary>
+    [Fact]
+    public void Strip_Gif_LoopExtension_WithoutLoopCountBlock_DropsWholeExtension()
+    {
+        var original = Fixture("comment-animated.gif");
+        var extOffset = FindExtensionOffset(original, 0xFF);
+        var extEnd = GifExtensionEnd(original, extOffset);
+        var hostileExtension = Concat(
+            [0x21, 0xFF, 0x0B], Ascii("NETSCAPE2.0"),
+            Concat([0xFF], PadTo(Ascii("only-a-payload-block"), 255)), // 반복 횟수 모양(크기3+데이터[0]=1)이 아닌 페이로드 서브블록 하나뿐
+            [0x00]);
+        var hostile = ReplaceRange(original, extOffset, extEnd - extOffset, hostileExtension);
+
+        var stripped = Strip(hostile);
+
+        Assert.False(Contains(stripped, "NETSCAPE2.0"));
+        Assert.Equal(CountGifFrames(Fixture("comment-animated.gif")), CountGifFrames(stripped));
+    }
+
+    /// <summary>고정 크기 PNG 청크(IHDR·gAMA·pHYs 등)가 규격과 다른 길이를 선언하면(청크 자체는 허용 목록에 있어도) 거부한다.</summary>
+    [Theory]
+    [InlineData("gAMA", 8)]
+    [InlineData("pHYs", 10)]
+    [InlineData("IHDR", 14)]
+    [InlineData("PLTE", 4)]
+    [InlineData("tRNS", 257)]
+    public void Strip_Png_FixedSizeChunkWithWrongLength_Throws(string type, int wrongLength)
+    {
+        var original = Fixture("exif-text.png");
+        byte[] hostile;
+        if (type == "IHDR")
+        {
+            hostile = (byte[])original.Clone();
+            BinaryPrimitives.WriteUInt32BigEndian(hostile.AsSpan(8, 4), (uint)wrongLength);
+        }
+        else
+        {
+            var ihdr = ParsePngChunks(original).First(c => c.Type == "IHDR");
+            var insertOffset = ihdr.Offset + 12 + ihdr.Length;
+            hostile = Splice(original, insertOffset, PngChunk(type, new byte[wrongLength]));
+        }
+
+        Assert.Throws<InvalidDataException>(() => Strip(hostile));
+    }
+
+    /// <summary>두 번째 IHDR(유효한 13바이트 크기라도)이 나타나면 거부한다 — "첫 청크가 IHDR"라는 검사만으로는 중복을 막지 못한다.</summary>
+    [Fact]
+    public void Strip_Png_DuplicateIhdr_Throws()
+    {
+        var original = Fixture("exif-text.png");
+        var ihdr = ParsePngChunks(original).First(c => c.Type == "IHDR");
+        var duplicateIhdr = PngChunkBytes(original, ihdr); // 원본과 똑같은(유효한) IHDR 청크를 한 번 더 끼워 넣는다
+        var insertOffset = ihdr.Offset + 12 + ihdr.Length;
+        var hostile = Splice(original, insertOffset, duplicateIhdr);
+
+        Assert.Throws<InvalidDataException>(() => Strip(hostile));
+    }
+
+    private static byte[] InsertWebPChunk(byte[] webp, int afterOffset, string fourCc, byte[] payload)
+    {
+        var pad = payload.Length % 2 == 1 ? 1 : 0;
+        var chunkBytes = new byte[8 + payload.Length + pad];
+        Encoding.ASCII.GetBytes(fourCc).CopyTo(chunkBytes, 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(chunkBytes.AsSpan(4, 4), (uint)payload.Length);
+        payload.CopyTo(chunkBytes, 8);
+        var result = Splice(webp, afterOffset, chunkBytes);
+        BinaryPrimitives.WriteUInt32LittleEndian(result.AsSpan(4, 4), (uint)(result.Length - 8)); // RIFF 크기 필드를 새 전체 길이로 맞춘다
+        return result;
+    }
+
+    /// <summary>WebP ANIM 청크는 정확히 6바이트여야 한다 — 8바이트는 거부하고, 표준 6바이트는 받아들인다.</summary>
+    [Fact]
+    public void Strip_WebP_AnimWithWrongSize_Throws()
+    {
+        var original = Fixture("exif-xmp.webp");
+        var vp8x = FindWebPChunk(original, "VP8X");
+        var afterVp8x = vp8x.DataOffset + vp8x.DeclaredSize; // VP8X는 10바이트(짝수)라 패딩이 없다
+
+        var withWrongAnim = InsertWebPChunk(original, afterVp8x, "ANIM", new byte[8]);
+        Assert.Throws<InvalidDataException>(() => Strip(withWrongAnim));
+
+        var withCorrectAnim = InsertWebPChunk(original, afterVp8x, "ANIM", new byte[6]);
+        var ex = Record.Exception(() => Strip(withCorrectAnim));
+        Assert.Null(ex);
+    }
 }
