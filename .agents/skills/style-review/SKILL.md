@@ -100,7 +100,7 @@ catch (Exception ex) { return null; }  // 로깅도 없음
 
 **4-a. 존재 검사:** 공개(public) 메서드, 클래스, 프로퍼티에 XML 주석이 없으면 보고한다. 자명한 속성(`public string Name { get; set; }`)과 테스트 클래스는 예외.
 
-**4-b. 내용 검사 (CLAUDE.md 필수 항목):** 인터페이스, public 클래스의 메서드, 대리자, RPC 정의에는 `<remarks>`에 아래 세 가지가 모두 있어야 한다. 하나라도 없으면 `medium`으로 보고한다.
+**4-b. 내용 검사 (CLAUDE.md 필수 항목):** 인터페이스, public 클래스의 메서드, 대리자, RPC 정의에는 `<remarks>`에 아래 세 가지가 모두 있어야 한다. 하나라도 없으면 `medium`으로 보고한다. 대상은 CLAUDE.md "적용 범위" 표를 따른다: 자동 속성·상수·enum 멤버·DTO `record`·옵션 속성·테스트 메서드는 `<summary>`만 있으면 되고(3항목 누락을 보고하지 않는다), 도구 생성 코드(마이그레이션·Designer·Snapshot)는 면제다. 반대로 이런 대상에 붙은 내용 없는 상용구 `<remarks>`("Thread-safe / 할당 없음 / 즉시 반환")는 `low`로 보고한다.
 - **Thread Safety**: `Thread-safe`/`Not Thread-safe`, 콜백이면 실행 스레드 컨텍스트
 - **Memory Allocation**: 힙 할당 여부(`Zero-allocation guaranteed` 또는 할당량), `Span`/`Memory` 버퍼의 소유권·생명주기
 - **Blocking 여부**: 즉시 반환 / 동기 블로킹 / 비동기

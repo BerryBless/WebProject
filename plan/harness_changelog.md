@@ -6,6 +6,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-21 | XML 주석 규칙에 "적용 범위" 표 추가: 3항목 `<remarks>`는 인터페이스·public 클래스와 메서드·대리자·테스트 클래스에만 요구하고, 자동 속성·상수·DTO record·옵션 속성·테스트 메서드는 `<summary>`만, 도구 생성 코드는 면제. style-review 4-b가 같은 표를 따르고 상용구 remarks를 low로 보고 | CLAUDE.md·AGENTS.md·style-review 스킬 + `.agents` 미러 | 1단계 구현(PR #1) 최종 리뷰 권고: 자동 속성과 `[Fact]`마다 붙은 내용 없는 상용구가 파일 분량의 상당 부분을 차지하고 실제 제약을 가렸다. 리뷰어가 규칙 해석을 두고 Important 지적을 낸 사례도 있었다(Task 2) |
 | 2026-09-20 | 솔루션·프로젝트 이름을 `WebProject` → `PortfolioBlog`로 변경하고 솔루션 파일을 `.slnx`로 전환. 스킬 본문의 경로 예시(`PortfolioBlog.Api`, `PortfolioBlog.slnx`)만 갱신, 동작 변경 없음 | tdd-orchestrator·code-review-orchestrator + `.agents` 미러·CLAUDE.md·AGENTS.md | 제품이 기술 블로그(`plan/tech_blog_0920.md`)로 확정되어 템플릿 이름을 정리. 하네스 스크립트는 루트 자동 인식이라 영향 없음 |
 | 2026-09-14 | 토큰 절감: 변경 이력 표를 이 파일로 분리, 에이전트·스킬 description 축약(트리거 유지), 서브에이전트 `model:` 지정(기본 sonnet, 코드 생성·감독·cross 계열 opus), superpowers 플러그인 프로젝트 비활성화 | CLAUDE.md·AGENTS.md·에이전트 25종·스킬 26종+미러·.codex/agents·settings.json | 매 세션 고정 로드 약 47KB(CLAUDE.md 29KB + description 18KB) 중 절반 이상이 이력·트리거 나열이었고, 리뷰어 21종이 메인 모델을 상속해 팬아웃 비용이 큼 |
 
