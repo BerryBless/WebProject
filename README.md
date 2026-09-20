@@ -236,6 +236,7 @@ dotnet test  PortfolioBlog.slnx
 | 문서 | 내용 |
 |---|---|
 | [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md) | 전체 설계 스펙: 설계 결정과 대안 비교, 접근 계약, 응답 헤더·CSP, 자원 제한, 배포, 필수 테스트, Codex 검토 반영표 |
+| [`docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md`](docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md) | 1단계 구현 계획: TDD 단계별 작업 7개(도메인·접근 제어·로그인·관리 API) |
 | [`plan/para_notes_0917.md`](plan/para_notes_0917.md) | 폐기된 이전 설계(PARA 노트앱). 결정 이력 보존용 |
 | [`plan/harness_changelog.md`](plan/harness_changelog.md) | 개발 하네스 변경 이력 |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | 프로젝트 규칙 (Claude Code / Codex) |

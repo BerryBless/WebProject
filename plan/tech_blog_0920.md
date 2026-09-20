@@ -271,7 +271,7 @@ flowchart TD
     C -->|"예"| E["바인딩 → 엔드포인트"]
 ```
 
-미들웨어 순서: `ForwardedHeaders(KnownProxies = Caddy 고정 IP)` → `AllowedHosts` → 보안 헤더 → 속도 제한 → `AdminSurfaceMiddleware` → 쿠키 인증 → 인가 → 엔드포인트.
+미들웨어 순서: `ForwardedHeaders(KnownProxies = Caddy 고정 IP)` → `AllowedHosts` → 보안 헤더 → `AdminSurfaceMiddleware` → 속도 제한 → 쿠키 인증 → 인가 → 엔드포인트. **IP 검사가 속도 제한보다 앞이다**(Plan 1 작성 중 수정): 속도 제한이 앞이면 허용 IP 밖의 요청이 로그인 전역 한도를 소진해 작성자의 로그인을 막을 수 있다.
 
 **IP 판정**
 - 관리자 허용 목록(`ADMIN_ALLOWED_CIDRS`, 공백 구분)과 신뢰 프록시(`TRUSTED_PROXY_IP`)는 별도 설정이다. Caddy 주소를 허용 목록에 넣는 우회 운영은 금지한다.
@@ -549,9 +549,10 @@ api.MapPostEndpoints();
 api.MapAttachmentEndpoints(); // 업로드 엔드포인트만 .DisableAntiforgery() (자체 방어 근거는 3.3절)
 
 // Features/Posts — 연결 통째 교체 + 동시성 토큰
+// 필수 필드도 nullable로 받는다: 누락을 바인딩 예외가 아니라 필드별 400으로 돌려주기 위해서다.
 public sealed record UpsertPostRequest(
-    string Slug, string Title, string Summary, string ContentMarkdown,
-    string[] TagNames, Guid? SeriesId, int? SeriesOrder, uint? Version);
+    string? Slug, string? Title, string? Summary, string? ContentMarkdown,
+    string[]? TagNames, Guid? SeriesId, int? SeriesOrder, uint? Version);
 ```
 
 ```ts
@@ -615,7 +616,7 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 
 | 계획 | 파일 | 범위 |
 |---|---|---|
-| Plan 1 | (writing-plans로 작성 예정) | 0~1단계: 문서·템플릿 정리, 도메인·DB, 접근 제어·로그인, 글·시리즈·태그 관리 API |
+| Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
 | Plan 2 | (Plan 1 완료 후) | 2단계: 마크다운 파이프라인·첨부·공개 페이지·피드·보안 헤더 |
 | Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |
