@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using PortfolioBlog.Api.Contracts;
+using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
@@ -179,5 +182,50 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         var errors = (await res.Content.ReadFromJsonAsync<HttpValidationProblemDetails>(TestJson.Options))!.Errors;
         Assert.Contains("slug", errors.Keys);
+    }
+
+    /// <summary>같은 시리즈를 참조하는 글 저장 12건과 그 시리즈 삭제 1건을 동시에 실행해도 500이 전혀 나오지 않고,
+    /// 삭제가 204로 성공하면 그 시리즈를 참조하는 글이 하나도 남지 않는지 검증한다(삭제 트랜잭션의 <c>FOR UPDATE</c> 선점 + FK 위반의 409 방어를 함께 증명).</summary>
+    [Fact]
+    public async Task Delete_ConcurrentWithPostSaves_NeverReturns500_AndLeavesNoDanglingReference()
+    {
+        using var client = await factory.CreateLoggedInClientAsync();
+        var series = await CreateSeriesAsync(client, "series-race");
+
+        // 글 저장 12건(고유 slug, seriesOrder 1)을 먼저 만들고, 인덱스 6에 삭제 요청을 끼워 넣는다(요청 사양대로).
+        var tasks = new List<Task<HttpResponseMessage>>();
+        for (var i = 0; i < 12; i++)
+        {
+            var slug = $"race-post-{i}";
+            tasks.Add(client.PostAsJsonAsync("/api/posts", new UpsertPostRequest(slug, slug, "", "본문", null, series.Id, 1, null)));
+        }
+        tasks.Insert(6, client.DeleteAsync($"/api/series/{series.Id}"));
+
+        var responses = await Task.WhenAll(tasks);
+        try
+        {
+            var deleteResponse = responses[6];
+            Assert.True(deleteResponse.StatusCode is HttpStatusCode.NoContent or HttpStatusCode.Conflict,
+                $"삭제 응답은 204 또는 409여야 하는데 {(int)deleteResponse.StatusCode}였다.");
+
+            for (var i = 0; i < responses.Length; i++)
+            {
+                if (i == 6) continue; // 삭제 응답은 위에서 별도 검증
+                Assert.True(responses[i].StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict,
+                    $"글 저장 응답(인덱스 {i})은 201 또는 409여야 하는데 {(int)responses[i].StatusCode}였다.");
+            }
+
+            if (deleteResponse.StatusCode == HttpStatusCode.NoContent)
+            {
+                await using var scope = factory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                Assert.Equal(0, await db.Posts.CountAsync(p => p.SeriesId == series.Id));
+                Assert.False(await db.Series.AnyAsync(s => s.Id == series.Id));
+            }
+        }
+        finally
+        {
+            foreach (var res in responses) res.Dispose();
+        }
     }
 }
