@@ -200,4 +200,18 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     [Fact]
     public void Production_HttpAdminOrigin_Fails() =>
         AssertStartupFails(Production(s => s["Site:AdminOrigin"] = "http://admin.test"), "Site:AdminOrigin");
+
+    /// <summary>환경에 상관없이 <c>Attachments:RootPath</c>가 비면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다.
+    /// 비어 있으면 첫 업로드에서야 예외가 나므로, 그 실패를 시작 시점으로 앞당기는 규칙의 회귀 테스트다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void AnyEnvironment_MissingAttachmentsRoot_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["Attachments:RootPath"] = "" }, "Attachments:RootPath");
 }

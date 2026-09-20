@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using PortfolioBlog.Api.Infrastructure.Access;
@@ -52,11 +53,14 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     [GeneratedRegex(@"\{[^}]+\}")]
     private static partial Regex RouteParameter();
 
-    /// <summary>라우트 테이블에서 뽑아낸 요청 대상 1건: HTTP 메서드·경로(매개변수는 더미 GUID로 치환)·익명 허용 여부.</summary>
+    /// <summary>라우트 테이블에서 뽑아낸 요청 대상 1건: HTTP 메서드·경로(매개변수는 더미 GUID로 치환)·익명 허용 여부·multipart 전용 여부.</summary>
     /// <param name="Method">HTTP 메서드.</param>
     /// <param name="Path">매개변수를 더미 값으로 치환한 요청 경로.</param>
     /// <param name="AllowsAnonymous">엔드포인트 메타데이터에 <see cref="IAllowAnonymous"/>가 있는지 여부.</param>
-    private sealed record Target(string Method, string Path, bool AllowsAnonymous);
+    /// <param name="RequiresMultipart">엔드포인트가 <see cref="IAcceptsMetadata"/>로 <c>multipart/form-data</c>만 받는다고 선언했는지 여부(<c>IFormFile</c> 바인딩).
+    /// ASP.NET Core 라우팅은 이런 엔드포인트에 Content-Type이 안 맞는 요청이 오면 인증·인가보다 먼저(라우팅 단계에서) 415로 끊는다 — 본문은 읽지 않으므로
+    /// "본문을 읽기 전" 계약은 유지되지만, <see cref="Build"/>가 매번 <c>application/json</c>을 보내면 이 엔드포인트만 401/403 대신 415가 나온다.</param>
+    private sealed record Target(string Method, string Path, bool AllowsAnonymous, bool RequiresMultipart);
 
     /// <summary>호스트의 <see cref="EndpointDataSource"/>를 순회해 <c>/api</c>로 시작하는 모든 라우트 엔드포인트를 <see cref="Target"/> 목록으로 뽑아낸다.</summary>
     /// <returns>메서드별로 펼쳐진 <see cref="Target"/> 목록(같은 경로가 여러 메서드를 지원하면 메서드 수만큼 항목이 생긴다).</returns>
@@ -78,30 +82,37 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
             if (!IsUnderApi(raw)) continue;
             var path = RouteParameter().Replace(raw, Guid.Empty.ToString());
             var anonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
+            var contentTypes = endpoint.Metadata.GetMetadata<IAcceptsMetadata>()?.ContentTypes ?? [];
+            var multipart = contentTypes.Any(c => c.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase));
             foreach (var method in endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? ["GET"])
             {
-                targets.Add(new Target(method, path, anonymous));
+                targets.Add(new Target(method, path, anonymous, multipart));
             }
         }
         return targets;
     }
 
-    /// <summary><paramref name="t"/>에 대응하는 <see cref="HttpRequestMessage"/>를 만든다. POST/PUT에는 일부러 깨진 JSON 본문을 싣는다.</summary>
+    /// <summary><paramref name="t"/>에 대응하는 <see cref="HttpRequestMessage"/>를 만든다. POST/PUT에는 일부러 불완전한 본문을 싣는다
+    /// (JSON 엔드포인트에는 깨진 JSON, multipart 전용 엔드포인트에는 파일 파트가 없는 빈 multipart 폼).</summary>
     /// <param name="t">요청을 만들 대상.</param>
     /// <returns>호출자가 <c>using</c>으로 해제해야 하는 <see cref="HttpRequestMessage"/>.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 호출된다.</description></item>
-    /// <item><description><b>Memory Policy:</b> <see cref="HttpRequestMessage"/> 1개와(POST/PUT이면) <see cref="StringContent"/> 1개를 할당한다.</description></item>
+    /// <item><description><b>Memory Policy:</b> <see cref="HttpRequestMessage"/> 1개와(POST/PUT이면) 본문 콘텐츠 1개를 할당한다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. Blocking: 즉시 반환, I/O 없음.
-    /// 깨진 JSON(<c>{broken</c>)은 접근 검사가 본문 바인딩보다 먼저 실행됨을 증명하기 위한 의도적 선택이다: 접근 검사가 먼저면
-    /// 바인딩 오류(400)가 아니라 401/403/404가 먼저 나와야 한다.</description></item>
+    /// 깨진 JSON(<c>{broken</c>)·빈 multipart 폼 둘 다 접근 검사가 본문 바인딩보다 먼저 실행됨을 증명하기 위한 의도적 선택이다: 접근 검사가 먼저면
+    /// 바인딩 오류(400)가 아니라 401/403/404가 먼저 나와야 한다. <paramref name="t"/>가 <see cref="Target.RequiresMultipart"/>이면
+    /// <c>application/json</c>을 보내지 않는다 — Content-Type이 <c>IAcceptsMetadata</c>와 안 맞으면 ASP.NET Core 라우팅이 인증·인가보다
+    /// 먼저(본문은 읽지 않고 헤더만 보고) 415로 끊어, "접근 검사가 먼저"라는 이 테스트의 전제 자체가 다른 상태 코드로 가려진다.</description></item>
     /// </list>
     /// </remarks>
     private static HttpRequestMessage Build(Target t) => new(new HttpMethod(t.Method), t.Path)
     {
-        Content = t.Method is "POST" or "PUT" ? new StringContent("{broken", Encoding.UTF8, "application/json") : null,
+        Content = t.Method is not ("POST" or "PUT") ? null
+            : t.RequiresMultipart ? new MultipartFormDataContent()
+            : new StringContent("{broken", Encoding.UTF8, "application/json"),
     };
 
     /// <summary><paramref name="targets"/> 전부에 요청을 보내 상태 코드가 모두 <paramref name="expected"/>인지 검증한다.</summary>
@@ -131,7 +142,7 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     public void RouteTable_ContainsExpectedSurface_AndOnlyLoginAndMeAreAnonymous()
     {
         var targets = Targets();
-        Assert.True(targets.Count >= 16, $"열거된 /api 엔드포인트가 너무 적다: {targets.Count}");
+        Assert.True(targets.Count >= 19, $"열거된 /api 엔드포인트가 너무 적다: {targets.Count}");
         Assert.Equal(AnonymousAllowed, targets.Where(t => t.AllowsAnonymous).Select(t => t.Path).Distinct().Order());
     }
 
@@ -189,6 +200,7 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     [
         "/health",
         "/openapi/{documentName}.json", // Development에서만 매핑된다
+        "/attachments/{id:guid}/{fileName}",
     ];
 
     /// <summary><see cref="IsUnderApi"/>가 접두사가 아니라 세그먼트 경계로 판정하는지 검증한다: <c>/api-import</c>·<c>/apifeed.json</c>처럼

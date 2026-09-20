@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Options;
+using PortfolioBlog.Api.Infrastructure.Storage;
 
 namespace PortfolioBlog.Api.Infrastructure.Access;
 
@@ -34,6 +35,7 @@ public static class StartupValidation
         var site = services.GetRequiredService<IOptions<SiteOptions>>().Value;
         var admin = services.GetRequiredService<IOptions<AdminOptions>>().Value;
         var proxy = services.GetRequiredService<IOptions<ProxyOptions>>().Value;
+        var attachments = services.GetRequiredService<IOptions<AttachmentOptions>>().Value;
 
         Check("Site:PublicOrigin", () => SiteOptions.HostOf(site.PublicOrigin));
         Check("Site:AdminOrigin", () => SiteOptions.HostOf(site.AdminOrigin));
@@ -56,6 +58,13 @@ public static class StartupValidation
         {
             throw new InvalidOperationException("Admin:PreviewPerMinute·PreviewConcurrency 는 1 이상이어야 합니다.");
         }
+        // 모든 환경에서 필수: 첨부 저장 경로가 없으면 업로드마다 예외가 나므로, 그 실패를 첫 업로드가 아니라 시작 시점에 드러낸다.
+        if (string.IsNullOrWhiteSpace(attachments.RootPath))
+        {
+            throw new InvalidOperationException("설정 Attachments:RootPath 이(가) 필수입니다. 예: .data/attachments(개발) 또는 절대 경로(운영).");
+        }
+        // 저장소 생성자가 경로를 계산하며 하는 검증(루트 계산 오류 등)도 시작 시점에 드러낸다.
+        services.GetRequiredService<FileSystemAttachmentStore>();
 
         if (!environment.IsDevelopment())
         {

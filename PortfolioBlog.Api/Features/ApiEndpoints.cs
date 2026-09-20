@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using PortfolioBlog.Api.Features.Attachments;
 using PortfolioBlog.Api.Features.Auth;
 using PortfolioBlog.Api.Features.Posts;
 using PortfolioBlog.Api.Features.Preview;
@@ -41,6 +42,7 @@ public static class ApiEndpoints
         api.MapSeriesEndpoints();
         api.MapTagEndpoints();
         api.MapPreviewEndpoints();
+        api.MapAttachmentEndpoints();
         return api;
     }
 }

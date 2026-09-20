@@ -36,6 +36,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     /// <summary>태그 이름 최대 길이(문자).</summary>
     public const int TagMax = 50;
 
+    /// <summary>첨부 표시용 파일 이름 최대 길이(문자).</summary>
+    public const int FileNameMax = 255;
+
     /// <summary>블로그 글 테이블.</summary>
     public DbSet<Post> Posts => Set<Post>();
 
@@ -50,6 +53,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     /// <summary>단일 행 관리 상태 테이블.</summary>
     public DbSet<AdminState> AdminStates => Set<AdminState>();
+
+    /// <summary>업로드된 이미지 첨부 테이블.</summary>
+    public DbSet<Attachment> Attachments => Set<Attachment>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -108,6 +114,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.ToTable("AdminState", t => t.HasCheckConstraint("CK_AdminState_Single", $"\"Id\" = {AdminState.SingletonId}"));
             e.Property(x => x.Id).ValueGeneratedNever();
             e.HasData(new AdminState { Id = AdminState.SingletonId, SessionEpoch = 1 });
+        });
+        b.Entity<Attachment>(e =>
+        {
+            e.Property(x => x.FileName).HasMaxLength(FileNameMax);
+            e.Property(x => x.ContentType).HasMaxLength(20);
+            e.Property(x => x.StoragePath).HasMaxLength(80);
+            e.Property(x => x.Sha256).HasMaxLength(64);
+            e.HasIndex(x => x.Sha256).IsUnique();
+            e.HasIndex(x => new { x.CreatedAt, x.Id }).IsDescending(true, false);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Attachments_Size", "\"SizeBytes\" BETWEEN 1 AND 10485760");
+                t.HasCheckConstraint("CK_Attachments_Sha256", "\"Sha256\" ~ '^[0-9a-f]{64}$'");
+                t.HasCheckConstraint("CK_Attachments_ContentType", "\"ContentType\" IN ('image/png', 'image/jpeg', 'image/gif', 'image/webp')");
+                t.HasCheckConstraint("CK_Attachments_FileName_NotBlank", "length(btrim(\"FileName\")) > 0");
+            });
         });
     }
 }

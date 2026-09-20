@@ -11,7 +11,7 @@
 | 기능 | 글 CRUD, 태그, 시리즈(연재 묶음), 이미지 첨부, 마크다운 에디터, 코드 하이라이팅, 검색, Atom 피드, SEO(Open Graph·sitemap) |
 | 발행 모델 | 초안 상태 없음. **명시적 저장 = 즉시 공개** |
 | 사용자 | 작성자 1명. 회원·댓글 없음 |
-| 스택 | ASP.NET Core 10(최소 API + Razor Pages), EF Core 10 + PostgreSQL, Markdig, React 19 + Vite + CodeMirror 6(관리 에디터 전용), Caddy, Docker Compose |
+| 스택 | ASP.NET Core 10(최소 API + Razor Pages), EF Core 10 + PostgreSQL, Markdig, ColorCode.HTML(코드 하이라이팅), HtmlSanitizer, React 19 + Vite + CodeMirror 6(관리 에디터 전용), Caddy, Docker Compose |
 
 ## 보안 설계 요약
 
@@ -215,7 +215,7 @@ PortfolioBlog.slnx
 | 설계 | 스펙 작성, Codex 교차 검토 반영 | 완료 |
 | 0 | 솔루션 정리(`PortfolioBlog`로 개명, `.slnx` 전환, 템플릿 잔재·샘플 프로젝트 제거) | 완료 |
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API | 완료 |
-| 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 예정 |
+| 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 2A 완료(마크다운 파이프라인·미리보기·첨부) / 2B 예정(공개 페이지·검색·피드·보안 헤더) |
 | 3 | 관리 에디터 SPA | 예정 |
 | 4 | Docker Compose · Caddy · CI · 백업/복원 절차 | 예정 |
 

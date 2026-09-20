@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using PortfolioBlog.Api.Features;
+using PortfolioBlog.Api.Features.Attachments;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
+using PortfolioBlog.Api.Infrastructure.Storage;
 using PortfolioBlog.Api.Infrastructure.Web;
 
 // CLI 경로: 웹 호스트를 만들지 않고 해시만 출력하고 끝낸다.
@@ -36,6 +39,10 @@ builder.Services.AddAdminAccess(builder.Configuration);
 builder.Services.AddAdminAuth();
 builder.Services.AddAppRateLimiting();
 builder.Services.AddSingleton<MarkdownRenderer>();
+builder.Services.Configure<AttachmentOptions>(builder.Configuration.GetSection(AttachmentOptions.SectionName));
+builder.Services.AddSingleton<FileSystemAttachmentStore>();
+// multipart 한도를 첨부 한도보다 1MB 크게: 10MB를 조금 넘는 업로드는 앱이 413으로 답하고, 그보다 훨씬 큰 본문은 프레임워크가 읽다가 끊는다.
+builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = AttachmentOptions.MaxBytes + 1_048_576);
 
 var app = builder.Build();
 
@@ -67,6 +74,7 @@ app.MapGet("/health", static () =>
     new HealthResponse("Healthy", DateTimeOffset.UtcNow))
     .WithName("GetHealth");
 app.MapApiEndpoints();
+app.MapPublicAttachmentEndpoints();
 
 app.Run();
 return 0;
