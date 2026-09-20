@@ -28,8 +28,10 @@ internal sealed class TimeBoundedLanguageCompiler : ILanguageCompiler
     private readonly LanguageCompiler _inner = new(new Dictionary<string, CompiledLanguage>(), new ReaderWriterLockSlim());
 
     // ConcurrentDictionary<string, CompiledLanguage>: 이 컴파일러 인스턴스는 프로세스 전체 싱글턴이라 여러 렌더(스레드)가
-    // 동시에 같은 언어를 처음 컴파일할 수 있다. GetOrAdd는 같은 키의 동시 생성만 직렬화하고 이미 채워진 키·다른 키의 읽기는
-    // 락 없이 진행되므로, 요청마다 반복되는 "캐시 히트" 경로(거의 모든 호출)가 경합 없이 빠르다.
+    // 동시에 같은 언어를 처음 컴파일할 수 있다. GetOrAdd(Func<TKey,TValue> 오버로드)는 같은 키의 동시 생성을 직렬화하지 않는다 —
+    // 동시에 도착한 호출은 각자 팩토리를 실행할 수 있고, 그중 하나의 결과만 저장된다(나머지는 버려진다). 이미 채워진 키의 읽기는
+    // 락 없이 진행되므로 요청마다 반복되는 "캐시 히트" 경로(거의 모든 호출)가 경합 없이 빠르다. 이 중복 실행은 여기서는 무해하다 —
+    // 같은 언어를 재컴파일한 결과는 항상 동일한(등가인) 정규식이라, 어느 스레드의 결과가 저장되든 이후 조회 결과는 같다.
     private readonly ConcurrentDictionary<string, CompiledLanguage> _rebuilt = new(StringComparer.Ordinal);
 
     public CompiledLanguage Compile(ILanguage language) =>
