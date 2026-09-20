@@ -1,49 +1,43 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Text;
 
 namespace PortfolioBlog.Api.Infrastructure.Storage;
 
-/// <summary>이미지를 <b>디코딩하지 않고</b> 컨테이너 구조만 따라가며 메타데이터(EXIF·GPS·XMP·IPTC·주석·텍스트)를 버린다.</summary>
+/// <summary>이미지를 <b>디코딩하지 않고</b> 컨테이너 구조만 따라가며 메타데이터(EXIF·GPS·XMP·IPTC·주석·텍스트)를 버린다. 네 형식 모두 허용 목록 기반(allow-by-default-DENY)이다 — 알아보지 못하는 세그먼트·청크·확장 블록은 남기지 않고 버리거나 거부한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> Thread-safe. 상태는 호출이 넘긴 스트림뿐이다(스트림 자체는 호출자가 독점해야 한다).</description></item>
-/// <item><description><b>Memory Allocation:</b> 파일 크기와 무관하게 64KB 풀 버퍼 하나 + 스택 버퍼. 선언된 길이만큼 미리 할당하지 않으므로 "길이를 속인 청크"로 메모리를 부풀릴 수 없다.</description></item>
-/// <item><description><b>Blocking:</b> 동기 스트림 I/O. 호출부는 임시 파일 스트림을 넘기며 10MB 이하임을 먼저 보장한다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 파일 크기·청크 개수와 무관하게 64KB 풀 버퍼 하나 + 스택 버퍼(헤더·FourCC·식별자 비교는 전부 <c>stackalloc</c> + <see cref="ReadOnlySpan{T}"/> 비교, 문자열 할당 없음). 선언된 길이만큼 미리 할당하지 않으므로 "길이를 속인 청크"로 메모리를 부풀릴 수 없다.</description></item>
+/// <item><description><b>Blocking:</b> 동기 스트림 I/O. 자세한 조건은 <see cref="Strip"/>의 Blocking 항목 참조.</description></item>
 /// </list>
-/// 디코더를 쓰지 않는 이유: 이미지 디코더는 그 자체가 큰 공격 표면이고, 재인코딩은 화질을 바꾼다. 컨테이너 파싱은 "길이 필드를 읽고 건너뛰거나 복사"뿐이다.
+/// 디코더를 쓰지 않는 이유: 이미지 디코더는 그 자체가 큰 공격 표면이고, 재인코딩은 화질을 바꾼다. 컨테이너 파싱은 "허용 목록에 있는 블록만 길이만큼 복사하고 나머지는 건너뛰거나 거부"뿐이다.
 /// 출력이 멱등이라(깨끗한 파일을 다시 넣으면 같은 바이트) 그 SHA-256을 저장 경로로 쓸 수 있다.
-/// 구조가 어긋나면 <see cref="InvalidDataException"/> — 호출부는 이를 "지원하지 않는 이미지"(415)로 바꾼다.
+/// 구조가 어긋나거나 허용 목록 밖의 블록을 만나면 <see cref="InvalidDataException"/> — 호출부는 이를 "지원하지 않는 이미지"(415)로 바꾼다.
 /// </remarks>
 public static class MetadataStripper
 {
     private const int CopyBufferSize = 64 * 1024; // 85,000바이트 미만: LOH에 올라가지 않는다
 
-    // PNG에서 남기는 청크: 화상·팔레트·투명도·색 공간·물리 해상도·APNG. 그 밖의 보조 청크(eXIf, tEXt, zTXt, iTXt, tIME, 알 수 없는 것)는 버린다.
-    private static readonly HashSet<string> PngKeep = new(StringComparer.Ordinal)
-    {
-        "IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "sBIT", "bKGD", "pHYs", "hIST", "sPLT",
-        "acTL", "fcTL", "fdAT", "cICP", "mDCv", "cLLi",
-    };
-
-    /// <summary>이미지 컨테이너 구조를 처음부터 끝까지 읽으며 메타데이터 세그먼트·청크를 버리고 화상 데이터만 <paramref name="output"/>에 다시 쓴다.</summary>
-    /// <param name="kind">이미 <see cref="ImageSignature.Detect"/>로 판정한 형식. 이 값이 실제 바이트와 다르면 즉시 <see cref="InvalidDataException"/>이 난다.</param>
+    /// <summary>이미지 컨테이너 구조를 처음부터 끝까지 읽으며, 허용 목록에 없는 세그먼트·청크·확장 블록은 전부 버리거나 거부하고(allow-by-default-DENY) 화상 데이터만 <paramref name="output"/>에 다시 쓴다.</summary>
+    /// <param name="kind">이미 <see cref="ImageSignature.Detect"/>로 판정한 형식. 이 값이 실제 바이트와 다르면 결국 <see cref="InvalidDataException"/>이 나지만, 그 전에 이미 일부 kept 블록을 <paramref name="output"/>에 썼을 수 있다("즉시" 실패를 보장하지 않는다 — 아래 예외 항목 참조).</param>
     /// <param name="input">현재 위치부터 읽는 원본 스트림. 소유권은 호출자에게 있으며 이 메서드는 닫거나 되감지 않는다.</param>
-    /// <param name="output">결과를 쓰는 스트림. WebP는 다 쓴 뒤 RIFF 크기 필드를 되돌아가 다시 쓰므로 <b>seek 가능</b>해야 한다. 소유권은 호출자에게 있으며 이 메서드는 닫지 않는다.</param>
-    /// <exception cref="InvalidDataException">구조가 손상됐거나 파일이 잘렸거나 길이 필드가 남은 범위를 벗어날 때.</exception>
+    /// <param name="output">결과를 쓰는 스트림. 반드시 seek 가능해야 한다(WebP는 다 쓴 뒤 RIFF 크기 필드를 되돌아가 다시 쓴다). 이 검사는 <see cref="Strip"/> 진입점에서 형식과 무관하게 한 번만 하므로 네 형식 모두 같은 방식으로 실패한다. 소유권은 호출자에게 있으며 이 메서드는 닫지 않는다.</param>
+    /// <exception cref="ArgumentException"><paramref name="output"/>이 seek 불가능할 때. <c>ParamName</c>은 항상 <c>"output"</c>이다.</exception>
+    /// <exception cref="InvalidDataException">구조가 손상됐거나 파일이 잘렸거나 길이 필드가 남은 범위를 벗어나거나 허용 목록에 없는 마커/블록을 만났을 때. 이 시점에 <paramref name="output"/>에는 그때까지 남긴 블록이 이미 부분적으로 쓰여 있을 수 있다 — 호출부는 예외를 받으면 <paramref name="output"/>의 내용을 버려야 한다(부분 결과를 저장하면 안 된다).</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe(공유 가변 상태 없음). 단, 같은 <paramref name="input"/>/<paramref name="output"/> 인스턴스를 여러 스레드에서 동시에 넘기면 스트림 자체가 스레드 안전하지 않으므로 호출자가 직렬화해야 한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> <see cref="ArrayPool{T}.Shared"/>에서 64KB 버퍼 하나를 빌려 청크/세그먼트 데이터 복사에 재사용하고, 헤더는 스택(<c>stackalloc</c>) 버퍼로 읽는다. 청크가 선언한 길이만큼 미리 할당하지 않으므로 거짓 길이 필드로 힙을 부풀릴 수 없다. <paramref name="input"/>과 <paramref name="output"/>의 소유권은 호출 끝까지 호출자에게 남고, 이 메서드는 둘 다 dispose하지 않는다. <paramref name="input"/>은 순방향으로만 읽으므로 seek 불가능해도 되지만, <paramref name="output"/>은 WebP 크기 재기록 때문에 반드시 seek 가능해야 한다.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 <see cref="Stream.Read(byte[],int,int)"/>/<see cref="Stream.Write(byte[],int,int)"/> 호출로 이뤄진다(비동기 오버로드 없음). 호출부는 이 메서드를 요청 스레드가 아니라 파일 크기를 이미 제한한 백그라운드/워커 경로에서, 임시 파일 스트림을 대상으로 호출해야 한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="ArrayPool{T}.Shared"/>에서 64KB 버퍼 하나를 빌려 재사용하고, 헤더·FourCC·식별자 비교는 전부 스택(<c>stackalloc</c>) 버퍼와 <see cref="ReadOnlySpan{T}"/> 비교라 청크·세그먼트 개수에 비례한 힙 할당이 없다(50,000개 청크로 측정: 256KB 미만 — 이전에는 청크마다 <c>string</c>을 할당해 5MB/437,000청크 PNG에서 13.3MB가 나갔다). <paramref name="input"/>과 <paramref name="output"/>의 소유권은 호출 끝까지 호출자에게 남고, 이 메서드는 둘 다 dispose하지 않는다. <paramref name="input"/>은 순방향으로만 읽으므로 seek 불가능해도 되지만 <paramref name="output"/>은 항상 seek 가능해야 한다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 <see cref="Stream.Read(byte[],int,int)"/>/<see cref="Stream.Write(byte[],int,int)"/>·<see cref="Stream.ReadByte"/>/<see cref="Stream.WriteByte(byte)"/> 호출로 이뤄진다(비동기 오버로드 없음). 요청 본문 스트림에 직접 걸지 말고 크기를 이미 제한한 임시 파일 스트림이나 <see cref="MemoryStream"/>/<see cref="BufferedStream"/>에 대해서만 호출한다 — 별도 백그라운드 스레드가 꼭 필요하지는 않다(5MB 입력 기준 약 33ms 동기 호출). 단, <paramref name="input"/>/<paramref name="output"/>은 <see cref="Stream.ReadByte"/>/<see cref="Stream.WriteByte(byte)"/>를 효율적으로 오버라이드해야 한다 — JPEG 엔트로피 구간은 바이트 단위로 읽고 쓰므로, 기반 클래스 구현을 그대로 쓰는 스트림(호출마다 1바이트짜리 배열을 새로 할당)에 걸면 5MB JPEG 하나에서 344MB가 할당된다(측정값). <see cref="FileStream"/>·<see cref="MemoryStream"/>은 이 두 메서드를 오버라이드하므로 안전하다.</description></item>
     /// </list>
     /// </remarks>
     public static void Strip(ImageKind kind, Stream input, Stream output)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(output);
+        if (!output.CanSeek) throw new ArgumentException("출력 스트림은 seek 가능해야 한다.", nameof(output));
         switch (kind)
         {
             case ImageKind.Jpeg: StripJpeg(input, output); break;
@@ -57,9 +51,20 @@ public static class MetadataStripper
     // JPEG: SOI, 이어서 세그먼트 = FFxx + 길이(2바이트 빅엔디언, 자기 자신 포함) + 페이로드. SOS(FFDA) 뒤에는 엔트로피 부호화 데이터가 오고,
     // 그 구간은 "다음 진짜 마커"까지 따라간다 — SOS 이후를 끝까지 그대로 복사하면 (1) EOI 뒤에 덧붙인 데이터(폴리글랏·숨긴 메타데이터)와
     // (2) 프로그레시브 JPEG의 스캔 사이 세그먼트가 걸러지지 않는다(스파이크에서 10개 스캔짜리 파일과 ZIP을 덧붙인 파일로 확인).
+    //
+    // 세그먼트 수준은 허용 목록 기반이다(수정 전에는 "몇 개만 버리고 나머지는 통과"였는데, 그 "나머지"에 JFXX 썸네일·임의 APP2·
+    // 예약 마커가 숨을 수 있었다 — fix round 1에서 지적됨):
+    //   - 구조(그대로 유지): C0~CF(SOFn·DHT 0xC4·DAC 0xCC), DB(DQT), DC(DNL), DD(DRI), DA(SOS, 이후 엔트로피 구간은 그대로).
+    //   - APPn(E0~EF)·COM(FE): 원칙적으로 전부 버린다. 예외 3가지만 페이로드 시작 바이트로 식별해 남긴다 —
+    //       APP0이 "JFIF\0"로 시작하면 남긴다(밀도·화면비 정보가 없으면 표시 크기가 틀어진다). 식별자가 다른 APP0(JFXX 썸네일 등)은 버린다.
+    //       APP2가 "ICC_PROFILE\0"으로 시작하면 남긴다(색 프로파일이 없으면 색이 달라진다). 식별자가 다른 APP2(MPF·FlashPix·임의 바이트 등)는 버린다.
+    //       APP14(EE)가 "Adobe"로 시작하면 남긴다(CMYK/YCCK 색 변환 플래그가 없으면 색이 깨진다).
+    //   - 그 밖의 모든 마커(00, 01, 02~BF, D0~D8, DE, DF, F0~FD)는 세그먼트 수준에 나타나면 거부한다 — 길이 없는 마커(RSTn·TEM)와
+    //     채움용 FF00은 엔트로피 부호화 데이터 안에서만 유효하며 그 안에서는 CopyJpegEntropyData가 그대로 처리한다.
     private static void StripJpeg(Stream input, Stream output)
     {
-        Span<byte> b = stackalloc byte[2]; // 마커·길이 필드를 힙 할당 없이 읽기 위한 2바이트 스택 버퍼
+        Span<byte> b = stackalloc byte[2]; // 마커·길이 필드를 힙 할당 없이 읽기 위한 2바이트 스택 버퍼(루프 밖에서 한 번만 할당해 재사용)
+        Span<byte> identifierBuffer = stackalloc byte[12]; // 유지 대상 APP 식별자 중 가장 긴 것(ICC_PROFILE\0)까지 담는 고정 버퍼. 루프 안에서 반복 stackalloc하면 스택이 계속 자라므로 밖에서 한 번만 할당한다.
         ReadExact(input, b);
         if (b[0] != 0xFF || b[1] != 0xD8) throw new InvalidDataException("JPEG SOI가 없다.");
         output.Write(b);
@@ -73,25 +78,41 @@ public static class MetadataStripper
                 output.WriteByte(0xFF); output.WriteByte(0xD9);
                 return; // EOI 뒤의 바이트는 버린다
             }
-            if (marker is (>= 0xD0 and <= 0xD7) or 0x01) // 길이 없는 마커
-            {
-                output.WriteByte(0xFF); output.WriteByte(marker);
-                marker = ReadJpegMarker(input);
-                continue;
-            }
+
+            var structural = marker is (>= 0xC0 and <= 0xCF) or 0xDB or 0xDC or 0xDD or 0xDA;
+            var appOrComment = marker is (>= 0xE0 and <= 0xEF) or 0xFE;
+            if (!structural && !appOrComment) throw new InvalidDataException("지원하지 않는 JPEG 마커다.");
+
             ReadExact(input, b);
             var length = BinaryPrimitives.ReadUInt16BigEndian(b);
             if (length < 2) throw new InvalidDataException("JPEG 세그먼트 길이가 잘못됐다.");
             var payload = length - 2;
-            // 버림: APP1(Exif·XMP), APP3~APP13·APP15(APP13 = IPTC/Photoshop), COM.
-            // 남김: APP0(JFIF), APP2(ICC 프로파일 — 없으면 색이 달라진다), APP14(Adobe 색 변환 — 없으면 CMYK/YCCK가 깨진다), 그 밖의 모든 화상 세그먼트.
-            var drop = marker == 0xFE || marker == 0xE1 || (marker is >= 0xE3 and <= 0xEF && marker != 0xEE);
-            if (drop)
+
+            if (appOrComment)
             {
-                Skip(input, payload);
+                var identifier = GetKeptAppIdentifier(marker);
+                if (!identifier.IsEmpty && payload >= identifier.Length)
+                {
+                    var idSlice = identifierBuffer[..identifier.Length];
+                    ReadExact(input, idSlice);
+                    if (idSlice.SequenceEqual(identifier))
+                    {
+                        output.WriteByte(0xFF); output.WriteByte(marker); output.Write(b); output.Write(idSlice);
+                        CopyExact(input, output, payload - identifier.Length);
+                    }
+                    else
+                    {
+                        Skip(input, payload - identifier.Length);
+                    }
+                }
+                else
+                {
+                    Skip(input, payload);
+                }
                 marker = ReadJpegMarker(input);
                 continue;
             }
+
             output.WriteByte(0xFF); output.WriteByte(marker); output.Write(b);
             CopyExact(input, output, payload);
             if (marker == 0xDA)
@@ -105,6 +126,15 @@ public static class MetadataStripper
             }
         }
     }
+
+    // 남기는 APPn 식별자: JFIF(APP0), ICC_PROFILE(APP2), Adobe(APP14). 그 밖의 APPn·COM은 식별자를 확인하지 않고 버린다.
+    private static ReadOnlySpan<byte> GetKeptAppIdentifier(byte marker) => marker switch
+    {
+        0xE0 => "JFIF\0"u8,
+        0xE2 => "ICC_PROFILE\0"u8,
+        0xEE => "Adobe"u8,
+        _ => default,
+    };
 
     private static byte ReadJpegMarker(Stream input)
     {
@@ -139,29 +169,58 @@ public static class MetadataStripper
     }
 
     // PNG: 시그니처 8바이트, 이어서 청크 = 길이(4, 빅엔디언) + 종류(4) + 데이터 + CRC(4).
+    // 남기는 청크: 화상·팔레트·투명도·색 공간·물리 해상도·APNG(IsPngKeptChunk 참조). 그 밖의 보조 청크(eXIf, tEXt, zTXt, iTXt, tIME, sPLT, 알 수 없는 것)는 버린다.
+    // sPLT(제안 팔레트)는 자유 텍스트 팔레트 이름을 담고 어떤 디코더도 필수로 요구하지 않아 fix round 1에서 허용 목록에서 뺐다.
+    // 첫 청크가 IHDR가 아니거나 IEND 전에 IDAT이 한 번도 없으면 거부한다 — 이전에는 "시그니처+IEND"만으로 된 빈 PNG도 통과했다.
+    // 잔여 위험(고치지 않음, 이번 라운드 범위 밖): 남기는 iCCP 청크 안의 최대 79바이트 Latin-1 프로파일 이름은 공격자가 채운 임의 텍스트다.
     private static void StripPng(Stream input, Stream output)
     {
         Span<byte> signature = stackalloc byte[8]; // PNG 매직 넘버 고정 크기 — 스택에 두면 힙 할당·GC 압력 없음
         ReadExact(input, signature);
         output.Write(signature);
         Span<byte> header = stackalloc byte[8]; // 청크 길이(4) + 종류(4) 고정 크기 헤더
+        var sawIdat = false;
+        var first = true;
         while (true)
         {
             ReadExact(input, header);
             var length = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
             if (length > int.MaxValue) throw new InvalidDataException("PNG 청크 길이가 잘못됐다.");
-            var type = Encoding.ASCII.GetString(header.Slice(4, 4));
+            var type = header.Slice(4, 4);
+            if (first)
+            {
+                if (!type.SequenceEqual("IHDR"u8)) throw new InvalidDataException("PNG은 IHDR로 시작해야 한다.");
+                first = false;
+            }
+            if (type.SequenceEqual("IDAT"u8)) sawIdat = true;
             var total = (long)length + 4; // 데이터 + CRC
-            if (PngKeep.Contains(type)) { output.Write(header); CopyExact(input, output, total); }
+            if (IsPngKeptChunk(type)) { output.Write(header); CopyExact(input, output, total); }
             else Skip(input, total);
-            if (type == "IEND") return; // IEND 뒤에 덧붙은 바이트는 버린다
+            if (type.SequenceEqual("IEND"u8))
+            {
+                if (!sawIdat) throw new InvalidDataException("PNG에 IDAT이 없다.");
+                return; // IEND 뒤에 덧붙은 바이트는 버린다
+            }
         }
     }
 
+    // FourCC를 문자열로 바꾸지 않고 스팬끼리 직접 비교한다 — Encoding.GetString은 청크마다 새 string을 할당해
+    // 청크 개수에 비례하는 힙 압력을 만든다(fix round 1에서 측정: 5MB PNG의 437,000개 청크 → 13.3MB 할당).
+    private static bool IsPngKeptChunk(ReadOnlySpan<byte> type) =>
+        type.SequenceEqual("IHDR"u8) || type.SequenceEqual("PLTE"u8) || type.SequenceEqual("IDAT"u8) ||
+        type.SequenceEqual("IEND"u8) || type.SequenceEqual("tRNS"u8) || type.SequenceEqual("gAMA"u8) ||
+        type.SequenceEqual("cHRM"u8) || type.SequenceEqual("sRGB"u8) || type.SequenceEqual("iCCP"u8) ||
+        type.SequenceEqual("sBIT"u8) || type.SequenceEqual("bKGD"u8) || type.SequenceEqual("pHYs"u8) ||
+        type.SequenceEqual("hIST"u8) || type.SequenceEqual("acTL"u8) || type.SequenceEqual("fcTL"u8) ||
+        type.SequenceEqual("fdAT"u8) || type.SequenceEqual("cICP"u8) || type.SequenceEqual("mDCv"u8) ||
+        type.SequenceEqual("cLLi"u8);
+
     // WebP: "RIFF" + 크기(4, 리틀엔디언) + "WEBP", 이어서 청크 = FourCC(4) + 크기(4) + 데이터(+홀수면 패딩 1). VP8X 플래그: 0x08 EXIF, 0x04 XMP.
+    // 허용 목록: VP8X(정확히 10바이트일 때만 — 그 이상은 알려지지 않은 확장 필드를 실어 나를 수 있어 거부한다)·VP8 ·VP8L·ALPH·ANIM·ANMF·ICCP.
+    // 그 밖(EXIF·XMP ·JUNK·미지 FourCC)은 전부 버린다.
+    // 잔여 위험(고치지 않음, 이번 라운드 범위 밖): ANMF 프레임의 페이로드는 통째로 복사하므로 프레임 안에 숨긴 서브청크까지는 들여다보지 않는다.
     private static void StripWebP(Stream input, Stream output)
     {
-        if (!output.CanSeek) throw new ArgumentException("WebP 출력 스트림은 seek 가능해야 한다(RIFF 크기를 다시 쓴다).", nameof(output));
         Span<byte> riff = stackalloc byte[12]; // RIFF 헤더 고정 크기(FourCC 4 + 크기 4 + WEBP 4)
         ReadExact(input, riff);
         var start = output.Position;
@@ -174,26 +233,26 @@ public static class MetadataStripper
         {
             ReadExact(input, chunk);
             consumed += 8;
-            var fourCc = Encoding.ASCII.GetString(chunk[..4]);
+            var fourCc = chunk[..4];
             var size = BinaryPrimitives.ReadUInt32LittleEndian(chunk.Slice(4, 4));
             var padded = (long)size + (size & 1);
             if (consumed + padded > declaredEnd + 1) throw new InvalidDataException("WebP 청크가 RIFF 범위를 넘는다.");
-            if (fourCc is "EXIF" or "XMP ")
+            if (fourCc.SequenceEqual("VP8X"u8))
             {
-                Skip(input, padded);
-            }
-            else if (fourCc == "VP8X")
-            {
-                if (size < 10) throw new InvalidDataException("VP8X 길이가 잘못됐다.");
+                if (size != 10) throw new InvalidDataException("VP8X 길이가 잘못됐다.");
                 output.Write(chunk);
                 output.WriteByte((byte)(ReadByte(input) & ~0x0C)); // EXIF·XMP 플래그 해제
                 CopyExact(input, output, padded - 1);
             }
-            else
+            else if (IsWebPKeptOtherChunk(fourCc))
             {
-                sawImage |= fourCc is "VP8 " or "VP8L" or "ANMF";
+                sawImage |= fourCc.SequenceEqual("VP8 "u8) || fourCc.SequenceEqual("VP8L"u8) || fourCc.SequenceEqual("ANMF"u8);
                 output.Write(chunk);
                 CopyExact(input, output, padded);
+            }
+            else
+            {
+                Skip(input, padded);
             }
             consumed += padded;
         }
@@ -206,7 +265,15 @@ public static class MetadataStripper
         output.Position = end;
     }
 
+    private static bool IsWebPKeptOtherChunk(ReadOnlySpan<byte> fourCc) =>
+        fourCc.SequenceEqual("VP8 "u8) || fourCc.SequenceEqual("VP8L"u8) || fourCc.SequenceEqual("ALPH"u8) ||
+        fourCc.SequenceEqual("ANIM"u8) || fourCc.SequenceEqual("ANMF"u8) || fourCc.SequenceEqual("ICCP"u8);
+
     // GIF: 헤더(6) + 논리 화면 기술자(7) [+ 전역 색상표], 이어서 블록 = 0x21 확장 | 0x2C 이미지 | 0x3B 트레일러.
+    // 확장 라벨 허용 목록: 그래픽 제어(0xF9)만 그대로 남긴다. 애플리케이션 확장(0xFF)은 식별자가 NETSCAPE2.0·ANIMEXTS1.0일 때만
+    // 반복 횟수 서브블록을 남긴다. 그 밖의 모든 라벨(주석 0xFE, 일반 텍스트 0x01, 예약·사설 라벨 0x00·0x02~0xF8 등)은 서브블록에
+    // 임의 바이트를 담을 수 있으므로 통째로 버린다 — fix round 1 전에는 주석(0xFE)만 버려서, 같은 페이로드를 라벨만 0x01·0x42·0x00으로
+    // 바꾸면 5MB까지도 그대로 살아남았다(재생 가능한 2프레임 GIF 안에서 확인됨).
     private static void StripGif(Stream input, Stream output)
     {
         Span<byte> header = stackalloc byte[13]; // GIF 헤더(6) + 논리 화면 기술자(7) 고정 크기
@@ -238,19 +305,18 @@ public static class MetadataStripper
             }
             if (introducer != 0x21) throw new InvalidDataException("GIF 블록 구분자가 잘못됐다.");
             var label = ReadByte(input);
-            if (label == 0xFE) { CopySubBlocks(input, output, keep: false); continue; } // 주석 확장
             if (label == 0xFF)
             {
                 if (ReadByte(input) != 11) throw new InvalidDataException("GIF 애플리케이션 확장 길이가 잘못됐다.");
                 ReadExact(input, application);
-                var id = Encoding.ASCII.GetString(application);
-                var keep = id is "NETSCAPE2.0" or "ANIMEXTS1.0"; // 반복 횟수만 남긴다. XMP 등 다른 애플리케이션 데이터는 버린다
+                var keep = application.SequenceEqual("NETSCAPE2.0"u8) || application.SequenceEqual("ANIMEXTS1.0"u8); // 반복 횟수만 남긴다. 그 밖의 애플리케이션 데이터는 버린다
                 if (keep) { output.WriteByte(0x21); output.WriteByte(0xFF); output.WriteByte(11); output.Write(application); }
                 CopySubBlocks(input, output, keep);
                 continue;
             }
-            output.WriteByte(0x21); output.WriteByte(label); // 그래픽 제어(0xF9)·일반 텍스트(0x01)
-            CopySubBlocks(input, output, keep: true);
+            var keepExtension = label == 0xF9; // 그래픽 제어만 허용 목록에 있다
+            if (keepExtension) { output.WriteByte(0x21); output.WriteByte(label); }
+            CopySubBlocks(input, output, keepExtension);
         }
     }
 
