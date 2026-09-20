@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PortfolioBlog.Api.Features;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Web;
 
 // CLI 경로: 웹 호스트를 만들지 않고 해시만 출력하고 끝낸다.
@@ -34,6 +35,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, o) =>
 builder.Services.AddAdminAccess(builder.Configuration);
 builder.Services.AddAdminAuth();
 builder.Services.AddAppRateLimiting();
+builder.Services.AddSingleton<MarkdownRenderer>();
 
 var app = builder.Build();
 
