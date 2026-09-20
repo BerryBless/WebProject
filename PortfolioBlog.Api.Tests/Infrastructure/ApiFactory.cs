@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using PortfolioBlog.Api.Infrastructure.Access;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -18,6 +19,18 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// </remarks>
 public class ApiFactory : WebApplicationFactory<Program>
 {
+    /// <summary>관리 표면 테스트가 쓰는 관리 origin(테스트 전용, RFC 2606 <c>.test</c>).</summary>
+    public const string AdminOrigin = "https://admin.test";
+
+    /// <summary>공개 표면 테스트가 쓰는 공개 origin(테스트 전용, RFC 2606 <c>.test</c>).</summary>
+    public const string PublicOrigin = "https://blog.test";
+
+    /// <summary><c>Admin:AllowedCidrs</c> 기본값(<c>203.0.113.0/24</c>, RFC 5737 문서용 대역) 안에 속하는 IP.</summary>
+    public const string AllowedIp = "203.0.113.9";
+
+    /// <summary><c>Admin:AllowedCidrs</c> 기본값(RFC 5737 문서용 대역 <c>198.51.100.0/24</c>) 밖에 있는 IP.</summary>
+    public const string OutsiderIp = "198.51.100.7";
+
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
 
@@ -48,10 +61,20 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Default", _connectionString);
+        // 개별 테스트의 _settings가 아래에서 덮어쓸 수 있도록 기본값을 루프 앞에 먼저 넣는다.
+        builder.UseSetting("Site:PublicOrigin", PublicOrigin);
+        builder.UseSetting("Site:AdminOrigin", AdminOrigin);
+        builder.UseSetting("Admin:AllowedCidrs", "203.0.113.0/24");
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);
         }
+        if (_settings.TryGetValue("Test:Environment", out var env) && env is not null)
+        {
+            builder.UseEnvironment(env);
+        }
+        // RemoteIpStartupFilter를 Program.cs 파이프라인보다 앞에 끼워 TestServer의 null RemoteIpAddress를 헤더 값으로 대체한다.
+        builder.ConfigureServices(services => services.AddTransient<IStartupFilter, RemoteIpStartupFilter>());
     }
 
     /// <summary>호출자가 소유하는 DI 스코프. <c>await using var scope = factory.CreateScope();</c></summary>
@@ -65,4 +88,47 @@ public class ApiFactory : WebApplicationFactory<Program>
     /// </list>
     /// </remarks>
     public AsyncServiceScope CreateScope() => Services.CreateAsyncScope();
+
+    /// <summary>관리 호스트로 가는 클라이언트. 허용 IP·CSRF 헤더·Origin을 기본으로 붙인다. 부재를 검증하는 테스트는 직접 제거한다.
+    /// https 주소를 쓰는 이유: 세션 쿠키가 Secure라서 http 주소에서는 CookieContainer가 쿠키를 돌려보내지 않는다.</summary>
+    /// <param name="handleCookies">true이면 내부 <see cref="System.Net.Http.CookieContainer"/>가 <c>Set-Cookie</c>를 자동 저장·전송한다. 쿠키 부재/직접 제어를 검증하는 테스트는 false로 끈다.</param>
+    /// <returns>호출자가 <c>using</c>으로 해제해야 하는, 관리 origin·허용 IP·CSRF 헤더·Origin이 기본 설정된 <see cref="HttpClient"/>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 호출마다 새 <see cref="HttpClient"/> 인스턴스를 반환하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="HttpClient"/>와 기본 헤더 문자열 몇 개를 할당한다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). 실제 네트워크 연결은 첫 요청 전송 시점에 지연 수행된다.</description></item>
+    /// </list>
+    /// </remarks>
+    public HttpClient CreateAdminClient(bool handleCookies = true)
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri(AdminOrigin),
+            HandleCookies = handleCookies,
+            AllowAutoRedirect = false,
+        });
+        client.DefaultRequestHeaders.Add(AdminSurfaceMiddleware.CsrfHeaderName, AdminSurfaceMiddleware.CsrfHeaderValue);
+        client.DefaultRequestHeaders.Add("Origin", AdminOrigin);
+        client.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, AllowedIp);
+        return client;
+    }
+
+    /// <summary>공개 호스트로 가는 클라이언트(임의의 외부 방문자).</summary>
+    /// <returns>호출자가 <c>using</c>으로 해제해야 하는, 공개 origin·허용되지 않은 IP가 기본 설정된 <see cref="HttpClient"/>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 호출마다 새 <see cref="HttpClient"/> 인스턴스를 반환하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="HttpClient"/>와 기본 헤더 문자열 1개를 할당한다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). 실제 네트워크 연결은 첫 요청 전송 시점에 지연 수행된다.</description></item>
+    /// </list>
+    /// </remarks>
+    public HttpClient CreatePublicClient()
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri(PublicOrigin), AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, OutsiderIp);
+        return client;
+    }
 }

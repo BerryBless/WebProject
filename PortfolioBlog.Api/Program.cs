@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using PortfolioBlog.Api.Features;
+using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,8 +24,12 @@ builder.Services.AddDbContext<AppDbContext>((sp, o) =>
 
     o.UseNpgsql(connectionString);
 });
+builder.Services.AddAdminAccess(builder.Configuration);
 
 var app = builder.Build();
+
+// 설정 오류가 DB 접속 오류에 가려지지 않도록 마이그레이션보다 먼저 검증한다.
+StartupValidation.Validate(app.Services, app.Environment);
 
 // 단일 인스턴스 배포이므로 시작 시 마이그레이션을 적용한다(스펙 3.10).
 using (var scope = app.Services.CreateScope())
@@ -31,8 +37,10 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
 
+app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseMiddleware<AdminSurfaceMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -44,6 +52,7 @@ app.MapGet("/health", static () =>
     // 그대로 읽으므로 오프셋 0 이 보장되고 Now 보다 호출 비용이 낮다.
     new HealthResponse("Healthy", DateTimeOffset.UtcNow))
     .WithName("GetHealth");
+app.MapApiEndpoints();
 
 app.Run();
 
