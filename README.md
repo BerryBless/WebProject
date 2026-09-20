@@ -201,7 +201,7 @@ erDiagram
 ```
 PortfolioBlog.slnx
 ├─ PortfolioBlog.Api/          # ASP.NET Core 10 — 관리 API(최소 API) + 공개 페이지(Razor Pages)
-├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory (+ Testcontainers PostgreSQL 예정)
+├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers PostgreSQL
 ├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite (예정)
 ├─ deploy/                  # docker-compose · Caddyfile · 운영 절차 (예정)
 ├─ plan/                    # 설계 문서

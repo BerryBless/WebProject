@@ -81,6 +81,8 @@ PortfolioBlog.Api.Tests/
 
 ### Task 1: 기본 설정 · 도메인 · DbContext · 초기 마이그레이션 · 테스트 DB 픽스처
 
+> ⚠️ 이 Task의 일부 코드는 리뷰에서 결함으로 판정되어 구현에서 교정됐다 — 문서 끝 "구현 중 발견해 고친 계획 결함" 표를 따를 것.
+
 **Files:**
 - Modify: `PortfolioBlog.Api/Program.cs`, `PortfolioBlog.Api/PortfolioBlog.Api.csproj`, `PortfolioBlog.Api/appsettings.json`, `PortfolioBlog.Api/appsettings.Development.json`
 - Create: `PortfolioBlog.Api/Domain/{Post,Series,Tag,PostTag,AdminState}.cs`, `PortfolioBlog.Api/Infrastructure/Data/{AppDbContext,DbClock}.cs`, `PortfolioBlog.Api/Infrastructure/Data/Migrations/*`(생성)
@@ -1469,6 +1471,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 ### Task 4: 비밀번호 로그인 · 세션 폐기 · 로그인 속도 제한
 
+> ⚠️ 이 Task의 일부 코드는 리뷰에서 결함으로 판정되어 구현에서 교정됐다 — 문서 끝 "구현 중 발견해 고친 계획 결함" 표를 따를 것.
+
 **Files:**
 - Create: `PortfolioBlog.Api/Infrastructure/Access/{AdminCredential,SessionRules,SessionValidator,HashPasswordCommand,AuthServiceCollectionExtensions}.cs`
 - Modify: `PortfolioBlog.Api/Contracts/AuthDtos.cs`, `PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs`, `PortfolioBlog.Api/Features/ApiEndpoints.cs`, `PortfolioBlog.Api/Program.cs`
@@ -2218,6 +2222,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 ### Task 5: 글 관리 API (계약 · 검증 · 태그 해석 · 낙관적 동시성)
+
+> ⚠️ 이 Task의 일부 코드는 리뷰에서 결함으로 판정되어 구현에서 교정됐다 — 문서 끝 "구현 중 발견해 고친 계획 결함" 표를 따를 것.
 
 **Files:**
 - Create: `PortfolioBlog.Api/Contracts/{ValidationErrors,PostDtos}.cs`
@@ -3025,6 +3031,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 ### Task 6: 시리즈 관리 API
+
+> ⚠️ 이 Task의 일부 코드는 리뷰에서 결함으로 판정되어 구현에서 교정됐다 — 문서 끝 "구현 중 발견해 고친 계획 결함" 표를 따를 것.
 
 **Files:**
 - Create: `PortfolioBlog.Api/Contracts/SeriesDtos.cs`, `PortfolioBlog.Api/Features/Series/{SeriesValidation,SeriesEndpoints}.cs`; Modify: `PortfolioBlog.Api/Features/ApiEndpoints.cs`
