@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Markdown;
 
 namespace PortfolioBlog.Api.Features.Posts;
 
@@ -103,23 +104,30 @@ public static class PostEndpoints
     /// <summary>새 글을 만든다. 저장 즉시 공개되므로 태그 upsert·글·태그 링크를 한 트랜잭션으로 묶는다.</summary>
     /// <param name="req">생성 요청 본문.</param>
     /// <param name="db">저장에 쓸 DbContext.</param>
+    /// <param name="renderer">저장 전 본문이 실제로 렌더링 가능한지 확인할 마크다운 렌더러(HTML은 저장하지 않고 버린다).</param>
     /// <param name="loggers">생성을 id·slug만 남기고 기록할 로거 팩토리.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>성공 시 <c>Location</c> 헤더와 상세 DTO를 담은 201, 검증 실패 시 400, slug 중복이거나 검증 뒤 참조가 사라졌으면 409.</returns>
+    /// <returns>성공 시 <c>Location</c> 헤더와 상세 DTO를 담은 201, 검증 실패이거나 본문이 너무 깊게 중첩됐으면 400, slug 중복이거나 검증 뒤 참조가 사라졌으면 409.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
-    /// <item><description><b>Memory Policy:</b> <see cref="Post"/> 엔티티 1개 + 태그 연결 목록 + 본문(최대 200KB) 문자열 1개를 할당한다.</description></item>
+    /// <item><description><b>Memory Policy:</b> <see cref="Post"/> 엔티티 1개 + 태그 연결 목록 + 본문(최대 200KB) 문자열 1개를 할당한다.
+    /// 렌더 가능성 확인이 만드는 HTML 문자열은 즉시 버려진다(저장하지 않음).</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: slug 중복 조회·태그 해석·트랜잭션·저장을 모두 <c>await</c>한다.
+    /// 단, 저장 전 렌더 가능성 확인은 동기 CPU 작업이라(<see cref="MarkdownRenderer"/> 문서 참조) 요청 스레드를 그 시간만큼 점유한다.
     /// 같은 slug 동시 생성은 사전 검사를 통과해도 <c>SaveChangesAsync</c>의 유니크 위반으로 409를 돌려준다(경쟁 창을 DB가 최종 방어한다).</description></item>
     /// </list>
     /// </remarks>
-    private static async Task<IResult> CreateAsync(UpsertPostRequest req, AppDbContext db, ILoggerFactory loggers, CancellationToken ct)
+    private static async Task<IResult> CreateAsync(UpsertPostRequest req, AppDbContext db, MarkdownRenderer renderer, ILoggerFactory loggers, CancellationToken ct)
     {
         var errors = PostValidation.Validate(req);
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
+
+        // 저장 즉시 공개되는 글이 공개 페이지 렌더링을 영원히 500으로 만들지 못하도록, 저장 전에 한 번 렌더링해 본다(결과 HTML은 버린다).
+        // 요청당 렌더 1회를 더 지불하는 대신 "저장된 글은 항상 렌더 가능하다"는 불변식을 얻는다.
+        if (!TryRenderOrAddError(renderer, req.ContentMarkdown!, errors)) return TypedResults.ValidationProblem(errors.ToDictionary());
 
         if (await db.Posts.AnyAsync(p => p.Slug == req.Slug, ct)) return DbConflict.Problem($"slug '{req.Slug}'는 이미 쓰이고 있습니다.");
 
@@ -153,19 +161,22 @@ public static class PostEndpoints
     /// <param name="id">수정할 글의 Id.</param>
     /// <param name="req">수정 요청 본문(전체 교체 의미론).</param>
     /// <param name="db">저장에 쓸 DbContext.</param>
+    /// <param name="renderer">저장 전 본문이 실제로 렌더링 가능한지 확인할 마크다운 렌더러(HTML은 저장하지 않고 버린다).</param>
     /// <param name="loggers">수정을 id·slug만 남기고 기록할 로거 팩토리.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>성공 시 갱신된 상세 DTO를 담은 200, 글이 없으면 404, 검증 실패 시 400, version이 오래됐거나 참조가 사라졌으면 409.</returns>
+    /// <returns>성공 시 갱신된 상세 DTO를 담은 200, 글이 없으면 404, 검증 실패이거나 본문이 너무 깊게 중첩됐으면 400, version이 오래됐거나 참조가 사라졌으면 409.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
-    /// <item><description><b>Memory Policy:</b> 추적되는 <see cref="Post"/>와 <see cref="PostTag"/> 컬렉션을 로드하고, 본문(최대 200KB) 문자열 1개를 교체 보유한다.</description></item>
+    /// <item><description><b>Memory Policy:</b> 추적되는 <see cref="Post"/>와 <see cref="PostTag"/> 컬렉션을 로드하고, 본문(최대 200KB) 문자열 1개를 교체 보유한다.
+    /// 렌더 가능성 확인이 만드는 HTML 문자열은 즉시 버려진다(저장하지 않음).</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: 모든 DB I/O를 <c>await</c>한다.
+    /// 저장 전 렌더 가능성 확인은 동기 CPU 작업이라(<see cref="MarkdownRenderer"/> 문서 참조) 요청 스레드를 그 시간만큼 점유한다.
     /// <c>xmin</c>을 <c>OriginalValue</c>로 고정해 조회 이후 발생한 경쟁도 <c>UPDATE ... WHERE xmin = ...</c>로 잡는다(사전 검사만으로는 조회~저장 사이의 경쟁을 놓친다).</description></item>
     /// </list>
     /// </remarks>
-    private static async Task<IResult> UpdateAsync(Guid id, UpsertPostRequest req, AppDbContext db, ILoggerFactory loggers, CancellationToken ct)
+    private static async Task<IResult> UpdateAsync(Guid id, UpsertPostRequest req, AppDbContext db, MarkdownRenderer renderer, ILoggerFactory loggers, CancellationToken ct)
     {
         var post = await db.Posts.Include(p => p.PostTags).SingleOrDefaultAsync(p => p.Id == id, ct);
         if (post is null) return TypedResults.NotFound();
@@ -176,6 +187,9 @@ public static class PostEndpoints
         if (req.Version is null) errors.Add("version", "수정에는 조회 때 받은 version이 필요합니다.");
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
+
+        // 저장 즉시 공개되는 글이 공개 페이지 렌더링을 영원히 500으로 만들지 못하도록, 저장 전에 한 번 렌더링해 본다(결과 HTML은 버린다).
+        if (!TryRenderOrAddError(renderer, req.ContentMarkdown!, errors)) return TypedResults.ValidationProblem(errors.ToDictionary());
 
         if (post.Version != req.Version) return StaleVersion();
         // 읽은 뒤 저장 전까지의 경쟁도 잡도록 UPDATE의 WHERE xmin = ... 비교값을 클라이언트가 본 버전으로 고정한다.
@@ -271,6 +285,33 @@ public static class PostEndpoints
         if (req.SeriesId is { } seriesId && !await db.Series.AnyAsync(s => s.Id == seriesId, ct))
         {
             errors.Add("seriesId", "존재하지 않는 시리즈입니다.");
+        }
+    }
+
+    /// <summary>저장 전에 본문을 실제로 렌더링해 봐서 저장 가능한지 확인한다. 결과 HTML은 버린다(저장하지 않는다).</summary>
+    /// <param name="renderer">렌더링에 쓸 마크다운 렌더러.</param>
+    /// <param name="contentMarkdown">확인할 본문 원문.</param>
+    /// <param name="errors">중첩이 너무 깊으면 <c>contentMarkdown</c> 키로 오류를 추가할 대상.</param>
+    /// <returns>렌더링에 성공하면 <c>true</c>, <see cref="MarkdownTooComplexException"/>이 나서 <paramref name="errors"/>에 추가했으면 <c>false</c>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
+    /// <item><description><b>Memory Policy:</b> <see cref="MarkdownRenderer.Render"/>가 만드는 HTML 문자열 1개를 즉시 버린다(참조를 보관하지 않는다).</description></item>
+    /// <item><description><b>Concurrency:</b> Thread-safe. Blocking: <see cref="MarkdownRenderer.Render"/>는 동기 CPU 작업이라 이 메서드도 그동안 요청 스레드를 점유한다(취소 불가).</description></item>
+    /// </list>
+    /// </remarks>
+    private static bool TryRenderOrAddError(MarkdownRenderer renderer, string contentMarkdown, ValidationErrors errors)
+    {
+        try
+        {
+            renderer.Render(contentMarkdown);
+            return true;
+        }
+        catch (MarkdownTooComplexException)
+        {
+            errors.Add("contentMarkdown", "마크다운 구조가 너무 깊게 중첩됐습니다. 중첩을 줄여주세요.");
+            return false;
         }
     }
 

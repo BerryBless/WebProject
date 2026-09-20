@@ -17,12 +17,14 @@ namespace PortfolioBlog.Api.Infrastructure.Markdown;
 /// </remarks>
 public static class HtmlAllowlist
 {
+    /// <summary>최종 HTML에 남을 수 있는 태그 전체 목록. 테스트(<c>AssertInert</c>)가 출력 DOM을 이 목록과 직접 비교한다.</summary>
     public static IReadOnlySet<string> AllowedTags { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "pre", "code", "span", "div",
         "em", "strong", "del", "sup", "a", "img", "table", "thead", "tbody", "tr", "th", "td", "input",
     };
 
+    /// <summary>최종 HTML에 남을 수 있는 속성 전체 목록. 테스트(<c>AssertInert</c>)가 출력 DOM을 이 목록과 직접 비교한다.</summary>
     public static IReadOnlySet<string> AllowedAttributes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "href", "src", "alt", "title", "id", "class", "type", "checked", "disabled",
@@ -30,6 +32,17 @@ public static class HtmlAllowlist
 
     private static readonly string[] MarkdigClasses = ["contains-task-list", "task-list-item", "footnotes", "footnote-ref", "footnote-back-ref"];
 
+    /// <summary>구성을 마친 새 <see cref="HtmlSanitizer"/>를 만든다. 태그·속성·스킴·클래스를 전부 허용 목록으로 초기화하고,
+    /// <c>input</c>은 체크박스로만 남기는 후처리 규칙을 건다.</summary>
+    /// <returns>설정이 끝난 <see cref="HtmlSanitizer"/> 새 인스턴스.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 호출마다 독립된 새 인스턴스를 만들어 반환하며 공유 상태를 건드리지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="HtmlSanitizer"/> 인스턴스 1개와 내부 허용 목록 컬렉션들(태그·속성·스킴·클래스). 호출마다 새로 만든다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). I/O 없음 — 클래스 허용 목록 채우기는 메모리 상의 정적 목록(<see cref="StyleDictionary"/>·<see cref="Languages"/>) 순회다.</description></item>
+    /// </list>
+    /// </remarks>
     public static HtmlSanitizer Create()
     {
         var sanitizer = new HtmlSanitizer();

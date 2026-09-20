@@ -169,6 +169,23 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Contains("tagNames", (await ErrorsAsync(tagRes)).Keys);
     }
 
+    /// <summary>Markdig의 중첩 한도(128단계)를 넘는 본문은 500(처리되지 않은 <c>MarkdownTooComplexException</c>)이 아니라
+    /// 필드 키 <c>contentMarkdown</c>을 가진 400으로 거부되는지 생성·수정 양쪽에서 검증한다. 저장 글이 공개 페이지를 절대 죽이지 못해야 한다는 요구사항(F2)을 확인한다.</summary>
+    [Fact]
+    public async Task Create_TooDeeplyNestedMarkdown_Returns400()
+    {
+        using var client = await factory.CreateLoggedInClientAsync();
+        var pathological = new string('[', 200) + "x"; // Markdig 1.4.0 중첩 한도(128) 초과, 크기 상한(204,800바이트)은 훨씬 밑돈다
+
+        using var createRes = await client.PostAsJsonAsync("/api/posts", Request("too-deep-create", content: pathological));
+        Assert.Contains("contentMarkdown", (await ErrorsAsync(createRes)).Keys);
+
+        var created = await CreateAsync(client, Request("too-deep-update"));
+        using var updateRes = await client.PutAsJsonAsync($"/api/posts/{created.Id}",
+            Request("too-deep-update", content: pathological, version: created.Version));
+        Assert.Contains("contentMarkdown", (await ErrorsAsync(updateRes)).Keys);
+    }
+
     /// <summary>수정이 필드·태그 연결을 교체하고 version을 바꾸며 CreatedAt은 그대로 유지하는지 검증한다.</summary>
     [Fact]
     public async Task Update_ReplacesFieldsAndTags_BumpsVersion_KeepsCreatedAt()

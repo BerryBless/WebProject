@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
@@ -17,11 +18,12 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 public sealed class MarkdownRendererTests
 {
     private static readonly MarkdownRenderer Renderer = new();
-    private static readonly string[] UrlAttributes = ["href", "src"];
 
     private static IElement Parse(string html) => new HtmlParser().ParseDocument("<body>" + html + "</body>").Body!;
 
-    /// <summary>출력 DOM 전체를 훑어 허용 목록 밖의 태그·속성, 이벤트 핸들러, 정책 밖 URL이 하나도 없음을 단언한다.</summary>
+    /// <summary>출력 DOM 전체를 훑어 허용 목록 밖의 태그·속성, 이벤트 핸들러, 정책 밖 URL이 하나도 없음을 단언한다.
+    /// href·src는 <see cref="UrlPolicy"/> 자체 판정과, 정책이 뚫려도 잡히도록 정책과 무관하게 고정한 접두사 검사를 함께 건다
+    /// (정책이 너무 느슨해지는 회귀는 UrlPolicy만으로 검사하면 놓친다).</summary>
     private static void AssertInert(string html)
     {
         foreach (var element in Parse(html).QuerySelectorAll("*"))
@@ -32,8 +34,19 @@ public sealed class MarkdownRendererTests
                 Assert.True(HtmlAllowlist.AllowedAttributes.Contains(attribute.Name), $"허용되지 않은 속성: {attribute.Name} in {html}");
                 Assert.False(attribute.Name.StartsWith("on", StringComparison.OrdinalIgnoreCase), $"이벤트 핸들러 속성: {attribute.Name}");
             }
-            if (element.GetAttribute("href") is { } href) Assert.True(UrlPolicy.IsAllowedLink(href), $"정책 밖 href: {href}");
-            if (element.GetAttribute("src") is { } src) Assert.True(UrlPolicy.IsAllowedImage(src), $"정책 밖 src: {src}");
+            if (element.GetAttribute("href") is { } href)
+            {
+                Assert.True(UrlPolicy.IsAllowedLink(href), $"정책 밖 href: {href}");
+                Assert.True(href.StartsWith("http://", StringComparison.Ordinal) || href.StartsWith("https://", StringComparison.Ordinal)
+                    || href.StartsWith("mailto:", StringComparison.Ordinal) || href.StartsWith('#')
+                    || (href.StartsWith('/') && !href.StartsWith("//", StringComparison.Ordinal)),
+                    $"정책과 무관하게 고정한 href 접두사 검사 실패: {href}");
+            }
+            if (element.GetAttribute("src") is { } src)
+            {
+                Assert.True(UrlPolicy.IsAllowedImage(src), $"정책 밖 src: {src}");
+                Assert.True(src.StartsWith("/attachments/", StringComparison.Ordinal), $"정책과 무관하게 고정한 src 접두사 검사 실패: {src}");
+            }
             if (element.LocalName == "input") Assert.Equal("checkbox", element.GetAttribute("type"));
         }
     }
@@ -72,6 +85,7 @@ public sealed class MarkdownRendererTests
     [InlineData("`<script>alert(1)</script>`")]
     [InlineData("| a |\n|---|\n| <script>alert(1)</script> |")]
     [InlineData("- [x] <input type=text autofocus onfocus=alert(1)>")]
+    [InlineData("```html\n<img src=\"https://evil.test/x.png\" onerror=\"alert(1)\">\n```")]
     public void Render_AttackInput_ProducesInertOutput(string markdown)
     {
         var html = Renderer.Render(markdown);
@@ -150,6 +164,131 @@ public sealed class MarkdownRendererTests
         Assert.Empty(body.QuerySelectorAll("b, x"));
         var plain = body.QuerySelectorAll("pre > code").Single();
         Assert.Contains("echo \"<x>\"", plain.TextContent, StringComparison.Ordinal);
+    }
+
+    /// <summary>주어진 언어로 <paramref name="totalLength"/>자짜리 한 줄짜리 코드 펜스를 만든다. <c>&lt;b&gt;</c>를 포함시켜 이스케이프 여부도 같이 확인할 수 있게 한다.</summary>
+    private static string OneLineCodeFence(string language, int totalLength)
+    {
+        const string marker = "var s = \"<b>\"; ";
+        var line = totalLength <= marker.Length ? marker[..totalLength] : marker + new string('x', totalLength - marker.Length);
+        return $"```{language}\n{line}\n```\n";
+    }
+
+    /// <summary>짧은 줄(<see cref="HighlightingCodeBlockRenderer.MaxHighlightLineLength"/> 미만)을 반복해 대략 <paramref name="approxLength"/>자짜리 코드 펜스를 만든다.
+    /// 줄 예산이 아니라 블록·문서 예산만 걸리게 하려는 목적이다.</summary>
+    private static string ManyShortLinesCodeFence(string language, int approxLength)
+    {
+        const string line = "var a=1;\n"; // 9자, 줄 예산(400자)에 전혀 걸리지 않는다
+        var repeats = approxLength / line.Length;
+        return $"```{language}\n{string.Concat(Enumerable.Repeat(line, repeats))}```\n";
+    }
+
+    /// <summary>리뷰가 측정한 병적 입력(최대 12분 25초)이 예산 적용 후에는 전부 5초 안에 끝나는지 검증한다.
+    /// 200KB 문자열을 <c>[InlineData]</c> 속성에 직접 박지 않고 이 메서드 안에서 조립한다.</summary>
+    /// <param name="caseName">조립할 병적 입력의 종류.</param>
+    [Theory]
+    [InlineData("css-long-line")]
+    [InlineData("html-attr-soup")]
+    [InlineData("csharp-one-line")]
+    [InlineData("identical-headings")]
+    public void Render_PathologicalCodeAndHeadings_FinishQuickly(string caseName)
+    {
+        var markdown = caseName switch
+        {
+            "css-long-line" => "```css\n" + "a{b:\"" + new string('f', 200_000) + "\n```\n",
+            "html-attr-soup" => "```html\n" + string.Concat(Enumerable.Repeat("<a a=\"a ", 25_000)) + "\n```\n",
+            "csharp-one-line" => "```csharp\n" + string.Concat(Enumerable.Repeat("var a=1;", 25_000)) + "\n```\n",
+            "identical-headings" => string.Concat(Enumerable.Repeat("# heading\n\n", 18_600)),
+            _ => throw new ArgumentOutOfRangeException(nameof(caseName)),
+        };
+        Assert.True(Encoding.UTF8.GetByteCount(markdown) <= MarkdownRenderer.MaxInputBytes,
+            $"{caseName} 입력이 상한을 넘어 크기 검증에서 먼저 걸립니다: {Encoding.UTF8.GetByteCount(markdown)}바이트");
+
+        var stopwatch = Stopwatch.StartNew();
+        Renderer.Render(markdown);
+        stopwatch.Stop();
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"{caseName}이(가) {stopwatch.Elapsed}만에 끝났습니다(5초 상한 초과).");
+    }
+
+    /// <summary>예산을 넘는 줄(401자)이 있는 블록은 강조를 포기하고 이스케이프한 일반 코드블록이 되며,
+    /// 예산 이내(400자)인 블록은 그대로 강조되는지 검증한다.</summary>
+    [Fact]
+    public void Render_OverBudgetCodeBlock_FallsBackToPlainEscapedBlock()
+    {
+        var overHtml = Renderer.Render(OneLineCodeFence("csharp", HighlightingCodeBlockRenderer.MaxHighlightLineLength + 1));
+        AssertInert(overHtml);
+        var overBody = Parse(overHtml);
+        Assert.Empty(overBody.QuerySelectorAll("div.csharp"));
+        Assert.Empty(overBody.QuerySelectorAll("span.keyword"));
+        Assert.Empty(overBody.QuerySelectorAll("b"));
+        var overCode = overBody.QuerySelector("pre > code")!;
+        Assert.Contains("<b>", overCode.TextContent, StringComparison.Ordinal);
+
+        var atHtml = Renderer.Render(OneLineCodeFence("csharp", HighlightingCodeBlockRenderer.MaxHighlightLineLength));
+        AssertInert(atHtml);
+        Assert.NotNull(Parse(atHtml).QuerySelector("div.csharp span.keyword"));
+    }
+
+    /// <summary>강조 예산은 렌더러 인스턴스가 아니라 한 번의 <c>Render</c> 호출(문서)에 매인다: 예산을 다 쓴 문서 안 뒤쪽 블록은 밀리지만,
+    /// 같은 인스턴스로 그 다음에 렌더링한 작은 문서는 다시 처음부터 강조된다.</summary>
+    [Fact]
+    public void Render_HighlightBudget_IsPerDocument_NotShared()
+    {
+        var fourBlocks = string.Concat(Enumerable.Repeat(ManyShortLinesCodeFence("csharp", 19_000), 4));
+        var html = Renderer.Render(fourBlocks);
+        AssertInert(html);
+        var body = Parse(html);
+        Assert.Equal(3, body.QuerySelectorAll("div.csharp").Length);
+        Assert.Equal(1, body.QuerySelectorAll("pre > code").Length);
+
+        var again = Renderer.Render("```csharp\nvar a = 1;\n```\n");
+        Assert.NotNull(Parse(again).QuerySelector("div.csharp span.keyword"));
+    }
+
+    /// <summary>제목 id는 선형 슬러그화로 생성되고, 중복은 서로 다른 id로 풀리며, 길이는 상한(80자) 이내이고, 위험 문자가 섞이지 않는지 검증한다.</summary>
+    [Fact]
+    public void Render_HeadingIds_AreSlugged_Deduplicated_AndBounded()
+    {
+        var longHeading = new string('a', 300);
+        var markdown = $"## Hello World\n\n## Hello World\n\n## Hello World-1\n\n## !!!\n\n## {longHeading}\n\n# <script>\n";
+        var html = Renderer.Render(markdown);
+        var ids = Parse(html).QuerySelectorAll("h1, h2").Select(h => h.Id!).ToArray(); // HeadingIds.Assign이 모든 제목에 id를 붙이므로 null이 아님을 단언한다
+
+        Assert.Equal(6, ids.Length);
+        Assert.Equal("hello-world", ids[0]);
+        Assert.Equal(ids.Length, ids.Distinct().Count()); // 전부 서로 다르다
+        Assert.Equal("section", ids[3]); // 구두점만 있는 제목
+        Assert.True(ids[4].Length <= 80);
+        Assert.DoesNotContain('<', ids[5]);
+        Assert.DoesNotContain('>', ids[5]);
+        Assert.DoesNotContain('"', ids[5]);
+        Assert.DoesNotContain(ids[5].ToCharArray(), char.IsWhiteSpace);
+    }
+
+    /// <summary>Markdig 1.4.0의 중첩 한도(128단계)를 넘는 최소 입력들이 500이 아니라 <see cref="MarkdownTooComplexException"/>이 되는지 검증한다.</summary>
+    /// <param name="caseName">조립할 과도 중첩 입력의 종류.</param>
+    [Theory]
+    [InlineData("brackets")]
+    [InlineData("blockquotes")]
+    [InlineData("emphasis")]
+    public void Render_TooDeeplyNested_ThrowsMarkdownTooComplex(string caseName)
+    {
+        var markdown = caseName switch
+        {
+            "brackets" => new string('[', 128) + "x",           // 129바이트
+            "blockquotes" => new string('>', 128) + " x",        // 130바이트
+            "emphasis" => new string('*', 255) + "a" + new string('*', 255), // 511바이트
+            _ => throw new ArgumentOutOfRangeException(nameof(caseName)),
+        };
+        Assert.Throws<MarkdownTooComplexException>(() => Renderer.Render(markdown));
+    }
+
+    /// <summary>중첩 한도 바로 아래(127단계)는 예외 없이 정상 렌더링되는지 검증한다.</summary>
+    [Fact]
+    public void Render_127LevelsNested_RendersWithoutThrowing()
+    {
+        var html = Renderer.Render(new string('[', 127) + "x");
+        Assert.NotEmpty(html);
     }
 
     /// <summary>허용 목록에 없는 클래스는 남지 않는다(정제기가 임의 클래스를 걸러 낸다).</summary>

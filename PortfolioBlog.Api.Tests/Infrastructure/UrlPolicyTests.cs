@@ -3,6 +3,14 @@ using PortfolioBlog.Api.Infrastructure.Markdown;
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
 /// <summary>마크다운 링크·이미지 URL 정책 단위 테스트. 허용 목록 방식이라 "허용되는 것"을 좁게, "거부되는 것"을 넓게 고정한다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> 정적 무상태 함수만 호출한다. xUnit이 Theory 케이스를 병렬로 실행해도 안전하다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 절대 URL 판정마다 <see cref="Uri"/> 인스턴스 1개. 그 외에는 테스트 프레임워크 기본 할당뿐이다.</description></item>
+/// <item><description><b>Blocking:</b> 없음. DB·Docker·네트워크 불필요, 동기 실행.</description></item>
+/// </list>
+/// </remarks>
 public sealed class UrlPolicyTests
 {
     /// <summary>링크는 http·https·mailto 절대 URL, 같은 사이트의 루트 상대 경로, 문서 내 앵커만 허용한다.</summary>
@@ -38,6 +46,7 @@ public sealed class UrlPolicyTests
     [InlineData("../up")]
     [InlineData("https://example.test/a b")]
     [InlineData("https://exa\0mple.test")]
+    [InlineData("https://example.test/a%00b")]
     public void IsAllowedLink_Rejects(string? url) => Assert.False(UrlPolicy.IsAllowedLink(url));
 
     /// <summary>이미지는 이 사이트가 직접 서빙하는 첨부 경로(<c>/attachments/{guid}/{파일명}</c>)만 허용한다.</summary>
@@ -61,5 +70,7 @@ public sealed class UrlPolicyTests
     [InlineData("/attachments/0192f0c4-7a3b-7c1d-9e2f-1a2b3c4d5e6f/x.png\n")]
     [InlineData("/Attachments/0192f0c4-7a3b-7c1d-9e2f-1a2b3c4d5e6f/x.png")]
     [InlineData("/posts/my-post")]
+    [InlineData("/attachments/0192f0c4-7a3b-7c1d-9e2f-1a2b3c4d5e6f/x%00.png")]
+    [InlineData("/attachments/0192f0c4-7a3b-7c1d-9e2f-1a2b3c4d5e6f/x.png;.jpg")]
     public void IsAllowedImage_Rejects(string? url) => Assert.False(UrlPolicy.IsAllowedImage(url));
 }
