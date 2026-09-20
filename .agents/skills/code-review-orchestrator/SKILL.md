@@ -98,7 +98,7 @@ A-3을 택했으면 리포트와 최종 보고에 "최근 커밋 1개(`<sha>`)�
 
 **케이스 D — 명시 범위** (예: `HEAD~3..HEAD`, `abc123..def456`): `git diff <범위>` → `target_type=range`.
 
-**케이스 B — 경로 지정** (예: `/code-review-orchestrator WebProject.Api/`): 파일마다 경계 헤더와 원본 줄 번호를 보존한다. 파일명 없는 `cat` 출력은 금지.
+**케이스 B — 경로 지정** (예: `/code-review-orchestrator PortfolioBlog.Api/`): 파일마다 경계 헤더와 원본 줄 번호를 보존한다. 파일명 없는 `cat` 출력은 금지.
 ```bash
 # 대상 확장자: .cs .csproj .props .targets .json .cshtml .razor .xaml .sql .yml .yaml (bin/ obj/ 제외)
 find "$path" -type f \( -name '*.cs' -o -name '*.csproj' -o -name '*.props' -o -name '*.targets' \

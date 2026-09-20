@@ -1,10 +1,10 @@
-# WebProject 프로젝트
+# PortfolioBlog 프로젝트
 
 ## 프로젝트 개요
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-20):** `WebProject.sln`(.NET 10) 아래 `WebProject.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`)와 `WebProject.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `WebProject.Web`(React 19 + Vite, `admin.<도메인>`에서만 서빙)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다.
+**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 `PortfolioBlog.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`)와 `PortfolioBlog.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `PortfolioBlog.Web`(React 19 + Vite, `admin.<도메인>`에서만 서빙)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다.
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(쓰기 범위 훅 포함). 하네스 파일을 고치면 실행해 PASS를 확인할 것.
 
@@ -14,7 +14,7 @@
 
 **작업 디렉토리 규칙:** 하네스 산출물은 `_workspace/<하네스명>/` 하위에만 쓴다(code-review·gc-guard·concurrency-guard·pipeline·tdd·git·cross). 새 실행 시 자기 하위 디렉토리만 `_workspace/<하네스명>_{타임스탬프}/`로 보관 이동하고, `_workspace/` 루트나 다른 하네스 디렉토리는 건드리지 않는다. 예외: `cross`는 git 추적 대상이라 **보관 이동하지 않고** run_id 하위 디렉토리를 누적한다(이동하면 추적 기록이 삭제로 커밋됨). `.gitignore`의 `_workspace/*` 규칙으로 `cross/` 외에는 커밋되지 않는다.
 
-**쓰기 범위 훅:** 감사·리뷰 전용 서브에이전트 24종(구현 역할 `cross-implementer` 제외)은 `scripts/hooks/guard-write-scope.ps1` PreToolUse 훅으로 Write/Edit 대상이 자기 하네스 디렉터리(`_workspace/<하네스명>/`) 밖이면 거부된다. 1차 방어선은 각 에이전트 프론트매터의 `hooks:`(`-Allow <접두사>`), 2차 방어선은 `.claude/settings.json`의 프로젝트 훅(`-Mode map`, 훅 입력의 `agent_type`으로 판별. 메인 세션·구현 에이전트는 통과). **두 훅 모두 세션 시작 시 읽히므로 변경 후 세션을 재시작해야 적용된다.** 적용 확인은 감사·리뷰 에이전트에게 `_workspace/<하네스>/probe/` 와 `WebProject.Api/` 에 각각 Write 를 시도하게 해 후자만 거부되는지 본다.
+**쓰기 범위 훅:** 감사·리뷰 전용 서브에이전트 24종(구현 역할 `cross-implementer` 제외)은 `scripts/hooks/guard-write-scope.ps1` PreToolUse 훅으로 Write/Edit 대상이 자기 하네스 디렉터리(`_workspace/<하네스명>/`) 밖이면 거부된다. 1차 방어선은 각 에이전트 프론트매터의 `hooks:`(`-Allow <접두사>`), 2차 방어선은 `.claude/settings.json`의 프로젝트 훅(`-Mode map`, 훅 입력의 `agent_type`으로 판별. 메인 세션·구현 에이전트는 통과). **두 훅 모두 세션 시작 시 읽히므로 변경 후 세션을 재시작해야 적용된다.** 적용 확인은 감사·리뷰 에이전트에게 `_workspace/<하네스>/probe/` 와 `PortfolioBlog.Api/` 에 각각 Write 를 시도하게 해 후자만 거부되는지 본다.
 
 
 

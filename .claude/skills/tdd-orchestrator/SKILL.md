@@ -37,7 +37,7 @@ _workspace/tdd/
     ├── 03_qa/{Src/, results/, test_results_attemptN.txt, refactor_guide.md}
     └── 04_evolution/evolution_report.md
 ```
-`_workspace/*`로 커밋되지 않는다. 루트 `WebProject.sln`에는 등록하지 않으며 CI(`dotnet test` at root)는 sln만 보므로 영향 없다.
+`_workspace/*`로 커밋되지 않는다. 루트 `PortfolioBlog.slnx`에는 등록하지 않으며 CI(`dotnet test` at root)는 솔루션 파일만 보므로 영향 없다.
 
 **TddSession.csproj (검증됨: 파일 단위 우선순위 qa > builder > analyst, 2026-09-13 msbuild 평가 + dotnet test 실측):**
 ```xml
@@ -53,7 +53,7 @@ _workspace/tdd/
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
-    <!-- 저장소 테스트 프로젝트(WebProject.Api.Tests)와 동일 버전 유지 -->
+    <!-- 저장소 테스트 프로젝트(PortfolioBlog.Api.Tests)와 동일 버전 유지 -->
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
@@ -62,7 +62,7 @@ _workspace/tdd/
     </PackageReference>
     <Using Include="Xunit" />
     <!-- 기존 API 를 대상으로 하는 요구사항이면 주석 해제: 실제 코드에 대한 TDD -->
-    <!-- <ProjectReference Include="../../../WebProject.Api/WebProject.Api.csproj" /> -->
+    <!-- <ProjectReference Include="../../../PortfolioBlog.Api/PortfolioBlog.Api.csproj" /> -->
   </ItemGroup>
   <ItemGroup>
     <Compile Include="01_analyst/Tests/**/*.cs" />
@@ -126,7 +126,7 @@ dotnet test "$run_dir/TddSession.csproj" --nologo --logger "trx;LogFileName=<sta
 run_dir=_workspace/tdd/<run_id>; mkdir -p "$run_dir"/{01_analyst/Tests,01_analyst/Src,01_analyst/results,02_builder/Src,03_qa/Src,03_qa/results,04_evolution}
 [ -f "$run_dir/TddSession.csproj" ] || <위 템플릿 작성>
 ```
-요구사항 원문을 `00_requirements.md`(또는 `_c<N>`)에 저장하고 manifest에 sha256 기록. 요구사항이 **기존 `WebProject.Api` 코드**를 대상으로 하면 csproj의 ProjectReference 주석을 해제하고 manifest에 `targets_existing_code: true`.
+요구사항 원문을 `00_requirements.md`(또는 `_c<N>`)에 저장하고 manifest에 sha256 기록. 요구사항이 **기존 `PortfolioBlog.Api` 코드**를 대상으로 하면 csproj의 ProjectReference 주석을 해제하고 manifest에 `targets_existing_code: true`.
 
 ### Phase 2: Red (tdd-analyst)
 ```
@@ -166,7 +166,7 @@ manifest `stages.green.attempts`, `stages.qa.attempts[]`에 시도별 결과·tr
 
 ### Phase 5: 보고 및 승격 확인
 1. 요약: Red N개(빌드 성공·전원 실패 증빙), Green 시도 N회, QA 판정, Refactor 적용 N건, 회귀 결과, 진화 포인트.
-2. **승격 여부 질문**(이 시점의 질문은 허용): "실제 프로젝트에 반영할까요?" 승인 시 승격 절차 — 최종 소스(`03_qa/Src` 우선, 없으면 `02_builder/Src`)와 테스트를 `WebProject.Api`/`WebProject.Api.Tests`로 옮기며 네임스페이스를 프로젝트 규약으로 변환 → `dotnet test WebProject.sln` → manifest `promoted: true`. 승격된 코드는 Stop 훅이 커밋한다(WHY 메시지 파일 작성).
+2. **승격 여부 질문**(이 시점의 질문은 허용): "실제 프로젝트에 반영할까요?" 승인 시 승격 절차 — 최종 소스(`03_qa/Src` 우선, 없으면 `02_builder/Src`)와 테스트를 `PortfolioBlog.Api`/`PortfolioBlog.Api.Tests`로 옮기며 네임스페이스를 프로젝트 규약으로 변환 → `dotnet test PortfolioBlog.slnx` → manifest `promoted: true`. 승격된 코드는 Stop 훅이 커밋한다(WHY 메시지 파일 작성).
 3. run_dir 보존.
 
 ---

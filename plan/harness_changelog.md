@@ -6,6 +6,7 @@
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-20 | 솔루션·프로젝트 이름을 `WebProject` → `PortfolioBlog`로 변경하고 솔루션 파일을 `.slnx`로 전환. 스킬 본문의 경로 예시(`PortfolioBlog.Api`, `PortfolioBlog.slnx`)만 갱신, 동작 변경 없음 | tdd-orchestrator·code-review-orchestrator + `.agents` 미러·CLAUDE.md·AGENTS.md | 제품이 기술 블로그(`plan/tech_blog_0920.md`)로 확정되어 템플릿 이름을 정리. 하네스 스크립트는 루트 자동 인식이라 영향 없음 |
 | 2026-09-14 | 토큰 절감: 변경 이력 표를 이 파일로 분리, 에이전트·스킬 description 축약(트리거 유지), 서브에이전트 `model:` 지정(기본 sonnet, 코드 생성·감독·cross 계열 opus), superpowers 플러그인 프로젝트 비활성화 | CLAUDE.md·AGENTS.md·에이전트 25종·스킬 26종+미러·.codex/agents·settings.json | 매 세션 고정 로드 약 47KB(CLAUDE.md 29KB + description 18KB) 중 절반 이상이 이력·트리거 나열이었고, 리뷰어 21종이 메인 모델을 상속해 팬아웃 비용이 큼 |
 
 ## 하네스: Git 자동 커밋 & 푸시 (Git Automator)

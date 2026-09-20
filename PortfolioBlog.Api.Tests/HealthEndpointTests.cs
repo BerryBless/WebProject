@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace WebProject.Api.Tests;
+namespace PortfolioBlog.Api.Tests;
 
 /// <summary>
 /// <c>/health</c> 최소 API 엔드포인트의 통합 테스트.

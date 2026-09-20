@@ -1,0 +1,6 @@
+@PortfolioBlog.Api_HostAddress = http://localhost:5055
+
+GET {{PortfolioBlog.Api_HostAddress}}/health
+Accept: application/json
+
+###

@@ -8,7 +8,7 @@
 - **왜 바꿨나:** PARA 노트앱은 항목·할 일·보관·영역 불변식·노션 zip 라운드트립 때문에 설계와 구현량이 컸다. 실제로 필요한 것은 "글을 쓰고 공개하는 곳"이다. PARA 모델과 노션 연동을 버리면 데이터 모델이 테이블 5개로 줄어든다.
 - **최우선 기준은 보안이다.** 설계 선택이 갈릴 때마다 편의보다 공격 표면 축소를 택했다(서버 렌더링, 관리 origin 분리, IP AND 비밀번호).
 - **누가:** 작성자 1명. 방문자는 읽기만 한다. 회원·댓글 없음.
-- **출발점:** 저장소는 `dotnet new webapi` 템플릿 수준(`/weatherforecast`, `/health`)이고 DB·프론트·Docker·인증이 없다.
+- **출발점:** 저장소는 `/health` 엔드포인트와 그 통합 테스트만 있는 빈 API다(템플릿 잔재·무관한 샘플 프로젝트는 2026-09-20에 정리). DB·프론트·Docker·인증이 없다.
 
 ### 1.1 사용자 확정 결정
 
@@ -93,8 +93,8 @@
 ## 3. 컴포넌트 구조
 
 ```
-WebProject.sln
-├─ WebProject.Api/                    # ASP.NET Core 10 (최소 API + Razor Pages)
+PortfolioBlog.slnx
+├─ PortfolioBlog.Api/                    # ASP.NET Core 10 (최소 API + Razor Pages)
 │  ├─ Program.cs                      # 서비스 등록 + 미들웨어 순서 + Map* 호출만
 │  ├─ Domain/                         # Post, Series, Tag, PostTag, Attachment, AdminState
 │  ├─ Contracts/                      # DTO(record)·검증 오류 빌더
@@ -108,8 +108,8 @@ WebProject.sln
 │  │  └─ Auth/  Posts/  Series/  Tags/  Attachments/  Preview/
 │  └─ Pages/                          # 공개 Razor Pages (GET 전용)
 │     └─ Index, Post, Tag, Series, Search + Feed/Sitemap/Robots 엔드포인트
-├─ WebProject.Api.Tests/              # xUnit + WebApplicationFactory + Testcontainers.PostgreSql
-├─ WebProject.Web/                    # 관리 SPA: React 19 + TS + Vite + Tailwind v4 + CodeMirror 6
+├─ PortfolioBlog.Api.Tests/              # xUnit + WebApplicationFactory + Testcontainers.PostgreSql
+├─ PortfolioBlog.Web/                    # 관리 SPA: React 19 + TS + Vite + Tailwind v4 + CodeMirror 6
 ├─ deploy/                            # docker-compose.yml, Caddyfile, .env.example, OPERATIONS.md
 └─ plan/tech_blog_0920.md             # 이 문서
 ```
@@ -317,11 +317,11 @@ sequenceDiagram
     end
 ```
 
-- 비밀번호는 환경변수 `ADMIN_PASSWORD_HASH`로 **해시만** 주입한다. 해시 생성은 `dotnet run --project WebProject.Api -- hash-password`(표준 입력으로 받고 에코 없음).
+- 비밀번호는 환경변수 `ADMIN_PASSWORD_HASH`로 **해시만** 주입한다. 해시 생성은 `dotnet run --project PortfolioBlog.Api -- hash-password`(표준 입력으로 받고 에코 없음).
 - 쿠키 티켓 클레임: 발급 시각, 비밀번호 해시 지문(SHA-256 앞 16바이트), `SessionEpoch`. **비밀번호를 바꾸면(해시 교체 후 재배포) 기존 세션이 자동 폐기**되고, **로그아웃은 epoch를 올려 모든 세션을 폐기**한다. 기기별 세션 관리는 하지 않는다.
 - 절대 수명 12시간, sliding expiration 없음.
 - `POST /api/auth/logout`만 허용(GET 없음), CSRF 검사 동일.
-- Data Protection 키는 `dpkeys` 볼륨에 영속화, `SetApplicationName("WebProject.Api")`, 디렉터리 `0700`·API 비루트 사용자 소유, 백업 대상에서 제외.
+- Data Protection 키는 `dpkeys` 볼륨에 영속화, `SetApplicationName("PortfolioBlog.Api")`, 디렉터리 `0700`·API 비루트 사용자 소유, 백업 대상에서 제외.
 - 비밀번호·쿠키·요청 본문은 로그에 남기지 않는다.
 - CORS는 등록하지 않는다. `/api` 응답은 `Cache-Control: no-store`.
 
@@ -477,8 +477,8 @@ deploy/docker-compose.yml   # caddy(고정 IP) · api(포트 미공개) · postg
 deploy/Caddyfile            # 사이트 2개
 deploy/.env.example         # DOMAIN, ADMIN_DOMAIN, POSTGRES_PASSWORD, ADMIN_ALLOWED_CIDRS, ADMIN_PASSWORD_HASH
 deploy/OPERATIONS.md        # 백업·복원, 비밀번호 변경, 세션 긴급 폐기, 원본 IP 확인 절차
-WebProject.Api/Dockerfile   # sdk:10.0 → aspnet:10.0, 비루트, /data/attachments, /data/dpkeys
-WebProject.Web/Dockerfile   # node:22 빌드 → caddy:2 이미지에 dist 복사(/srv)
+PortfolioBlog.Api/Dockerfile   # sdk:10.0 → aspnet:10.0, 비루트, /data/attachments, /data/dpkeys
+PortfolioBlog.Web/Dockerfile   # node:22 빌드 → caddy:2 이미지에 dist 복사(/srv)
 ```
 
 ```
@@ -555,7 +555,7 @@ public sealed record UpsertPostRequest(
 ```
 
 ```ts
-// WebProject.Web/src/api/client.ts — CSRF 계약
+// PortfolioBlog.Web/src/api/client.ts — CSRF 계약
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -574,19 +574,19 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 |---|---|---|
 | 0 | `plan/tech_blog_0920.md`, `plan/para_notes_0917.md`, `CLAUDE.md`, `AGENTS.md`, `.gitignore` 주석 | 이 문서, PARA 문서 폐기 배너, 구성 절·플랜 표 갱신 |
 | 0 | `docs/superpowers/plans/2026-09-17-para-notes-backend.md` 삭제 | 폐기된 구현 계획(내용은 git 이력에 보존) |
-| 0 | `WebProject.Api/Program.cs`, `WebProject.Api.Tests/WeatherForecast*.cs`(3파일 삭제) | 템플릿 잔재 제거, `/health` 유지 |
+| 0 (완료) | `PortfolioBlog.slnx`, `PortfolioBlog.Api/*`, `PortfolioBlog.Api.Tests/*` | 솔루션·프로젝트를 `WebProject` → `PortfolioBlog`로 개명, `.sln` → `.slnx` 전환, `/weatherforecast`와 테스트 3파일·무관한 `WebProject.Sample` 프로젝트 삭제, `/health` 유지 |
 | 1 | `Domain/*`, `Contracts/*`, `Infrastructure/Data/*`, `Infrastructure/Access/*`, `Infrastructure/Web/*`, `Features/{Auth,Posts,Series,Tags}/*`, csproj(EF Core·Npgsql) | 엔티티·제약·마이그레이션, 접근 제어, 비밀번호 로그인·세션 폐기, 관리 API |
-| 1 | `WebProject.Api.Tests/PostgresFixture.cs`, `AccessMatrixTests.cs`, `SessionTests.cs`, `CidrListTests.cs`, `Posts*Tests.cs`, `Series*Tests.cs`, csproj(Testcontainers) | 실제 Postgres 통합 테스트 |
+| 1 | `PortfolioBlog.Api.Tests/PostgresFixture.cs`, `AccessMatrixTests.cs`, `SessionTests.cs`, `CidrListTests.cs`, `Posts*Tests.cs`, `Series*Tests.cs`, csproj(Testcontainers) | 실제 Postgres 통합 테스트 |
 | 2 | `Infrastructure/Markdown/*`, `Infrastructure/Storage/*`, `Features/{Attachments,Preview}/*`, `Pages/*`, 피드·sitemap, 보안 헤더·속도 제한 + 테스트 | 공개 표면 전체 |
-| 3 | `WebProject.Web/**` | 관리 SPA |
-| 4 | `deploy/*`, `WebProject.Api/Dockerfile`, `WebProject.Web/Dockerfile`, `.github/workflows/ci.yml`, `README.md` | 배포·CI(`ubuntu-latest` + web 잡)·운영 절차 |
+| 3 | `PortfolioBlog.Web/**` | 관리 SPA |
+| 4 | `deploy/*`, `PortfolioBlog.Api/Dockerfile`, `PortfolioBlog.Web/Dockerfile`, `.github/workflows/ci.yml`, `README.md` | 배포·CI(`ubuntu-latest` + web 잡)·운영 절차 |
 
 ## 6. 빌드 검증
 
 ```powershell
-dotnet build WebProject.sln -c Release
-dotnet test  WebProject.sln -c Release            # Docker Desktop 필요(Testcontainers)
-cd WebProject.Web; npm ci; npx tsc --noEmit; npm run build
+dotnet build PortfolioBlog.slnx -c Release
+dotnet test  PortfolioBlog.slnx -c Release            # Docker Desktop 필요(Testcontainers)
+cd PortfolioBlog.Web; npm ci; npx tsc --noEmit; npm run build
 cd deploy; docker compose up --build -d; curl -f http://localhost/health
 ```
 

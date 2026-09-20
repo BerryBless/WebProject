@@ -1,8 +1,8 @@
-# WebProject — 보안 최우선 기술 블로그
+# PortfolioBlog — 보안 최우선 기술 블로그
 
 단일 작성자용 기술 블로그입니다. 방문자에게는 **스크립트 없는 서버 렌더링 HTML**만 내보내고, 글쓰기는 **별도 서브도메인 + IP 화이트리스트 + 비밀번호 세션** 뒤에 둡니다.
 
-> **현재 상태: 설계 완료, 구현 전.** 저장소의 코드는 아직 .NET 템플릿 + `/health` 수준입니다. 아래 내용은 확정된 설계이며 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
+> **현재 상태: 설계 완료, 구현 전.** 저장소의 코드는 아직 `/health` 엔드포인트와 그 테스트뿐입니다. 아래 내용은 확정된 설계이며 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
 
 ## 무엇을 만드나
 
@@ -199,10 +199,10 @@ erDiagram
 ## 저장소 구조
 
 ```
-WebProject.sln
-├─ WebProject.Api/          # ASP.NET Core 10 — 관리 API(최소 API) + 공개 페이지(Razor Pages)
-├─ WebProject.Api.Tests/    # xUnit + WebApplicationFactory (+ Testcontainers PostgreSQL 예정)
-├─ WebProject.Web/          # 관리 에디터 SPA — React 19 + Vite (예정)
+PortfolioBlog.slnx
+├─ PortfolioBlog.Api/          # ASP.NET Core 10 — 관리 API(최소 API) + 공개 페이지(Razor Pages)
+├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory (+ Testcontainers PostgreSQL 예정)
+├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite (예정)
 ├─ deploy/                  # docker-compose · Caddyfile · 운영 절차 (예정)
 ├─ plan/                    # 설계 문서
 └─ .claude/ .agents/ .codex/ scripts/   # 개발 하네스
@@ -213,7 +213,7 @@ WebProject.sln
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 설계 | 스펙 작성, Codex 교차 검토 반영 | 완료 |
-| 0 | 템플릿 잔재 제거 | 예정 |
+| 0 | 솔루션 정리(`PortfolioBlog`로 개명, `.slnx` 전환, 템플릿 잔재·샘플 프로젝트 제거) | 완료 |
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API | 예정 |
 | 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 예정 |
 | 3 | 관리 에디터 SPA | 예정 |
@@ -225,8 +225,8 @@ WebProject.sln
 git clone https://github.com/BerryBless/WebProject.git
 cd WebProject
 Copy-Item scripts/git-hooks/commit-msg .git/hooks/
-dotnet build WebProject.sln
-dotnet test  WebProject.sln
+dotnet build PortfolioBlog.slnx
+dotnet test  PortfolioBlog.slnx
 ```
 
 .NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다.

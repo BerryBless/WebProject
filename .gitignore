@@ -482,7 +482,7 @@ $RECYCLE.BIN/
 *.swp
 
 # ============================================================
-# 프로젝트 커스텀 (WebProject 하네스)
+# 프로젝트 커스텀 (PortfolioBlog 하네스)
 # ============================================================
 riderModule.iml
 /_ReSharper.Caches/
@@ -508,5 +508,5 @@ _workspace/cross/**/*.log
 secrets.json
 
 # 기술 블로그: 관리 SPA 빌드 산출물과 배포 비밀값 (plan/tech_blog_0920.md)
-WebProject.Web/dist/
+PortfolioBlog.Web/dist/
 deploy/.env
