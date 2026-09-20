@@ -1,3 +1,4 @@
+using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -89,7 +90,7 @@ public static class AuthServiceCollectionExtensions
             o.GlobalLimiter = PartitionedRateLimiter.CreateChained(
                 // FixedWindow: 창마다 카운터 하나만 두는 O(1) 제한기. 허용 IP 수가 적어 파티션 수도 작다.
                 PartitionedRateLimiter.Create<HttpContext, string>(ctx => IsLogin(ctx)
-                    ? RateLimitPartition.GetFixedWindowLimiter("login-ip:" + ctx.Connection.RemoteIpAddress, _ => Window(admin.LoginPerIpPerMinute))
+                    ? RateLimitPartition.GetFixedWindowLimiter("login-ip:" + NormalizedIp(ctx.Connection.RemoteIpAddress), _ => Window(admin.LoginPerIpPerMinute))
                     : RateLimitPartition.GetNoLimiter("none")),
                 PartitionedRateLimiter.Create<HttpContext, string>(ctx => IsLogin(ctx)
                     ? RateLimitPartition.GetFixedWindowLimiter("login-global", _ => Window(admin.LoginGlobalPerMinute))
@@ -119,6 +120,22 @@ public static class AuthServiceCollectionExtensions
     /// </remarks>
     private static bool IsLogin(HttpContext ctx) =>
         HttpMethods.IsPost(ctx.Request.Method) && ctx.GetEndpoint()?.Metadata.GetMetadata<LoginRateLimitMetadata>() is not null;
+
+    /// <summary>IPv4-mapped IPv6 주소(<c>::ffff:a.b.c.d</c>)를 IPv4 표기로 접어 IP별 로그인 속도 제한 파티션 키를 만든다.</summary>
+    /// <param name="ip">정규화할 원본 IP 주소. <c>null</c>이면 빈 문자열을 반환한다.</param>
+    /// <returns>IPv4-mapped IPv6는 IPv4 표기 문자열로, 그 외에는 원본 <see cref="IPAddress.ToString"/> 값. <paramref name="ip"/>가 <c>null</c>이면 빈 문자열.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> IPv4-mapped 입력은 <see cref="IPAddress.MapToIPv4"/> 호출로 <see cref="IPAddress"/> 1개를 추가 할당한 뒤 결과 문자열 1개를 만든다. 그 외에는 <see cref="IPAddress.ToString"/> 문자열 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환. I/O 없음.</description></item>
+    /// </list>
+    /// 정규화 없이 같은 클라이언트가 듀얼스택 소켓 때문에 <c>a.b.c.d</c>와 <c>::ffff:a.b.c.d</c> 두 표기로 요청을 섞으면(<see cref="CidrList"/>·<see cref="IpAllowlistAdminAccessPolicy"/>는
+    /// 이미 같은 IP로 정규화해 인식하지만) 이 파티션 키만 둘로 나뉘어 IP별 로그인 시도 한도가 사실상 두 배로 늘어난다.
+    /// </remarks>
+    private static string NormalizedIp(IPAddress? ip) =>
+        ip is null ? string.Empty : (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
 
     /// <summary>1분 창·대기열 없음(초과분 즉시 거부)의 <see cref="FixedWindowRateLimiterOptions"/>를 만든다.</summary>
     /// <param name="permitsPerMinute">1분 창 동안 허용할 최대 요청 수.</param>

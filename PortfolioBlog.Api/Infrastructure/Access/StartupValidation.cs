@@ -15,10 +15,12 @@ namespace PortfolioBlog.Api.Infrastructure.Access;
 public static class StartupValidation
 {
     /// <summary><c>Site</c>·<c>Admin</c>·<c>Proxy</c> 설정 섹션을 검증한다. 형식 오류는 환경에 상관없이,
-    /// 운영에 필수인 값의 누락은 <c>Production</c> 환경에서만 시작 실패로 처리한다.</summary>
+    /// 운영에 필수인 값의 누락·두 origin의 동일 여부·origin의 https 스킴 여부는 <c>Development</c>가 아닌 모든 환경에서 시작 실패로 처리한다
+    /// (<c>Staging</c>이나 오타난 환경 이름이 <c>IsProduction()</c> 검사만으로는 걸러지지 않고 그대로 통과하는 것을 막는다).</summary>
     /// <param name="services">검증 대상 옵션을 조회할 <see cref="IServiceProvider"/>. <c>builder.Build()</c> 이후의 <c>app.Services</c>여야 한다.</param>
-    /// <param name="environment">현재 호스팅 환경. <see cref="IHostEnvironment.IsProduction"/> 판정에 쓰인다.</param>
-    /// <exception cref="InvalidOperationException">설정 값의 형식이 잘못되었거나, Production 환경에서 필수 설정이 비어 있을 때. 메시지에 문제가 된 설정 키를 포함한다.</exception>
+    /// <param name="environment">현재 호스팅 환경. <see cref="IHostEnvironment.IsDevelopment"/> 판정에 쓰인다.</param>
+    /// <exception cref="InvalidOperationException">설정 값의 형식이 잘못되었거나, <c>Development</c>가 아닌 환경에서 필수 설정이 비어 있거나,
+    /// 두 origin이 같거나, origin의 스킴이 <c>https</c>가 아닐 때. 메시지에 문제가 된 설정 키를 포함한다.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -51,12 +53,18 @@ public static class StartupValidation
             throw new InvalidOperationException("Admin:LoginPerIpPerMinute·LoginGlobalPerMinute·LoginConcurrency·SessionHours 는 1 이상이어야 합니다.");
         }
 
-        if (environment.IsProduction())
+        if (!environment.IsDevelopment())
         {
             // 운영은 반드시 프록시(Caddy) 뒤에서 돈다. 빠뜨리면 모든 요청의 원본 IP가 Caddy 주소가 되어 IP 검사가 무의미해진다.
             Require(proxy.TrustedIp.Length > 0, "Proxy:TrustedIp");
             Require(cidrs.Count > 0, "Admin:AllowedCidrs");
             Require(admin.PasswordHash.Length > 0, "Admin:PasswordHash");
+            // 두 origin이 같으면 서브도메인 격리(세션 쿠키가 공개 호스트로 새지 않음)가 사라진다.
+            // appsettings.Development.json은 로컬 https 포트 하나만 쓰려고 의도적으로 같은 값을 두므로 Development만 예외로 허용한다.
+            Require(!string.Equals(site.PublicOrigin, site.AdminOrigin, StringComparison.OrdinalIgnoreCase), "Site:AdminOrigin");
+            // HostOf가 이미 절대 URI 형식을 검증했으므로 여기서는 예외 없이 재구성할 수 있다. 세션 쿠키가 Secure라 http origin은 애초에 쿠키를 주고받지 못한다.
+            Require(string.Equals(new Uri(site.PublicOrigin).Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal), "Site:PublicOrigin");
+            Require(string.Equals(new Uri(site.AdminOrigin).Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal), "Site:AdminOrigin");
         }
     }
 
@@ -80,7 +88,7 @@ public static class StartupValidation
         catch (FormatException ex) { throw new InvalidOperationException($"설정 {key} 이(가) 잘못되었습니다: {ex.Message}", ex); }
     }
 
-    /// <summary>Production 환경 필수 조건이 충족되지 않으면 설정 키를 포함한 <see cref="InvalidOperationException"/>을 던진다.</summary>
+    /// <summary><c>Development</c>가 아닌 환경에서 요구되는 조건이 충족되지 않으면 설정 키를 포함한 <see cref="InvalidOperationException"/>을 던진다.</summary>
     /// <param name="ok">조건 충족 여부.</param>
     /// <param name="key">예외 메시지에 포함할 설정 키 이름.</param>
     /// <exception cref="InvalidOperationException"><paramref name="ok"/>가 <c>false</c>일 때.</exception>
@@ -94,6 +102,6 @@ public static class StartupValidation
     /// </remarks>
     private static void Require(bool ok, string key)
     {
-        if (!ok) throw new InvalidOperationException($"Production 환경에서는 설정 {key} 이(가) 필수입니다.");
+        if (!ok) throw new InvalidOperationException($"Development가 아닌 환경에서는 설정 {key} 이(가) 올바르지 않습니다(누락되었거나 조건을 위반).");
     }
 }

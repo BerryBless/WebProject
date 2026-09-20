@@ -153,4 +153,51 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     [Fact]
     public void AnyEnvironment_OriginWithPath_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["Site:AdminOrigin"] = "https://admin.test/" }, "Site:AdminOrigin");
+
+    /// <summary><c>Staging</c>처럼 <c>Production</c>이 아닌(그러나 <c>Development</c>도 아닌) 환경에서도 필수 설정 누락으로 시작이 실패하는지 검증한다.
+    /// <c>environment.IsProduction()</c> 판정만으로는 이런 환경 이름을 걸러내지 못해 필수 검사를 조용히 건너뛰던 결함의 회귀 테스트다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void Staging_MissingTrustedProxy_Fails()
+    {
+        var settings = Production(s => s["Proxy:TrustedIp"] = "");
+        settings["Test:Environment"] = "Staging";
+        AssertStartupFails(settings, "Proxy:TrustedIp");
+    }
+
+    /// <summary><c>Development</c>가 아닌 환경에서 <c>Site:PublicOrigin</c>과 <c>Site:AdminOrigin</c>이 같으면(대소문자 무시) 시작이 실패하는지 검증한다.
+    /// 두 origin이 같으면 서브도메인 격리(세션 쿠키가 공개 호스트로 새지 않음)가 사라진다.
+    /// <c>appsettings.Development.json</c>은 로컬 포트 하나만 쓰려고 의도적으로 같은 값을 두므로 Development는 이 검사에서 예외다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void Production_EqualOrigins_Fails() =>
+        AssertStartupFails(Production(s => s["Site:AdminOrigin"] = ApiFactory.PublicOrigin), "Site:AdminOrigin");
+
+    /// <summary><c>Development</c>가 아닌 환경에서 <c>Site:AdminOrigin</c>의 스킴이 <c>https</c>가 아니면 시작이 실패하는지 검증한다.
+    /// 세션 쿠키가 Secure라 http origin에서는 애초에 쿠키를 주고받지 못하므로, 이 값은 배포 실수의 신호다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void Production_HttpAdminOrigin_Fails() =>
+        AssertStartupFails(Production(s => s["Site:AdminOrigin"] = "http://admin.test"), "Site:AdminOrigin");
 }

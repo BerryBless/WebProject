@@ -49,7 +49,8 @@ public sealed class SiteOptions
     /// </list>
     /// </remarks>
     public static string HostOf(string origin) =>
-        Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.AbsolutePath == "/" && origin == uri.GetLeftPart(UriPartial.Authority)
+        Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.AbsolutePath == "/"
+            && uri.UserInfo.Length == 0 && origin == uri.GetLeftPart(UriPartial.Authority)
             ? uri.Host
-            : throw new FormatException($"origin 형식이 아닙니다: '{origin}'. 'https://host[:port]' 형태여야 하며 경로·끝 슬래시를 붙이지 않습니다.");
+            : throw new FormatException($"origin 형식이 아닙니다: '{origin}'. 'https://host[:port]' 형태여야 하며 경로·끝 슬래시·사용자 정보를 붙이지 않습니다.");
 }
