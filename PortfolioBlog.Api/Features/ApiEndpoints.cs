@@ -1,8 +1,7 @@
 using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Features.Auth;
 using PortfolioBlog.Api.Features.Posts;
-using PortfolioBlog.Api.Features.Series; // 주의: 이 네임스페이스는 도메인 타입 PortfolioBlog.Api.Domain.Series와 단순 이름이 같다.
-                                          // 이 파일에 언젠가 "using PortfolioBlog.Api.Domain;"이 추가되면 한정하지 않은 Series는 CS0104(모호한 참조)가 된다.
+using PortfolioBlog.Api.Features.Series; // 주의: 도메인 타입 PortfolioBlog.Api.Domain.Series와 이름이 같다 — 여기 "using PortfolioBlog.Api.Domain;"이 추가되면 한정 없는 Series는 CS0104(모호한 참조)가 된다.
 using PortfolioBlog.Api.Infrastructure.Access;
 
 namespace PortfolioBlog.Api.Features;
