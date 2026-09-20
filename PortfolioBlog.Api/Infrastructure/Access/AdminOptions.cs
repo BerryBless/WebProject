@@ -63,4 +63,10 @@ public sealed class AdminOptions
     /// </list>
     /// </remarks>
     public int SessionHours { get; set; } = 12;
+
+    /// <summary>미리보기 렌더링의 분당 전역 한도(스펙 3.7).</summary>
+    public int PreviewPerMinute { get; set; } = 60;
+
+    /// <summary>동시에 실행할 수 있는 미리보기 렌더링 수(렌더링은 CPU 바운드이며 취소할 수 없다).</summary>
+    public int PreviewConcurrency { get; set; } = 2;
 }

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Features.Auth;
 using PortfolioBlog.Api.Features.Posts;
+using PortfolioBlog.Api.Features.Preview;
 using PortfolioBlog.Api.Features.Series; // 주의: 도메인 타입 PortfolioBlog.Api.Domain.Series와 이름이 같다 — 여기 "using PortfolioBlog.Api.Domain;"이 추가되면 한정 없는 Series는 CS0104(모호한 참조)가 된다.
 using PortfolioBlog.Api.Features.Tags;
 using PortfolioBlog.Api.Infrastructure.Access;
@@ -39,6 +40,7 @@ public static class ApiEndpoints
         api.MapPostEndpoints();
         api.MapSeriesEndpoints();
         api.MapTagEndpoints();
+        api.MapPreviewEndpoints();
         return api;
     }
 }

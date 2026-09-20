@@ -56,7 +56,11 @@ public static class RateLimitingExtensions
                 Window(RateLimitPolicy.Login, ctx => "login-ip:" + ClientIp.PartitionKey(ctx.Connection.RemoteIpAddress), admin.LoginPerIpPerMinute),
                 Window(RateLimitPolicy.Login, _ => "login-global", admin.LoginGlobalPerMinute),
                 // Concurrency: PBKDF2 검증은 CPU 바운드라 동시에 도는 수를 묶는다. 임대는 요청이 끝날 때 미들웨어가 반납한다.
-                Concurrency(RateLimitPolicy.Login, "login-concurrency", admin.LoginConcurrency));
+                Concurrency(RateLimitPolicy.Login, "login-concurrency", admin.LoginConcurrency)
+                ,
+                Window(RateLimitPolicy.Preview, _ => "preview-global", admin.PreviewPerMinute),
+                // 렌더링은 동기 CPU 작업이라 요청 취소로 멈추지 않는다. 동시에 도는 수를 직접 묶는다.
+                Concurrency(RateLimitPolicy.Preview, "preview-concurrency", admin.PreviewConcurrency));
         });
         return services;
     }

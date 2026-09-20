@@ -82,6 +82,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Admin:LoginPerIpPerMinute", "1000");
         builder.UseSetting("Admin:LoginGlobalPerMinute", "1000");
         builder.UseSetting("Admin:LoginConcurrency", "64");
+        builder.UseSetting("Admin:PreviewPerMinute", "1000");
+        builder.UseSetting("Admin:PreviewConcurrency", "64");
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);

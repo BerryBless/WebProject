@@ -131,7 +131,7 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     public void RouteTable_ContainsExpectedSurface_AndOnlyLoginAndMeAreAnonymous()
     {
         var targets = Targets();
-        Assert.True(targets.Count >= 15, $"열거된 /api 엔드포인트가 너무 적다: {targets.Count}");
+        Assert.True(targets.Count >= 16, $"열거된 /api 엔드포인트가 너무 적다: {targets.Count}");
         Assert.Equal(AnonymousAllowed, targets.Where(t => t.AllowsAnonymous).Select(t => t.Path).Distinct().Order());
     }
 

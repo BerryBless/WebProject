@@ -52,6 +52,10 @@ public static class StartupValidation
         {
             throw new InvalidOperationException("Admin:LoginPerIpPerMinute·LoginGlobalPerMinute·LoginConcurrency·SessionHours 는 1 이상이어야 합니다.");
         }
+        if (admin.PreviewPerMinute < 1 || admin.PreviewConcurrency < 1)
+        {
+            throw new InvalidOperationException("Admin:PreviewPerMinute·PreviewConcurrency 는 1 이상이어야 합니다.");
+        }
 
         if (!environment.IsDevelopment())
         {
