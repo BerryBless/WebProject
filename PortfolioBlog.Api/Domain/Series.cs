@@ -11,13 +11,18 @@ namespace PortfolioBlog.Api.Domain;
 /// </remarks>
 public sealed class Series
 {
+    /// <summary>기본 키. 시간 정렬 가능한 UUIDv7로 생성한다.</summary>
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    /// <summary>공개 URL 식별자. <c>^[a-z0-9]+(-[a-z0-9]+)*$</c>, 최대 100자, 생성 후 불변.</summary>
     public string Slug { get; set; } = string.Empty;
 
+    /// <summary>시리즈 제목(최대 200자, 공백만으로는 불가).</summary>
     public string Title { get; set; } = string.Empty;
 
+    /// <summary>시리즈 소개(최대 1000자).</summary>
     public string Description { get; set; } = string.Empty;
 
+    /// <summary>이 시리즈에 속한 글 목록. 지연 로드 없이 명시적 <c>Include</c>로만 채워진다.</summary>
     public List<Post> Posts { get; } = new();
 }

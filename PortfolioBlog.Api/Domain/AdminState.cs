@@ -14,7 +14,9 @@ public sealed class AdminState
     /// <summary>DB CHECK 제약으로 강제되는 유일 허용 Id 값.</summary>
     public const int SingletonId = 1;
 
+    /// <summary>항상 <see cref="SingletonId"/>(1) 값만 허용되는 기본 키(DB CHECK).</summary>
     public int Id { get; set; } = SingletonId;
 
+    /// <summary>세션 무효화 세대 번호. 증가시키면 그 이전에 발급된 모든 세션 쿠키가 무효화된다.</summary>
     public int SessionEpoch { get; set; } = 1;
 }

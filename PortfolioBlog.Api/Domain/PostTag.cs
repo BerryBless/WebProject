@@ -11,11 +11,15 @@ namespace PortfolioBlog.Api.Domain;
 /// </remarks>
 public sealed class PostTag
 {
+    /// <summary>복합키 절반: 연결된 글의 외래키.</summary>
     public Guid PostId { get; set; }
 
+    /// <summary>탐색 속성. 지연 로드 없이 명시적 <c>Include</c>로만 채워진다.</summary>
     public Post Post { get; set; } = null!;
 
+    /// <summary>복합키 절반: 연결된 태그의 외래키.</summary>
     public Guid TagId { get; set; }
 
+    /// <summary>탐색 속성. 지연 로드 없이 명시적 <c>Include</c>로만 채워진다.</summary>
     public Tag Tag { get; set; } = null!;
 }

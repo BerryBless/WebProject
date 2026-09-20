@@ -11,6 +11,7 @@ namespace PortfolioBlog.Api.Domain;
 /// </remarks>
 public sealed class Tag
 {
+    /// <summary>기본 키. 시간 정렬 가능한 UUIDv7로 생성한다.</summary>
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
     /// <summary>표시용 이름(원문 대소문자 유지, 1~50자, '/' 금지).</summary>
@@ -19,5 +20,6 @@ public sealed class Tag
     /// <summary>트림 + 연속 공백 1개 + NFC + 소문자. 유일 인덱스 대상이자 공개 URL 키.</summary>
     public string NormalizedName { get; set; } = string.Empty;
 
+    /// <summary>이 태그가 붙은 글 연결 엔티티 목록(다대다 조인).</summary>
     public List<PostTag> PostTags { get; } = new();
 }

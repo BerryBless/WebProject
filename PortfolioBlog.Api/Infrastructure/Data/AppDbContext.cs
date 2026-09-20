@@ -36,10 +36,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     /// <summary>태그 이름 최대 길이(문자).</summary>
     public const int TagMax = 50;
 
+    /// <summary>블로그 글 테이블.</summary>
     public DbSet<Post> Posts => Set<Post>();
+
+    /// <summary>연재 시리즈 테이블.</summary>
     public DbSet<Series> Series => Set<Series>();
+
+    /// <summary>태그 테이블.</summary>
     public DbSet<Tag> Tags => Set<Tag>();
+
+    /// <summary>글-태그 다대다 연결 테이블.</summary>
     public DbSet<PostTag> PostTags => Set<PostTag>();
+
+    /// <summary>단일 행 관리 상태 테이블.</summary>
     public DbSet<AdminState> AdminStates => Set<AdminState>();
 
     protected override void OnModelCreating(ModelBuilder b)
