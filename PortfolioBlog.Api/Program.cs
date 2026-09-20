@@ -3,6 +3,12 @@ using PortfolioBlog.Api.Features;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
 
+// CLI 경로: 웹 호스트를 만들지 않고 해시만 출력하고 끝낸다.
+if (args is [HashPasswordCommand.Name])
+{
+    return HashPasswordCommand.Run(Console.In, Console.Out, Console.Error, interactive: !Console.IsInputRedirected);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
@@ -25,6 +31,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, o) =>
     o.UseNpgsql(connectionString);
 });
 builder.Services.AddAdminAccess(builder.Configuration);
+builder.Services.AddAdminAuth();
 
 var app = builder.Build();
 
@@ -41,6 +48,9 @@ app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseMiddleware<AdminSurfaceMiddleware>();
+app.UseRateLimiter();      // IP 검사 뒤: 외부 요청이 로그인 한도를 소진하지 못한다
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
@@ -55,6 +65,7 @@ app.MapGet("/health", static () =>
 app.MapApiEndpoints();
 
 app.Run();
+return 0;
 
 /// <summary>서비스 생존 여부를 알리는 <c>/health</c> 응답 모델.</summary>
 /// <param name="Status">서비스 상태. 현 단계에서는 외부 의존성 점검 없이 상수 <c>"Healthy"</c> 를 반환한다.</param>

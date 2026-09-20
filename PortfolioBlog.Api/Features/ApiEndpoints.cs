@@ -30,7 +30,8 @@ public static class ApiEndpoints
     {
         var adminHost = SiteOptions.HostOf(app.Services.GetRequiredService<IOptions<SiteOptions>>().Value.AdminOrigin);
         // RequireHost: 미들웨어의 호스트 검사와 같은 규칙을 라우팅에도 걸어 둔다(미들웨어 순서를 잘못 바꿔도 공개 호스트에서는 매칭되지 않는다).
-        var api = app.MapGroup("/api").RequireHost(adminHost);
+        // RequireAuthorization: 이후 추가되는 모든 /api 엔드포인트는 기본이 세션 필수다. 익명 허용은 login·me뿐이며 해당 엔드포인트가 개별적으로 AllowAnonymous()를 선언한다.
+        var api = app.MapGroup("/api").RequireHost(adminHost).RequireAuthorization(AuthServiceCollectionExtensions.PolicyName);
         api.MapAuthEndpoints();
         return api;
     }

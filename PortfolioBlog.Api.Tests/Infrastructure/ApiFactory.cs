@@ -1,6 +1,9 @@
+using System.Net;
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Access;
 
@@ -31,8 +34,17 @@ public class ApiFactory : WebApplicationFactory<Program>
     /// <summary><c>Admin:AllowedCidrs</c> 기본값(RFC 5737 문서용 대역 <c>198.51.100.0/24</c>) 밖에 있는 IP.</summary>
     public const string OutsiderIp = "198.51.100.7";
 
+    /// <summary>테스트 전용 더미 관리자 비밀번호(실제 비밀번호 아님).</summary>
+    public const string Password = "dummy-test-password-0920"; // 테스트 전용 더미 값(실제 비밀번호 아님)
+
+    // PBKDF2 10만 회라 해시 생성이 수십 ms 걸린다. 프로세스당 한 번만 만든다.
+    private static readonly string PasswordHash = AdminCredential.Hash(Password);
+
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
+
+    /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
+    public MutableTimeProvider Clock { get; } = new();
 
     /// <summary>xUnit이 클래스 픽스처로 주입하는 기본 생성자. 설정 오버라이드가 없다.</summary>
     /// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture.</param>
@@ -65,6 +77,11 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Site:PublicOrigin", PublicOrigin);
         builder.UseSetting("Site:AdminOrigin", AdminOrigin);
         builder.UseSetting("Admin:AllowedCidrs", "203.0.113.0/24");
+        builder.UseSetting("Admin:PasswordHash", PasswordHash);
+        // 로그인 테스트가 서로의 한도를 소진하지 않도록 기본 한도를 크게 둔다. 속도 제한 테스트만 작은 값으로 덮어쓴다.
+        builder.UseSetting("Admin:LoginPerIpPerMinute", "1000");
+        builder.UseSetting("Admin:LoginGlobalPerMinute", "1000");
+        builder.UseSetting("Admin:LoginConcurrency", "64");
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);
@@ -74,7 +91,13 @@ public class ApiFactory : WebApplicationFactory<Program>
             builder.UseEnvironment(env);
         }
         // RemoteIpStartupFilter를 Program.cs 파이프라인보다 앞에 끼워 TestServer의 null RemoteIpAddress를 헤더 값으로 대체한다.
-        builder.ConfigureServices(services => services.AddTransient<IStartupFilter, RemoteIpStartupFilter>());
+        builder.ConfigureServices(services =>
+        {
+            services.AddTransient<IStartupFilter, RemoteIpStartupFilter>();
+            // TimeProvider.System 기본 등록을 걷어내고 테스트가 진행시킬 수 있는 시계로 바꾼다. 쿠키 인증의 IssuedUtc·만료 판정이 이 시계를 따른다.
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(Clock);
+        });
     }
 
     /// <summary>호출자가 소유하는 DI 스코프. <c>await using var scope = factory.CreateScope();</c></summary>
@@ -130,5 +153,45 @@ public class ApiFactory : WebApplicationFactory<Program>
         var client = CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri(PublicOrigin), AllowAutoRedirect = false });
         client.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, OutsiderIp);
         return client;
+    }
+
+    /// <summary>로그인한 관리 클라이언트(쿠키 컨테이너가 세션 쿠키를 들고 있다).</summary>
+    /// <returns>호출자가 <c>using</c>으로 해제해야 하는, 로그인 세션 쿠키를 쿠키 컨테이너에 담은 <see cref="HttpClient"/>.</returns>
+    /// <exception cref="InvalidOperationException">로그인 요청이 204가 아닌 상태 코드를 반환했을 때.</exception>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 호출마다 새 <see cref="HttpClient"/>를 만들어 로그인하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="HttpClient"/> 1개와 로그인 요청·응답 버퍼.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 로그인 HTTP 왕복을 <c>await</c>로 대기한다(서버 측 PBKDF2 검증 포함 수십 ms).</description></item>
+    /// </list>
+    /// </remarks>
+    public async Task<HttpClient> CreateLoggedInClientAsync()
+    {
+        var client = CreateAdminClient();
+        using var res = await client.PostAsJsonAsync("/api/auth/login", new { password = Password });
+        if (res.StatusCode != HttpStatusCode.NoContent)
+        {
+            throw new InvalidOperationException($"테스트 로그인 실패: {(int)res.StatusCode}");
+        }
+        return client;
+    }
+
+    /// <summary>로그인하고 <c>name=value</c> 형태의 쿠키 헤더 값을 돌려준다. "복사해 둔 쿠키 재사용" 시나리오용.</summary>
+    /// <returns><c>Cookie</c> 요청 헤더에 그대로 실을 수 있는 <c>name=value</c> 문자열.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 호출마다 쿠키 자동 처리를 끈 새 <see cref="HttpClient"/>를 만들어 로그인하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="HttpClient"/> 1개와 <c>Set-Cookie</c> 헤더 파싱 결과 문자열.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 로그인 HTTP 왕복을 <c>await</c>로 대기한다.</description></item>
+    /// </list>
+    /// </remarks>
+    public async Task<string> LoginAndGetCookieAsync()
+    {
+        using var client = CreateAdminClient(handleCookies: false);
+        using var res = await client.PostAsJsonAsync("/api/auth/login", new { password = Password });
+        var setCookie = res.Headers.GetValues("Set-Cookie").Single(v => v.StartsWith(AuthServiceCollectionExtensions.CookieName + "=", StringComparison.Ordinal));
+        return setCookie.Split(';', 2)[0];
     }
 }
