@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Features.Auth;
+using PortfolioBlog.Api.Features.Posts;
 using PortfolioBlog.Api.Infrastructure.Access;
 
 namespace PortfolioBlog.Api.Features;
@@ -33,6 +34,7 @@ public static class ApiEndpoints
         // RequireAuthorization: 이후 추가되는 모든 /api 엔드포인트는 기본이 세션 필수다. 익명 허용은 login·me뿐이며 해당 엔드포인트가 개별적으로 AllowAnonymous()를 선언한다.
         var api = app.MapGroup("/api").RequireHost(adminHost).RequireAuthorization(AuthServiceCollectionExtensions.PolicyName);
         api.MapAuthEndpoints();
+        api.MapPostEndpoints();
         return api;
     }
 }
