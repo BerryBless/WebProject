@@ -58,8 +58,10 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// <param name="Path">매개변수를 더미 값으로 치환한 요청 경로.</param>
     /// <param name="AllowsAnonymous">엔드포인트 메타데이터에 <see cref="IAllowAnonymous"/>가 있는지 여부.</param>
     /// <param name="RequiresMultipart">엔드포인트가 <see cref="IAcceptsMetadata"/>로 <c>multipart/form-data</c>만 받는다고 선언했는지 여부(<c>IFormFile</c> 바인딩).
-    /// ASP.NET Core 라우팅은 이런 엔드포인트에 Content-Type이 안 맞는 요청이 오면 인증·인가보다 먼저(라우팅 단계에서) 415로 끊는다 — 본문은 읽지 않으므로
-    /// "본문을 읽기 전" 계약은 유지되지만, <see cref="Build"/>가 매번 <c>application/json</c>을 보내면 이 엔드포인트만 401/403 대신 415가 나온다.</param>
+    /// 실측: 이런 엔드포인트에 세션 없이 <c>application/json</c> 본문을 보내면 401이 아니라 415(ASP.NET Core의 일반 RFC 9110 ProblemDetails 본문이며,
+    /// 첨부 업로드 핸들러가 스스로 만드는 415의 <c>"지원하지 않는 이미지"</c> 제목과는 다르다)가 온다 — 핸들러가 호출되지 않았다는 뜻이다.
+    /// 같은 요청에 Content-Type만 <c>multipart/form-data</c>로 맞추면(필드는 비워도) 정상적으로 401이 나온다(그 아래 별도로 확인함, 인가 우회 아님).
+    /// <see cref="Build"/>가 매번 <c>application/json</c>을 보내면 이 엔드포인트만 401/403 대신 415가 나와 이 테스트들의 전제가 가려지므로 피한다.</param>
     private sealed record Target(string Method, string Path, bool AllowsAnonymous, bool RequiresMultipart);
 
     /// <summary>호스트의 <see cref="EndpointDataSource"/>를 순회해 <c>/api</c>로 시작하는 모든 라우트 엔드포인트를 <see cref="Target"/> 목록으로 뽑아낸다.</summary>
@@ -104,8 +106,10 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// <item><description><b>Concurrency:</b> Thread-safe. Blocking: 즉시 반환, I/O 없음.
     /// 깨진 JSON(<c>{broken</c>)·빈 multipart 폼 둘 다 접근 검사가 본문 바인딩보다 먼저 실행됨을 증명하기 위한 의도적 선택이다: 접근 검사가 먼저면
     /// 바인딩 오류(400)가 아니라 401/403/404가 먼저 나와야 한다. <paramref name="t"/>가 <see cref="Target.RequiresMultipart"/>이면
-    /// <c>application/json</c>을 보내지 않는다 — Content-Type이 <c>IAcceptsMetadata</c>와 안 맞으면 ASP.NET Core 라우팅이 인증·인가보다
-    /// 먼저(본문은 읽지 않고 헤더만 보고) 415로 끊어, "접근 검사가 먼저"라는 이 테스트의 전제 자체가 다른 상태 코드로 가려진다.</description></item>
+    /// <c>application/json</c>을 보내지 않는다 — 실측상 Content-Type이 <c>IAcceptsMetadata</c>와 안 맞으면 이 엔드포인트는 세션이 없어도 401 대신
+    /// 415(ASP.NET Core의 일반 ProblemDetails, 핸들러 자신이 만드는 415와 본문이 다르다 — 핸들러가 호출되지 않았다는 뜻)를 돌려줘 "접근 검사가 먼저"라는
+    /// 이 테스트의 전제 자체가 다른 상태 코드로 가려진다. Content-Type을 <c>multipart/form-data</c>로 맞추면 같은 무세션 요청이 정상적으로 401이 되므로
+    /// (별도 확인함) 이 엔드포인트의 인가 자체가 우회되는 것은 아니다 — 415는 Content-Type 불일치에서만 나온다.</description></item>
     /// </list>
     /// </remarks>
     private static HttpRequestMessage Build(Target t) => new(new HttpMethod(t.Method), t.Path)
