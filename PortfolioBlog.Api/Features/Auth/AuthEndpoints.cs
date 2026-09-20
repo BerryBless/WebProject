@@ -38,7 +38,8 @@ public static class AuthEndpoints
         var auth = api.MapGroup("/auth");
         auth.MapGet("/me", (HttpContext ctx) => TypedResults.Ok(new AuthStatusDto(ctx.User.Identity?.IsAuthenticated ?? false)))
             .AllowAnonymous().WithName("GetAuthStatus");
-        auth.MapPost("/login", LoginAsync).AllowAnonymous().WithName("Login");
+        // WithMetadata: 속도 제한기가 요청 경로 문자열이 아니라 실제로 선택된 엔드포인트로 로그인 요청을 식별하게 한다(LoginRateLimitMetadata 참고).
+        auth.MapPost("/login", LoginAsync).AllowAnonymous().WithName("Login").WithMetadata(new LoginRateLimitMetadata());
         auth.MapPost("/logout", LogoutAsync).WithName("Logout");
     }
 

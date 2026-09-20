@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Tests.Infrastructure;
@@ -278,5 +279,54 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
         using var author = limited.CreateAdminClient(handleCookies: false);
         using var ok = await author.PostAsJsonAsync(Login, new { password = ApiFactory.Password });
         Assert.Equal(HttpStatusCode.NoContent, ok.StatusCode); // 외부 요청이 작성자의 로그인 한도를 소진하지 못한다
+    }
+
+    /// <summary>경로 문자열 변형(끝 슬래시·대소문자)으로 로그인 엔드포인트에 도달해도 정규 경로와 같은 속도 제한 예산을 공유하는지 검증한다.
+    /// 라우팅은 끝 슬래시·대소문자를 무시하고 같은 엔드포인트로 매칭하므로, 속도 제한기가 원본 문자열을 다시 비교하면 우회된다.</summary>
+    /// <param name="variantPath">정규 경로(<see cref="Login"/>)와 다른 문자열이지만 같은 엔드포인트로 라우팅되는 경로.</param>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 격리된 <see cref="ApiFactory"/>(<c>limited</c>)만 사용하므로 다른 테스트의 속도 제한 상태와 섞이지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 격리된 팩토리·클라이언트 각 1개와 반복 요청·응답.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 로그인 요청들을 순차 <c>await</c>한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Theory]
+    [InlineData("/api/auth/login/")]
+    [InlineData("/API/Auth/LOGIN")]
+    public async Task Login_RateLimit_CannotBeBypassedWithPathVariants(string variantPath)
+    {
+        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "2" });
+        using var client = limited.CreateAdminClient(handleCookies: false);
+        for (var i = 0; i < 2; i++)
+        {
+            using var res = await client.PostAsJsonAsync(variantPath, new { password = "wrong" });
+            Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+        }
+        using var third = await client.PostAsJsonAsync(variantPath, new { password = ApiFactory.Password });
+        Assert.Equal(HttpStatusCode.TooManyRequests, third.StatusCode); // 경로 변형으로도 예산을 우회할 수 없다
+
+        // 정규 경로도 같은 예산을 공유한다(변형 경로가 별도 예산을 만들지 않는다).
+        using var canonical = await client.PostAsJsonAsync(Login, new { password = ApiFactory.Password });
+        Assert.Equal(HttpStatusCode.TooManyRequests, canonical.StatusCode);
+    }
+
+    /// <summary>요청 본문이 JSON 리터럴 <c>null</c>이어도 바인딩 예외(500)가 아니라 비밀번호 누락과 같은 400으로 처리되는지 검증한다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="HttpClient"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 클라이언트·요청 본문·응답 각 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 요청 완료를 <c>await</c>로 대기한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public async Task Login_NullJsonBody_Returns400()
+    {
+        using var client = factory.CreateAdminClient(handleCookies: false);
+        using var content = new StringContent("null", Encoding.UTF8, "application/json");
+        using var res = await client.PostAsync(Login, content);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 }
