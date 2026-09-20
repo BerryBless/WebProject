@@ -29,6 +29,17 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// <summary>익명 접근이 허용된 유일한 두 경로. 나머지 <c>/api/*</c>는 전부 세션이 필요하다.</summary>
     private static readonly string[] AnonymousAllowed = ["/api/auth/login", "/api/auth/me"];
 
+    /// <summary><paramref name="raw"/>가 <c>/api</c> 그룹(정확히 <c>/api</c> 자신이거나 <c>/api/</c>로 시작하는 경로)에 속하는지 세그먼트 경계로 판정한다.</summary>
+    /// <param name="raw">라우트 패턴의 원본 텍스트(예: <see cref="RouteEndpoint.RoutePattern"/>의 <c>RawText</c>).</param>
+    /// <returns><paramref name="raw"/>가 <c>/api</c> 세그먼트 경계로 시작하면 <c>true</c>.</returns>
+    /// <remarks>
+    /// 단순 <c>StartsWith("/api", …)</c>는 <c>/api-import</c>·<c>/apifeed.json</c>처럼 접두사만 같은 무관한 경로도 같이 잡아,
+    /// 그런 경로가 보호 그룹의 검사도 받지 않고 공개 허용 목록 검사도 건너뛰는(즉 아무 검사도 받지 않는) 사각지대를 만든다.
+    /// 세그먼트 경계(<c>/api</c> 정확히 일치 또는 <c>/api/</c> 접두사)로 판정해야 그 사각지대가 없다.
+    /// </remarks>
+    private static bool IsUnderApi(string raw) =>
+        raw.Equals("/api", StringComparison.OrdinalIgnoreCase) || raw.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>라우트 패턴의 <c>{id:guid}</c> 같은 매개변수 구간을 매칭하는 정규식.</summary>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
@@ -64,7 +75,7 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         foreach (var endpoint in factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>())
         {
             var raw = endpoint.RoutePattern.RawText ?? string.Empty;
-            if (!raw.StartsWith("/api", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!IsUnderApi(raw)) continue;
             var path = RouteParameter().Replace(raw, Guid.Empty.ToString());
             var anonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
             foreach (var method in endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? ["GET"])
@@ -180,6 +191,20 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         "/openapi/{documentName}.json", // Development에서만 매핑된다
     ];
 
+    /// <summary><see cref="IsUnderApi"/>가 접두사가 아니라 세그먼트 경계로 판정하는지 검증한다: <c>/api-import</c>·<c>/apifeed.json</c>처럼
+    /// 글자만 같고 세그먼트가 다른 경로는 그룹 밖으로 판정해야 한다.</summary>
+    /// <param name="raw">판정할 라우트 패턴 원본 텍스트.</param>
+    /// <param name="expected">기대하는 <see cref="IsUnderApi"/> 결과.</param>
+    [Theory]
+    [InlineData("/api", true)]
+    [InlineData("/api/posts", true)]
+    [InlineData("/API/Posts/{id:guid}", true)]
+    [InlineData("/api-import", false)]
+    [InlineData("/apifeed.json", false)]
+    [InlineData("/health", false)]
+    [InlineData("/attachments/{id:guid}/{fileName}", false)]
+    public void IsUnderApi_MatchesSegmentBoundary(string raw, bool expected) => Assert.Equal(expected, IsUnderApi(raw));
+
     /// <summary><c>/api</c> 밖의 모든 라우트는 허용 목록에 있어야 하고 GET/HEAD만 받아야 한다 —
     /// 관리 핸들러를 실수로 <c>/api</c> 그룹 밖에 매핑하면(그러면 어떤 접근 검사도 받지 않는다) 여기서 잡힌다.</summary>
     [Fact]
@@ -187,7 +212,7 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     {
         using var _ = factory.CreateClient();
         var outside = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
-            .Where(e => !(e.RoutePattern.RawText ?? string.Empty).StartsWith("/api", StringComparison.OrdinalIgnoreCase))
+            .Where(e => !IsUnderApi(e.RoutePattern.RawText ?? string.Empty))
             .ToList();
         Assert.NotEmpty(outside); // 최소한 /health는 있어야 한다(열거가 비어 통과하는 일을 막는다)
         foreach (var endpoint in outside)

@@ -44,9 +44,14 @@ public static class AuthServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<AdminCredential>();
 
-        // 기본 스킴을 두지 않는다 — 쿠키가 실린 요청이라도 Admin 정책(스킴을 직접 지정)이 걸린 엔드포인트에서만 티켓 검증과 세션 DB 조회가 일어난다.
-        // 공개 경로(/health, 첨부 GET)는 인증 비용이 0이다.
-        services.AddAuthentication().AddCookie(Scheme);
+        // 이 스킴을 명시적 기본값으로 등록한다 — 등록된 스킴이 하나뿐이면 ASP.NET Core가 어차피 그것을 기본값으로 자동 채택하지만,
+        // 나중에 두 번째 스킴을 추가하면 "자동 기본값"은 조용히 사라진다. 명시하면 그 시점에도 동작이 그대로 유지된다.
+        // WebApplication은 인증 미들웨어를 자동으로 추가하므로, 쿠키가 실린 요청은 인가 정책이 없는 경로(/health 등)에서도
+        // 인증 미들웨어가 티켓을 검증하고 SessionValidator의 세션 조회(DB 1행)까지 수행한다 — "기본 스킴을 두지 않으면 비용이 0"이라는
+        // 접근은 성립하지 않는다(직접 실측: /health도 쿠키 핸들러가 호출됨). 이 비용을 받아들이는 이유:
+        // __Host- 세션 쿠키는 관리 호스트에 바인딩되어 공개 호스트로는 애초에 전송되지 않고(그래서 공개 페이지는 이 비용이 없다),
+        // 관리 호스트에서의 단일 행 세션 조회는 단일 작성자 트래픽 규모에서 무시할 수 있는 비용이다.
+        services.AddAuthentication(Scheme).AddCookie(Scheme);
         services.AddOptions<CookieAuthenticationOptions>(Scheme).Configure<TimeProvider, IOptions<AdminOptions>>((o, clock, admin) =>
         {
             o.TimeProvider = clock;

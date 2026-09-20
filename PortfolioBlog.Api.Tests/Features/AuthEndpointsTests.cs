@@ -384,4 +384,21 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
         using var res = await client.PostAsync(Login, content);
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
+
+    /// <summary>Data Protection이 복호화할 수 없는 값을 쿠키로 보내도 500이 아니라 <c>Authenticated=false</c>인 200을 반환하는지 검증한다
+    /// (인증 미들웨어가 이제 이 스킴을 기본값으로 등록하므로 이 경로가 실제로 호출됨을 함께 확인한다).</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="HttpClient"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 클라이언트·요청·응답 각 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 요청 완료를 <c>await</c>로 대기한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public async Task Me_WithMalformedCookie_ReturnsNotAuthenticated_NotServerError()
+    {
+        using var client = factory.CreateAdminClient(handleCookies: false);
+        Assert.False(await IsAuthenticatedAsync(client, $"{AuthServiceCollectionExtensions.CookieName}=not-a-valid-ticket"));
+    }
 }

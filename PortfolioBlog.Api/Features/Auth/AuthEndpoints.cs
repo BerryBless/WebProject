@@ -39,7 +39,8 @@ public static class AuthEndpoints
         var auth = api.MapGroup("/auth");
         auth.MapGet("/me", async (HttpContext ctx) =>
         {
-            // 기본 인증 스킴이 없으므로 익명 허용 엔드포인트는 필요한 스킴을 직접 인증한다(SessionValidator도 이 경로로 실행된다).
+            // 이 핸들러는 스킴을 직접 명시해 인증한다 — 어떤 스킴이 기본값인지와 무관하게 결과가 항상 AdminCookie 스킴 기준이 되게 한다
+            // (기본 스킴이 바뀌거나 추가되어도 이 엔드포인트의 의미가 조용히 달라지지 않는다). SessionValidator도 이 경로로 실행된다.
             var result = await ctx.AuthenticateAsync(AuthServiceCollectionExtensions.Scheme);
             return TypedResults.Ok(new AuthStatusDto(result.Succeeded));
         }).AllowAnonymous().WithName("GetAuthStatus");

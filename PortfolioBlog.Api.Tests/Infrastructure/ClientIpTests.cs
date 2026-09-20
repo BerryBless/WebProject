@@ -4,6 +4,14 @@ using PortfolioBlog.Api.Infrastructure.Web;
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
 /// <summary>속도 제한 파티션 키 정규화 단위 테스트. 같은 클라이언트가 표기만 바꿔 예산을 여러 개 얻지 못해야 한다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> 각 테스트는 정적 무상태 함수만 호출하므로 다른 테스트와 공유하는 가변 상태가 없다. 외부 자원(DB·네트워크) 없음.</description></item>
+/// <item><description><b>Memory Allocation:</b> 각 테스트는 <see cref="IPAddress"/> 파싱 결과와 반환 키 문자열만 보유한다.</description></item>
+/// <item><description><b>Blocking:</b> 모든 테스트는 동기 즉시 반환. I/O·비동기 대기 없음.</description></item>
+/// </list>
+/// </remarks>
 public sealed class ClientIpTests
 {
     /// <summary>IPv4와 그 IPv4-mapped IPv6 표기는 같은 키가 된다.</summary>
