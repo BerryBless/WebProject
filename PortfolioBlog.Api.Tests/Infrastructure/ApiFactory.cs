@@ -92,6 +92,12 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Admin:LoginConcurrency", "64");
         builder.UseSetting("Admin:PreviewPerMinute", "1000");
         builder.UseSetting("Admin:PreviewConcurrency", "64");
+        builder.UseSetting("Admin:UploadPerMinute", "100000");
+        builder.UseSetting("Admin:UploadConcurrency", "64");
+        builder.UseSetting("Public:PagePerIpPerMinute", "100000");
+        builder.UseSetting("Public:AssetPerIpPerMinute", "100000");
+        builder.UseSetting("Public:SearchPerIpPerMinute", "100000");
+        builder.UseSetting("Public:SearchConcurrency", "64");
         builder.UseSetting("Attachments:RootPath", _attachmentsRootPathOverride ?? AttachmentsRoot);
         foreach (var (key, value) in _settings)
         {

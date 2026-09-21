@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Infrastructure.Access;
 
@@ -57,6 +58,19 @@ public static class StartupValidation
         if (admin.PreviewPerMinute < 1 || admin.PreviewConcurrency < 1)
         {
             throw new InvalidOperationException("Admin:PreviewPerMinute·PreviewConcurrency 는 1 이상이어야 합니다.");
+        }
+        var pub = services.GetRequiredService<IOptions<PublicOptions>>().Value;
+        if (admin.UploadPerMinute < 1 || admin.UploadConcurrency < 1)
+        {
+            throw new InvalidOperationException("Admin:UploadPerMinute·UploadConcurrency 는 1 이상이어야 합니다.");
+        }
+        if (pub.PagePerIpPerMinute < 1 || pub.AssetPerIpPerMinute < 1 || pub.SearchPerIpPerMinute < 1 || pub.SearchConcurrency < 1)
+        {
+            throw new InvalidOperationException("Public:PagePerIpPerMinute·AssetPerIpPerMinute·SearchPerIpPerMinute·SearchConcurrency 는 1 이상이어야 합니다.");
+        }
+        if (pub.StatementTimeoutMs is < 100 or > 60_000)
+        {
+            throw new InvalidOperationException("Public:StatementTimeoutMs 는 100~60000 이어야 합니다.");
         }
         // 모든 환경에서 필수: 첨부 저장 경로가 없으면 업로드마다 예외가 나므로, 그 실패를 첫 업로드가 아니라 시작 시점에 드러낸다.
         if (string.IsNullOrWhiteSpace(attachments.RootPath))

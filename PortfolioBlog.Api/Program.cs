@@ -37,6 +37,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, o) =>
 });
 builder.Services.AddAdminAccess(builder.Configuration);
 builder.Services.AddAdminAuth();
+builder.Services.Configure<PublicOptions>(builder.Configuration.GetSection(PublicOptions.SectionName));
 builder.Services.AddAppRateLimiting();
 builder.Services.AddSingleton<MarkdownRenderer>();
 builder.Services.Configure<AttachmentOptions>(builder.Configuration.GetSection(AttachmentOptions.SectionName));
@@ -75,7 +76,8 @@ app.MapGet("/health", static () =>
     // DateTimeOffset.UtcNow: 로컬 타임존 변환(tzdata/레지스트리 조회)을 거치지 않고 시스템 UTC 틱을
     // 그대로 읽으므로 오프셋 0 이 보장되고 Now 보다 호출 비용이 낮다.
     new HealthResponse("Healthy", DateTimeOffset.UtcNow))
-    .WithName("GetHealth");
+    .WithName("GetHealth")
+    .WithMetadata(new RateLimitMetadata(RateLimitPolicy.PublicAsset));
 app.MapApiEndpoints();
 app.MapPublicAttachmentEndpoints();
 

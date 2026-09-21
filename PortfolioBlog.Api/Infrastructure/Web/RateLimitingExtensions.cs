@@ -11,7 +11,7 @@ namespace PortfolioBlog.Api.Infrastructure.Web;
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> 등록은 시작 시 1회. 제한기 자체는 프레임워크가 Thread-safe하게 관리한다.</description></item>
-/// <item><description><b>Memory Allocation:</b> 파티션(키)마다 제한기 1개. 로그인 IP 파티션은 허용 IP 수로, 나머지는 상수로 한정된다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 공개 정책의 IP 파티션은 방문자 IP 수만큼 생기고, 프레임워크가 유휴 파티션을 주기적으로 걷어 낸다. IPv6는 /64로 묶는다(<see cref="ClientIp"/>).</description></item>
 /// <item><description><b>Blocking:</b> 대기열 0 — 한도를 넘으면 기다리지 않고 즉시 429.</description></item>
 /// </list>
 /// 미들웨어 위치는 <c>AdminSurfaceMiddleware</c> 뒤다: 허용 IP 밖의 요청이 한도를 소진하지 못한다.
@@ -19,10 +19,13 @@ namespace PortfolioBlog.Api.Infrastructure.Web;
 /// </remarks>
 public static class RateLimitingExtensions
 {
-    /// <summary>제한기가 창 종료 시각(<see cref="MetadataName.RetryAfter"/>)을 주지 않을 때 <c>Retry-After</c> 헤더에 쓸 보수적 기본값(초).</summary>
-    private const int FallbackRetryAfterSeconds = 60;
+    /// <summary>동시 실행 제한에 걸렸을 때의 <c>Retry-After</c>(초). 동시성 제한기는 재시도 시점을 주지 않는다(실측) — 분 단위 창과 달리 곧 풀리므로 짧게 준다.</summary>
+    public const int ConcurrencyRetryAfterSeconds = 5;
 
-    /// <summary>로그인 IP별·전역 고정 창 + 동시 실행 제한을 체인으로 등록한다. 전 정책 공통 429 상태 코드와 <c>Retry-After</c> 헤더도 여기서 구성한다.</summary>
+    /// <summary>고정 창 거부의 <c>Retry-After</c> 상한(초) = 창 길이.</summary>
+    private const int MaxRetryAfterSeconds = 60;
+
+    /// <summary>속도 제한 체인을 만들어 등록한다. 전 정책 공통 429 상태 코드와 <c>Retry-After</c> 헤더도 여기서 구성한다.</summary>
     /// <param name="services">등록 대상 서비스 컬렉션.</param>
     /// <returns>체이닝을 위해 그대로 반환하는 <paramref name="services"/>.</returns>
     /// <remarks>
@@ -36,34 +39,76 @@ public static class RateLimitingExtensions
     public static IServiceCollection AddAppRateLimiting(this IServiceCollection services)
     {
         services.AddRateLimiter(_ => { });
-        services.AddOptions<RateLimiterOptions>().Configure<IOptions<AdminOptions>>((o, adminOptions) =>
+        services.AddOptions<RateLimiterOptions>().Configure<IOptions<AdminOptions>, IOptions<PublicOptions>>((o, admin, pub) =>
         {
-            var admin = adminOptions.Value;
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             o.OnRejected = static (context, _) =>
             {
-                // 고정 창 제한기는 창이 끝나는 시점을 RetryAfter 메타데이터로 준다. 동시성 제한기는 주지 않으므로 보수적인 기본값을 쓴다.
-                var seconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
-                    ? Math.Clamp((int)Math.Ceiling(retryAfter.TotalSeconds), 1, FallbackRetryAfterSeconds)
-                    : FallbackRetryAfterSeconds;
-                context.HttpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+                context.HttpContext.Response.Headers.RetryAfter = RetryAfterSeconds(context.Lease).ToString(CultureInfo.InvariantCulture);
                 return ValueTask.CompletedTask;
             };
-            // 체인: 모든 제한기를 통과해야 한다. 해당 정책이 아닌 요청은 NoLimiter 파티션으로 빠진다.
-            // CreateChained는 앞에서부터 permit을 빌린다 — 뒤 제한기가 거부해도 앞에서 빌린 permit은 돌아오지 않는다(고정 창에는 반환 API가 없다). 의도된 보수적 동작이다.
-            o.GlobalLimiter = PartitionedRateLimiter.CreateChained(
-                // FixedWindow: 창마다 카운터 하나만 두는 O(1) 제한기.
-                Window(RateLimitPolicy.Login, ctx => "login-ip:" + ClientIp.PartitionKey(ctx.Connection.RemoteIpAddress), admin.LoginPerIpPerMinute),
-                Window(RateLimitPolicy.Login, _ => "login-global", admin.LoginGlobalPerMinute),
-                // Concurrency: PBKDF2 검증은 CPU 바운드라 동시에 도는 수를 묶는다. 임대는 요청이 끝날 때 미들웨어가 반납한다.
-                Concurrency(RateLimitPolicy.Login, "login-concurrency", admin.LoginConcurrency)
-                ,
-                Window(RateLimitPolicy.Preview, _ => "preview-global", admin.PreviewPerMinute),
-                // 렌더링은 동기 CPU 작업이라 요청 취소로 멈추지 않는다. 동시에 도는 수를 직접 묶는다.
-                Concurrency(RateLimitPolicy.Preview, "preview-concurrency", admin.PreviewConcurrency));
+            o.GlobalLimiter = BuildChain(admin.Value, pub.Value);
         });
         return services;
     }
+
+    /// <summary>거부된 임대에서 <c>Retry-After</c> 초를 고른다: 고정 창은 창 종료까지(1~60), 동시 실행 제한은 <see cref="ConcurrencyRetryAfterSeconds"/>.</summary>
+    /// <param name="lease">거부된(또는 획득된) 속도 제한 임대.</param>
+    /// <returns>클라이언트에게 알려줄 재시도 대기 시간(초).</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 매개변수만 읽는 정적 메서드.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation. 메타데이터 조회와 산술 연산뿐이다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환. I/O 없음.</description></item>
+    /// </list>
+    /// </remarks>
+    internal static int RetryAfterSeconds(RateLimitLease lease) =>
+        lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+            ? Math.Clamp((int)Math.Ceiling(retryAfter.TotalSeconds), 1, MaxRetryAfterSeconds)
+            : ConcurrencyRetryAfterSeconds;
+
+    /// <summary>등록·테스트 양쪽이 쓰는 속도 제한 체인을 조립한다.</summary>
+    /// <param name="admin">로그인·미리보기·업로드 한도가 담긴 관리 설정.</param>
+    /// <param name="pub">공개 페이지·자산·검색 한도가 담긴 공개 설정.</param>
+    /// <returns>체인 전체를 대표하는 단일 <see cref="PartitionedRateLimiter{HttpContext}"/>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다. 반환된 체인은 여러 요청 스레드가 동시에 호출해도 안전하다(프레임워크 보장).</description></item>
+    /// <item><description><b>Memory Allocation:</b> 정책 개수만큼 제한기 인스턴스를 시작 시 1회 할당한다. 파티션(키)별 내부 상태는 그 파티션이 처음 쓰일 때 지연 생성된다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 실행. I/O 없음.</description></item>
+    /// </list>
+    /// <b>동시 실행 제한기를 고정 창보다 앞에</b> 둔다: CreateChained는 앞에서부터 임대를 빌리고, 뒤가 거부하면 앞의 임대를
+    /// Dispose한다(실측). 동시성 임대는 Dispose로 반납되지만 고정 창에는 반환이 없으므로, 창이 앞이면 동시 실행 거부마다 분당 허용량이 1씩 사라진다.
+    /// </remarks>
+    internal static PartitionedRateLimiter<HttpContext> BuildChain(AdminOptions admin, PublicOptions pub) =>
+        PartitionedRateLimiter.CreateChained(
+            Concurrency(RateLimitPolicy.Login, "login-concurrency", admin.LoginConcurrency),
+            Concurrency(RateLimitPolicy.Preview, "preview-concurrency", admin.PreviewConcurrency),
+            Concurrency(RateLimitPolicy.Upload, "upload-concurrency", admin.UploadConcurrency),
+            Concurrency(RateLimitPolicy.Search, "search-concurrency", pub.SearchConcurrency),
+            Window(ctx => Matches(ctx, RateLimitPolicy.Login), ctx => "login-ip:" + Ip(ctx), admin.LoginPerIpPerMinute),
+            Window(ctx => Matches(ctx, RateLimitPolicy.Login), _ => "login-global", admin.LoginGlobalPerMinute),
+            Window(ctx => Matches(ctx, RateLimitPolicy.Preview), _ => "preview-global", admin.PreviewPerMinute),
+            Window(ctx => Matches(ctx, RateLimitPolicy.Upload), _ => "upload-global", admin.UploadPerMinute),
+            // 검색 창이 페이지 창보다 앞: 검색 한도에 걸린 요청이 페이지 허용량까지 깎지 않는다.
+            Window(ctx => Matches(ctx, RateLimitPolicy.Search), ctx => "search-ip:" + Ip(ctx), pub.SearchPerIpPerMinute),
+            Window(ctx => Matches(ctx, RateLimitPolicy.PublicPage) || Matches(ctx, RateLimitPolicy.Search), ctx => "page-ip:" + Ip(ctx), pub.PagePerIpPerMinute),
+            Window(ctx => Matches(ctx, RateLimitPolicy.PublicAsset), ctx => "asset-ip:" + Ip(ctx), pub.AssetPerIpPerMinute));
+
+    /// <summary>요청의 원격 IP를 속도 제한 파티션 키로 정규화한다.</summary>
+    /// <param name="ctx">현재 HTTP 요청 컨텍스트.</param>
+    /// <returns><see cref="ClientIp.PartitionKey"/>가 만든 정규화된 키 문자열.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="ClientIp.PartitionKey"/>와 동일(키 문자열 1개).</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환. I/O 없음.</description></item>
+    /// </list>
+    /// </remarks>
+    private static string Ip(HttpContext ctx) => ClientIp.PartitionKey(ctx.Connection.RemoteIpAddress);
 
     /// <summary>요청이 라우팅한 엔드포인트가 <paramref name="policy"/>로 표시되어 있는지 판정한다. 모든 파티션 선택기의 공통 기준이다.</summary>
     /// <param name="ctx">현재 HTTP 요청 컨텍스트.</param>
@@ -80,8 +125,8 @@ public static class RateLimitingExtensions
     internal static bool Matches(HttpContext ctx, RateLimitPolicy policy) =>
         ctx.GetEndpoint()?.Metadata.GetMetadata<RateLimitMetadata>()?.Policy == policy;
 
-    /// <summary><paramref name="policy"/>가 걸린 요청만 <paramref name="key"/>로 파티션한 고정 창(1분) 제한기를 만들고, 그 외는 무제한 파티션으로 보낸다.</summary>
-    /// <param name="policy">이 제한기를 적용할 정책.</param>
+    /// <summary><paramref name="applies"/>가 참인 요청만 <paramref name="key"/>로 파티션한 고정 창(1분) 제한기를 만들고, 그 외는 무제한 파티션으로 보낸다.</summary>
+    /// <param name="applies">이 제한기를 적용할지 판정하는 함수(<see cref="Matches"/> 호출 조합 — <see cref="RateLimitPolicy.Search"/>처럼 정책 하나가 여러 창에 걸릴 수 있다).</param>
     /// <param name="key">파티션 키를 만드는 함수(예: IP별 로그인 예산).</param>
     /// <param name="permitsPerMinute">1분 창 동안 허용할 최대 요청 수.</param>
     /// <returns>체인에 넣을 <see cref="PartitionedRateLimiter{HttpContext}"/>.</returns>
@@ -89,12 +134,12 @@ public static class RateLimitingExtensions
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다. 반환된 제한기는 여러 요청 스레드가 동시에 호출해도 안전하게 관리된다(프레임워크 보장).</description></item>
-    /// <item><description><b>Memory Allocation:</b> 파티션 키 문자열은 해당 정책 요청마다 1개씩 만들어진다. 정책이 아닌 요청은 상수 파티션("none")으로 빠져 추가 할당이 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 파티션 키 문자열은 해당 창에 걸리는 요청마다 1개씩 만들어진다. 걸리지 않는 요청은 상수 파티션("none")으로 빠져 추가 할당이 없다.</description></item>
     /// <item><description><b>Blocking:</b> 즉시 반환. 대기열(<c>QueueLimit</c>) 0 — 한도 초과분은 기다리지 않고 즉시 거부된다.</description></item>
     /// </list>
     /// </remarks>
-    internal static PartitionedRateLimiter<HttpContext> Window(RateLimitPolicy policy, Func<HttpContext, string> key, int permitsPerMinute) =>
-        PartitionedRateLimiter.Create<HttpContext, string>(ctx => Matches(ctx, policy)
+    internal static PartitionedRateLimiter<HttpContext> Window(Func<HttpContext, bool> applies, Func<HttpContext, string> key, int permitsPerMinute) =>
+        PartitionedRateLimiter.Create<HttpContext, string>(ctx => applies(ctx)
             ? RateLimitPartition.GetFixedWindowLimiter(key(ctx), _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = permitsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true,

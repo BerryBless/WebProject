@@ -1,6 +1,6 @@
 namespace PortfolioBlog.Api.Infrastructure.Web;
 
-/// <summary>엔드포인트에 붙여 어떤 제한기 묶음을 적용할지 고르는 정책 이름. Plan 2B가 <c>Search</c>·<c>PublicPage</c>를 추가한다.</summary>
+/// <summary>엔드포인트에 붙여 어떤 제한기 묶음을 적용할지 고르는 정책 이름.</summary>
 public enum RateLimitPolicy
 {
     /// <summary>비밀번호 로그인: IP별·전역 고정 창 + 해시 검증 동시 실행 제한.</summary>
@@ -8,6 +8,18 @@ public enum RateLimitPolicy
 
     /// <summary>마크다운 미리보기: 전역 고정 창 + 렌더링 동시 실행 제한.</summary>
     Preview,
+
+    /// <summary>공개 HTML 페이지·Atom·sitemap: IP별 고정 창. <see cref="Search"/> 요청도 이 창에 함께 계산된다.</summary>
+    PublicPage,
+
+    /// <summary>첨부 GET·<c>/health</c>·<c>robots.txt</c>·<c>highlight.css</c>: IP별 고정 창(페이지보다 넉넉하다).</summary>
+    PublicAsset,
+
+    /// <summary>공개 검색: IP별 고정 창 + 전역 동시 실행 제한, 그리고 <see cref="PublicPage"/> 창.</summary>
+    Search,
+
+    /// <summary>첨부 업로드: 전역 고정 창 + 동시 실행 제한(메타데이터 제거·해시가 동기 I/O다).</summary>
+    Upload,
 }
 
 /// <summary>엔드포인트 메타데이터 마커. 제한기는 <b>원시 경로가 아니라</b> 라우팅이 선택한 엔드포인트의 이 메타데이터로 파티션을 고른다

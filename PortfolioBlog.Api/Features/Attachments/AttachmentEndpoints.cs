@@ -6,6 +6,7 @@ using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Features.Attachments;
 
@@ -44,6 +45,7 @@ public static class AttachmentEndpoints
         attachments.MapGet("", ListAsync).WithName("ListAttachments");
         attachments.MapPost("", UploadAsync).DisableAntiforgery()
             .WithMetadata(new RequestSizeLimitAttribute(AttachmentOptions.MaxBytes + 1_048_576))
+            .WithMetadata(new RateLimitMetadata(RateLimitPolicy.Upload))
             .WithName("UploadAttachment");
         attachments.MapDelete("/{id:guid}", DeleteAsync).WithName("DeleteAttachment");
     }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Net.Http.Headers;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Features.Attachments;
 
@@ -15,7 +16,7 @@ namespace PortfolioBlog.Api.Features.Attachments;
 /// <item><description><b>Blocking:</b> 비동기 DB 조회 + 비동기 파일 전송. 이 앱은 <c>AddAuthentication</c>에 명시적 기본 쿠키 스킴을 등록하므로(<see cref="Infrastructure.Access.AuthServiceCollectionExtensions.AddAdminAuth"/>
 /// 참조), 인증 미들웨어는 이 엔드포인트를 포함한 <b>모든</b> 요청에서 그 스킴을 평가한다 — 형식이 맞는 관리 세션 쿠키가 실려 오면 이 공개 엔드포인트에서도 세션 검증 DB 조회(행 1개)가 일어난다.
 /// 다만 그 쿠키는 <c>__Host-</c> 접두사로 관리 호스트에 바인딩된 host-only 쿠키라 브라우저가 이 공개 호스트로는 애초에 보내지 않으므로,
-/// 이 비용은 쿠키를 직접 조작해 보낸 요청에서만 발생한다(공개 속도 제한은 Plan 2B에서 이 표면을 마저 제한한다).</description></item>
+/// 이 비용은 쿠키를 직접 조작해 보낸 요청에서만 발생하며, <c>PublicAsset</c> 한도(IP별, 기본 600회/분)가 그 상한이다.</description></item>
 /// </list>
 /// 조회 키는 <c>id</c>뿐이다. <c>fileName</c>은 URL을 읽기 좋게 하는 장식이며 어떤 값이 와도 경로에 결합하지 않는다.
 /// 응답은 스니핑 금지 + 자체 CSP(<c>default-src 'none'; sandbox</c>)로, 설령 이미지로 위장한 콘텐츠가 저장돼 있어도 문서로 실행되지 않는다 —
@@ -46,7 +47,8 @@ public static class PublicAttachmentEndpoints
     /// </remarks>
     public static void MapPublicAttachmentEndpoints(this WebApplication app)
     {
-        app.MapMethods(Pattern, ["GET", "HEAD"], GetAsync).AllowAnonymous().WithName("GetAttachment");
+        app.MapMethods(Pattern, ["GET", "HEAD"], GetAsync).AllowAnonymous().WithName("GetAttachment")
+            .WithMetadata(new RateLimitMetadata(RateLimitPolicy.PublicAsset));
     }
 
     /// <summary><paramref name="id"/>로 첨부를 찾아 파일을 스트리밍한다. <paramref name="fileName"/>은 무시한다.</summary>
