@@ -200,8 +200,8 @@ public sealed class FileSystemAttachmentStore
             ImageKind kind;
             // FileStream(FileOptions.SequentialScan): OS 미리 읽기 힌트. 제거기는 앞에서 뒤로 한 번만 읽는다.
             using (var raw = new FileStream(rawPath, FileMode.Open, FileAccess.Read, FileShare.None, BufferSize, FileOptions.SequentialScan))
-            // FileStream(FileOptions 기본값=동기): 제거기가 쓰는 대상. 최대 10MB짜리 임시 파일이고 이 클래스 호출부는
-            // 관리 표면 전용이라, 비동기 오버랩 I/O를 여는 커널 호출 비용이 짧은 동기 쓰기보다 오히려 더 크다.
+            // FileStream(FileOptions 기본값=동기): 제거기가 쓰는 대상. MetadataStripper.Strip은 동기 Read/Write만 쓰므로(비동기 오버로드 없음)
+            // 동기 핸들이 필수다 — 오버랩(비동기) 핸들에 동기 I/O를 걸면 호출마다 대기 객체를 거쳐 오히려 느려진다. 최대 10MB 임시 파일이라 동기 쓰기 시간도 짧다.
             using (var clean = new FileStream(cleanPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, BufferSize))
             {
                 Span<byte> header = stackalloc byte[ImageSignature.HeaderLength];

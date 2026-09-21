@@ -41,7 +41,7 @@ public static class PublicAttachmentEndpoints
     /// <item><description><b>Memory Allocation:</b> 라우트 등록에 따른 시작 시 1회성 할당만 발생한다.</description></item>
     /// <item><description><b>Blocking:</b> 동기 실행. I/O 없음.</description></item>
     /// </list>
-    /// <c>MapGet</c>만 쓰면 HEAD가 405가 된다(실측, fix round 2 B5) — 캐시·링크 점검기가 HEAD로 존재만 확인하는 경우가 흔하므로
+    /// <c>MapGet</c>만 쓰면 HEAD가 405가 된다(실측) — 캐시·링크 점검기가 HEAD로 존재만 확인하는 경우가 흔하므로
     /// <c>MapMethods</c>로 GET과 HEAD를 함께 등록한다.
     /// </remarks>
     public static void MapPublicAttachmentEndpoints(this WebApplication app)
@@ -62,7 +62,7 @@ public static class PublicAttachmentEndpoints
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. 파일을 여는 <see cref="FileStream"/> 생성자 호출은 짧은 동기 I/O다(비동기 오버랩 I/O로 여는 핸들 자체를 만드는 단계는 동기적으로 끝난다).</description></item>
     /// <item><description><b>Memory Policy:</b> DB 조회는 <c>StoragePath</c>·<c>ContentType</c> 두 필드만 프로젝션한다. 본체는 <c>TypedResults.Stream</c>이 응답으로 버퍼링 복사하므로 파일 전체를 메모리에 한 번에 올리지 않는다.</description></item>
-    /// <item><description><b>Concurrency:</b> Thread-safe. 존재 확인과 여는 시점을 분리하지 않고 <c>FileStream</c>을 직접 열어 실패를 잡는다(<c>File.Exists</c> 뒤에 열기가 실패하는 TOCTOU 경쟁이 없다, fix round 1 A2). 삭제와 경쟁하면(<see cref="AttachmentEndpoints.DeleteAsync"/> 참조) DB 행이 먼저 지워지므로 이 조회가 404가 되거나, DB 행이 아직 남아 있는 사이 파일이 지워졌으면(관리자가 볼륨에서 직접 지운 경우 포함) <see cref="FileNotFoundException"/>을 잡아 404가 된다 — 이 핸들러가 잘못된 내용을 돌려주는 경로는 없다. <see cref="FileShare.Delete"/>로 열기 때문에 이 핸들러가 스트리밍 중인 동안 <see cref="FileSystemAttachmentStore.TryDelete"/>가 같은 파일을 지워도(Windows에서) 공유 위반 없이 성공한다 — 삭제는 즉시 디렉터리 항목을 없애고(이후 요청은 404), 이미 열려 있는 이 핸들은 응답이 끝날 때까지 데이터를 계속 읽을 수 있다. Non-blocking: DB 조회는 <c>await</c>한다.</description></item>
+    /// <item><description><b>Concurrency:</b> Thread-safe. 존재 확인과 여는 시점을 분리하지 않고 <c>FileStream</c>을 직접 열어 실패를 잡는다(<c>File.Exists</c> 뒤에 열기가 실패하는 TOCTOU 경쟁이 없다). 삭제와 경쟁하면(<see cref="AttachmentEndpoints.DeleteAsync"/> 참조) DB 행이 먼저 지워지므로 이 조회가 404가 되거나, DB 행이 아직 남아 있는 사이 파일이 지워졌으면(관리자가 볼륨에서 직접 지운 경우 포함) <see cref="FileNotFoundException"/>을 잡아 404가 된다 — 이 핸들러가 잘못된 내용을 돌려주는 경로는 없다. <see cref="FileShare.Delete"/>로 열기 때문에 이 핸들러가 스트리밍 중인 동안 <see cref="FileSystemAttachmentStore.TryDelete"/>가 같은 파일을 지워도(Windows에서) 공유 위반 없이 성공한다 — 삭제는 즉시 디렉터리 항목을 없애고(이후 요청은 404), 이미 열려 있는 이 핸들은 응답이 끝날 때까지 데이터를 계속 읽을 수 있다. Non-blocking: DB 조회는 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> GetAsync(Guid id, HttpContext http, AppDbContext db, FileSystemAttachmentStore store, CancellationToken ct)

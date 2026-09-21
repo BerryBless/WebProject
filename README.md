@@ -239,7 +239,7 @@ dotnet test  PortfolioBlog.slnx
 2. 관리자 비밀번호 해시를 user-secrets에 저장합니다(저장소에는 남지 않습니다): `dotnet user-secrets init --project PortfolioBlog.Api` 후 `dotnet run --project PortfolioBlog.Api -- hash-password`로 해시를 뽑아 `dotnet user-secrets set "Admin:PasswordHash" "<해시>" --project PortfolioBlog.Api`.
 3. `dotnet dev-certs https --trust`로 개발 인증서를 신뢰한 뒤 `dotnet run --project PortfolioBlog.Api --launch-profile https`로 실행합니다(세션 쿠키가 Secure라 https 프로필이 필요합니다).
 
-`PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록 예시 요청이 있습니다.
+`PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록·미리보기·첨부 업로드 예시 요청이 있습니다.
 
 ## 문서
 
