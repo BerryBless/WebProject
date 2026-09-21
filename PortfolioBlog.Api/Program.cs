@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Features;
 using PortfolioBlog.Api.Features.Attachments;
 using PortfolioBlog.Api.Infrastructure.Access;
@@ -15,6 +17,18 @@ if (args is [HashPasswordCommand.Name])
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Kestrel: 서버 제품명 헤더를 내지 않는다.
+builder.WebHost.ConfigureKestrel(o => o.AddServerHeader = false);
+// 호스트 필터: 설정 파일의 AllowedHosts("*") 대신 설정된 두 origin의 호스트만 받는다(지연 바인딩 — Build 이후 첫 해석).
+// 프레임워크의 기본 PostConfigure는 목록이 비어 있을 때만 "*"로 채우므로 이 값이 이긴다(실측).
+builder.Services.AddOptions<HostFilteringOptions>().Configure<IOptions<SiteOptions>>((o, site) =>
+{
+    o.AllowedHosts = new[] { SiteOptions.HostOf(site.Value.PublicOrigin), SiteOptions.HostOf(site.Value.AdminOrigin) }
+        .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    o.AllowEmptyHosts = false;
+});
+builder.Services.AddExceptionHandler<OverloadExceptionHandler>();
 
 builder.Services.AddOpenApi();
 // ProblemDetails: 400/401/403/404/409/429 등 모든 오류 응답을 RFC 9457 형식으로 통일한다.
@@ -59,13 +73,15 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
 
+app.UseMiddleware<SecurityHeadersMiddleware>(); // 맨 앞: 뒤의 어떤 미들웨어가 응답을 끝내도 헤더가 붙는다
 app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
-app.UseStatusCodePages();
+app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync);
 app.UseMiddleware<AdminSurfaceMiddleware>();
 app.UseRateLimiter();      // IP 검사 뒤: 외부 요청이 로그인 한도를 소진하지 못한다
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<ApiBodyLimitMiddleware>(); // 인가 뒤: 세션 없는 요청은 크기와 무관하게 401이 먼저다
 
 if (app.Environment.IsDevelopment())
 {

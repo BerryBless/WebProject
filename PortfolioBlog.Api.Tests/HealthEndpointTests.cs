@@ -68,7 +68,8 @@ public sealed class HealthEndpointTests : IClassFixture<ApiFactory>
         var startedAt = DateTimeOffset.UtcNow;
 
         // HttpClient: HttpMessageHandler가 TestServer 파이프라인에 직결되어 네트워크 스택·포트 점유 없이 요청을 전달한다.
-        using var client = _factory.CreateClient();
+        // CreatePublicClient: 기본 CreateClient()의 Host는 localhost라 HostFiltering(스펙 3.6)에 400으로 걸린다.
+        using var client = _factory.CreatePublicClient();
 
         // HttpResponseMessage: 응답 콘텐츠 스트림과 내부 버퍼의 소유권을 가지므로 테스트 스코프 종료 시 즉시 반환한다.
         using var response = await client.GetAsync("/health");
