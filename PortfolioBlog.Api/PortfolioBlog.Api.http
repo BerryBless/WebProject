@@ -44,3 +44,24 @@ Content-Type: image/png
 
 < ./path/to/local/example.png
 ------WebProjectBoundary--
+
+### 공개 첫 쪽 (로컬은 Site:PublicOrigin·Site:AdminOrigin이 같은 주소라 {{Host}}로 겸용된다)
+GET {{Host}}/
+
+### 공개 글 상세 (slug는 실제로 존재하는 글로 바꿀 것)
+GET {{Host}}/posts/hello-world
+
+### 공개 태그 (경로 값은 URL 인코딩 — C#은 C%23)
+GET {{Host}}/tags/C%23
+
+### 공개 검색 (q 없이 호출하면 빈 폼)
+GET {{Host}}/search?q=
+
+### Atom 피드
+GET {{Host}}/feed.xml
+
+### sitemap
+GET {{Host}}/sitemap.xml
+
+### robots.txt
+GET {{Host}}/robots.txt
