@@ -479,7 +479,7 @@ sequenceDiagram
 - 미리보기: 입력 500ms 디바운스 → `/api/preview` → `sandbox=""` iframe `srcdoc`. React DOM에 서버 HTML을 직접 넣지 않는다. 429·503의 `Retry-After` 동안은 새 요청을 보내지 않고 멈춰 있다가(다시 시도 버튼 제공) 대기가 끝나면 이어서 요청한다. 미리보기 iframe에 넣는 공개 사이트 CSS는 원본(`PortfolioBlog.Api/wwwroot/css/site.css`와 서버가 만드는 강조 CSS)의 스냅숏이며, `PortfolioBlog.Api.Tests`의 드리프트 테스트가 사본이 원본과 같은지 검사한다(`UPDATE_PREVIEW_SNAPSHOTS=1`로 스냅숏을 갱신할 수 있다 — 갱신 실행은 파일을 쓴 뒤 의도적으로 실패로 끝난다, 갱신과 검증을 구분하기 위해서다).
 - 임시본: 글별로 localStorage에 저장, 저장 성공 시 삭제. **"저장" 버튼에 "저장하면 즉시 공개됩니다"를 표시한다.**
 - 409(`version` 불일치)면 "다른 탭에서 수정됨" 안내 후 서버본과 임시본을 나란히 보여 준다. 저장 요청이 오가는 동안 입력을 막지 않으며, 응답이 온 시점에 더 바뀐 내용이 있으면 서버 값으로 덮지 않는다.
-- 개발 시 Vite 프록시 `/api`·`/attachments` → `https://localhost:7198`(스펙 작성 시점의 `http://localhost:5055`가 아니다 — 세션 쿠키가 Secure라 HTTPS·포트 7198로 확정했다).
+- 개발 시 Vite 프록시 `/api/*`·`/attachments/*` → `https://localhost:7198`(스펙 작성 시점의 `http://localhost:5055`가 아니다 — 세션 쿠키가 Secure라 HTTPS·포트 7198로 확정했다). 경계는 운영의 `path /api/* /attachments/*`와 같다 — 접두사로 가르면 SPA 라우트 `/attachments`(첨부 화면)가 백엔드로 끌려간다.
 
 ### 3.10 배포
 

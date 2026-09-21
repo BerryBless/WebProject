@@ -84,15 +84,21 @@ test('글쓰기 전 과정: 로그인 → 시리즈 → 새 글(편집기·이�
   const slug = `e2e-${browserName}-${Date.now()}`
 
   // 로그인: 보호된 경로로 들어가면 로그인 화면을 거쳐 원래 경로로 돌아온다.
-  await page.goto('/series')
+  // 그 경로로 SPA 라우트 `/attachments`(첨부 화면)를 쓴다 — 전체 로드가 백엔드의 `/attachments/*`로 끌려가면
+  // 문서 대신 404 JSON이 온다. 운영(Caddy)과 개발·미리보기가 같은 경계로 가르는지 여기서 드러난다.
+  await page.goto('/attachments')
   await expect(page.getByRole('heading', { name: '관리자 로그인' })).toBeVisible()
   await login(page)
-  await expect(page.getByRole('heading', { name: '시리즈', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '첨부' })).toBeVisible()
+  await page.reload() // 새로고침도 같은 경로를 처음부터 다시 밟는다
+  await expect(page.getByRole('heading', { name: '첨부' })).toBeVisible()
   const session = (await context.cookies()).find(c => c.name === '__Host-AdminSession')
   expect(session).toMatchObject({ httpOnly: true, secure: true, sameSite: 'Strict', path: '/' })
   expect(await page.evaluate(() => document.cookie)).toBe('') // HttpOnly: 스크립트는 세션을 볼 수 없다
 
   // 시리즈 만들기
+  await page.getByRole('link', { name: '시리즈' }).click()
+  await expect(page.getByRole('heading', { name: '시리즈', exact: true })).toBeVisible()
   await page.getByLabel(/^제목/).last().fill(`E2E 시리즈 ${browserName}`)
   await page.getByLabel(/^slug/).last().fill(`${slug}-series`)
   await page.getByRole('button', { name: '만들기' }).click()
@@ -156,6 +162,26 @@ test('글쓰기 전 과정: 로그인 → 시리즈 → 새 글(편집기·이�
     page.waitForResponse(r => r.request().method() === 'PUT' && r.status() === 200),
     page.getByRole('button', { name: '저장' }).click(),
   ])
+
+  // 세션 만료: 다른 컨텍스트에서 로그아웃하면 서버의 SessionEpoch가 올라 이 탭의 세션도 함께 끝난다.
+  // 임시본 자동 저장은 1초 디바운스라, 그 창 안에 친 글자가 남는지는 이 경로에서만 드러난다.
+  const killer = await browser.newContext({ ignoreHTTPSErrors: true, storageState: await context.storageState() })
+  const killerPage = await killer.newPage()
+  await killerPage.goto('/')
+  await killerPage.getByRole('button', { name: '로그아웃' }).click()
+  await expect(killerPage.getByRole('heading', { name: '관리자 로그인' })).toBeVisible()
+  await killer.close()
+
+  const lastWords = `세션이 끊기기 직전에 친 글자 ${browserName}`
+  await editor.click()
+  await page.keyboard.press('Control+End')
+  await page.keyboard.type(`\n\n${lastWords}`)
+  await page.getByRole('button', { name: '저장' }).click() // 디바운스가 끝나기를 기다리지 않는다
+  await expect(page.getByRole('heading', { name: '관리자 로그인' })).toBeVisible()
+  await login(page)
+  await expect(page.getByLabel(/^slug/)).toHaveValue(slug) // 원래 보던 글로 돌아왔다
+  await page.getByRole('button', { name: '임시본 복원' }).click()
+  await expect(editor).toContainText(lastWords)
 
   // 목록에서 찾고 지운다
   await page.getByRole('link', { name: '목록' }).click()

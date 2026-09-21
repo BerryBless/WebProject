@@ -12,9 +12,12 @@ const KEY = '.certs/dev.key'
 // changeOrigin: false — Host 헤더를 SPA 출처 그대로 넘긴다. 백엔드의 호스트 필터는 포트를 뺀 호스트(localhost)만 보고,
 // Origin 검사는 Site:AdminOrigin과 비교한다. 그래서 백엔드는 Site__AdminOrigin=<이 SPA의 출처>로 띄워야 한다(README).
 // secure: false — 개발 인증서는 OS 저장소에서만 신뢰된다(Node는 OS 저장소를 보지 않는다). 루프백 전용 설정이다.
+// 키를 정규식으로 쓴다(^로 시작하면 Vite가 정규식으로 읽는다). 문자열 키는 접두사 매칭이라 SPA 라우트
+// `/attachments`(첨부 화면)의 전체 로드·새로고침이 백엔드로 가 404 JSON이 되고, `/apix` 같은 경로도 함께 끌려간다.
+// 운영(Caddy)은 `path /api/* /attachments/*`로 가르므로 개발·미리보기도 같은 경계를 쓴다.
 const proxy: Record<string, ProxyOptions> = {
-  '/api': { target: API_ORIGIN, changeOrigin: false, secure: false },
-  '/attachments': { target: API_ORIGIN, changeOrigin: false, secure: false },
+  '^/api/': { target: API_ORIGIN, changeOrigin: false, secure: false },
+  '^/attachments/': { target: API_ORIGIN, changeOrigin: false, secure: false },
 }
 
 function https() {
