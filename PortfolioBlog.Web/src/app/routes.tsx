@@ -2,6 +2,7 @@ import { Link, type RouteObject } from 'react-router'
 import { LoginPage } from '../auth/LoginPage'
 import { RequireAuth } from '../auth/RequireAuth'
 import { Layout } from '../components/Layout'
+import { AttachmentsPage } from '../pages/AttachmentsPage'
 import { PostsPage } from '../pages/PostsPage'
 import { SeriesPage } from '../pages/SeriesPage'
 import { TagsPage } from '../pages/TagsPage'
@@ -21,6 +22,7 @@ export const routes: RouteObject[] = [
         { path: '/posts/:id', lazy: editor },
         { path: '/series', element: <SeriesPage /> },
         { path: '/tags', element: <TagsPage /> },
+        { path: '/attachments', element: <AttachmentsPage /> },
       ],
     }],
   },
