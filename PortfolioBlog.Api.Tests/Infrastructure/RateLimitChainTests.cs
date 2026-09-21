@@ -7,6 +7,14 @@ using PortfolioBlog.Api.Infrastructure.Web;
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
 /// <summary>속도 제한 체인의 순서와 파티션을 호스트 없이 검증한다(동시 실행 거부를 HTTP로 결정적으로 재현할 수 없어서 체인을 직접 친다).</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> 클래스·컬렉션 픽스처가 없다 — 테스트마다 <see cref="RateLimitingExtensions.BuildChain"/>을 직접 호출해 새 체인을 만들므로 공유하는 가변 상태가 없다. 웹 호스트·DB 없이 순수 CLR 객체(<see cref="DefaultHttpContext"/>, <see cref="PartitionedRateLimiter{TResource}"/>)만 쓰므로 xUnit이 다른 테스트 클래스와 병렬로 돌려도 안전하다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 테스트당 체인 1개(정책 개수만큼 내부 제한기)와 요청 컨텍스트 몇 개만 할당한다. 외부 자원(파일·네트워크·DB)을 열지 않는다.</description></item>
+/// <item><description><b>Blocking:</b> 전부 동기. <see cref="PartitionedRateLimiter{TResource}.AttemptAcquire"/>를 직접 호출하며 호스트·DB·네트워크 I/O가 없어 테스트가 밀리초 단위로 끝난다.</description></item>
+/// </list>
+/// </remarks>
 public sealed class RateLimitChainTests
 {
     private static DefaultHttpContext Request(RateLimitPolicy policy, string ip = "203.0.113.9")

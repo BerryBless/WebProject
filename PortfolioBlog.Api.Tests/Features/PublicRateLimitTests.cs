@@ -5,6 +5,14 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>공개·업로드 속도 제한이 실제 파이프라인에 걸려 있는지 검증한다. 테스트마다 격리된 팩토리(자체 제한기 상태)를 만든다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> <c>[Collection("postgres")]</c>로 같은 컬렉션의 다른 테스트 클래스와 <see cref="PostgresContainerFixture"/>(컨테이너 자체)를 공유하지만, 테스트마다 새 <see cref="ApiFactory"/>를 만들어 자체 DB(고유 데이터베이스명)와 자체 속도 제한기 상태(체인이 요청 스코프가 아니라 팩토리별로 새로 등록됨)를 가지므로 테스트 간 데이터·한도 간섭이 없다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 팩토리·HttpClient는 <c>using</c>으로 해제.</description></item>
+/// <item><description><b>Blocking:</b> 비동기. 실제 PostgreSQL 컨테이너에 접속한다.</description></item>
+/// </list>
+/// </remarks>
 [Collection("postgres")]
 public sealed class PublicRateLimitTests(PostgresContainerFixture pg)
 {

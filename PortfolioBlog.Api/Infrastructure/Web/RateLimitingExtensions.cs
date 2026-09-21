@@ -11,7 +11,10 @@ namespace PortfolioBlog.Api.Infrastructure.Web;
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> 등록은 시작 시 1회. 제한기 자체는 프레임워크가 Thread-safe하게 관리한다.</description></item>
-/// <item><description><b>Memory Allocation:</b> 공개 정책의 IP 파티션은 방문자 IP 수만큼 생기고, 프레임워크가 유휴 파티션을 주기적으로 걷어 낸다. IPv6는 /64로 묶는다(<see cref="ClientIp"/>).</description></item>
+/// <item><description><b>Memory Allocation:</b> 공개 정책의 IP 파티션은 방문자 IP 수만큼 생긴다. <c>PartitionedRateLimiter.Create</c>가 반환하는 내부 구현(<c>DefaultPartitionedRateLimiter&lt;TResource,TKey&gt;</c>, .NET 10 런타임)은
+/// <c>static readonly TimeSpan s_idleTimeLimit = 00:00:10</c> 필드와 백그라운드 타이머(<c>Heartbeat</c>)로 10초 이상 쓰이지 않은 파티션을 스스로 걷어 낸다 —
+/// 리플렉션 프로브로 50개 파티션을 만든 뒤 아무 것도 호출하지 않고 기다리기만 했을 때 10~15초 사이에 내부 딕셔너리가 0으로 줄어드는 것을 실측했다(저장소 밖 임시 콘솔 프로젝트, 남기지 않음).
+/// IPv6는 /64로 묶어 파티션 수를 더 줄인다(<see cref="ClientIp"/>).</description></item>
 /// <item><description><b>Blocking:</b> 대기열 0 — 한도를 넘으면 기다리지 않고 즉시 429.</description></item>
 /// </list>
 /// 미들웨어 위치는 <c>AdminSurfaceMiddleware</c> 뒤다: 허용 IP 밖의 요청이 한도를 소진하지 못한다.
