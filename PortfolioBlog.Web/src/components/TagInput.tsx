@@ -9,10 +9,15 @@ export function TagInput({ value, onChange, suggestions }: Props) {
   const listId = useId()
 
   const commit = () => {
-    const tag = displayTag(text)
+    // 쉼표가 든 채 한 번에 들어오는 값(붙여넣기)을 여러 태그로 나눈다 — 쉼표 하나하나가 keydown을 거치는 타이핑과
+    // 달리, 붙여넣기는 input의 값이 통째로 바뀌므로 여기서 나누지 않으면 쉼표까지 포함한 태그 하나가 되어 버린다.
     setText('')
-    if (tag.length === 0 || value.some(existing => existing.toLowerCase() === tag.toLowerCase())) return
-    onChange([...value, tag])
+    let next = value
+    for (const part of text.split(',').map(displayTag)) {
+      if (part.length === 0 || next.some(existing => existing.toLowerCase() === part.toLowerCase())) continue
+      next = [...next, part]
+    }
+    if (next !== value) onChange(next)
   }
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     // 한글 조합 중의 Enter는 조합 확정이다 — 태그 추가로 처리하지 않는다.

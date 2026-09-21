@@ -9,7 +9,9 @@ import { noteUnexpectedCall } from './unexpected'
 
 export interface Call { method: string; url: string; body: unknown }
 type Reply = { status: number; body?: unknown; headers?: Record<string, string> }
-type Handler = Reply | ((call: Call) => Reply)
+// 핸들러가 Promise를 돌려줄 수 있게 한다: 저장 요청이 "왕복 중"인 상태를 테스트에서 직접 붙잡아 두려면
+// (예: 응답이 오기 전에 입력을 더 친 뒤 수동으로 Promise를 풀어 순서를 확인) 동기 응답만으로는 표현할 수 없다.
+type Handler = Reply | ((call: Call) => Reply | Promise<Reply>)
 
 /**
  * fetch를 "METHOD 경로" 표로 대신한다. 표에 없는 호출은 예외를 던지지만, request()가 그 예외를 네트워크 오류로
@@ -26,11 +28,13 @@ export function stubApi(table: Record<string, Handler>) {
     const call: Call = { method, url, body: typeof raw === 'string' ? JSON.parse(raw) : raw ?? null }
     calls.push(call)
     const handler = table[`${method} ${url.split('?')[0]}`]
+    // 표 밖 호출의 기록은 핸들러가 Promise를 돌려주더라도 await 앞(동기)에서 한다 — 어떤 요청이 나갔는지는
+    // 응답이 오기 전에 이미 정해진 사실이라, 응답을 기다리는 동안 기록이 늦어지면 안 된다.
     if (!handler) {
       noteUnexpectedCall(`${method} ${url}`)
       throw new Error(`stubApi: 예상하지 못한 호출 ${method} ${url}`)
     }
-    const reply = typeof handler === 'function' ? handler(call) : handler
+    const reply = await (typeof handler === 'function' ? handler(call) : handler)
     return new Response(reply.body === undefined ? null : JSON.stringify(reply.body), { status: reply.status, headers: reply.headers })
   }))
   return calls

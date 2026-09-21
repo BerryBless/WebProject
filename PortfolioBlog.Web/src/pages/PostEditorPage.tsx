@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router'
 import { attachments, posts, series as seriesApi, tags as tagsApi } from '../api/endpoints'
-import { ApiError, type FieldErrors } from '../api/errors'
+import { ApiError, describeError, type FieldErrors } from '../api/errors'
 import type { PostDetail } from '../api/types'
 import { noteAuthFailure } from '../app/queryClient'
 import { ConflictPanel } from '../components/ConflictPanel'
@@ -21,6 +21,13 @@ const fromServer = (post: PostDetail): DraftFields => ({
   tagNames: post.tags, seriesId: post.seriesId, seriesOrder: post.seriesOrder,
 })
 const detailKey = (postId: string) => ['posts', 'detail', postId] as const
+
+/** 409 뒤 최신본 재조회가 실패했을 때 보여줄 문구. 404는 "그 사이 삭제됐다"는 우리 쪽 해석이라 서버 문자열이
+    아니라 고정 문구를 쓴다(401은 noteAuthFailure가 이미 로그인 화면으로 보내 여기까지 오지 않는다). */
+const conflictRefetchMessage = (error: unknown): string =>
+  error instanceof ApiError && error.status === 404
+    ? '이 글은 다른 곳에서 삭제되었습니다. 내용은 임시본에 남아 있습니다.'
+    : describeError(error)
 
 export function PostEditorPage() {
   const { id } = useParams()
@@ -53,12 +60,23 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   })
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [conflict, setConflict] = useState<PostDetail | null>(null)
-  const [uploadError, setUploadError] = useState<unknown>(null)
+  const [conflictRefetchError, setConflictRefetchError] = useState<unknown>(null)
+  const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [draftFailed, setDraftFailed] = useState(false)
 
   const dirty = !sameFields(fields, baseline.fields)
   const set = <K extends keyof DraftFields>(key: K, value: DraftFields[K]) => setFields(prev => ({ ...prev, [key]: value }))
+
+  // 저장은 네트워크 왕복이고 그동안 입력란·편집기를 막지 않는다 — 응답이 도착했을 때 그사이 친 내용을 덮지 않으려면
+  // 그 시점의 "진짜 최신" fields가 필요한데, onSuccess 콜백은 mutate를 호출한 시점의 클로저(fields)만 본다.
+  // 매 렌더 뒤 최신값으로 갱신되는 ref를 따로 두고 onSuccess에서는 이 ref만 읽는다.
+  const fieldsRef = useRef(fields)
+  useEffect(() => { fieldsRef.current = fields })
+  // 새 글 생성이 성공한 뒤에는 이 Editor 인스턴스(postId=null, draftKey='new')가 완전히 언마운트되기 전까지
+  // 잠깐 더 살아 있을 수 있다 — 그 틈에 남은 디바운스 틱이 자동 저장 effect를 한 번 더 돌려 방금 지운 'new'
+  // 임시본을 되살릴 수 있어 막는다(경합의 재현 여부는 테스트에서 직접 확인한다).
+  const discardDraftsRef = useRef(false)
 
   const seriesList = useQuery({ queryKey: ['series', 'list'], queryFn: ({ signal }) => seriesApi.list(signal) })
   const tagList = useQuery({ queryKey: ['tags', 'list'], queryFn: ({ signal }) => tagsApi.list(signal) })
@@ -66,11 +84,10 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   // 임시본 자동 저장(1초 디바운스). 복원 여부를 아직 고르지 않았으면(pendingDraft) 기존 임시본을 건드리지 않는다.
   const settled = useDebounced(fields, 1000)
   useEffect(() => {
-    if (pendingDraft !== null) return
+    if (pendingDraft !== null || discardDraftsRef.current) return
     // oxlint-disable-next-line react/set-state-in-effect
     if (sameFields(settled, baseline.fields)) { clearDraft(draftKey); setDraftFailed(false); return }
     // 저장소 쓰기(부수 효과)의 성공 여부를 화면에 알려야 한다 — 렌더 중에 파생할 수 있는 값이 아니다.
-    // oxlint-disable-next-line react/set-state-in-effect
     setDraftFailed(!saveDraft(draftKey, { ...settled, baseVersion: baseline.version, savedAt: new Date().toISOString() }))
   }, [settled, baseline, pendingDraft, draftKey])
 
@@ -85,24 +102,50 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   const replaceAll = (next: DraftFields) => { setFields(next); setEditorKey(k => k + 1) } // 편집기는 비제어라 다시 마운트해야 본문이 바뀐다
 
   const save = useMutation({
-    mutationFn: () => postId === null ? posts.create(fields) : posts.update(postId, { ...fields, version: baseline.version ?? undefined }),
-    onSuccess: saved => {
-      clearDraft(draftKey)
+    // 요청 본문은 제출 시점의 submitted로 만든다(클로저의 fields가 아니다) — 응답이 오는 동안 fields가 더 바뀌어도
+    // 이미 나간 요청의 내용은 제출 시점 그대로여야 한다.
+    mutationFn: (submitted: DraftFields) => postId === null ? posts.create(submitted) : posts.update(postId, { ...submitted, version: baseline.version ?? undefined }),
+    onSuccess: (saved, submitted) => {
+      // 저장 왕복 중에도 입력을 막지 않았다. fieldsRef는 렌더 뒤 effect로 갱신되므로 아직 flush되지 않았으면
+      // 한 렌더 뒤처질 수 있다 — 그래서 임시본·재마운트처럼 렌더 밖에서 한 번만 읽으면 되는 판단에만 쓰고,
+      // 화면 입력란에 서버 값을 대입할지는 React가 직접 건네주는 prev(커밋된 최신 state)로 판단한다.
+      // 기준선·version은 이 판단과 무관하게 항상 서버값으로 맞춘다 — 다음 저장은 이 version을 그대로 실어 보내야
+      // 서버가 "최신 위에 쓰는 것"으로 받아들인다.
+      const unchanged = sameFields(fieldsRef.current, submitted)
+      const next = fromServer(saved)
+      setBaseline({ fields: next, version: saved.version })
       client.setQueryData(detailKey(saved.id), saved)
       void client.invalidateQueries({ queryKey: ['posts', 'list'] })
       void client.invalidateQueries({ queryKey: ['tags'] })
       void client.invalidateQueries({ queryKey: ['series'] })
-      if (postId === null) { void navigate(`/posts/${saved.id}`, { replace: true }); return }
-      const next = fromServer(saved)
-      setBaseline({ fields: next, version: saved.version })
-      if (next.contentMarkdown === fields.contentMarkdown) setFields(next); else replaceAll(next)
+      if (postId === null) {
+        // 그사이 친 내용이 있으면 새 글 id 키로 임시본을 남긴다 — 이동한 편집 화면이 "임시본 복원"을 제안한다.
+        // slug는 생성 뒤 바꿀 수 없으므로 서버가 확정한 값으로 고정한다.
+        if (!unchanged) saveDraft(saved.id, { ...fieldsRef.current, slug: saved.slug, baseVersion: saved.version, savedAt: new Date().toISOString() })
+        clearDraft(NEW_POST_KEY)
+        discardDraftsRef.current = true
+        void navigate(`/posts/${saved.id}`, { replace: true })
+        return
+      }
+      // 응답이 오기까지 아무것도 안 바뀌었을 때만(prev가 submitted와 같을 때만) 서버 값을 대입한다 — 업데이터
+      // 안에서는 다른 setState를 부를 수 없어 재마운트는 아래에서 별도로 처리한다.
+      setFields(prev => sameFields(prev, submitted) ? next : prev)
+      if (unchanged) {
+        // 응답이 오기까지 아무것도 안 바뀌었을 때만 임시본을 지운다(더 지킬 내용이 없을 때만).
+        clearDraft(draftKey)
+        if (next.contentMarkdown !== submitted.contentMarkdown) setEditorKey(k => k + 1) // 편집기는 비제어라 다시 마운트해야 본문이 바뀐다
+      }
     },
     onError: async error => {
       if (!(error instanceof ApiError)) return
       if (error.status === 400) setFieldErrors(error.fieldErrors)
       // 409는 본문 검증(400)보다 먼저 올 수 있다(서버는 version을 렌더보다 먼저 본다). 최신본을 받아 나란히 보여 준다.
       if (error.status === 409 && postId !== null) {
-        try { setConflict(await posts.get(postId)) } catch (cause) { noteAuthFailure(client, cause) }
+        try { setConflict(await posts.get(postId)) }
+        catch (cause) {
+          noteAuthFailure(client, cause)
+          setConflictRefetchError(cause) // 401 외의 원인(404·네트워크)은 감추지 않고 보여준다
+        }
       }
     },
   })
@@ -110,19 +153,29 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   const submit = () => {
     const errors = validatePost(fields)
     setFieldErrors(errors)
-    if (!hasErrors(errors)) save.mutate()
+    setConflictRefetchError(null)
+    if (!hasErrors(errors)) save.mutate(fields)
   }
 
   const uploadImages = async (files: File[]) => {
-    setUploadError(null); setUploading(true)
-    try {
-      for (const file of files) { // 순차 업로드: 서버의 업로드 동시 실행 한도는 전역 2다
-        const problem = validateImageFile(file)
-        if (problem) { setUploadError(new ApiError(400, '올릴 수 없는 파일', problem)); continue }
+    setUploadErrors([]); setUploading(true)
+    const errors: string[] = []
+    for (let index = 0; index < files.length; index++) { // 순차 업로드: 서버의 업로드 동시 실행 한도는 전역 2다
+      const file = files[index]
+      const problem = validateImageFile(file)
+      if (problem) { errors.push(`${file.name}: ${problem}`); continue } // 편의 검사 실패는 그 파일만 건너뛰고 계속한다
+      try {
         const uploaded = await attachments.upload(file, file.name || 'image.png')
         editor.current?.insertAtCursor(`![${altTextOf(uploaded.fileName)}](${uploaded.url})\n`)
+      } catch (cause) {
+        noteAuthFailure(client, cause) // useMutation을 거치지 않는 직접 await이라 401을 스스로 기록해야 한다
+        const remaining = files.length - index - 1
+        errors.push(`${file.name}: ${describeError(cause)}${remaining > 0 ? ` (나머지 ${remaining}개는 올리지 않았습니다.)` : ''}`)
+        break // 서버 호출 실패는 여기서 멈춘다(다음 파일이 또 실패할 가능성이 높다) — 남은 파일은 올리지 않는다
       }
-    } catch (cause) { noteAuthFailure(client, cause); setUploadError(cause) } finally { setUploading(false) }
+    }
+    setUploading(false)
+    setUploadErrors(errors)
   }
 
   const bytes = utf8ByteLength(fields.contentMarkdown)
@@ -153,6 +206,11 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         <ConflictPanel server={conflict} mineMarkdown={fields.contentMarkdown}
           onTakeServer={() => { const next = fromServer(conflict); setBaseline({ fields: next, version: conflict.version }); replaceAll(next); clearDraft(draftKey); setConflict(null); save.reset() }}
           onKeepMine={() => { setBaseline({ fields: fromServer(conflict), version: conflict.version }); setConflict(null); save.reset() }} />
+      )}
+      {!conflict && conflictRefetchError !== null && (
+        <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          <span>{conflictRefetchMessage(conflictRefetchError)}</span>
+        </div>
       )}
       {!conflict && <ErrorNotice error={save.error instanceof ApiError && save.error.status === 400 ? null : save.error} />}
 
@@ -196,7 +254,11 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
             <span className="flex-1" />
             <span className={bytes > LIMITS.contentMaxBytes ? 'text-red-700' : 'text-gray-500'}>{(bytes / 1024).toFixed(1)} / {LIMITS.contentMaxBytes / 1024}KB</span>
           </div>
-          <ErrorNotice error={uploadError} />
+          {uploadErrors.length > 0 && (
+            <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              <ul className="list-disc pl-4">{uploadErrors.map((msg, i) => <li key={i}>{msg}</li>)}</ul>
+            </div>
+          )}
           <MarkdownEditor key={editorKey} ref={editor} initialValue={fields.contentMarkdown}
             onChange={value => set('contentMarkdown', value)} onImageFiles={files => void uploadImages(files)} />
           <FieldError errors={fieldErrors} field="contentMarkdown" />

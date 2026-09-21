@@ -114,4 +114,81 @@ describe('글 편집', () => {
     await userEvent.upload(await screen.findByLabelText('이미지 올리기'), file)
     await screen.findByRole('heading', { name: '관리자 로그인' })
   })
+
+  it('여러 이미지를 올릴 때 파일별 오류를 모아 보여주고, 서버 오류가 나면 남은 파일은 올리지 않는다', async () => {
+    const calls = stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, 'POST /api/attachments': { status: 500 } })
+    renderApp(`/posts/${POST.id}`)
+    // input의 accept 속성 때문에 userEvent.upload는 형식이 다른 파일(예: text/plain)을 아예 골라 주지 않는다
+    // (실제 파일 선택 대화상자와 같은 동작) — 그래서 편의 검사 실패는 "형식은 맞지만 크기가 0인 파일"로 재현한다.
+    const bad = new File([], 'empty.png', { type: 'image/png' })
+    const good1 = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' })
+    const good2 = new File([new Uint8Array([1, 2, 3])], 'b.png', { type: 'image/png' }) // 앞의 서버 오류 때문에 시도조차 되지 않아야 한다
+    await userEvent.upload(await screen.findByLabelText('이미지 올리기'), [bad, good1, good2])
+    await screen.findByText(/빈 파일은 올릴 수 없습니다/)
+    expect(screen.getByText(/나머지 1개는 올리지 않았습니다/)).toBeInTheDocument()
+    expect(calls.filter(c => c.method === 'POST' && c.url === '/api/attachments')).toHaveLength(1) // good2는 시도되지 않음
+  })
+
+  it('저장 요청이 돌아오기 전에 친 글자는 남는다(수정 화면)', async () => {
+    let resolvePut!: (reply: { status: number; body: PostDetail }) => void
+    const putPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePut = resolve })
+    const calls = stubApi({
+      ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST },
+      [`PUT /api/posts/${POST.id}`]: () => putPromise,
+    })
+    renderApp(`/posts/${POST.id}`)
+    await userEvent.clear(await screen.findByLabelText(/^제목/))
+    await userEvent.type(screen.getByLabelText(/^제목/), '바뀐 제목')
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    // 요청이 도는 동안(아직 응답 전) 다른 필드를 더 친다 — 응답이 이 입력을 덮으면 안 된다.
+    await userEvent.clear(screen.getByLabelText(/^요약/))
+    await userEvent.type(screen.getByLabelText(/^요약/), '요약수정중')
+    resolvePut({ status: 200, body: { ...POST, title: '바뀐 제목', version: 8 } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '저장' })).not.toBeDisabled()) // 응답 뒤에도 dirty(더 바뀐 게 있음)
+    expect(screen.getByLabelText(/^요약/)).toHaveValue('요약수정중') // 사라지지 않았다
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(calls.filter(c => c.method === 'PUT')).toHaveLength(2))
+    expect(calls.filter(c => c.method === 'PUT')[1].body).toMatchObject({ version: 8, summary: '요약수정중' }) // 다음 저장은 최신 version을 그대로 싣는다
+  })
+
+  it('새 글: 생성 요청이 도는 동안 친 내용은 이동 뒤 임시본 복원으로 남는다', async () => {
+    let resolvePost!: (reply: { status: number; body: PostDetail }) => void
+    const postPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePost = resolve })
+    stubApi({ ...COMMON, 'POST /api/posts': () => postPromise, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    renderApp('/posts/new')
+    await userEvent.type(await screen.findByLabelText(/^제목/), '새 글 제목')
+    await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await userEvent.type(screen.getByLabelText(/^요약/), '중간에 더 씀') // 요청이 도는 동안 더 친다
+    resolvePost({ status: 201, body: { ...POST, slug: 'new-post', title: '새 글 제목' } })
+    await screen.findByText(/저장된 임시본이 있습니다/) // 이동한 편집 화면이 복원을 제안한다
+    expect(loadDraft(POST.id)?.summary).toBe('중간에 더 씀')
+  })
+
+  it('새 글 생성 성공 뒤 남은 디바운스 틱이 지운 임시본을 되살리지 않는다', async () => {
+    // 이 경합은 jsdom 실시간 타이머에서도 실제로 재현된다(가드를 지우면 아래 첫 waitFor에서 곧바로 실패로 확인함) —
+    // 타이핑이 끝나자마자 저장을 눌러 1초 디바운스가 아직 안 끝난 채로 경합 창을 만든다.
+    stubApi({ ...COMMON, 'POST /api/posts': { status: 201, body: { ...POST, slug: 'new-post' } }, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    renderApp('/posts/new')
+    await userEvent.type(await screen.findByLabelText(/^제목/), '새 글 제목')
+    await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(loadDraft('new')).toBeNull())
+    await new Promise(resolve => setTimeout(resolve, 1500)) // 남아 있을 수 있는 디바운스 틱이 실제로 지나가길 기다린다(실시간)
+    expect(loadDraft('new')).toBeNull()
+  })
+
+  it('409 뒤 최신본 재조회가 404면(그사이 삭제됨) 사실을 알리고, 충돌 화면은 뜨지 않는다', async () => {
+    let gets = 0
+    stubApi({
+      ...COMMON,
+      [`GET /api/posts/${POST.id}`]: () => (gets++ === 0 ? { status: 200, body: POST } : { status: 404 }),
+      [`PUT /api/posts/${POST.id}`]: { status: 409, body: { title: '충돌', detail: '다른 곳에서 이 글이 먼저 수정되었습니다.' } },
+    })
+    renderApp(`/posts/${POST.id}`)
+    fireEvent.change(await screen.findByLabelText('본문(마크다운)'), { target: { value: '# 내 본문' } })
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await screen.findByText('이 글은 다른 곳에서 삭제되었습니다. 내용은 임시본에 남아 있습니다.')
+    expect(screen.queryByRole('alertdialog', { name: '저장 충돌' })).not.toBeInTheDocument()
+  })
 })
