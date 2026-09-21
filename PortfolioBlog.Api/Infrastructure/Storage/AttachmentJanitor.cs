@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Infrastructure.Storage;
@@ -21,7 +22,7 @@ public sealed record SweepResult(int TempFilesDeleted, int OrphanFilesDeleted, i
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> <see cref="BackgroundService.ExecuteAsync"/>는 호스트가 시작할 때 단 한 번 시작하는 단일 루프다. <see cref="SweepOnceAsync"/>는 그 루프와 테스트 양쪽에서(동시에는 아니고 각자) 호출될 수 있도록 상태를 인스턴스에 두지 않고 매 호출마다 새 DB 스코프를 연다.</description></item>
 /// <item><description><b>Memory Allocation:</b> 스윕 1회당 임시·저장 파일 경로 문자열들과 DB 조회 결과만큼 할당한다. 전체 목록을 배열로 모으지 않고 <see cref="FileSystemAttachmentStore.EnumerateTempFiles"/>/<see cref="FileSystemAttachmentStore.EnumerateStoredFiles"/> 스트리밍 열거를 그대로 소비한다.</description></item>
-/// <item><description><b>Blocking:</b> <see cref="ExecuteAsync"/>는 시작 시 <see cref="Task.Yield"/>로 호스트 시작을 막지 않는다. <see cref="SweepOnceAsync"/> 내부의 파일 시스템 호출은 동기 I/O이지만(<see cref="File.GetLastWriteTimeUtc(string)"/>·<see cref="File.Delete(string)"/>), 이 클래스는 항상 백그라운드 실행 또는 테스트에서만 호출되어 요청 처리 스레드를 막지 않는다.</description></item>
+/// <item><description><b>Blocking:</b> <see cref="ExecuteAsync"/>는 시작 시 <see cref="Task.Yield"/>로 호스트 시작을 막지 않는다. <see cref="SweepOnceAsync"/> 내부의 파일 시스템 호출은 동기 I/O이지만(<see cref="File.GetLastWriteTimeUtc(string)"/>·<see cref="File.Delete(string)"/>), 이 클래스는 항상 백그라운드 실행 또는 테스트에서만 호출되어 요청 처리 스레드를 막지 않는다. 고아 후보 파일마다 잠금 대기가 최대 10초(<see cref="AttachmentLock"/>의 <c>lock_timeout</c>)까지 걸릴 수 있어, 후보가 많고 전부 다른 요청에 잠겨 있으면 스윕 1회가 그만큼 느려질 수 있다.</description></item>
 /// </list>
 /// </remarks>
 public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAttachmentStore store, IOptions<AttachmentOptions> options,
@@ -74,7 +75,9 @@ public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAtt
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> 배경 루프(스레드 풀) 또는 테스트 스레드에서 호출된다. 매 호출마다 <see cref="IServiceScopeFactory.CreateAsyncScope"/>로 전용 <see cref="AppDbContext"/>를 연다 — 배경 루프와 요청 파이프라인이 DbContext를 공유하지 않는다.</description></item>
     /// <item><description><b>Memory Policy:</b> 저장 파일·임시 파일 목록을 배열로 모으지 않고 스트리밍 열거한다. 고아로 확정된 파일마다 <see cref="AttachmentLock"/> 잠금 키 문자열 1개를 추가로 할당한다.</description></item>
-    /// <item><description><b>Concurrency:</b> 고아 판정을 받은 각 파일은 삭제 직전 <see cref="AttachmentLock"/> 세션 잠금 안에서 "참조 없음"을 다시 확인한다 — 열거 시점과 잠금 획득 사이에 같은 내용의 업로드가 행을 넣었을 수 있기 때문이다(그 업로드는 파일이 이미 있어 옮기지 않고 행만 넣었다). 파일 삭제(<see cref="FileSystemAttachmentStore.TryDelete"/>)는 존재하지 않는 파일에도 <see langword="true"/>를 반환하므로, 열거와 삭제 사이에 다른 요청이 같은 파일을 이미 지웠다면(그 요청도 이 파일을 삭제한 것이므로) 이 스윕의 <see cref="SweepResult.OrphanFilesDeleted"/> 카운트에 함께 잡힌다 — 파일 자체는 어느 쪽이 지웠든 이미 없으므로 수치가 중복 집계될 뿐 안전 문제는 아니다(미검증: 이 경쟁을 재현하는 테스트는 만들지 않았다).</description></item>
+    /// <item><description><b>Concurrency:</b> 고아 판정을 받은 각 파일은 삭제 직전 <see cref="AttachmentLock"/> 세션 잠금 안에서 "참조 없음"을 다시 확인한다 — 열거 시점과 잠금 획득 사이에 같은 내용의 업로드가 행을 넣었을 수 있기 때문이다(그 업로드는 파일이 이미 있어 옮기지 않고 행만 넣었다). 파일 삭제(<see cref="FileSystemAttachmentStore.TryDelete"/>)는 존재하지 않는 파일에도 <see langword="true"/>를 반환하므로, 열거와 삭제 사이에 다른 요청이 같은 파일을 이미 지웠다면(그 요청도 이 파일을 삭제한 것이므로) 이 스윕의 <see cref="SweepResult.OrphanFilesDeleted"/> 카운트에 함께 잡힌다 — 파일 자체는 어느 쪽이 지웠든 이미 없으므로 수치가 중복 집계될 뿐 안전 문제는 아니다(미검증: 이 경쟁을 재현하는 테스트는 만들지 않았다).
+/// 후보 하나의 잠금 대기가 <c>lock_timeout</c>(10초)을 넘어 SqlState 55P03이 나면 그 파일만 경고 로그 후 건너뛰고 스윕은 계속된다(뒤에 오는 "파일 없는 행" 진단이 유실되지 않게) —
+/// 이 분기는 10초를 실제로 기다려야 재현되므로 테스트하지 않았다(미검증, 코드 리뷰 대상).</description></item>
     /// </list>
     /// </remarks>
     public async Task<SweepResult> SweepOnceAsync(DateTimeOffset now, CancellationToken ct)
@@ -95,10 +98,19 @@ public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAtt
             if (File.GetLastWriteTimeUtc(store.PhysicalPath(storagePath)) >= cutoff) continue;
             // Sha256에는 UNIQUE 인덱스가 있다(StoragePath에는 없다) — 파일 수만큼 도는 조회라 인덱스를 타야 한다.
             if (await db.Attachments.AnyAsync(a => a.Sha256 == sha, ct)) continue;
-            await using (await AttachmentLock.HoldAsync(db, sha, ct))
+            try
             {
-                // 잠금 안에서 다시 확인: 방금 같은 내용의 업로드가 행을 넣었을 수 있다(그 업로드는 이 파일을 "이미 있음"으로 보고 옮기지 않았다).
-                if (!await db.Attachments.AnyAsync(a => a.Sha256 == sha, ct) && store.TryDelete(storagePath)) orphans++;
+                await using (await AttachmentLock.HoldAsync(db, sha, ct))
+                {
+                    // 잠금 안에서 다시 확인: 방금 같은 내용의 업로드가 행을 넣었을 수 있다(그 업로드는 이 파일을 "이미 있음"으로 보고 옮기지 않았다).
+                    if (!await db.Attachments.AnyAsync(a => a.Sha256 == sha, ct) && store.TryDelete(storagePath)) orphans++;
+                }
+            }
+            catch (Exception ex) when (IsLockTimeout(ex))
+            {
+                // 다른 요청이 마침 이 내용을 쓰고 있어 10초 안에 잠금을 못 얻었다 — 이 파일 하나만 건너뛰고(다음 스윕에서 다시 시도) 스윕 전체는
+                // 계속한다. 이렇게 하지 않으면 뒤이어 도는 "파일이 없는 행" 진단(missing 카운트)이 이 예외로 통째로 유실된다.
+                logger.LogWarning(ex, "고아 파일 후보의 잠금 대기 시간 초과. 이 스윕에서는 건너뛴다. StoragePath={StoragePath}", storagePath);
             }
         }
 
@@ -109,6 +121,19 @@ public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAtt
         }
         if (missing > 0) logger.LogWarning("파일이 없는 첨부 행 {Count}건. 같은 이미지를 다시 올리면 복구된다.", missing);
         return new SweepResult(temp, orphans, missing);
+    }
+
+    // private 헬퍼: OverloadExceptionHandler.IsOverload는 57014(statement_timeout)·RenderBusyException까지 포함하는 더 넓은 판정이라
+    // 여기서는 재사용하지 않는다 — 이 자리는 advisory lock 대기이지 statement_timeout이 아니므로 55P03만 좁게 본다.
+    // ExecuteSqlInterpolatedAsync(AttachmentLock.HoldAsync 내부)는 EF의 SaveChanges 경로가 아니라서 PostgresException이 DbUpdateException에
+    // 감싸이지 않고 그대로 올라온다 — 그래도 InnerException 체인을 훑어 감싸일 가능성까지 방어한다.
+    private static bool IsLockTimeout(Exception exception)
+    {
+        for (var e = exception; e is not null; e = e.InnerException)
+        {
+            if (e is PostgresException { SqlState: "55P03" }) return true;
+        }
+        return false;
     }
 
     // private 헬퍼: 상용구 remarks 없이 판단 근거만 인라인으로 남긴다 — 임시 파일 삭제 실패(잠김·권한)는 다음 스윕에서 다시 시도하면 되므로 예외로 스윕 전체를 멈추지 않는다.

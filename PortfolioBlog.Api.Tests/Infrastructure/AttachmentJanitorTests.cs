@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using Xunit.Abstractions;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -16,7 +17,7 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// </list>
 /// </remarks>
 [Collection("postgres")]
-public sealed class AttachmentJanitorTests(PostgresContainerFixture pg)
+public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOutputHelper output)
 {
     private static async Task<AttachmentDto> UploadAsync(HttpClient client, string fixture)
     {
@@ -78,5 +79,52 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg)
         Assert.True(File.Exists(freshTemp));
         Assert.True(File.Exists(foreign));
         Assert.True(store.Exists(Path.GetRelativePath(root, keptPath).Replace('\\', '/'))); // Exists 접근자가 실제 경로 규칙과 맞는다
+    }
+
+    /// <summary>버킷 디렉터리가 심볼릭 링크(저장 루트 밖 실제 디렉터리를 가리킴)면, 그 안에 오래되고 모양이 맞는 파일이 있어도 스윕이 링크를
+    /// 따라가지 않아 지워지지 않는다. 이 개발 환경(Windows)은 심볼릭 링크 생성에 관리자 권한·개발자 모드가 필요할 수 있으므로, 권한이 없으면
+    /// 사유를 출력하고 건너뛴다(Linux CI에서는 보통 제약 없이 실행된다).</summary>
+    [Fact]
+    public async Task Sweep_DoesNotFollowASymbolicLinkBucket_ToDeleteFilesOutsideTheRoot()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        var root = factory.AttachmentsRoot;
+        Directory.CreateDirectory(root);
+
+        // 링크가 가리킬, 저장 루트 밖의 진짜 디렉터리. 그 안에 "오래되고 모양이 맞는" 파일을 둔다.
+        var outsideTarget = Path.Combine(Path.GetTempPath(), "portfolioblog-tests-link-target-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outsideTarget);
+        try
+        {
+            var sha = new string('c', 64);
+            var outsideFile = Path.Combine(outsideTarget, sha + ".png");
+            File.WriteAllBytes(outsideFile, [1, 2, 3]);
+            var old = DateTime.UtcNow - AttachmentJanitor.MinimumAge - TimeSpan.FromMinutes(5);
+            File.SetLastWriteTimeUtc(outsideFile, old);
+
+            var linkedBucket = Path.Combine(root, sha[..2]);
+            try
+            {
+                Directory.CreateSymbolicLink(linkedBucket, outsideTarget);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                output.WriteLine($"심볼릭 링크를 만들 권한이 없어 이 테스트를 건너뛴다({ex.GetType().Name}: {ex.Message}).");
+                return;
+            }
+
+            var janitor = factory.Services.GetRequiredService<AttachmentJanitor>();
+            await janitor.SweepOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+
+            Assert.True(File.Exists(outsideFile), "링크를 따라가 링크 밖(진짜) 파일을 지웠다.");
+        }
+        finally
+        {
+            // 링크(reparse point) 자체만 제거한다 — .NET의 재귀 삭제는 reparse point를 따라가지 않고 링크만 지우는 것으로 문서화돼 있다.
+            // factory의 using 처분(AttachmentsRoot 재귀 삭제)보다 먼저 여기서 링크를 치워, 그 처분이 링크를 다루는 방식에 기대지 않는다.
+            var linkedBucket = Path.Combine(root, new string('c', 2));
+            if (Directory.Exists(linkedBucket)) Directory.Delete(linkedBucket, recursive: true);
+            if (Directory.Exists(outsideTarget)) Directory.Delete(outsideTarget, recursive: true);
+        }
     }
 }

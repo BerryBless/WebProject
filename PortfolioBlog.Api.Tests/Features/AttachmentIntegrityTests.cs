@@ -17,7 +17,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 시작하고, <see cref="HttpClient"/> 요청·<see cref="NpgsqlConnection"/> 왕복은 각각 자신의 비동기 흐름으로 진행된다. 여러 테스트가 같은 <see cref="PostgresContainerFixture"/> 컨테이너를 공유하지만 테스트마다 격리된 <see cref="ApiFactory"/>(자체 DB)와 별도 advisory lock 키(내용 sha256 기반)를 써서 서로 간섭하지 않는다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 시작하고, <see cref="HttpClient"/> 요청·<see cref="NpgsqlConnection"/> 왕복은 각각 자신의 비동기 흐름으로 진행된다. 여러 테스트가 같은 <see cref="PostgresContainerFixture"/> 컨테이너를 공유하고, <see cref="DeleteAndUpload_OfTheSameContent_WaitForTheContentLock_AndReleaseIt"/>·<see cref="InterleavedDeleteAndReupload_NeverLeavesARowWithoutItsFile"/>·<see cref="Upload_WhenFileVanishesWhileWaitingForTheLock_ReSavesItFromTheReopenedFormFile"/> 세 테스트는 같은 픽스처(<see cref="Png"/>)를 올리므로 advisory lock 키가 <b>같다</b> — 그래도 서로 간섭하지 않는 이유는 테스트마다 격리된 <see cref="ApiFactory"/>가 각자 별도의 PostgreSQL 데이터베이스를 쓰기 때문이다(advisory lock은 데이터베이스 범위라 다른 DB의 같은 키는 서로 다른 잠금이다).</description></item>
 /// <item><description><b>Memory Policy:</b> 테스트마다 격리된 <see cref="ApiFactory"/>(자체 DB + 자체 임시 첨부 폴더)를 쓴다.</description></item>
 /// <item><description><b>Blocking:</b> 비동기. 실제 PostgreSQL 컨테이너를 쓴다. 잠금 대기를 직접 관측하는 테스트는 <c>Task.Delay</c>로 "요청이 잠금을 기다리는 중"인 순간을 만든다 — 10초 <c>lock_timeout</c> 자체를 기다리는 테스트는 없다(별도의 짧은 타임아웃으로 같은 메커니즘만 측정한다).</description></item>
 /// </list>
@@ -70,6 +70,8 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
 
         var delete = client.DeleteAsync($"/api/attachments/{uploaded.Id}");
         var upload = client.PostAsync("/api/attachments", Form());
+        // 800ms 마진: 느린 러너에서는 거짓 실패(진짜 잠겼는데 못 끝났다고 오판)가 아니라 "느린 러너에서는 잠금 없는 구현도 우연히 통과"하는
+        // 쪽으로만 위험이 있다 — 이 머신에서는 DeleteAsync의 잠금을 걷어내는 사보타주로 이 값이 실제로 판별력을 갖는지 확인했다(실패 재현됨).
         var firstDone = await Task.WhenAny(delete, upload, Task.Delay(TimeSpan.FromMilliseconds(800)));
         Assert.True(firstDone != delete && firstDone != upload, "잠금을 쥐고 있는데 요청이 끝났다 — 잠금을 쓰지 않는다.");
 
@@ -112,8 +114,12 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
     }
 
     /// <summary>업로드가 잠금을 기다리는 사이 같은 내용의 파일이 디스크에서 사라지면(다른 요청의 삭제·청소), 잠금을 잡은 뒤 파일 존재를 다시 확인해
-    /// 없으면 <see cref="IFormFile"/>을 다시 열어 재저장한다. 이 테스트의 업로드는 작은(64KB 미만) 픽스처라 프레임워크가 메모리에 버퍼링한
-    /// <c>IFormFile</c>을 다시 여는 경로만 검증한다 — 64KB를 넘겨 디스크로 버퍼링되는 경로는 별도로 검증하지 않았다(미검증).</summary>
+    /// 없으면 <see cref="IFormFile"/>을 다시 열어 재저장한다. 결정적으로 만들기 위해 테스트가 먼저 그 sha의 잠금을 쥐고, 업로드를 시작한 뒤
+    /// <see cref="Task.WhenAny(Task, Task)"/> + 유계 대기로 "업로드가 아직 안 끝났다(=잠금 대기 중)"를 확인하고 나서야 파일을 지운다 — 고정 지연만
+    /// 쓰면, 두 번째 업로드 자신의 (잠금 밖) 최초 저장이 그 사이 끝나지 않은 채로 지워져 <c>FileSystemAttachmentStore.SaveAsync</c>의 통상적인
+    /// "없으면 옮긴다" 동작만으로 통과해 버려 이 테스트가 실제로 검증하려는 "잠금 안 재확인·재오픈" 경로를 전혀 타지 않고도 통과할 수 있다.
+    /// 이 테스트의 업로드는 작은(64KB 미만) 픽스처라 프레임워크가 메모리에 버퍼링한 <c>IFormFile</c>을 다시 여는 경로만 검증한다 — 64KB를 넘겨
+    /// 디스크로 버퍼링되는 경로는 별도로 검증하지 않았다(미검증).</summary>
     [Fact]
     public async Task Upload_WhenFileVanishesWhileWaitingForTheLock_ReSavesItFromTheReopenedFormFile()
     {
@@ -130,12 +136,13 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
 
         await using var holder = new NpgsqlConnection(factory.ConnectionString);
         await holder.OpenAsync();
-        await ExecuteAsync(holder, "SELECT pg_advisory_lock(hashtextextended(@k, 0))", key);
+        await ExecuteAsync(holder, "SELECT pg_advisory_lock(hashtextextended(@k, 0))", key); // 테스트가 먼저 그 내용의 잠금을 쥔다.
 
         var upload = client.PostAsync("/api/attachments", Form());
-        // 두 번째 업로드는 수신·시그니처 판정·저장(잠금 밖)까지 빠르게 끝내고 잠금 대기에 들어간다 — 그 시점을 기다렸다가 파일을 직접 지워
-        // "잠금을 기다리는 사이 다른 요청이 파일을 지웠다"를 흉내낸다.
-        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        // 두 번째 업로드가 (잠금 밖) 최초 저장까지 끝내고 잠금 대기에 실제로 들어갔음을 확인한다 — 그렇지 않다면 요청이 800ms 안에 끝나 버렸을 것이다.
+        var firstDone = await Task.WhenAny(upload, Task.Delay(TimeSpan.FromMilliseconds(800)));
+        Assert.NotSame(upload, firstDone); // "잠금을 쥐고 있는데 요청이 끝났다"가 아니어야 한다 — 이때는 파일이 아직 살아 있으므로 지워도 안전하다.
+
         File.Delete(physicalPath);
         Assert.False(File.Exists(physicalPath), "사전 조건: 대기 중 파일을 지우지 못했다.");
 
@@ -252,41 +259,59 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
         }
     }
 
-    /// <summary>측정(계획의 가정을 뒤집은 결과): 세션 advisory lock을 잡은 뒤 명시적으로 <c>pg_advisory_unlock</c>을 부르지 않고 연결을
-    /// 깨끗하게 닫으면(정상적인 <c>Close</c> → Npgsql 풀로 반환, 물리 연결·백엔드 세션은 살아 있음) 잠금은 <b>풀리지 않는다</b> — <c>SET lock_timeout</c>
-    /// 같은 세션 GUC는 풀 반환 시 리셋되는데(<see cref="SetLockTimeout_DoesNotLeakToTheNextUserOfThePooledConnection"/>, Task 4와 같은 메커니즘) 그 리셋에
-    /// advisory lock 해제는 포함되지 않는다(PostgreSQL의 <c>DISCARD ALL</c>은 GUC 리셋과 <c>pg_advisory_unlock_all()</c>을 모두 포함하지만, 여기서 관측된
-    /// 리셋은 그보다 좁다는 뜻이다 — 정확히 무엇을 리셋하는지는 Npgsql 내부까지는 추적하지 않았다). 즉 <see cref="AttachmentLock"/>의
-    /// <c>Releaser.DisposeAsync</c>에서 UNLOCK 실행 자체가 예외를 던지는데 연결은 여전히 건강해서 풀로 정상 반환되는 경우, 잠금은 그 물리 연결이
-    /// 실제로 폐기될 때까지(연결이 끊기거나 Npgsql의 유휴 수명이 지날 때까지) 남는다 — "세션 종료가 푼다"는 맞지만, ".NET에서 Close를 불렀다"가
-    /// 곧 "세션이 끝났다"를 뜻하지는 않는다.</summary>
+    /// <summary>측정(Fix round 1 — 이전 보고서의 결론 정정): 세션 advisory lock을 잡은 뒤 명시적으로 <c>pg_advisory_unlock</c>을 부르지 않고
+    /// 연결을 정상적으로 닫으면(Npgsql 풀로 반환, 물리 연결·백엔드 세션은 살아 있음) 잠금은 <b>반환 직후에는</b> 풀리지 않는다 — 여기까지는 이전 측정과
+    /// 같다. 하지만 "풀 반환의 리셋이 advisory lock까지는 미치지 않을 만큼 좁다"는 이전 결론은 틀렸다: 실제로는 리셋 자체가 <b>지연</b>된다 — Npgsql은
+    /// 반환 시 세션 리셋 SQL을 그 물리 연결의 쓰기 버퍼에 prepend만 해 두고, <b>다음 대여자가 그 연결로 보내는 첫 명령과 함께</b> 실제로 전송한다.
+    /// 그래서 같은 물리 연결(같은 <c>pg_backend_pid()</c>)을 다시 빌려 아무 명령이나 실행하면 — 그 시점에 리셋이 실제로 실행되어 — 그 세션이 쥔
+    /// advisory lock 수가 0이 되고 다른 세션의 <c>pg_try_advisory_lock</c>도 성공한다. 이 한 가지 메커니즘(지연된 리셋)이 이 테스트의 결과와
+    /// <see cref="SetLockTimeout_DoesNotLeakToTheNextUserOfThePooledConnection"/>(같은 물리 연결 재사용 시 <c>lock_timeout</c>이 기본값으로 돌아와 있음)을
+    /// 모두 설명한다 — Npgsql이 실제로 보내는 문장이 PostgreSQL의 <c>DISCARD ALL</c>(GUC 리셋 + <c>pg_advisory_unlock_all()</c> 포함)인지는 Npgsql
+    /// 내부까지 추적하지 않아 확인하지 못했다(관측 사실만 적는다: <c>lock_timeout</c> 복귀 + advisory lock 해제, 둘 다 재사용 시점에 함께 관측됨).</summary>
     [Fact]
-    public async Task ClosingAPooledConnection_WithoutAnExplicitUnlock_DoesNotReleaseTheAdvisoryLock()
+    public async Task ClosingAPooledConnection_WithoutAnExplicitUnlock_DelaysReleaseUntilThePhysicalConnectionIsNextUsed()
     {
         var key = "measure-noreset:" + Guid.NewGuid().ToString("N");
-        var csb = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { ApplicationName = "attachment-lock-no-unlock-" + Guid.NewGuid().ToString("N") };
+        var csb = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
+        {
+            MaxPoolSize = 1, MinPoolSize = 0, ApplicationName = "attachment-lock-no-unlock-" + Guid.NewGuid().ToString("N"),
+        };
         var cs = csb.ToString();
         try
         {
-            await using (var holder = new NpgsqlConnection(cs))
+            int pidA;
+            await using (var a = new NpgsqlConnection(cs))
             {
-                await holder.OpenAsync();
-                await ExecuteAsync(holder, "SELECT pg_advisory_lock(hashtextextended(@k, 0))", key);
+                await a.OpenAsync();
+                pidA = (int)(await new NpgsqlCommand("SELECT pg_backend_pid()", a).ExecuteScalarAsync())!;
+                await ExecuteAsync(a, "SELECT pg_advisory_lock(hashtextextended(@k, 0))", key);
                 // UNLOCK을 부르지 않고 그대로 닫는다: Releaser.DisposeAsync에서 UNLOCK 실행 자체가 실패한 뒤 CloseConnectionAsync만 도는 경로를 흉내낸다.
-            }
+            } // Close(): Maximum Pool Size=1이라 물리 연결·백엔드 세션은 살아 있는 채로 풀에 반환된다(폐기되지 않는다).
 
             await using var checker = new NpgsqlConnection(pg.ConnectionString);
             await checker.OpenAsync();
-            // 측정 결과: false다 — 풀 반환은 advisory lock을 풀지 않는다(브리프가 전제한 것과 다르다. 위 <summary> 참조).
+            // 반환 직후: 아직 안 풀렸다(이전 측정과 같음 — "닫으면 바로 풀린다"가 아니다). 실측(원시값): False.
             Assert.False(await ScalarAsync<bool>(checker, "SELECT pg_try_advisory_lock(hashtextextended(@k, 0))", key));
+
+            // 같은 물리 연결을 다시 빌려 명령을 실행한다 — Npgsql이 반환 시 예약해 둔 세션 리셋이 이 시점에 실제로 전송된다.
+            await using var b = new NpgsqlConnection(cs);
+            await b.OpenAsync();
+            var pidB = (int)(await new NpgsqlCommand("SELECT pg_backend_pid()", b).ExecuteScalarAsync())!;
+            Assert.Equal(pidA, pidB); // 사전 조건: 같은 물리 연결을 재사용했다(그렇지 않으면 이 측정이 의미가 없다)
+
+            // 재사용된 세션 스스로가 쥔 advisory lock 수 — 리셋이 실제로 이 세션의 advisory lock을 풀었는지 pg_locks로 직접 확인한다. 실측(원시값): 0.
+            var heldByReusedSession = (long)(await new NpgsqlCommand(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()", b).ExecuteScalarAsync())!;
+            Assert.Equal(0, heldByReusedSession);
+
+            // 다른 세션도 이제(재사용 시점 이후) 잡을 수 있다 — pg_try_advisory_lock은 성공하면 그 자리에서 새로 잠금을 잡으므로 아래에서 되돌려준다. 실측(원시값): True.
+            Assert.True(await ScalarAsync<bool>(checker, "SELECT pg_try_advisory_lock(hashtextextended(@k, 0))", key));
+            Assert.True(await ScalarAsync<bool>(checker, "SELECT pg_advisory_unlock(hashtextextended(@k, 0))", key));
         }
         finally
         {
-            // 이 테스트가 쥔 채로 남긴 잠금을 회수한다(같은 프로세스의 Npgsql 물리 연결은 풀에 남아 있으므로, 그 연결로 직접 풀어야 한다).
-            await using var releaser = new NpgsqlConnection(cs);
-            await releaser.OpenAsync();
-            await ExecuteAsync(releaser, "SELECT pg_advisory_unlock(hashtextextended(@k, 0))", key);
-            NpgsqlConnection.ClearPool(releaser);
+            await using var cleanup = new NpgsqlConnection(cs);
+            NpgsqlConnection.ClearPool(cleanup);
         }
     }
 

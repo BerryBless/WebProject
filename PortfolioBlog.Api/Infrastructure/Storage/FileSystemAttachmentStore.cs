@@ -271,25 +271,36 @@ public sealed class FileSystemAttachmentStore
     /// </remarks>
     public bool Exists(string storagePath) => File.Exists(PhysicalPath(storagePath));
 
-    /// <summary><c>.tmp</c> 밑의 임시 파일 전체 경로를 나열한다(청소 잡 전용).</summary>
-    /// <returns><c>.tmp</c> 디렉터리가 없으면 빈 시퀀스, 있으면 그 밑의 파일 전체 경로.</returns>
+    /// <summary><c>.tmp</c> 밑의 임시 파일 전체 경로를 나열한다(청소 잡 전용). 심볼릭 링크인 파일은 건너뛴다.</summary>
+    /// <returns><c>.tmp</c> 디렉터리가 없으면 빈 시퀀스, 있으면 그 밑의 심볼릭 링크가 아닌 파일 전체 경로.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> Thread-safe. 반환된 시퀀스를 여는 시점(호출 시점, 지연 평가 아님)에 디렉터리를 한 번 확인하고 <see cref="Directory.EnumerateFiles(string)"/> 결과를 즉시 배열로 감싸지 않고 그대로 돌려준다 — 열거 도중 다른 요청이 파일을 만들거나 지워도 예외 없이 반영되거나 건너뛴다(.NET 파일 열거의 통상 동작).</description></item>
-    /// <item><description><b>Memory Allocation:</b> <see cref="Directory.EnumerateFiles(string)"/>는 스트리밍 열거자라 전체 목록을 한 번에 메모리에 올리지 않는다.</description></item>
-    /// <item><description><b>Blocking:</b> <see cref="Directory.Exists"/> 확인은 호출 시점에 동기로 실행된다. 실제 파일 목록을 읽는 디렉터리 I/O는 반환된 시퀀스를 호출자가 순회하는 시점에 일어난다(이 메서드가 아니라).</description></item>
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 이 메서드는 반복자(iterator) 블록이라 <c>foreach</c>로 실제로 순회하기 전에는 <see cref="Directory.Exists"/> 확인조차 실행되지 않는다(지연 평가) — 열거 도중 다른 요청이 파일을 만들거나 지워도 예외 없이 반영되거나 건너뛴다(.NET 파일 열거의 통상 동작).</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="Directory.EnumerateFiles(string)"/>는 스트리밍 열거자라 전체 목록을 한 번에 메모리에 올리지 않는다. 파일마다 <see cref="FileInfo"/> 1개를 링크 여부 확인용으로 만든다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 시스템 열거. 호출자가 순회하는 시점에 <see cref="Directory.Exists"/>·<see cref="Directory.EnumerateFiles(string)"/>·<see cref="FileInfo.LinkTarget"/> 조회가 일어난다(이 메서드 호출 시점이 아니라).</description></item>
     /// </list>
     /// </remarks>
-    public IEnumerable<string> EnumerateTempFiles() => Directory.Exists(_temp) ? Directory.EnumerateFiles(_temp) : [];
+    public IEnumerable<string> EnumerateTempFiles()
+    {
+        if (!Directory.Exists(_temp)) yield break;
+        foreach (var file in Directory.EnumerateFiles(_temp))
+        {
+            // 심볼릭 링크는 따라가지 않는다: 링크가 가리키는 실제 위치가 저장 루트 밖일 수 있다(기본 거부). PhysicalPath의 봉쇄 검사는
+            // 문자열 접두사 비교라 링크를 해석하지 못하므로, 청소 대상 열거 단계에서 걸러야 한다.
+            if (new FileInfo(file).LinkTarget is not null) continue;
+            yield return file;
+        }
+    }
 
-    /// <summary>내용 주소 규칙(<c>{sha[..2]}/{sha}.{확장자}</c>)에 <b>모양이 맞는</b> 파일만 열거한다(청소 잡 전용). 규칙 밖의 것(임시 폴더, 시작 확인 파일, 사람이 둔 파일)은 청소 대상이 아니다(기본 거부).</summary>
+    /// <summary>내용 주소 규칙(<c>{sha[..2]}/{sha}.{확장자}</c>)에 <b>모양이 맞는</b> 파일만 열거한다(청소 잡 전용). 규칙 밖의 것(임시 폴더, 시작 확인 파일, 사람이 둔 파일)과
+    /// 심볼릭 링크·정션(버킷 디렉터리·파일 어느 쪽이든)은 청소 대상이 아니다(기본 거부).</summary>
     /// <returns>모양이 맞는 각 파일의 상대 경로와, 파일 이름에서 읽은 SHA-256(버킷 접두사와 일치가 이미 확인된 값).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> Thread-safe. 이 메서드는 반복자(iterator) 블록이라 <c>foreach</c>로 실제로 순회하기 전에는 어떤 디렉터리 I/O도 하지 않는다 — 순회 도중 다른 요청이 디렉터리를 바꿔도 예외를 던지지 않고 그 시점의 스냅숏만큼만 본다(.NET 파일 열거의 통상 동작). 루트 밑에 심볼릭 링크·정션이 있으면 <see cref="Directory.EnumerateDirectories(string)"/>는 그것도 디렉터리로 열거한다 — 이 메서드가 링크를 따라가지 않게 막지는 않지만, 이름이 2자 소문자 hex가 아니면(버킷 검사) 걸러지고, 통과해도 그 안의 파일이 이름·해시 접두사 모양(<c>IsLowerHex</c>·<c>sha.StartsWith(bucket)</c>)까지 맞아야 하며, 호출부(<c>AttachmentJanitor</c>)가 삭제 직전 DB 재조회로 다시 걸러 삭제 폭을 좁힌다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 디렉터리·파일 이름 문자열 몇 개를 반복마다 할당한다. 전체 목록을 배열로 모으지 않는다.</description></item>
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 이 메서드는 반복자(iterator) 블록이라 <c>foreach</c>로 실제로 순회하기 전에는 어떤 디렉터리 I/O도 하지 않는다 — 순회 도중 다른 요청이 디렉터리 자체를 지우지 않는 한(그러면 <see cref="DirectoryNotFoundException"/>이 날 수 있다 — 이 코드베이스에 저장 루트나 버킷 디렉터리를 지우는 경로는 없다) 예외를 던지지 않고 그 시점의 스냅숏만큼만 본다(.NET 파일 열거의 통상 동작). 루트 밑에 심볼릭 링크·정션이 있으면 <see cref="Directory.EnumerateDirectories(string)"/>는 그것도 디렉터리로 열거하지만, <see cref="DirectoryInfo.LinkTarget"/>이 <see langword="null"/>이 아닌 항목은 건너뛰어 따라가지 않는다 — 이름이 2자 소문자 hex인지(버킷 검사)와 무관하게 링크 검사가 먼저다. 통과한 실제 디렉터리 안에서도 파일이 이름·해시 접두사 모양(<c>IsLowerHex</c>·<c>sha.StartsWith(bucket)</c>)까지 맞아야 하고 <see cref="FileInfo.LinkTarget"/>이 <see langword="null"/>이어야 하며, 호출부(<c>AttachmentJanitor</c>)가 삭제 직전 DB 재조회로 다시 걸러 삭제 폭을 좁힌다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 디렉터리·파일 이름 문자열 몇 개와 링크 여부 확인용 <see cref="DirectoryInfo"/>/<see cref="FileInfo"/>를 반복마다 할당한다. 전체 목록을 배열로 모으지 않는다.</description></item>
     /// <item><description><b>Blocking:</b> 동기 파일 시스템 열거. 호출자가 순회하는 동안 디렉터리·파일 I/O가 일어난다(청소 잡은 백그라운드 실행이라 요청 스레드를 막지 않는다).</description></item>
     /// </list>
     /// </remarks>
@@ -300,6 +311,8 @@ public sealed class FileSystemAttachmentStore
         {
             var bucket = Path.GetFileName(directory);
             if (bucket.Length != 2 || !IsLowerHex(bucket)) continue;
+            // 심볼릭 링크·정션 버킷은 따라가지 않는다: 링크가 가리키는 실제 위치가 저장 루트 밖일 수 있다(기본 거부).
+            if (new DirectoryInfo(directory).LinkTarget is not null) continue;
             foreach (var file in Directory.EnumerateFiles(directory))
             {
                 var name = Path.GetFileName(file);
@@ -307,6 +320,8 @@ public sealed class FileSystemAttachmentStore
                 var sha = name[..64];
                 var extension = name[65..];
                 if (!IsLowerHex(sha) || !sha.StartsWith(bucket, StringComparison.Ordinal) || !extension.All(char.IsAsciiLetterOrDigit)) continue;
+                // 파일 자체가 심볼릭 링크여도 같은 이유로 건너뛴다.
+                if (new FileInfo(file).LinkTarget is not null) continue;
                 yield return ($"{bucket}/{name}", sha);
             }
         }

@@ -118,16 +118,24 @@ public static class AttachmentEndpoints
         }
         if (file.Length > AttachmentOptions.MaxBytes) return TooLarge();
 
+        // 잠금 밖 최초 저장과, 잠금 안 재저장(파일이 사라진 경우) 둘 다 같은 예외를 낼 수 있으므로 매핑을 한 곳에 모은다
+        // (중복 catch 블록을 두면 재저장 경로만 415/413 매핑이 빠져 500이 되는 것을 놓치기 쉽다).
+        async Task<(StoredImage? Stored, IResult? Error)> TrySaveAsync(Stream s)
+        {
+            try { return (await store.SaveAsync(s, ct), null); }
+            catch (AttachmentTooLargeException) { return (null, TooLarge()); }
+            catch (UnsupportedImageException ex)
+            {
+                return (null, TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "지원하지 않는 이미지", detail: ex.Message));
+            }
+        }
+
         StoredImage stored;
-        try
         {
             await using var upload = file.OpenReadStream();
-            stored = await store.SaveAsync(upload, ct);
-        }
-        catch (AttachmentTooLargeException) { return TooLarge(); }
-        catch (UnsupportedImageException ex)
-        {
-            return TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "지원하지 않는 이미지", detail: ex.Message);
+            var (result, error) = await TrySaveAsync(upload);
+            if (error is not null) return error;
+            stored = result!;
         }
 
         // 무거운 일(수신·메타데이터 제거·해시)은 잠금 밖에서 끝냈다. 잠금 안에서는 "파일 확인 + 행 조회/삽입"만 한다.
@@ -136,8 +144,11 @@ public static class AttachmentEndpoints
             if (!store.Exists(stored.StoragePath))
             {
                 // 잠금을 기다리는 사이 같은 내용의 삭제·청소가 파일을 지웠다. IFormFile은 프레임워크가 버퍼링해 둔 것이라 다시 열 수 있다.
+                // 재저장도 크기·형식 오류를 낼 수 있으므로(원본은 통과했지만 재확인 시점에 다시 검사) 최초 저장과 같은 매핑을 쓴다.
                 await using var again = file.OpenReadStream();
-                stored = await store.SaveAsync(again, ct);
+                var (result, error) = await TrySaveAsync(again);
+                if (error is not null) return error;
+                stored = result!;
             }
 
             var existing = await db.Attachments.AsNoTracking().SingleOrDefaultAsync(a => a.Sha256 == stored.Sha256, ct);

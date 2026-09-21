@@ -18,8 +18,9 @@ namespace PortfolioBlog.Api.Infrastructure.Storage;
 /// 커밋에 풀리므로 "행 삭제 커밋 → 파일 삭제"처럼 커밋 뒤까지 이어지는 구간을 잠금 안에 둘 수 없다 — 세션 잠금은 <see cref="IAsyncDisposable.DisposeAsync"/>의 명시적
 /// UNLOCK으로 풀리고, <see cref="HoldAsync"/> 이후의 모든 EF 명령이 잠금을 잡은 것과 같은 물리 연결(세션)에서 실행된다(측정:
 /// <c>AttachmentIntegrityTests.HoldAsync_KeepsSubsequentEfCommandsOnTheSameSession_AndUnlockReleasesTheKey</c>). UNLOCK이 실패하는 드문 경우의 동작은
-/// <see cref="Releaser.DisposeAsync"/>의 주석 참조 — "연결을 닫으면 세션이 끝나 잠금이 풀린다"는 연결이 끊겨 폐기되는 경우에만 참이고, 건강한 연결을 정상적으로
-/// 풀에 반환하는 경우에는 참이 아니다(측정, 아래 참조).
+/// <see cref="Releaser.DisposeAsync"/>의 주석 참조 — 연결이 깨져 폐기되면 세션 종료로 즉시 풀리고, 건강한 연결이 정상적으로 풀에 반환되면 <b>반환 직후에는
+/// 안 풀리지만 그 물리 연결이 다음에 재사용되는 순간(Npgsql이 반환 시 예약해 둔 세션 리셋이 다음 대여자의 첫 명령과 함께 실제로 전송되면서) 풀린다</b>
+/// (측정, 아래 참조 — "지연된 리셋"이지 "리셋 범위가 좁다"가 아니다).
 /// </remarks>
 public static class AttachmentLock
 {
@@ -77,11 +78,14 @@ public static class AttachmentLock
                     // UNLOCK 자체가 실패하는 경우는 크게 둘로 갈린다: (a) 연결이 이미 끊겼다 — 이때는 Npgsql이 그 연결을 "깨진 것"으로 표시해
                     // 풀에 돌려주지 않고 실제로 폐기하므로, 그 물리 연결이 물고 있던 PostgreSQL 백엔드 세션도 함께 끝나고 세션이 쥔 advisory lock도
                     // 그때 풀린다(PostgreSQL의 세션 종료 시 잠금 해제 규칙). (b) 연결은 여전히 건강한데 다른 이유로 UNLOCK SQL 자체가 실패했다 —
-                    // 이때는 곧이어 부르는 CloseConnectionAsync()가 연결을 "정상 반환"으로 Npgsql 풀에 돌려주는데, 측정 결과 이 정상 반환은 advisory lock을
-                    // 풀어주지 않는다(측정: AttachmentIntegrityTests.ClosingAPooledConnection_WithoutAnExplicitUnlock_DoesNotReleaseTheAdvisoryLock —
-                    // lock_timeout 같은 세션 GUC는 풀 반환 시 리셋되지만 advisory lock은 리셋되지 않는다). (b) 경로에서는 이 잠금 키에 대한 이후 요청이
-                    // 이 물리 연결이 실제로 폐기될 때까지(다시 깨지거나, Npgsql의 유휴 연결 수명이 지나거나, 앱이 재시작될 때까지) lock_timeout(10초) 뒤
-                    // 503을 받는 형태로 잠기지만, 다른 내용(sha256)에는 영향이 없고 시간이 지나면 스스로 회복된다 — 그래도 여기서 다시 던지면
+                    // 이때는 곧이어 부르는 CloseConnectionAsync()가 연결을 "정상 반환"으로 Npgsql 풀에 돌려준다. 측정 결과 이 정상 반환의 순간에는
+                    // advisory lock이 아직 안 풀리지만, 리셋 자체가 없는 것이 아니라 지연된다: Npgsql은 반환 시 세션 리셋 SQL을 그 물리 연결의 쓰기
+                    // 버퍼에 prepend만 해 두고, 다음 대여자가 그 연결로 보내는 첫 명령과 함께 실제로 전송한다(측정:
+                    // AttachmentIntegrityTests.ClosingAPooledConnection_WithoutAnExplicitUnlock_DelaysReleaseUntilThePhysicalConnectionIsNextUsed —
+                    // 같은 pg_backend_pid()로 재사용된 세션은 그 시점에 advisory lock 수가 0이 되고, 다른 세션의 pg_try_advisory_lock도 그때 성공한다).
+                    // (b) 경로에서는 이 잠금 키에 대한 이후 요청이, 이 물리 연결이 다음에 재사용되는 순간(또는 연결이 다시 깨지거나 Npgsql의 유휴
+                    // 연결 수명이 지나 실제로 폐기될 때)까지 lock_timeout(10초) 뒤 503을 받는 형태로 잠기지만, 다른 내용(sha256)에는 영향이 없고
+                    // 풀이 계속 쓰이는 한(이 물리 연결이 언젠가 다른 요청에 다시 빌려짐) 스스로 회복된다 — 그래도 여기서 다시 던지면
                     // 바깥의 원래 예외(업로드·삭제 본문에서 난 것)를 가릴 뿐 이 잔여 위험을 없애지 못하므로, 원래 예외를 보존하기 위해 삼킨다.
                     // HoldAsync는 로거를 받지 않는(브리프가 정한 시그니처) 정적 유틸리티라 별도로 남길 곳이 없다 — 아래 finally가 연결은 어떤 경우에도 반환한다.
                 }
