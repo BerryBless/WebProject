@@ -2,7 +2,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createQueryClient } from '../app/queryClient'
-import { PREVIEW_DEBOUNCE_MS, PreviewPane } from '../components/PreviewPane'
+import { PREVIEW_DEBOUNCE_MS, PREVIEW_MIN_INTERVAL_MS, PreviewPane } from '../components/PreviewPane'
 import { LIMITS } from '../lib/validation'
 import { stubApi } from './harness'
 
@@ -32,8 +32,28 @@ describe('미리보기', () => {
     view.rerender(pane('ab')); await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS - 1))
     view.rerender(pane('abc')); await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS - 1))
     expect(calls.length).toBe(before)
-    await act(() => vi.advanceTimersByTimeAsync(1))
+    await act(() => vi.advanceTimersByTimeAsync(1))                       // 디바운스가 끝난다
+    await act(() => vi.advanceTimersByTimeAsync(PREVIEW_MIN_INTERVAL_MS)) // 직전 요청과의 최소 간격이 찬다
     expect(calls.length).toBe(before + 1)
+    expect(calls.at(-1)?.body).toEqual({ markdown: 'abc' })
+  })
+
+  it('직전 요청에서 최소 간격이 차기 전에는 새 디바운스 값이 와도 보내지 않는다', async () => {
+    vi.useFakeTimers()
+    const calls = stubApi({ 'POST /api/preview': { status: 200, body: { html: '' } } })
+    const view = render(pane('a'))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(calls.length).toBe(1)
+
+    // 700ms 시점: 디바운스(500ms)는 지났지만 최소 간격(1500ms)이 아직 차지 않았다.
+    view.rerender(pane('ab'))
+    await act(() => vi.advanceTimersByTimeAsync(700))
+    expect(calls.length).toBe(1)
+
+    // 그 사이 입력이 더 들어와도, 간격이 차는 시점에 나가는 요청은 최신 입력 하나뿐이다.
+    view.rerender(pane('abc'))
+    await act(() => vi.advanceTimersByTimeAsync(800))
+    expect(calls.length).toBe(2)
     expect(calls.at(-1)?.body).toEqual({ markdown: 'abc' })
   })
 
@@ -46,7 +66,7 @@ describe('미리보기', () => {
     expect(frame().getAttribute('srcdoc')).toContain('<p>good</p>')
 
     limited = true
-    view.rerender(pane('two')); await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS))
+    view.rerender(pane('two')); await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS + PREVIEW_MIN_INTERVAL_MS))
     expect(screen.getByRole('alert')).toHaveTextContent('5초')
     expect(frame().getAttribute('srcdoc')).toContain('<p>good</p>')
     const afterLimit = calls.length
@@ -74,7 +94,7 @@ describe('미리보기', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('KB를 넘어')
   })
 
-  it('Retry-After 없는 실패(500)는 다시 시도 버튼으로 입력을 바꾸지 않고도 재요청한다', async () => {
+  it('Retry-After 없는 실패(500)는 다시 시도 버튼으로 입력을 바꾸지 않고도 최소 간격 뒤 재요청한다', async () => {
     vi.useFakeTimers()
     let fail = true
     const calls = stubApi({ 'POST /api/preview': () => fail ? { status: 500, body: { title: 'x' } } : { status: 200, body: { html: '<p>fixed</p>' } } })
@@ -86,7 +106,9 @@ describe('미리보기', () => {
     fail = false
     fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
     await act(() => vi.advanceTimersByTimeAsync(0))
-    expect(calls.length).toBe(before + 1) // Retry-After가 없으므로 대기 없이 바로 다시 보낸다
+    expect(calls.length).toBe(before) // Retry-After는 없지만 직전 요청과의 최소 간격은 지킨다
+    await act(() => vi.advanceTimersByTimeAsync(PREVIEW_MIN_INTERVAL_MS))
+    expect(calls.length).toBe(before + 1)
     expect(frame().getAttribute('srcdoc')).toContain('<p>fixed</p>')
   })
 
@@ -119,7 +141,7 @@ describe('미리보기', () => {
     expect(calls.length).toBe(1)
 
     view.rerender(pane('second'))
-    await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS)) // 두 번째 요청을 보내고 응답을 받는다(첫 요청은 여전히 대기 중)
+    await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS + PREVIEW_MIN_INTERVAL_MS)) // 두 번째 요청을 보내고 응답을 받는다(첫 요청은 여전히 대기 중)
     expect(calls.length).toBe(2)
     expect(frame().getAttribute('srcdoc')).toContain('<p>second</p>')
 

@@ -9,12 +9,19 @@ import { LIMITS, utf8ByteLength } from '../lib/validation'
 import { ErrorNotice } from './notices'
 
 export const PREVIEW_DEBOUNCE_MS = 500
+/**
+ * 두 미리보기 요청 사이의 최소 간격. 디바운스만으로는 모자란다(실측): 620ms 간격으로 40타를 치면 25초 만에
+ * 요청 40건이 나가 429(Retry-After 60)에 닿았다 — 500ms 넘게 멈출 때마다 요청 1건이기 때문이다.
+ * 서버의 미리보기 한도는 전역 60회/분·동시 2이고 탭·사람이 그것을 나눠 쓴다. 1500ms면 한 탭이 분당 40건을
+ * 넘지 않는다.
+ */
+export const PREVIEW_MIN_INTERVAL_MS = 1500
 
 /**
  * 공개 페이지와 같은 렌더러(/api/preview)의 결과를 sandbox="" iframe에 보여 준다.
  * - 서버 HTML은 srcDoc 문자열로만 간다. dangerouslySetInnerHTML을 쓰지 않는다.
  * - 실패해도 마지막으로 성공한 미리보기는 남긴다(입력 중 한 번의 429·503으로 화면이 비지 않게).
- * - 429·503의 Retry-After 동안은 요청을 보내지 않는다(미리보기는 전역 60회/분·동시 2 — 다른 탭과 나눠 쓴다).
+ * - 429·503의 Retry-After 동안과 직전 요청 뒤 PREVIEW_MIN_INTERVAL_MS 동안은 요청을 보내지 않는다.
  */
 export function PreviewPane({ markdown }: { markdown: string }) {
   const debounced = useDebounced(markdown, PREVIEW_DEBOUNCE_MS)
@@ -33,6 +40,9 @@ export function PreviewPane({ markdown }: { markdown: string }) {
       return () => window.clearTimeout(timer)
     }
     const controller = new AbortController()
+    // 보내기 직전에 다음 요청을 막을 시각을 예약한다 — 429의 Retry-After와 같은 대기 타이머 경로를 그대로 쓴다.
+    // Math.max: 이미 더 먼 시각까지 막혀 있으면(Retry-After) 그 시각을 앞당기지 않는다.
+    blockedUntil.current = Math.max(blockedUntil.current, Date.now() + PREVIEW_MIN_INTERVAL_MS)
     preview.render(debounced, controller.signal).then(
       result => {
         if (controller.signal.aborted) return // 이 effect가 끝난 뒤 도착한 응답이다 — 최신 요청의 결과만 반영한다
