@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { ADMIN_CSP } from '../admin-headers.ts'
 
 // production 빌드 + 실제 보안 헤더 + 실제 백엔드. 단위 테스트가 볼 수 없는 것만 본다:
 // 진짜 CodeMirror, 진짜 CSP, 진짜 쿠키·Origin 검사, 진짜 sandbox iframe.
@@ -14,8 +15,9 @@ async function watch(page: Page) {
   const problems: string[] = []
   page.on('console', message => {
     const text = message.text()
-    // Chromium은 4xx 응답마다 "Failed to load resource"를 오류로 찍는다 — 이 시나리오의 409는 의도한 것이므로 뺀다(CSP 문구는 다르다).
-    if (/^Failed to load resource/.test(text)) return
+    // Chromium은 4xx 응답마다 "Failed to load resource"를 오류로 찍는다 — 이 시나리오의 409는 의도한 것이므로 뺀다.
+    // 단, CSP가 리소스 로드 자체를 막았을 때도 같은 접두사로 찍힐 수 있어 CSP 문구가 섞인 줄은 거르지 않는다.
+    if (/^Failed to load resource/.test(text) && !/CSP|Content Security/i.test(text)) return
     // Playwright의 addInitScript는 모든 프레임에 주입된다. sandbox="" 미리보기 프레임에서는 그 주입이 막히고 Chromium이 이 문구를 찍는다(실측) —
     // 앱의 스크립트가 아니라 이 테스트의 스크립트이며, 샌드박스가 동작한다는 증거다.
     if (/^Blocked script execution in 'about:srcdoc'/.test(text)) return
@@ -42,6 +44,9 @@ test('문서 응답에 배포될 보안 헤더가 붙는다', async ({ request }
   expect(csp).not.toContain("script-src 'self' 'unsafe")
   expect(csp).toContain("style-src-attr 'none'")
   expect(response.headers()['x-content-type-options']).toBe('nosniff')
+  // 위 4개는 정본의 성질(뭐가 있고 뭐가 없어야 하는지)을 검사한다. 이 단언은 배포되는 값 자체가
+  // admin-headers.ts의 ADMIN_CSP와 글자 그대로 같은지 본다 — 정본과 실제 응답이 갈라지면 여기서 걸린다.
+  expect(csp).toBe(ADMIN_CSP)
 })
 
 test('세션이 없으면 API는 401이고, CSRF 헤더가 없으면 403이다(화면을 우회해도 서버가 막는다)', async ({ request }) => {
@@ -116,6 +121,7 @@ test('글쓰기 전 과정: 로그인 → 시리즈 → 새 글(편집기·이�
   await expect(frame.locator('h1')).toHaveText('제목')
   await expect(frame.locator('pre span.keyword').first()).toHaveText('var')
   await expect(frame.locator('script')).toHaveCount(0)
+  // 자식 프레임이 이 하나뿐이라는 전제: 소스 가드(source-guards.test.ts)가 iframe을 PreviewPane 한 곳으로 고정한다.
   const inFrame = page.frames().find(f => f !== page.mainFrame())!
   await expect.poll(() => inFrame.evaluate(() => {
     const img = document.querySelector('img')
