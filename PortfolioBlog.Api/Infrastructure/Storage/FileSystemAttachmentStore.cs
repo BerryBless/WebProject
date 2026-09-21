@@ -160,9 +160,10 @@ public sealed class FileSystemAttachmentStore
     /// <item><description><b>Memory Allocation:</b> 경로 문자열 계산 외 추가 할당 없음.</description></item>
     /// <item><description><b>Blocking:</b> 동기 파일 I/O. 호출부(관리 표면 전용)가 짧은 지연을 감수한다. <see cref="PortfolioBlog.Api.Features.Attachments.PublicAttachmentEndpoints"/>가
     /// 파일을 <see cref="FileShare.Read"/> | <see cref="FileShare.Delete"/>로 열기 때문에, 공개 GET이 그 파일을 스트리밍하는 도중에 이 메서드를 호출해도
-    /// (Windows: 디렉터리 항목이 즉시 unlink되고 이미 열린 핸들은 응답이 끝날 때까지 계속 읽을 수 있다. Linux: 열려 있는 파일을 unlink하는 것은
-    /// 파일 시스템의 기본 동작이다) 공유 위반 없이 성공한다 — 삭제 직후 "먼저 지운 뒤 같은 내용을 다시 올리기"(<c>File.Move</c>가 방금 지운 이름 위로
-    /// 이동)도 그대로 성공한다(실측 확인). 이 메서드가 <see langword="false"/>를 반환해 고아 파일이 남는 경우는 ACL·I/O 실패(권한 없음, 디스크 오류 등)뿐이다 —
+    /// (Windows에서 실측: 디렉터리 항목이 즉시 unlink되고, 이미 열린 핸들은 응답이 끝날 때까지 원래 바이트를 계속 읽을 수 있다 — Linux는
+    /// POSIX unlink 의미상 같은 결과가 될 것으로 보이지만 이 환경에서 직접 측정하지는 않았다) 공유 위반 없이 성공한다 — 삭제 직후
+    /// "먼저 지운 뒤 같은 내용을 다시 올리기"(<c>File.Move</c>가 방금 지운 이름 위로 이동, 그 사이 먼저 연 리더는 원래 바이트를 그대로 읽음)도
+    /// 그대로 성공한다(Windows 실측 확인). 이 메서드가 <see langword="false"/>를 반환해 고아 파일이 남는 경우는 ACL·I/O 실패(권한 없음, 디스크 오류 등)뿐이다 —
     /// "GET이 서빙 중이라 삭제가 막힌다"는 경우는 더 이상 아니다.</description></item>
     /// </list>
     /// </remarks>
