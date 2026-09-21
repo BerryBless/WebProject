@@ -57,7 +57,8 @@ public sealed class FileSystemAttachmentStore
     /// <param name="options">저장 루트 설정.</param>
     /// <param name="environment">콘텐츠 루트 경로를 얻기 위한 호스팅 환경(상대 경로 기준).</param>
     /// <param name="logger">임시 파일 정리 실패 등 사용자에게 노출하지 않는 경고를 남기는 로거.</param>
-    /// <exception cref="InvalidOperationException"><c>RootPath</c>가 비어 있을 때.</exception>
+    /// <exception cref="InvalidOperationException"><c>RootPath</c>가 비어 있거나, 경로로 쓸 수 없는 값(NUL 문자 등, <see cref="Path.GetFullPath(string)"/>가
+    /// 거부하는 모든 경우)일 때. 후자는 원인 예외(<see cref="ArgumentException"/> 등)를 <see cref="Exception.InnerException"/>으로 보존한다.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -72,14 +73,25 @@ public sealed class FileSystemAttachmentStore
         var configured = options.Value.RootPath;
         if (string.IsNullOrWhiteSpace(configured)) throw new InvalidOperationException("Attachments:RootPath 설정이 없습니다.");
         _configuredRootPath = configured;
-        _root = Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured));
+        try
+        {
+            _root = Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured));
+        }
+        catch (Exception ex)
+        {
+            // Path.GetFullPath는 NUL 등 경로로 쓸 수 없는 문자에 ArgumentException을 던지는데, 그 메시지는 어느 설정 키가 문제인지
+            // 말해주지 않는다 — EnsureRootIsWritable과 같은 방식으로 설정 키를 명시한 실패로 통일한다. 설정값 원문은 메시지에 넣지 않는다
+            // (경로로 거부된 값이라 NUL 등 안전하지 않은 문자를 그대로 담고 있을 수 있다).
+            throw new InvalidOperationException("설정 Attachments:RootPath이(가) 유효한 경로가 아닙니다.", ex);
+        }
         _temp = Path.Combine(_root, ".tmp");
         _logger = logger;
     }
 
     /// <summary>저장 루트 디렉터리가 존재하는지 확인하고(없으면 만들고) 실제로 쓸 수 있는지 0바이트 확인 파일을 만들었다 지워 검증한다.</summary>
-    /// <exception cref="InvalidOperationException">디렉터리를 만들 수 없거나 확인 파일을 쓰거나 지울 수 없을 때. 메시지는 설정 키와 설정값 원문만 담는다 —
-    /// 서버가 계산한 절대 경로(운영 파일 시스템 구조)는 포함하지 않는다.</exception>
+    /// <exception cref="InvalidOperationException">디렉터리를 만들거나 확인 파일을 쓸 수 없을 때(원인이 무엇이든 — <see cref="IOException"/>·
+    /// <see cref="UnauthorizedAccessException"/>뿐 아니라 잘못된 경로 문자로 인한 <see cref="ArgumentException"/>·<see cref="NotSupportedException"/> 등도 포함).
+    /// 메시지는 설정 키와 설정값 원문만 담는다 — 서버가 계산한 절대 경로(운영 파일 시스템 구조)는 포함하지 않는다. 원인은 <see cref="Exception.InnerException"/>으로 보존한다.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -91,17 +103,29 @@ public sealed class FileSystemAttachmentStore
     /// </remarks>
     public void EnsureRootIsWritable()
     {
+        string? probe = null;
         try
         {
             Directory.CreateDirectory(_root);
-            var probe = Path.Combine(_root, ".startup-probe-" + Guid.NewGuid().ToString("N"));
+            probe = Path.Combine(_root, ".startup-probe-" + Guid.NewGuid().ToString("N"));
             File.WriteAllBytes(probe, []);
-            File.Delete(probe);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // 원인을 좁혀서 가리지 않는다: IOException·UnauthorizedAccessException뿐 아니라 경로 자체가 잘못된 경우(NUL 등)
+            // .NET이 던지는 ArgumentException·NotSupportedException도 전부 같은 방식으로 시작을 실패시켜야, "RootPath가 뭐든 잘못되면
+            // 부팅이 막힌다"가 예외 종류에 따라 조용히 빠져나가는 구멍 없이 참이 된다.
             throw new InvalidOperationException(
                 $"설정 Attachments:RootPath('{_configuredRootPath}')이 가리키는 디렉터리를 만들거나 쓸 수 없습니다.", ex);
+        }
+        finally
+        {
+            if (probe is not null)
+            {
+                // 확인 파일 정리 자체의 실패는 시작을 막을 이유가 아니다(쓰기는 이미 성공해 목적을 달성했다) — 경고만 남긴다.
+                try { File.Delete(probe); }
+                catch (Exception ex) { _logger.LogWarning(ex, "시작 확인 파일 정리 실패. Probe={Probe}", Path.GetFileName(probe)); }
+            }
         }
     }
 
@@ -134,7 +158,12 @@ public sealed class FileSystemAttachmentStore
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe. 파일 시스템 자체의 원자적 삭제에 의존한다.</description></item>
     /// <item><description><b>Memory Allocation:</b> 경로 문자열 계산 외 추가 할당 없음.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 파일 I/O. 호출부(관리 표면 전용)가 짧은 지연을 감수한다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 I/O. 호출부(관리 표면 전용)가 짧은 지연을 감수한다. <see cref="PortfolioBlog.Api.Features.Attachments.PublicAttachmentEndpoints"/>가
+    /// 파일을 <see cref="FileShare.Read"/> | <see cref="FileShare.Delete"/>로 열기 때문에, 공개 GET이 그 파일을 스트리밍하는 도중에 이 메서드를 호출해도
+    /// (Windows: 디렉터리 항목이 즉시 unlink되고 이미 열린 핸들은 응답이 끝날 때까지 계속 읽을 수 있다. Linux: 열려 있는 파일을 unlink하는 것은
+    /// 파일 시스템의 기본 동작이다) 공유 위반 없이 성공한다 — 삭제 직후 "먼저 지운 뒤 같은 내용을 다시 올리기"(<c>File.Move</c>가 방금 지운 이름 위로
+    /// 이동)도 그대로 성공한다(실측 확인). 이 메서드가 <see langword="false"/>를 반환해 고아 파일이 남는 경우는 ACL·I/O 실패(권한 없음, 디스크 오류 등)뿐이다 —
+    /// "GET이 서빙 중이라 삭제가 막힌다"는 경우는 더 이상 아니다.</description></item>
     /// </list>
     /// </remarks>
     public bool TryDelete(string storagePath)

@@ -253,4 +253,19 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
             File.Delete(tempFile);
         }
     }
+
+    /// <summary>경로로 쓸 수 없는 값(NUL 문자 포함)이면 <c>Path.GetFullPath</c>가 던지는 <see cref="ArgumentException"/>이
+    /// (그 메시지 자체는 어느 설정 키가 문제인지 말해주지 않는데도) 설정 키를 명시한 시작 실패로 바뀌는지 검증한다(fix round 2, B6).
+    /// NUL은 소스에 원시 바이트로 쓰지 않고 C# 이스케이프(<c>'\0'</c>)로만 표기한다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void AnyEnvironment_AttachmentsRootHasNulCharacter_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["Attachments:RootPath"] = "bad" + '\0' + "path" }, "Attachments:RootPath");
 }

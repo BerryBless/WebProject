@@ -139,6 +139,23 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, await UploadStatusAsync(admin, Form(tooBig, "big.png")));
     }
 
+    /// <summary>양성 대조군(fix round 2, B2): 로그인한 세션으로 <c>file</c> 파트가 없는 multipart를 보내면 400이 나고, 그 본문에는
+    /// 실제로 핸들러가 만드는 필드 누락 문구가 있다 — <c>AccessMatrixTests</c>의 "핸들러가 호출되지 않았다" 단언이 같은 문구의 부재를
+    /// 보고 있다는 것이 의미 있는 검사임을 증명한다(그 문구가 애초에 어떤 응답에도 나타나지 않는 죽은 문자열이 아님을 확인).</summary>
+    [Fact]
+    public async Task Upload_MissingFileField_Returns400_WithFileFieldMessage()
+    {
+        using var factory = new ApiFactory(pg, NoOverrides);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        using var form = new MultipartFormDataContent { { new StringContent("x"), "other" } };
+
+        using var res = await admin.PostAsync("/api/attachments", form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var body = await res.Content.ReadAsStringAsync();
+        Assert.Contains("multipart 필드 'file'", body, StringComparison.Ordinal);
+    }
+
     /// <summary>업로드한 파일 이름은 경로 조각·제어문자를 걷어 낸 표시용 이름이 되고, 공개 URL의 파일 이름을 아무리 바꿔도 같은 파일이 나온다(경로에 쓰이지 않는다).</summary>
     [Fact]
     public async Task FileName_IsDisplayOnly_NeverAPath()
@@ -228,6 +245,70 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
             }
         }
         Assert.True(UrlPolicy.IsAllowedImage(dto.Url), $"반환된 URL이 UrlPolicy.IsAllowedImage를 통과하지 못했다: {dto.Url}");
+    }
+
+    /// <summary>공개 GET 200 응답에 내용 주소 SHA-256을 강한 ETag로, 업로드 시각을 Last-Modified로 담는다. 그 ETag를 If-None-Match로
+    /// 다시 보내면 304(빈 본문)가 오고 nosniff·CSP는 그대로 실린다(fix round 2, B4 — 내용 자체가 검증자이므로 재해시 없이 캐시를 재검증할 수 있다).</summary>
+    [Fact]
+    public async Task PublicGet_HasEtagAndLastModified_AndConditionalGetReturns304()
+    {
+        using var factory = new ApiFactory(pg, NoOverrides);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
+
+        using var visitor = factory.CreatePublicClient();
+        using var res = await visitor.GetAsync(dto.Url);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var etag = res.Headers.ETag;
+        Assert.NotNull(etag);
+        Assert.False(etag!.IsWeak, "SHA-256이 곧 내용이므로 약한 ETag가 아니라 강한 ETag여야 한다");
+        Assert.Equal($"\"{dto.Sha256}\"", etag.Tag);
+        Assert.NotNull(res.Content.Headers.LastModified);
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, dto.Url);
+        req.Headers.IfNoneMatch.Add(etag);
+        using var conditional = await visitor.SendAsync(req);
+        Assert.Equal(HttpStatusCode.NotModified, conditional.StatusCode);
+        Assert.Equal("nosniff", conditional.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("default-src 'none'; sandbox", conditional.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.Empty(await conditional.Content.ReadAsByteArrayAsync());
+    }
+
+    /// <summary>공개 GET 라우트는 HEAD도 받는다: 200에 GET과 같은 헤더(Content-Type·Content-Length·nosniff·CSP·Cache-Control·ETag)가 실리지만
+    /// 본문은 비어 있고, 핸들은 응답이 끝나면 해제된다(같은 파일을 곧장 지울 수 있는지로 확인 — fix round 2, B5).</summary>
+    [Fact]
+    public async Task PublicGet_Head_ReturnsHeadersWithoutBody_AndReleasesHandle()
+    {
+        using var factory = new ApiFactory(pg, NoOverrides);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
+
+        using var visitor = factory.CreatePublicClient();
+        using var getRes = await visitor.GetAsync(dto.Url);
+        var expectedLength = getRes.Content.Headers.ContentLength;
+
+        using var headReq = new HttpRequestMessage(HttpMethod.Head, dto.Url);
+        using var headRes = await visitor.SendAsync(headReq);
+
+        Assert.Equal(HttpStatusCode.OK, headRes.StatusCode);
+        Assert.Equal("image/png", headRes.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(expectedLength, headRes.Content.Headers.ContentLength);
+        Assert.Equal("nosniff", headRes.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("default-src 'none'; sandbox", headRes.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.True(headRes.Headers.CacheControl?.Public);
+        Assert.NotNull(headRes.Headers.ETag);
+        var headBody = await headRes.Content.ReadAsByteArrayAsync();
+        Assert.Empty(headBody);
+
+        // 핸들이 새지 않았다면 HEAD 응답이 끝난 뒤 바로 파일을 지울 수 있어야 한다.
+        string physical;
+        await using (var scope = factory.CreateScope())
+        {
+            var row = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Attachments.AsNoTracking().SingleAsync(a => a.Id == dto.Id);
+            physical = scope.ServiceProvider.GetRequiredService<FileSystemAttachmentStore>().PhysicalPath(row.StoragePath);
+        }
+        File.Delete(physical); // 예외 없이 지워져야 핸들이 남지 않았다는 뜻이다
+        Assert.False(File.Exists(physical));
     }
 
     /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다(fix round 1, A2).</summary>

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Net.Http.Headers;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Storage;
 
@@ -31,7 +32,7 @@ public static class PublicAttachmentEndpoints
     /// <summary>공개 첨부 GET 라우트 패턴. 테스트 프로젝트의 <c>AccessMatrixTests.PublicAllowlist</c>에도 같은 문자열로 등록된다.</summary>
     public const string Pattern = "/attachments/{id:guid}/{fileName}";
 
-    /// <summary>공개 첨부 GET 엔드포인트를 <c>/api</c> 그룹 밖(전체 앱 루트)에 등록한다.</summary>
+    /// <summary>공개 첨부 GET·HEAD 엔드포인트를 <c>/api</c> 그룹 밖(전체 앱 루트)에 등록한다.</summary>
     /// <param name="app">엔드포인트를 등록할 <see cref="WebApplication"/>.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
@@ -40,10 +41,12 @@ public static class PublicAttachmentEndpoints
     /// <item><description><b>Memory Allocation:</b> 라우트 등록에 따른 시작 시 1회성 할당만 발생한다.</description></item>
     /// <item><description><b>Blocking:</b> 동기 실행. I/O 없음.</description></item>
     /// </list>
+    /// <c>MapGet</c>만 쓰면 HEAD가 405가 된다(실측, fix round 2 B5) — 캐시·링크 점검기가 HEAD로 존재만 확인하는 경우가 흔하므로
+    /// <c>MapMethods</c>로 GET과 HEAD를 함께 등록한다.
     /// </remarks>
     public static void MapPublicAttachmentEndpoints(this WebApplication app)
     {
-        app.MapGet(Pattern, GetAsync).AllowAnonymous().WithName("GetAttachment");
+        app.MapMethods(Pattern, ["GET", "HEAD"], GetAsync).AllowAnonymous().WithName("GetAttachment");
     }
 
     /// <summary><paramref name="id"/>로 첨부를 찾아 파일을 스트리밍한다. <paramref name="fileName"/>은 무시한다.</summary>
@@ -52,7 +55,8 @@ public static class PublicAttachmentEndpoints
     /// <param name="db">조회에 쓸 DbContext.</param>
     /// <param name="store">저장 경로를 실제 파일 시스템 경로로 바꾸는 저장소.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>파일이 있으면 200(스트리밍 본문), DB 행이 없거나 파일을 열 수 없으면 404.</returns>
+    /// <returns>파일이 있으면 200(스트리밍 본문, GET일 때만 — HEAD는 프레임워크가 본문을 비운다) 또는 <c>If-None-Match</c>가 일치하면 304(본문 없음),
+    /// DB 행이 없거나 파일을 열 수 없으면 404.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -69,7 +73,7 @@ public static class PublicAttachmentEndpoints
         headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
 
         var row = await db.Attachments.AsNoTracking().Where(a => a.Id == id)
-            .Select(a => new { a.StoragePath, a.ContentType }).SingleOrDefaultAsync(ct);
+            .Select(a => new { a.StoragePath, a.ContentType, a.Sha256, a.CreatedAt }).SingleOrDefaultAsync(ct);
         if (row is null) return TypedResults.NotFound();
         var path = store.PhysicalPath(row.StoragePath);
 
@@ -83,7 +87,21 @@ public static class PublicAttachmentEndpoints
         catch (FileNotFoundException) { return TypedResults.NotFound(); }
         catch (DirectoryNotFoundException) { return TypedResults.NotFound(); }
 
-        headers.CacheControl = "public, max-age=31536000, immutable"; // 내용 주소: 같은 id의 내용은 바뀌지 않는다. 캐시된 404가 나중 업로드를 가릴 수 있으므로 404에는 붙이지 않는다.
-        return TypedResults.Stream(stream, row.ContentType); // Range 처리는 켜지 않는다(enableRangeProcessing 기본값 false).
+        // 스트림을 연 뒤부터는 결과를 만들어 반환할 때까지 예외가 나도 핸들이 새지 않도록 감싼다(fix round 2, B6 — "열기와 반환 사이에
+        // 아무것도 못 던지게" 구조적으로 보장하는 대신, 던지면 반드시 스트림을 정리하고 다시 던지는 형태를 택했다: Cache-Control은
+        // 404 경로에는 절대 실리면 안 되므로 스트림을 연 뒤에만 설정해야 하고, 그 순서 제약 자체는 없앨 수 없기 때문이다).
+        try
+        {
+            headers.CacheControl = "public, max-age=31536000, immutable"; // 내용 주소: 같은 id의 내용은 바뀌지 않는다. 캐시된 404가 나중 업로드를 가릴 수 있으므로 404에는 붙이지 않는다.
+            // 강한 ETag: 내용 자체(제거 후 바이트의 SHA-256)가 곧 검증자이므로 별도로 다시 해시하지 않고도 조건부 요청을 재검증할 수 있다.
+            // Last-Modified는 보조 신호로 곁들인다(오래된 캐시·프록시가 ETag를 못 볼 때의 대비).
+            var entityTag = new EntityTagHeaderValue("\"" + row.Sha256 + "\"");
+            return TypedResults.Stream(stream, row.ContentType, lastModified: row.CreatedAt, entityTag: entityTag); // Range 처리는 켜지 않는다(enableRangeProcessing 기본값 false).
+        }
+        catch
+        {
+            await stream.DisposeAsync();
+            throw;
+        }
     }
 }

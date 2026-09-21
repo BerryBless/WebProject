@@ -275,7 +275,13 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
             // 되고, 핵심 증거는 응답 본문에 핸들러 자신의 문제 제목이 없다는 것 — 핸들러가 호출되지 않았다는 뜻이다.
             Assert.Contains(res.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.UnsupportedMediaType });
             var body = await res.Content.ReadAsStringAsync();
+            // "지원하지 않는 이미지"는 UploadAsync가 파일을 store.SaveAsync에 성공적으로 바인딩한 뒤에만 만드는 제목이라(JSON 본문으로는
+            // 절대 거기까지 못 간다) 이 본문에 없는 것이 당연해서 이 단언만으로는 "핸들러가 호출되지 않았다"를 증명하지 못한다(fix round 2, B2).
+            // 실제로 핸들러가 세션 없이도 호출됐다면 나올 첫 반응은 file 필드 누락 400(AttachmentEndpoints.cs:110-113)의 상세 문구이므로
+            // 그 문구가 없는지 확인해야 진짜 판별력이 있다. 두 문구를 UploadAsync의 두 관문(바인딩 성공 뒤 415, 바인딩 자체가 안 됐을 때 400)에
+            // 각각 대응시켜 둘 다 없는지 본다.
             Assert.DoesNotContain("지원하지 않는 이미지", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("multipart 필드 'file'", body, StringComparison.Ordinal);
         }
     }
 

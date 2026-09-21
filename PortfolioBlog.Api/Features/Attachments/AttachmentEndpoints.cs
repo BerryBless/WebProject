@@ -163,7 +163,9 @@ public static class AttachmentEndpoints
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. <see cref="FileSystemAttachmentStore.TryDelete"/>의 동기 파일 삭제가 이 스레드를 짧게 막는다.</description></item>
     /// <item><description><b>Memory Policy:</b> 엔티티 1개 로드.</description></item>
-    /// <item><description><b>Concurrency:</b> Thread-safe. DB 행 삭제를 파일 삭제보다 먼저 수행한다 — 행 삭제 뒤 파일 삭제가 실패해도 남는 것은 "참조 없는 파일"뿐이고(반대 순서는 깨진 링크를 만든다), 두 번째 삭제 요청은 <see cref="DbUpdateConcurrencyException"/>으로 404가 된다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
+    /// <item><description><b>Concurrency:</b> Thread-safe. DB 행 삭제를 파일 삭제보다 먼저 수행한다 — 행 삭제 뒤 파일 삭제가 실패해도 남는 것은 "참조 없는 파일"뿐이고(반대 순서는 깨진 링크를 만든다), 두 번째 삭제 요청은 <see cref="DbUpdateConcurrencyException"/>으로 404가 된다.
+    /// 공개 GET이 같은 파일을 스트리밍하는 중이어도 <see cref="FileSystemAttachmentStore.TryDelete"/>가 실패하지 않는다(공개 GET이 <see cref="FileShare.Delete"/>로 열기 때문 — <see cref="FileSystemAttachmentStore.TryDelete"/> 참조) —
+    /// 이 삭제가 고아 파일을 남기는 경우는 ACL·I/O 실패뿐이며, 그때는 경고 로그만 남기고(아래) DB 행은 이미 지워졌으므로 사용자에게는 정상적으로 204가 간다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, FileSystemAttachmentStore store, ILoggerFactory loggers, CancellationToken ct)
@@ -206,8 +208,10 @@ public static class AttachmentEndpoints
         name = RemoveUnpairedSurrogates(name);
         name = name.Replace("..", string.Empty, StringComparison.Ordinal).Trim().Trim('.');
         var dot = name.LastIndexOf('.');
-        var stem = (dot > 0 ? name[..dot] : name).Trim();
-        if (stem.Length == 0) stem = "image";
+        // 아직 다듬지 않은 stem이다 — 끝의 마침표·공백은 아래 TrimTrailingDotsAndWhitespace가 자르기 이후(있다면)까지 포함해 한 번에 처리한다.
+        // 슬라이스 직후에 곧바로 .Trim()하면 "a. .png" 같은 입력에서 마침표 앞 공백만 지워지고 그 뒤에 드러나는 마침표는 거르지 못해
+        // stem이 "a."로 끝난 채 확장자와 합쳐져 ".."이 생긴다(fix round 2, B3 — 자르기 없이도 재현됨).
+        var stem = dot > 0 ? name[..dot] : name;
         var extension = "." + ImageSignature.Extension(kind);
         var max = AppDbContext.FileNameMax - extension.Length;
         if (stem.Length > max)
@@ -216,10 +220,35 @@ public static class AttachmentEndpoints
             // UTF-16 코드 단위 기준으로 자르므로 서러게이트 쌍 한가운데를 자를 수 있다 — 마지막 문자가 상위 서러게이트로 남으면
             // 짝(하위 서러게이트)이 잘려 나간 것이므로 함께 버려 코드 포인트 경계에서 자른 것으로 만든다.
             if (stem.Length > 0 && char.IsHighSurrogate(stem[^1])) stem = stem[..^1];
-            stem = stem.TrimEnd();
-            if (stem.Length == 0) stem = "image";
         }
+        // 잘리지 않은 경로(위 dot > 0 슬라이스)와 잘린 경로(위 자르기) 둘 다, 끝에 마침표·공백이 남으면 확장자와 합쳐질 때 ".."을
+        // 만들 수 있다 — 한 번의 TrimEnd('.')·TrimEnd()만으로는 "마침표를 지우면 그 앞의 공백이 드러나고, 그 공백을 지우면 다시
+        // 마침표가 드러나는" 꼬리를 끝까지 걷어내지 못하므로 더 지울 게 없을 때까지 반복한다.
+        stem = TrimTrailingDotsAndWhitespace(stem);
+        if (stem.Length == 0) stem = "image";
         return stem + extension;
+    }
+
+    /// <summary>문자열 끝에서 마침표와 공백을 번갈아 가며 더는 지울 게 없을 때까지 반복해서 걷어낸다.</summary>
+    /// <param name="value">다듬을 문자열.</param>
+    /// <returns>끝에 마침표도 공백도 남지 않은 문자열(원래 전부 마침표·공백이었으면 빈 문자열).</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 무상태 정적 함수.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 반복마다 <see cref="string.TrimEnd()"/>가 부분 문자열을 새로 할당한다. 파일 이름 하나 분량이라 반복 횟수·크기 모두 작다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환. I/O 없음.</description></item>
+    /// </list>
+    /// </remarks>
+    private static string TrimTrailingDotsAndWhitespace(string value)
+    {
+        int previousLength;
+        do
+        {
+            previousLength = value.Length;
+            value = value.TrimEnd().TrimEnd('.');
+        } while (value.Length != previousLength);
+        return value;
     }
 
     /// <summary>문자열에서 홀로 남은(짝 없는) UTF-16 서러게이트를 제거한다: 상위 서러게이트 뒤에 하위 서러게이트가 없거나,

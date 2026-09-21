@@ -1,6 +1,7 @@
 using System.Text;
 using PortfolioBlog.Api.Features.Attachments;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Storage;
 
 namespace PortfolioBlog.Api.Tests.Features;
@@ -45,16 +46,21 @@ public sealed class DisplayNameTests
         "lone-high-surrogate" => "\uD83D" + ".png",
         "lone-low-surrogate-middle" => "abc" + "\uDC00" + "def.png",
         "emoji-well-under-limit" => "short-name-" + "\U0001F600" + ".webp",
+        "dot-space-dot-no-truncation" => "a. .png", // fix round 2, B3: 자르기 없이도(길이가 한도에 한참 못 미쳐도) ".."이 생기는 사전 존재 결함
+        "truncation-lands-on-dot" => new string('a', 249) + "." + "bbbbbb.webp", // fix round 2, B3: 리뷰어의 원래 재현(자르는 지점이 마침표)
         _ => throw new ArgumentOutOfRangeException(nameof(caseName)),
     };
 
     /// <summary>클라이언트가 보낸 파일 이름이 어떤 모양으로 서러게이트를 담고 있어도(길이 제한에 걸려 쌍이 잘리든, 애초에 홀로 있든)
-    /// 결과에는 홀로 남는 서러게이트가 없고, 길이는 255 이하이며, 확장자는 시그니처가 정한 대로다.</summary>
+    /// 결과에는 홀로 남는 서러게이트가 없고, 길이는 255 이하이며, 확장자는 시그니처가 정한 대로다. 또한 DTO가 실제로 만드는 것과 같은 방식으로
+    /// URL을 구성했을 때 <see cref="UrlPolicy.IsAllowedImage"/>를 통과한다 — 즉 결과에 <c>".."</c>이 남아 있지 않다(fix round 2, B3).</summary>
     [Theory]
     [InlineData("surrogate-split-by-truncation", ImageKind.WebP, "webp")]
     [InlineData("lone-high-surrogate", ImageKind.Png, "png")]
     [InlineData("lone-low-surrogate-middle", ImageKind.Png, "png")]
     [InlineData("emoji-well-under-limit", ImageKind.WebP, "webp")]
+    [InlineData("dot-space-dot-no-truncation", ImageKind.Png, "png")]
+    [InlineData("truncation-lands-on-dot", ImageKind.WebP, "webp")]
     public void DisplayName_NeverLeavesAnUnpairedSurrogate(string caseName, ImageKind kind, string extension)
     {
         var uploaded = UploadedNameFor(caseName);
@@ -64,6 +70,9 @@ public sealed class DisplayNameTests
         Assert.False(HasUnpairedSurrogate(result), $"홀로 남은 서러게이트가 있다: {caseName} → \"{result}\"");
         Assert.True(result.Length <= AppDbContext.FileNameMax, $"{caseName}: 길이 {result.Length} > {AppDbContext.FileNameMax}");
         Assert.EndsWith("." + extension, result, StringComparison.Ordinal);
+        // AttachmentEndpoints.ToDto가 실제로 URL을 만드는 방식(Uri.EscapeDataString)을 그대로 흉내 낸다.
+        var url = $"/attachments/{Guid.Empty}/{Uri.EscapeDataString(result)}";
+        Assert.True(UrlPolicy.IsAllowedImage(url), $"{caseName}: 반환된 URL이 UrlPolicy.IsAllowedImage를 통과하지 못했다: {url} (result=\"{result}\")");
     }
 
     /// <summary>제한보다 훨씬 짧은 이모지는 잘리지 않고 두 절반(상위·하위 서러게이트) 모두 온전히 남는다.</summary>
@@ -75,5 +84,21 @@ public sealed class DisplayNameTests
         var result = AttachmentEndpoints.DisplayName(uploaded, ImageKind.WebP);
 
         Assert.Contains("\U0001F600", result, StringComparison.Ordinal);
+    }
+
+    /// <summary>선행 마침표 제거(<c>Trim('.')</c>)가 그 앞의 공백을 새로 드러내는 순서 때문에, 마침표·공백이 번갈아 나오는 아주 긴 입력은
+    /// 자르기 지점 전체가 마침표·공백뿐인 상태로 잘릴 수 있다(측정으로 확인 — "잘린 stem의 0번 문자는 항상 안전하다"는 처음 추정은 틀렸다:
+    /// <c>Trim()</c>이 <c>Trim('.')</c>보다 먼저 실행돼 마침표를 지운 뒤 드러나는 공백은 다시 다듬어지지 않는다). 그래도 결과는 안전하게
+    /// "image" 폴백으로 수렴하고 확장자 앞에 <c>".."</c>이 생기지 않는다(fix round 2, B3).</summary>
+    [Fact]
+    public void DisplayName_LongAlternatingDotSpaceRun_FallsBackToImage()
+    {
+        var uploaded = string.Concat(Enumerable.Repeat(". ", 200)) + ".png";
+
+        var result = AttachmentEndpoints.DisplayName(uploaded, ImageKind.Png);
+
+        Assert.Equal("image.png", result);
+        var url = $"/attachments/{Guid.Empty}/{Uri.EscapeDataString(result)}";
+        Assert.True(UrlPolicy.IsAllowedImage(url));
     }
 }
