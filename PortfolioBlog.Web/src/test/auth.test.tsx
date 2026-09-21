@@ -56,6 +56,18 @@ describe('인증 흐름', () => {
     expect(router.state.location.search).toBe('?next=%2Ftags')
   })
 
+  it('시리즈를 만드는 중에 401이 오면 로그인 화면으로 간다', async () => {
+    // SeriesForm은 useMutation 없이 onSubmit을 직접 await한다 — MutationCache.onError를 거치지 않으므로
+    // 401을 스스로 기록해야 한다(고치기 전에는 /series에 머문다).
+    stubApi({ ...LOGGED_IN, 'GET /api/series': { status: 200, body: [] }, 'POST /api/series': { status: 401 } })
+    const { router } = renderApp('/series')
+    await userEvent.type(await screen.findByLabelText('제목'), '제목입니다')
+    await userEvent.type(screen.getByLabelText(/^slug/), 'my-series')
+    await userEvent.click(screen.getByRole('button', { name: '만들기' }))
+    await screen.findByRole('heading', { name: '관리자 로그인' })
+    expect(router.state.location.search).toBe('?next=%2Fseries')
+  })
+
   it('로그아웃하면 로그인 화면으로 간다', async () => {
     let loggedIn = true // 실제 서버처럼 로그아웃 뒤의 /me는 false를 돌려준다
     const calls = stubApi({

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { series as api } from '../api/endpoints'
 import { ApiError, type FieldErrors } from '../api/errors'
 import type { Series, UpsertSeriesRequest } from '../api/types'
+import { noteAuthFailure } from '../app/queryClient'
 import { ErrorNotice, FieldError, Loading } from '../components/notices'
 import { hasErrors, validateSeries } from '../lib/validation'
 
@@ -13,6 +14,7 @@ function SeriesForm({ initial, slugLocked, submitLabel, onSubmit, onCancel }: {
   initial: UpsertSeriesRequest; slugLocked: boolean; submitLabel: string
   onSubmit: (value: UpsertSeriesRequest) => Promise<unknown>; onCancel?: () => void
 }) {
+  const client = useQueryClient()
   const [value, setValue] = useState(initial)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [failure, setFailure] = useState<unknown>(null)
@@ -24,7 +26,13 @@ function SeriesForm({ initial, slugLocked, submitLabel, onSubmit, onCancel }: {
     if (hasErrors(local)) return
     setBusy(true)
     try { await onSubmit(value); if (!slugLocked) setValue(EMPTY) }
-    catch (cause) { if (cause instanceof ApiError && cause.status === 400) setErrors(cause.fieldErrors); else setFailure(cause) }
+    catch (cause) {
+      // 이 폼은 useMutation을 쓰지 않고 onSubmit을 직접 await한다 — 성공·실패로 자기 상태(필드 오류·입력 비우기)를
+      // 그 자리에서 바꿔야 해서다. 그래서 MutationCache.onError를 거치지 않으므로, 401 기록은 여기서 직접 넘긴다
+      // (안 넘기면 세션이 만료돼도 RequireAuth가 모르고 이 화면에 그대로 남는다).
+      noteAuthFailure(client, cause)
+      if (cause instanceof ApiError && cause.status === 400) setErrors(cause.fieldErrors); else setFailure(cause)
+    }
     finally { setBusy(false) }
   }
   return (

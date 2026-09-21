@@ -32,6 +32,10 @@ export function PostsPage() {
 
   const total = list.data?.total ?? 0
   const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1)
+  // 렌더 중 상태 보정(effect 아님): 마지막 쪽에서 지워 총 개수가 줄면 서버가 그 skip에는 빈 목록을 준다.
+  // list.data가 있을 때만 본다 — 없으면(첫 로딩) total이 0으로 계산돼 오탐한다. 보정 뒤에는 page<=lastPage가 되어
+  // 같은 조건이 다시 참이 되지 않으므로 무한 렌더로 이어지지 않는다.
+  if (list.data && page > lastPage) setPage(lastPage)
 
   return (
     <main className="mx-auto max-w-5xl space-y-4 p-4">

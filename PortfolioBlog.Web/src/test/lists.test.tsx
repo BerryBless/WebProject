@@ -25,4 +25,31 @@ describe('글 목록', () => {
     expect(await screen.findByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
     expect(view.container.querySelector('img')).toBeNull()
   })
+
+  it('마지막 쪽에서 삭제하면 다음 조회 결과에 맞춰 첫 쪽으로 돌아간다', async () => {
+    const page2Post = { ...post, id: 'p2' }
+    let total = 51 // 페이지 크기(50)보다 1개 많아 2쪽이 생긴다
+    const calls = stubApi({
+      ...LOGGED_IN,
+      // skip으로 쪽을 가른다: 0쪽은 항상 post 1개, 그 다음 쪽은 total이 페이지 크기를 넘을 때만 1개를 준다
+      // (삭제 뒤 total이 50으로 줄면 2쪽 조회는 빈 목록이 된다 — 서버가 실제로 그렇게 응답한다).
+      'GET /api/posts': (call) => {
+        const skip = Number(new URLSearchParams(call.url.split('?')[1] ?? '').get('skip') ?? '0')
+        return skip === 0
+          ? { status: 200, body: { items: [post], total } }
+          : { status: 200, body: { items: total > 50 ? [page2Post] : [], total } }
+      },
+      'DELETE /api/posts/p2': () => { total = 50; return { status: 204 } },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderApp('/')
+    await screen.findByText('안녕')
+    await userEvent.click(screen.getByRole('button', { name: '다음' }))
+    await waitFor(() => expect(screen.getByText('2 / 2 (총 51건)')).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(calls.some(c => c.method === 'DELETE')).toBe(true))
+    await waitFor(() => expect(screen.getByText('1 / 1 (총 50건)')).toBeInTheDocument())
+    const afterDelete = calls.slice(calls.findIndex(c => c.method === 'DELETE'))
+    expect(afterDelete.some(c => c.method === 'GET' && c.url.includes('skip=0'))).toBe(true)
+  })
 })
