@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { altTextOf } from '../lib/markdownImage'
 import { LOGGED_IN, renderApp, stubApi } from './harness'
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+afterEach(() => {
+  vi.unstubAllGlobals(); vi.restoreAllMocks()
+  // navigator.clipboard는 jsdom에 기본으로 없다(own property가 아니다) — Object.defineProperty로 넣은 값을
+  // 지워 다음 테스트가 원래 상태(undefined)에서 시작하게 한다. vi.unstubAllGlobals는 vi.stubGlobal만 되돌린다.
+  Reflect.deleteProperty(navigator, 'clipboard')
+})
 
 const ITEM = { id: 'a1', url: '/attachments/a1/%EA%B7%B8%EB%A6%BC%20%281%29.png', fileName: '그림 (1).png', contentType: 'image/png', sizeBytes: 2048, sha256: 'x', createdAt: '2026-09-01T00:00:00Z' }
 
@@ -62,5 +67,47 @@ describe('첨부', () => {
     await waitFor(() => expect(screen.getByText('1 / 1 (총 50건)')).toBeInTheDocument())
     const afterDelete = calls.slice(calls.findIndex(c => c.method === 'DELETE'))
     expect(afterDelete.some(c => c.method === 'GET' && c.url.includes('skip=0'))).toBe(true)
+  })
+
+  it('업로드가 도는 동안 입력을 막아 재진입을 못 하게 한다', async () => {
+    let resolveUpload: (reply: { status: number; body?: unknown }) => void = () => {}
+    const pending = new Promise<{ status: number; body?: unknown }>(resolve => { resolveUpload = resolve })
+    stubApi({ ...LOGGED_IN, 'GET /api/attachments': { status: 200, body: { items: [], total: 0 } }, 'POST /api/attachments': () => pending })
+    const view = renderApp('/attachments')
+    await screen.findByText('첨부가 없습니다.')
+    const input = view.container.querySelector('input[type=file]') as HTMLInputElement
+    await userEvent.upload(input, new File(['x'.repeat(10)], 'ok.png', { type: 'image/png' }))
+    await waitFor(() => expect(input).toBeDisabled())
+    expect(screen.getByRole('status')).toHaveTextContent('올리는 중…')
+    resolveUpload({ status: 200, body: { id: 'a3', url: '/attachments/a3/ok.png', fileName: 'ok.png', contentType: 'image/png', sizeBytes: 10, sha256: 'y', createdAt: '2026-09-01T00:00:00Z' } })
+    await waitFor(() => expect(input).not.toBeDisabled())
+  })
+
+  it('마크다운 복사는 대체 텍스트와 서버 주소를 담은 문자열을 클립보드에 넣는다', async () => {
+    stubApi({ ...LOGGED_IN, 'GET /api/attachments': { status: 200, body: { items: [ITEM], total: 1 } } })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    renderApp('/attachments')
+    await userEvent.click(await screen.findByRole('button', { name: '마크다운 복사' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '복사됨' })).toBeInTheDocument())
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/^!\[[^\]]*\]\(\/attachments\/[^)]*\)$/))
+  })
+
+  it('클립보드 복사가 거부되면 대신 복사하라고 알린다', async () => {
+    stubApi({ ...LOGGED_IN, 'GET /api/attachments': { status: 200, body: { items: [ITEM], total: 1 } } })
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true })
+    renderApp('/attachments')
+    await userEvent.click(await screen.findByRole('button', { name: '마크다운 복사' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('클립보드에 복사하지 못했습니다')
+  })
+
+  it('서버 계약과 다른 url을 가진 첨부는 이미지를 그리지 않고 복사를 막는다', async () => {
+    const external = { ...ITEM, id: 'b1', url: 'https://evil.test/x.png' }
+    const protocolRelative = { ...ITEM, id: 'b2', url: '//evil.test/x.png' }
+    stubApi({ ...LOGGED_IN, 'GET /api/attachments': { status: 200, body: { items: [external, protocolRelative], total: 2 } } })
+    renderApp('/attachments')
+    await screen.findAllByText('주소 형식이 올바르지 않은 첨부')
+    expect(screen.queryByRole('img')).toBeNull()
+    for (const button of screen.getAllByRole('button', { name: '마크다운 복사' })) expect(button).toBeDisabled()
   })
 })
