@@ -217,7 +217,8 @@ public class ApiFactory : WebApplicationFactory<Program>
         return setCookie.Split(';', 2)[0];
     }
 
-    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.</summary>
+    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.
+    /// 풀 정리가 예외를 던져도(예: 연결 문자열 조립 실패) 첨부 임시 폴더 정리는 <c>finally</c>로 항상 실행된다.</summary>
     /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·연결 풀·임시 폴더)까지 해제한다.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
@@ -236,15 +237,23 @@ public class ApiFactory : WebApplicationFactory<Program>
         // 공개 조회 풀도 닫는다(연결 문자열이 달라 풀이 따로다). 시간 제한 값이 연결 문자열의 일부라 앱과 같은 값으로 조립해야 같은 풀을 가리킨다.
         // int.TryParse: Dispose 안에서 예외를 던지면 바로 아래 첨부 임시 폴더 정리가 건너뛰어지므로, 파싱 실패를 예외 대신
         // PublicOptions 기본값으로 흡수한다(정리 자체는 최선 노력이고, 여기서 죽을 이유가 없다).
-        var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null
-            && int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
-            ? parsed
-            : new PublicOptions().StatementTimeoutMs;
-        foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_connectionString, timeout) })
+        // try/finally: PublicDbContext.BuildConnectionString은 Fix round 1부터 Options가 이미 있으면 예외를 던질 수 있다(정상 경로에서는
+        // _connectionString에 Options가 없어 도달하지 않지만, 그 호출이 실패하더라도 아래 첨부 임시 폴더 정리는 반드시 실행되어야 한다).
+        try
         {
-            using var connection = new NpgsqlConnection(cs);
-            NpgsqlConnection.ClearPool(connection);
+            var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null
+                && int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : new PublicOptions().StatementTimeoutMs;
+            foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_connectionString, timeout) })
+            {
+                using var connection = new NpgsqlConnection(cs);
+                NpgsqlConnection.ClearPool(connection);
+            }
         }
-        if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
+        finally
+        {
+            if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
+        }
     }
 }

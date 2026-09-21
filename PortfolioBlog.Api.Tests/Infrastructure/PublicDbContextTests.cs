@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -84,7 +85,7 @@ public sealed class PublicDbContextTests(PostgresContainerFixture pg)
         using var _ = factory.CreateClient(); // 호스트 기동 → Migrate()
         // Maximum Pool Size=1: 이 테스트 전용 풀에 물리 연결이 하나만 존재하도록 강제한다. 그래야 닫았다 다시 여는
         // 두 번째 연결이 반드시 첫 번째와 같은 물리 연결(따라서 같은 pg_backend_pid)을 재사용하고, 아래 pid 비교가 결정적이다.
-        var connectionString = new NpgsqlConnectionStringBuilder(PublicDbContext.BuildConnectionString(factory.ConnectionString, 3000)) { MaxPoolSize = 1 }.ConnectionString;
+        var connectionString = new NpgsqlConnectionStringBuilder(PublicDbContext.BuildConnectionString(factory.ConnectionString, new PublicOptions().StatementTimeoutMs)) { MaxPoolSize = 1 }.ConnectionString;
         try
         {
             int pidDuringEscape;

@@ -84,7 +84,9 @@ public sealed class PublicQueriesTests(PostgresContainerFixture pg)
         Assert.Equal(2, (await QueryAsync(factory, db => PublicQueries.SearchAsync(db, "완료", 1, CancellationToken.None))).Total);
     }
 
-    /// <summary>0·음수·오버플로 경계의 page는 조용히 틀린 결과(예: 음수 OFFSET이 0으로 취급돼 1쪽이 나옴)를 내는 대신 즉시 예외로 거부된다(Fix round 1, 심층 방어).</summary>
+    /// <summary>0·음수·오버플로 경계의 page는, 가드가 없었다면 PostgreSQL의 감싸이지 않은 2201X 예외(음수 OFFSET)로 500이 되거나
+    /// 오버플로 값에 따라 조용히 틀린 페이지를 냈을 것을(PublicQueries.PageAsync 주석의 실측 참조) 대신 즉시 명확한
+    /// <see cref="ArgumentOutOfRangeException"/>으로 거부한다(Fix round 1, 심층 방어).</summary>
     [Fact]
     public async Task Latest_OutOfRangePage_Throws()
     {
