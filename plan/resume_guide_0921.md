@@ -10,11 +10,11 @@
 | 0 | 솔루션 개명(`PortfolioBlog`), `.slnx` 전환, 샘플 제거 | 완료 | master |
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API | 완료 | PR #1 → `5604f2d` |
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
-| 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3(squash 병합), 보고서 `plan/tech_blog_2b_report_0921.md` |
+| 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
 | **3** | 관리 에디터 SPA(React 19 + Vite) | **다음 작업 — 계획 미작성** | 스펙 8절, 3절 |
 | 4 | Docker Compose·Caddy·백업/복원 | 예정, 계획 미작성 | 스펙 8절 |
 
-- 기준 커밋: master의 PR #3 squash 커밋(`git log --oneline -3 master`로 확인). 작업 트리 깨끗함, 열린 PR 없음.
+- 기준 커밋: master `80c8dc4`(이 문서의 해시를 채운 문서 커밋이 그 위에 하나 더 있다). 작업 트리 깨끗함, 열린 PR 없음.
 - 검증 상태: Release 빌드 경고 0 / 오류 0, 테스트 **589개 통과**, 하네스 감사 8/8, CI(ubuntu-latest) 통과.
 - 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
 
