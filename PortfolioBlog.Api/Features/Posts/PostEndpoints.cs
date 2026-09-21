@@ -104,7 +104,8 @@ public static class PostEndpoints
     /// <summary>새 글을 만든다. 저장 즉시 공개되므로 태그 upsert·글·태그 링크를 한 트랜잭션으로 묶는다.</summary>
     /// <param name="req">생성 요청 본문.</param>
     /// <param name="db">저장에 쓸 DbContext.</param>
-    /// <param name="renderer">저장 전 본문이 실제로 렌더링 가능한지 확인할 마크다운 렌더러(HTML은 저장하지 않고 버린다).</param>
+    /// <param name="gate">저장 전 본문이 실제로 렌더링 가능한지 확인할 전역 렌더 게이트(HTML은 버리지 않고 저장 뒤 캐시를 선채움한다).</param>
+    /// <param name="cache">저장 뒤 렌더 결과를 (글 Id, 버전)으로 선채움할 렌더 캐시.</param>
     /// <param name="loggers">생성을 id·slug만 남기고 기록할 로거 팩토리.</param>
     /// <param name="ct">요청 취소 토큰.</param>
     /// <returns>성공 시 <c>Location</c> 헤더와 상세 DTO를 담은 201, 검증 실패이거나 본문이 너무 깊게 중첩됐으면 400, slug 중복이거나 검증 뒤 참조가 사라졌으면 409.</returns>
@@ -113,22 +114,24 @@ public static class PostEndpoints
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
     /// <item><description><b>Memory Policy:</b> <see cref="Post"/> 엔티티 1개 + 태그 연결 목록 + 본문(최대 200KB) 문자열 1개를 할당한다.
-    /// 렌더 가능성 확인이 만드는 HTML 문자열은 즉시 버려진다(저장하지 않음).</description></item>
+    /// 렌더 가능성 확인이 만드는 HTML은 버리지 않고, 재조회한 DTO의 본문이 이 요청과 같을 때만(<see cref="CanCacheRenderedResult"/>) <paramref name="cache"/>에 선채움한다 —
+    /// 재조회 사이에 다른 요청이 같은 글을 또 저장했으면 남의 HTML이 그 요청의 최신 버전 키에 꽂히는 것을 막는다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: slug 중복 조회·태그 해석·트랜잭션·저장을 모두 <c>await</c>한다.
-    /// 단, 저장 전 렌더 가능성 확인은 동기 CPU 작업이라(<see cref="MarkdownRenderer"/> 문서 참조) 요청 스레드를 그 시간만큼 점유한다.
+    /// 저장 전 렌더 가능성 확인은 <see cref="RenderGate"/>가 프로세스 전체의 동시 렌더 수를 제한하므로(<see cref="RenderGate"/> 문서 참조) 요청 스레드는 슬롯을 얻은 뒤에만 렌더링 시간만큼 점유된다.
     /// 같은 slug 동시 생성은 사전 검사를 통과해도 <c>SaveChangesAsync</c>의 유니크 위반으로 409를 돌려준다(경쟁 창을 DB가 최종 방어한다).</description></item>
     /// </list>
     /// </remarks>
-    private static async Task<IResult> CreateAsync(UpsertPostRequest req, AppDbContext db, MarkdownRenderer renderer, ILoggerFactory loggers, CancellationToken ct)
+    private static async Task<IResult> CreateAsync(UpsertPostRequest req, AppDbContext db, RenderGate gate, RenderedPostCache cache, ILoggerFactory loggers, CancellationToken ct)
     {
         var errors = PostValidation.Validate(req);
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
         // 이 확인이 보장하는 것: 저장되는 글은 예외 없이 렌더링되고, 강조 시간도 상한(HighlightingCodeBlockRenderer 참조) 안에서 끝난다.
-        // 남는 위험: Markdig 자체 파서의 초선형 잔존 비용(적대적 입력에서만, 최대 수 초)은 이 저장 요청 자체에도 그대로 적용된다 — 이건 여기서 막지 못한다.
-        // 요청당 렌더 1회를 더 지불하는 대신 "저장된 글은 항상 렌더 가능하고 강조 시간도 유계다"는 불변식을 얻는다.
-        if (!TryRenderOrAddError(renderer, req.ContentMarkdown!, errors)) return TypedResults.ValidationProblem(errors.ToDictionary());
+        // 남는 위험: Markdig 파서의 초선형 비용은 이 요청에도 그대로 들지만, RenderGate가 프로세스 전체의 동시 렌더 수를 묶으므로
+        // 저장 요청 여러 개가 CPU를 동시에 물지 못한다.
+        var rendered = await RenderOrAddErrorAsync(gate, req.ContentMarkdown!, errors, ct);
+        if (rendered is null) return TypedResults.ValidationProblem(errors.ToDictionary());
 
         if (await db.Posts.AnyAsync(p => p.Slug == req.Slug, ct)) return DbConflict.Problem($"slug '{req.Slug}'는 이미 쓰이고 있습니다.");
 
@@ -155,6 +158,8 @@ public static class PostEndpoints
 
         loggers.CreateLogger("PortfolioBlog.Api.Audit").LogInformation("글 생성. PostId={PostId} Slug={Slug}", post.Id, post.Slug); // 본문은 기록하지 않는다
         var dto = await PostQueries.GetDetailAsync(db, post.Id, ct);
+        // 재조회~여기 사이에 다른 요청이 같은 글을 또 저장했을 수 있다(CanCacheRenderedResult 문서의 경쟁 시나리오) — 본문이 이번 요청과 다르면 캐시하지 않는다.
+        if (CanCacheRenderedResult(dto, req.ContentMarkdown!)) cache.Store(dto!.Id, dto.Version, rendered);
         return TypedResults.Created($"/api/posts/{post.Id}", dto);
     }
 
@@ -162,7 +167,8 @@ public static class PostEndpoints
     /// <param name="id">수정할 글의 Id.</param>
     /// <param name="req">수정 요청 본문(전체 교체 의미론).</param>
     /// <param name="db">저장에 쓸 DbContext.</param>
-    /// <param name="renderer">저장 전 본문이 실제로 렌더링 가능한지 확인할 마크다운 렌더러(HTML은 저장하지 않고 버린다).</param>
+    /// <param name="gate">저장 전 본문이 실제로 렌더링 가능한지 확인할 전역 렌더 게이트(HTML은 버리지 않고 저장 뒤 캐시를 선채움한다).</param>
+    /// <param name="cache">저장 뒤 렌더 결과를 (글 Id, 버전)으로 선채움할 렌더 캐시.</param>
     /// <param name="loggers">수정을 id·slug만 남기고 기록할 로거 팩토리.</param>
     /// <param name="ct">요청 취소 토큰.</param>
     /// <returns>성공 시 갱신된 상세 DTO를 담은 200, 글이 없으면 404, 검증 실패이거나 본문이 너무 깊게 중첩됐으면 400, version이 오래됐거나 참조가 사라졌으면 409.</returns>
@@ -171,13 +177,14 @@ public static class PostEndpoints
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
     /// <item><description><b>Memory Policy:</b> 추적되는 <see cref="Post"/>와 <see cref="PostTag"/> 컬렉션을 로드하고, 본문(최대 200KB) 문자열 1개를 교체 보유한다.
-    /// 렌더 가능성 확인이 만드는 HTML 문자열은 즉시 버려진다(저장하지 않음).</description></item>
+    /// 렌더 가능성 확인이 만드는 HTML은 버리지 않고, 재조회한 DTO의 본문이 이 요청과 같을 때만(<see cref="CanCacheRenderedResult"/>) <paramref name="cache"/>에 선채움한다 —
+    /// 재조회 사이에 다른 요청이 같은 글을 또 저장했으면 남의 HTML이 그 요청의 최신 버전 키에 꽂히는 것을 막는다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: 모든 DB I/O를 <c>await</c>한다.
-    /// 저장 전 렌더 가능성 확인은 동기 CPU 작업이라(<see cref="MarkdownRenderer"/> 문서 참조) 요청 스레드를 그 시간만큼 점유한다.
+    /// 저장 전 렌더 가능성 확인은 <see cref="RenderGate"/>가 프로세스 전체의 동시 렌더 수를 제한하므로(<see cref="RenderGate"/> 문서 참조) 요청 스레드는 슬롯을 얻은 뒤에만 렌더링 시간만큼 점유된다.
     /// <c>xmin</c>을 <c>OriginalValue</c>로 고정해 조회 이후 발생한 경쟁도 <c>UPDATE ... WHERE xmin = ...</c>로 잡는다(사전 검사만으로는 조회~저장 사이의 경쟁을 놓친다).</description></item>
     /// </list>
     /// </remarks>
-    private static async Task<IResult> UpdateAsync(Guid id, UpsertPostRequest req, AppDbContext db, MarkdownRenderer renderer, ILoggerFactory loggers, CancellationToken ct)
+    private static async Task<IResult> UpdateAsync(Guid id, UpsertPostRequest req, AppDbContext db, RenderGate gate, RenderedPostCache cache, ILoggerFactory loggers, CancellationToken ct)
     {
         var post = await db.Posts.Include(p => p.PostTags).SingleOrDefaultAsync(p => p.Id == id, ct);
         if (post is null) return TypedResults.NotFound();
@@ -189,11 +196,16 @@ public static class PostEndpoints
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        // 이 확인이 보장하는 것: 저장되는 글은 예외 없이 렌더링되고, 강조 시간도 상한(HighlightingCodeBlockRenderer 참조) 안에서 끝난다.
-        // 남는 위험: Markdig 자체 파서의 초선형 잔존 비용(적대적 입력에서만, 최대 수 초)은 이 저장 요청 자체에도 그대로 적용된다 — 이건 여기서 막지 못한다.
-        if (!TryRenderOrAddError(renderer, req.ContentMarkdown!, errors)) return TypedResults.ValidationProblem(errors.ToDictionary());
-
+        // 버전 검사를 렌더보다 먼저 한다: 오래된 탭이 보낸 요청은 어차피 409로 버려지므로, 굳이 렌더 게이트 슬롯(동시성 예산)과
+        // CPU를 먼저 쓰게 하지 않는다. req.Version은 위 errors.Any 검사에서 null이면 이미 400으로 반환됐으므로 여기서는 항상 값이 있다.
         if (post.Version != req.Version) return StaleVersion();
+
+        // 이 확인이 보장하는 것: 저장되는 글은 예외 없이 렌더링되고, 강조 시간도 상한(HighlightingCodeBlockRenderer 참조) 안에서 끝난다.
+        // 남는 위험: Markdig 파서의 초선형 비용은 이 요청에도 그대로 들지만, RenderGate가 프로세스 전체의 동시 렌더 수를 묶으므로
+        // 저장 요청 여러 개가 CPU를 동시에 물지 못한다.
+        var rendered = await RenderOrAddErrorAsync(gate, req.ContentMarkdown!, errors, ct);
+        if (rendered is null) return TypedResults.ValidationProblem(errors.ToDictionary());
+
         // 읽은 뒤 저장 전까지의 경쟁도 잡도록 UPDATE의 WHERE xmin = ... 비교값을 클라이언트가 본 버전으로 고정한다.
         db.Entry(post).Property(p => p.Version).OriginalValue = req.Version!.Value;
 
@@ -226,7 +238,10 @@ public static class PostEndpoints
         await tx.CommitAsync(ct);
 
         loggers.CreateLogger("PortfolioBlog.Api.Audit").LogInformation("글 수정. PostId={PostId} Slug={Slug}", post.Id, post.Slug);
-        return TypedResults.Ok(await PostQueries.GetDetailAsync(db, post.Id, ct));
+        var updated = await PostQueries.GetDetailAsync(db, post.Id, ct);
+        // 재조회~여기 사이에 다른 요청이 같은 글을 또 저장했을 수 있다(CanCacheRenderedResult 문서의 경쟁 시나리오) — 본문이 이번 요청과 다르면 캐시하지 않는다.
+        if (CanCacheRenderedResult(updated, req.ContentMarkdown!)) cache.Store(updated!.Id, updated.Version, rendered);
+        return TypedResults.Ok(updated);
     }
 
     /// <summary>글을 삭제한다(태그 링크만 지우고 태그 자체는 남긴다). <paramref name="version"/>이 필수이며 현재 값과 같아야 삭제된다(낙관적 동시성).</summary>
@@ -290,32 +305,53 @@ public static class PostEndpoints
         }
     }
 
-    /// <summary>저장 전에 본문을 실제로 렌더링해 봐서 저장 가능한지 확인한다. 결과 HTML은 버린다(저장하지 않는다).</summary>
-    /// <param name="renderer">렌더링에 쓸 마크다운 렌더러.</param>
+    /// <summary>저장 전에 본문을 게이트 뒤에서 실제로 렌더링해 저장 가능한지 확인한다. 결과는 버리지 않고 저장 뒤 캐시에 넣는다.</summary>
+    /// <param name="gate">렌더링에 쓸 전역 렌더 게이트.</param>
     /// <param name="contentMarkdown">확인할 본문 원문.</param>
     /// <param name="errors">중첩이 너무 깊으면 <c>contentMarkdown</c> 키로 오류를 추가할 대상.</param>
-    /// <returns>렌더링에 성공하면 <c>true</c>, <see cref="MarkdownTooComplexException"/>이 나서 <paramref name="errors"/>에 추가했으면 <c>false</c>.</returns>
+    /// <param name="ct">요청 취소 토큰(슬롯 대기만 취소한다).</param>
+    /// <returns>렌더 결과. 중첩이 너무 깊어 <paramref name="errors"/>에 오류를 넣었으면 <c>null</c>.</returns>
+    /// <exception cref="RenderBusyException">렌더 슬롯을 제때 얻지 못했다(예외 처리기가 503으로 바꾼다).</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
-    /// <item><description><b>Memory Policy:</b> <see cref="MarkdownRenderer.Render"/>가 만드는 HTML 문자열 1개를 즉시 버린다(참조를 보관하지 않는다).</description></item>
-    /// <item><description><b>Concurrency:</b> Thread-safe. Blocking: <see cref="MarkdownRenderer.Render"/>는 동기 CPU 작업이라 이 메서드도 그동안 요청 스레드를 점유한다(취소 불가).</description></item>
+    /// <item><description><b>Memory Policy:</b> <see cref="RenderedMarkdown"/> 1개를 만들어 호출부에 돌려준다(호출부가 저장 뒤 캐시에 넣는다 — 버리지 않는다).</description></item>
+    /// <item><description><b>Concurrency:</b> Thread-safe. Non-blocking: 슬롯 대기는 <c>await</c>한다. 슬롯을 얻은 뒤의 렌더 자체는 <see cref="RenderGate.RenderAsync"/> 문서대로 동기 CPU 작업이라 그동안 요청 스레드를 점유한다(취소 불가).</description></item>
     /// </list>
     /// </remarks>
-    private static bool TryRenderOrAddError(MarkdownRenderer renderer, string contentMarkdown, ValidationErrors errors)
+    private static async Task<RenderedMarkdown?> RenderOrAddErrorAsync(RenderGate gate, string contentMarkdown, ValidationErrors errors, CancellationToken ct)
     {
         try
         {
-            renderer.Render(contentMarkdown);
-            return true;
+            return await gate.RenderAsync(contentMarkdown, ct);
         }
         catch (MarkdownTooComplexException)
         {
             errors.Add("contentMarkdown", "마크다운 구조가 너무 깊게 중첩됐습니다. 중첩을 줄여주세요.");
-            return false;
+            return null;
         }
     }
+
+    /// <summary>저장 뒤 재조회한 DTO를 캐시에 선채움해도 안전한지 판정한다.</summary>
+    /// <param name="dto">저장 뒤(트랜잭션 커밋 이후) 재조회한 상세 DTO. 재조회 자체가 실패했으면 <see langword="null"/>.</param>
+    /// <param name="requestContentMarkdown">이번 요청이 실제로 렌더링에 사용한 본문.</param>
+    /// <returns><paramref name="dto"/>가 있고 그 본문이 <paramref name="requestContentMarkdown"/>과 서수 비교로 같으면 <see langword="true"/>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 순수 함수(부작용 없음, 매개변수만으로 판정).</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation. <see cref="string.Equals(string?, string?, StringComparison)"/>는 새 문자열을 만들지 않는다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
+    /// </list>
+    /// 왜 필요한가(경쟁 시나리오): A가 저장을 커밋한 뒤 응답을 만들려고 <see cref="PostQueries.GetDetailAsync"/>로 재조회하는 그 사이에
+    /// B가 같은 글을 저장·커밋하면, A의 재조회는 이미 B가 쓴 최신 행(B의 본문·B의 xmin)을 읽는다. 이 확인 없이 <c>cache.Store(dto.Id, dto.Version, rendered)</c>를
+    /// 그대로 부르면 "A가 렌더링한 A의 HTML"이 "B의 최신 버전 키"에 꽂혀, 그 다음 방문자가 B의 글 내용 대신 A가 렌더링한 HTML을 보게 된다.
+    /// 키는 현재 버전과 일치하므로 이 오염은 다음 저장(TTL 24시간 또는 재배포)까지 스스로 회복되지 않는다. 본문이 다르면 캐시를 아예 건너뛰고
+    /// 다음 방문자가 다시 렌더링하게 두는 쪽이 안전하다(틀린 캐시보다 캐시 미스가 낫다).
+    /// </remarks>
+    internal static bool CanCacheRenderedResult(PostDetailDto? dto, string requestContentMarkdown) =>
+        dto is not null && string.Equals(dto.ContentMarkdown, requestContentMarkdown, StringComparison.Ordinal);
 
     /// <summary>낙관적 동시성 충돌(오래된 version)에 대한 409 응답을 만든다.</summary>
     /// <returns>409 Conflict <see cref="IResult"/>.</returns>

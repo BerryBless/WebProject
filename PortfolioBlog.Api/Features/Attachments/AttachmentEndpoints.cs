@@ -6,6 +6,7 @@ using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Features.Attachments;
 
@@ -44,6 +45,7 @@ public static class AttachmentEndpoints
         attachments.MapGet("", ListAsync).WithName("ListAttachments");
         attachments.MapPost("", UploadAsync).DisableAntiforgery()
             .WithMetadata(new RequestSizeLimitAttribute(AttachmentOptions.MaxBytes + 1_048_576))
+            .WithMetadata(new RateLimitMetadata(RateLimitPolicy.Upload))
             .WithName("UploadAttachment");
         attachments.MapDelete("/{id:guid}", DeleteAsync).WithName("DeleteAttachment");
     }
@@ -96,13 +98,16 @@ public static class AttachmentEndpoints
     /// <param name="store">시그니처 판정·메타데이터 제거·내용 주소 저장을 수행하는 싱글턴.</param>
     /// <param name="loggers">감사 로그(id·sha256·크기만) 기록용 로거 팩토리.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>새로 저장하면 201, 같은 내용이 이미 있으면 200, 필드 누락·빈 파일은 400, 10MB 초과는 413, 지원하지 않는 형식·손상된 구조는 415.</returns>
+    /// <returns>새로 저장하면 201, 같은 내용이 이미 있으면 200, 필드 누락·빈 파일은 400, 10MB 초과는 413, 지원하지 않는 형식·손상된 구조는 415, 같은 내용의 잠금 대기가 10초를 넘으면 503(Retry-After).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. <see cref="FileSystemAttachmentStore.SaveAsync"/>의 동기 구간(메타데이터 제거·해시)이 이 스레드를 짧게 막는다.</description></item>
     /// <item><description><b>Memory Policy:</b> 업로드 본문은 프레임워크가 디스크로 버퍼링하고, 저장소가 64KB 단위로 옮긴다. 10MB를 메모리에 올리지 않는다.</description></item>
-    /// <item><description><b>Concurrency:</b> Thread-safe. 같은 내용의 동시 업로드는 유니크 인덱스 위반(<see cref="DbConflict.UniqueViolation"/>)으로 한쪽만 삽입에 성공하고 나머지는 그 행을 재조회해 200을 돌려준다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
+    /// <item><description><b>Concurrency:</b> Thread-safe. 무거운 일(수신·메타데이터 제거·해시)은 <see cref="AttachmentLock"/> 밖에서 끝낸 뒤, 같은 내용(sha256)의 행 삽입은
+    /// <see cref="AttachmentLock"/> 세션 잠금 안에서 삭제·청소 잡과 직렬화된다 — 잠금을 기다리는 사이 같은 내용이 지워졌으면 잠금 안에서 파일 존재를 다시 확인해 없으면
+    /// <see cref="IFormFile.OpenReadStream"/>을 다시 열어 재저장한다(<c>IFormFile</c>은 프레임워크가 버퍼링해 둔 것이라 다시 열 수 있다). 잠금 대기가 10초를 넘으면
+    /// SqlState 55P03 → <c>OverloadExceptionHandler</c>가 503으로 바꾼다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> UploadAsync(IFormFile? file, AppDbContext db, FileSystemAttachmentStore store, ILoggerFactory loggers, CancellationToken ct)
@@ -113,42 +118,64 @@ public static class AttachmentEndpoints
         }
         if (file.Length > AttachmentOptions.MaxBytes) return TooLarge();
 
+        // 잠금 밖 최초 저장과, 잠금 안 재저장(파일이 사라진 경우) 둘 다 같은 예외를 낼 수 있으므로 매핑을 한 곳에 모은다
+        // (중복 catch 블록을 두면 재저장 경로만 415/413 매핑이 빠져 500이 되는 것을 놓치기 쉽다).
+        async Task<(StoredImage? Stored, IResult? Error)> TrySaveAsync(Stream s)
+        {
+            try { return (await store.SaveAsync(s, ct), null); }
+            catch (AttachmentTooLargeException) { return (null, TooLarge()); }
+            catch (UnsupportedImageException ex)
+            {
+                return (null, TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "지원하지 않는 이미지", detail: ex.Message));
+            }
+        }
+
         StoredImage stored;
-        try
         {
             await using var upload = file.OpenReadStream();
-            stored = await store.SaveAsync(upload, ct);
-        }
-        catch (AttachmentTooLargeException) { return TooLarge(); }
-        catch (UnsupportedImageException ex)
-        {
-            return TypedResults.Problem(statusCode: StatusCodes.Status415UnsupportedMediaType, title: "지원하지 않는 이미지", detail: ex.Message);
+            var (result, error) = await TrySaveAsync(upload);
+            if (error is not null) return error;
+            stored = result!;
         }
 
-        var existing = await db.Attachments.AsNoTracking().SingleOrDefaultAsync(a => a.Sha256 == stored.Sha256, ct);
-        if (existing is not null) return TypedResults.Ok(ToDto(existing));
+        // 무거운 일(수신·메타데이터 제거·해시)은 잠금 밖에서 끝냈다. 잠금 안에서는 "파일 확인 + 행 조회/삽입"만 한다.
+        await using (await AttachmentLock.HoldAsync(db, stored.Sha256, ct))
+        {
+            if (!store.Exists(stored.StoragePath))
+            {
+                // 잠금을 기다리는 사이 같은 내용의 삭제·청소가 파일을 지웠다. IFormFile은 프레임워크가 버퍼링해 둔 것이라 다시 열 수 있다.
+                // 재저장도 크기·형식 오류를 낼 수 있으므로(원본은 통과했지만 재확인 시점에 다시 검사) 최초 저장과 같은 매핑을 쓴다.
+                await using var again = file.OpenReadStream();
+                var (result, error) = await TrySaveAsync(again);
+                if (error is not null) return error;
+                stored = result!;
+            }
 
-        var attachment = new Attachment
-        {
-            FileName = DisplayName(file.FileName, stored.Kind),
-            ContentType = ImageSignature.ContentType(stored.Kind),
-            SizeBytes = stored.SizeBytes, StoragePath = stored.StoragePath, Sha256 = stored.Sha256, CreatedAt = DbClock.UtcNow(),
-        };
-        db.Attachments.Add(attachment);
-        try
-        {
-            await db.SaveChangesAsync(ct);
+            var existing = await db.Attachments.AsNoTracking().SingleOrDefaultAsync(a => a.Sha256 == stored.Sha256, ct);
+            if (existing is not null) return TypedResults.Ok(ToDto(existing));
+
+            var attachment = new Attachment
+            {
+                FileName = DisplayName(file.FileName, stored.Kind),
+                ContentType = ImageSignature.ContentType(stored.Kind),
+                SizeBytes = stored.SizeBytes, StoragePath = stored.StoragePath, Sha256 = stored.Sha256, CreatedAt = DbClock.UtcNow(),
+            };
+            db.Attachments.Add(attachment);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: DbConflict.UniqueViolation })
+            {
+                // 잠금 아래에서는 일어나지 않아야 한다. 잠금을 거치지 않는 경로(수동 SQL 등)에 대한 방어로 남긴다.
+                db.ChangeTracker.Clear();
+                return TypedResults.Ok(ToDto(await db.Attachments.AsNoTracking().SingleAsync(a => a.Sha256 == stored.Sha256, ct)));
+            }
+            loggers.CreateLogger("PortfolioBlog.Api.Audit").LogInformation(
+                "첨부 업로드. AttachmentId={AttachmentId} Sha256={Sha256} SizeBytes={SizeBytes}", attachment.Id, attachment.Sha256, attachment.SizeBytes);
+            var dto = ToDto(attachment);
+            return TypedResults.Created(dto.Url, dto);
         }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: DbConflict.UniqueViolation })
-        {
-            // 같은 내용의 동시 업로드가 먼저 저장됐다. 파일은 같은 경로(같은 해시)이므로 그 행을 돌려준다.
-            db.ChangeTracker.Clear();
-            return TypedResults.Ok(ToDto(await db.Attachments.AsNoTracking().SingleAsync(a => a.Sha256 == stored.Sha256, ct)));
-        }
-        loggers.CreateLogger("PortfolioBlog.Api.Audit").LogInformation(
-            "첨부 업로드. AttachmentId={AttachmentId} Sha256={Sha256} SizeBytes={SizeBytes}", attachment.Id, attachment.Sha256, attachment.SizeBytes);
-        var dto = ToDto(attachment);
-        return TypedResults.Created(dto.Url, dto);
     }
 
     /// <summary>첨부의 DB 행과 저장된 파일을 함께 지운다.</summary>
@@ -157,29 +184,31 @@ public static class AttachmentEndpoints
     /// <param name="store">파일 삭제를 수행하는 저장소.</param>
     /// <param name="loggers">감사 로그 기록용 로거 팩토리.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>삭제 성공 204, 없거나 이미 지워졌으면 404.</returns>
+    /// <returns>삭제 성공 204, 없거나 이미 지워졌으면 404, 같은 내용의 잠금 대기가 10초를 넘으면 503(Retry-After).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. <see cref="FileSystemAttachmentStore.TryDelete"/>의 동기 파일 삭제가 이 스레드를 짧게 막는다.</description></item>
-    /// <item><description><b>Memory Policy:</b> 엔티티 1개 로드.</description></item>
-    /// <item><description><b>Concurrency:</b> Thread-safe. DB 행 삭제를 파일 삭제보다 먼저 수행한다 — 행 삭제 뒤 파일 삭제가 실패해도 남는 것은 "참조 없는 파일"뿐이고(반대 순서는 깨진 링크를 만든다), 두 번째 삭제 요청은 <see cref="DbUpdateConcurrencyException"/>으로 404가 된다.
-    /// 공개 GET이 같은 파일을 스트리밍하는 중이어도 <see cref="FileSystemAttachmentStore.TryDelete"/>가 실패하지 않는다(공개 GET이 <see cref="FileShare.Delete"/>로 열기 때문 — <see cref="FileSystemAttachmentStore.TryDelete"/> 참조) —
-    /// 이 삭제가 고아 파일을 남기는 경우는 ACL·I/O 실패뿐이며, 그때는 경고 로그만 남기고(아래) DB 행은 이미 지워졌으므로 사용자에게는 정상적으로 204가 간다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
+    /// <item><description><b>Memory Policy:</b> 행 조회는 <c>Sha256</c>·<c>StoragePath</c> 두 필드만 프로젝션한다(전체 엔티티를 추적하지 않는다).</description></item>
+    /// <item><description><b>Concurrency:</b> Thread-safe. 같은 내용(sha256)의 <see cref="AttachmentLock"/> 세션 잠금 안에서 행 삭제(<c>ExecuteDeleteAsync</c>, 자동 커밋)와 파일 삭제를 함께 수행해
+    /// 업로드·청소 잡과 직렬화한다 — 잠금 안에서 삭제 대상 행이 이미 없으면(다른 탭이 먼저 지움) 404. 행을 먼저 지운다: 파일 삭제가 실패해도 남는 것은 참조 없는 파일뿐이고
+    /// (청소 잡이 치운다), 반대 순서는 깨진 링크를 만든다. 잠금 대기가 10초를 넘으면 SqlState 55P03 → <c>OverloadExceptionHandler</c>가 503으로 바꾼다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, FileSystemAttachmentStore store, ILoggerFactory loggers, CancellationToken ct)
     {
-        var attachment = await db.Attachments.SingleOrDefaultAsync(a => a.Id == id, ct);
-        if (attachment is null) return TypedResults.NotFound();
-        db.Attachments.Remove(attachment);
-        try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateConcurrencyException) { return TypedResults.NotFound(); } // 다른 탭이 먼저 지웠다
+        var row = await db.Attachments.AsNoTracking().Where(a => a.Id == id).Select(a => new { a.Sha256, a.StoragePath }).SingleOrDefaultAsync(ct);
+        if (row is null) return TypedResults.NotFound();
 
-        // DB와 파일 시스템은 한 트랜잭션이 아니다. 행을 먼저 지우면 실패해도 남는 것은 "참조 없는 파일"뿐이다(반대 순서는 깨진 링크를 만든다).
         var logger = loggers.CreateLogger("PortfolioBlog.Api.Audit");
-        if (!store.TryDelete(attachment.StoragePath)) logger.LogWarning("첨부 파일 삭제 실패(고아 파일). AttachmentId={AttachmentId} Sha256={Sha256}", attachment.Id, attachment.Sha256);
-        logger.LogInformation("첨부 삭제. AttachmentId={AttachmentId} Sha256={Sha256}", attachment.Id, attachment.Sha256);
+        await using (await AttachmentLock.HoldAsync(db, row.Sha256, ct))
+        {
+            // ExecuteDeleteAsync: 자동 커밋되는 DELETE 한 문장. Sha256이 UNIQUE라 이 행이 그 파일의 유일한 참조다.
+            if (await db.Attachments.Where(a => a.Id == id).ExecuteDeleteAsync(ct) == 0) return TypedResults.NotFound(); // 잠금을 기다리는 사이 다른 탭이 지웠다
+            // 행을 먼저 지운다: 파일 삭제가 실패해도 남는 것은 참조 없는 파일뿐이고(청소 잡이 치운다), 반대 순서는 깨진 링크를 만든다.
+            if (!store.TryDelete(row.StoragePath)) logger.LogWarning("첨부 파일 삭제 실패(고아 파일). AttachmentId={AttachmentId} Sha256={Sha256}", id, row.Sha256);
+        }
+        logger.LogInformation("첨부 삭제. AttachmentId={AttachmentId} Sha256={Sha256}", id, row.Sha256);
         return TypedResults.NoContent();
     }
 

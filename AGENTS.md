@@ -4,7 +4,7 @@
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 `PortfolioBlog.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`)와 `PortfolioBlog.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `PortfolioBlog.Web`(React 19 + Vite, `admin.<도메인>`에서만 서빙)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다. 패키지 버전은 `Directory.Packages.props`(중앙 패키지 관리, 전이 의존성까지 고정)가 일괄 관리한다 — 새 패키지는 거기에 추가한다.
+**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 `PortfolioBlog.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`. 공개 페이지는 `Pages/`(GET/HEAD·공개 호스트 전용 규약), 정적 파일은 `wwwroot/css/site.css` 하나)와 `PortfolioBlog.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `PortfolioBlog.Web`(React 19 + Vite, `admin.<도메인>`에서만 서빙)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다. 패키지 버전은 `Directory.Packages.props`(중앙 패키지 관리, 전이 의존성까지 고정)가 일괄 관리한다 — 새 패키지는 거기에 추가한다.
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(쓰기 범위 훅 포함). 하네스 파일을 고치면 실행해 PASS를 확인할 것.
 
@@ -72,7 +72,8 @@ plan/<기능명>_<MMDD>.md
 | plan/para_notes_0917.md | 2026-09-17 | **(폐기됨 → tech_blog_0920.md)** PARA 노트앱 홈페이지 설계. 결정 이력 보존용 |
 | plan/tech_blog_0920.md | 2026-09-20 | 기술 블로그 설계(PARA 대체, 보안 최우선): 공개 페이지 서버 렌더링(Razor+Markdig)·관리 SPA 서브도메인 분리, IP AND 비밀번호 세션, 마크다운 정제 파이프라인·CSP, 시리즈·검색·Atom·SEO, Codex 교차 검토 반영표, Mermaid 흐름도·시퀀스, 4단계 구현 계획 |
 | plan/tech_blog_2a_report_0921.md | 2026-09-21 | 기술 블로그 2A단계 실행 보고서: 만든 것(마크다운 파이프라인·미리보기·이미지 첨부), 공격·측정 기반 검증 결과, 계획 결함 16건과 교훈, 질문 없이 내린 판정 12건, 수용한 잔여 위험, 알려진 문제(로컬 간헐 테스트), Plan 2B·3·4 인계 |
-| plan/resume_guide_0921.md | 2026-09-21 | 작업 재개 가이드(갱신형): 단계별 진행 상태와 기준 커밋, 재시작 5분 점검, 다음 작업 Plan 2B와 입력 자료, SDD 실행이 끊겼을 때 복구(ledger·센티널), 자주 밟는 함정, 문서·코드 지도, 사용자가 정해 둔 결정 |
+| plan/tech_blog_2b_report_0921.md | 2026-09-21 | 기술 블로그 2B단계 실행 보고서: 만든 것(공개 Razor 페이지·검색·피드·보안 헤더·속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성), 실제 Production 호스트 HTTPS 공격 결과와 거기서 찾은 결함 3건, 계획 결함 23건과 교훈, 질문 없이 내린 판정 28건, 수용한 잔여 위험, 알려진 문제, Plan 3·4 인계 |
+| plan/resume_guide_0921.md | 2026-09-21 | 작업 재개 가이드(갱신형): 단계별 진행 상태와 기준 커밋, 재시작 5분 점검, 다음 작업 Plan 3과 백엔드가 SPA에 요구하는 것, SDD 실행이 끊겼을 때 복구(ledger·센티널), 자주 밟는 함정, 문서·코드 지도, 사용자가 정해 둔 결정 |
 
 ---
 

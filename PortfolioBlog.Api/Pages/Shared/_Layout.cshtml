@@ -1,0 +1,42 @@
+@{
+    var head = (PageHead)ViewData[PublicPageModel.HeadKey]!;
+}
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>@head.Title</title>
+    @if (head.Description is not null)
+    {
+        <meta name="description" content="@head.Description">
+        <meta property="og:description" content="@head.Description">
+    }
+    @if (head.NoIndex)
+    {
+        <meta name="robots" content="noindex">
+    }
+    <link rel="canonical" href="@head.CanonicalUrl">
+    <link rel="alternate" type="application/atom+xml" title="@head.SiteTitle" href="/feed.xml">
+    <meta property="og:site_name" content="@head.SiteTitle">
+    <meta property="og:title" content="@head.Title">
+    <meta property="og:type" content="@head.OgType">
+    <meta property="og:url" content="@head.CanonicalUrl">
+    @if (head.OgImageUrl is not null)
+    {
+        <meta property="og:image" content="@head.OgImageUrl">
+    }
+    <link rel="stylesheet" href="/css/site.css">
+    <link rel="stylesheet" href="/css/highlight.css">
+</head>
+<body>
+    <header class="site-header">
+        <a class="site-title" href="/">@head.SiteTitle</a>
+        <nav class="site-nav"><a href="/search">검색</a> <a href="/feed.xml">피드</a></nav>
+    </header>
+    <main>
+        @RenderBody()
+    </main>
+    <footer class="site-footer">@head.SiteTitle</footer>
+</body>
+</html>

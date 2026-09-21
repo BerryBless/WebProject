@@ -41,7 +41,9 @@ public sealed class PreviewEndpointsTests(ApiFactory factory, PostgresContainerF
         object[] bodies = [new { }, new PreviewRequest("본문\0"), new PreviewRequest(new string('가', 70_000))]; // '가' 3바이트 × 70,000 > 204,800
         foreach (var body in bodies)
         {
-            using var res = await client.PostAsJsonAsync("/api/preview", body);
+            // RelaxedOptions: 기본 인코더로 보내면 '가'가 \uXXXX로 부풀어 256KB 본문 상한(스펙 3.7)에 먼저 걸려 413이 된다(실측).
+            // 실제 브라우저가 보내는 바이트 수를 재현해 이 테스트가 의도한 200KB 마크다운 검증(400)까지 도달하게 한다.
+            using var res = await client.PostAsJsonAsync("/api/preview", body, TestJson.RelaxedOptions);
             Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
             var problem = await res.Content.ReadFromJsonAsync<HttpValidationProblemDetails>(TestJson.Options);
             Assert.Contains("markdown", problem!.Errors.Keys);

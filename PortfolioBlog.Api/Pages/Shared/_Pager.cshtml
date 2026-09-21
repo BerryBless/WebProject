@@ -1,0 +1,15 @@
+@model PagerModel
+@if (Model.LastPage > 1)
+{
+    <nav class="pager">
+        @if (Model.Page > 1)
+        {
+            <a rel="prev" href="@Model.Href(Model.Page - 1)">이전</a>
+        }
+        <span>@Model.Page / @Model.LastPage</span>
+        @if (Model.Page < Model.LastPage)
+        {
+            <a rel="next" href="@Model.Href(Model.Page + 1)">다음</a>
+        }
+    </nav>
+}

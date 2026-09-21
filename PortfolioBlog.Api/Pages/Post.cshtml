@@ -1,0 +1,38 @@
+@page "/posts/{slug}"
+@model PostModel
+<article>
+    <header class="article-header">
+        <h1>@Model.Meta.Title</h1>
+        <p class="article-meta">
+            <time datetime="@PublicFormat.Rfc3339(Model.Meta.CreatedAt)">@PublicFormat.DisplayDate(Model.Meta.CreatedAt)</time>
+            @if (Model.Meta.UpdatedAt > Model.Meta.CreatedAt)
+            {
+                <span class="updated">수정 <time datetime="@PublicFormat.Rfc3339(Model.Meta.UpdatedAt)">@PublicFormat.DisplayDate(Model.Meta.UpdatedAt)</time></span>
+            }
+        </p>
+        @await Html.PartialAsync("_TagList", Model.Meta.Tags)
+        @if (Model.Meta.Series is { } series)
+        {
+            <p class="series-box">시리즈 <a href="@PublicUrls.Series(series.Slug)">@series.Title</a></p>
+        }
+    </header>
+    @if (Model.BodyHtml is null)
+    {
+        <p class="notice">이 글의 본문을 표시할 수 없습니다.</p>
+    }
+    else
+    {
+        @* Html.Raw는 여기 한 곳뿐이다: MarkdownRenderer가 URL 정책·허용 목록 정제를 끝낸 출력만 받는다. *@
+        <div class="article-body">@Html.Raw(Model.BodyHtml)</div>
+    }
+    <nav class="post-nav">
+        @if (Model.Meta.Previous is { } previous)
+        {
+            <a rel="prev" href="@PublicUrls.Post(previous.Slug)">이전 편: @previous.Title</a>
+        }
+        @if (Model.Meta.Next is { } next)
+        {
+            <a rel="next" href="@PublicUrls.Post(next.Slug)">다음 편: @next.Title</a>
+        }
+    </nav>
+</article>

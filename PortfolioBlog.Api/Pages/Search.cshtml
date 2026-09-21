@@ -1,0 +1,17 @@
+@page "/search"
+@model SearchModel
+<h1 class="list-title">검색</h1>
+<form class="search-form" method="get" action="/search" role="search">
+    <input type="search" name="q" value="@Model.Query" maxlength="@SearchModel.MaxLength" aria-label="검색어">
+    <button type="submit">검색</button>
+</form>
+@if (Model.Error is not null)
+{
+    <p class="notice">@Model.Error</p>
+}
+else if (Model.Posts is not null)
+{
+    <p class="search-count">@(Model.Posts.Total)건</p>
+    @await Html.PartialAsync("_PostList", Model.Posts.Items)
+    @await Html.PartialAsync("_Pager", Model.Pager)
+}

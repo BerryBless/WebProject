@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Access;
+using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -43,6 +45,9 @@ public class ApiFactory : WebApplicationFactory<Program>
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly string? _attachmentsRootPathOverride;
+
+    /// <summary>이 팩토리가 만든 테스트 전용 DB를 가리키는 관리 연결 문자열(잠금·테이블 잠금 테스트가 쓴다).</summary>
+    internal string ConnectionString => _connectionString;
 
     /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
     public MutableTimeProvider Clock { get; } = new();
@@ -92,7 +97,16 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Admin:LoginConcurrency", "64");
         builder.UseSetting("Admin:PreviewPerMinute", "1000");
         builder.UseSetting("Admin:PreviewConcurrency", "64");
+        builder.UseSetting("Admin:UploadPerMinute", "100000");
+        builder.UseSetting("Admin:UploadConcurrency", "64");
+        builder.UseSetting("Public:PagePerIpPerMinute", "100000");
+        builder.UseSetting("Public:AssetPerIpPerMinute", "100000");
+        builder.UseSetting("Public:SearchPerIpPerMinute", "100000");
+        builder.UseSetting("Public:SearchConcurrency", "64");
         builder.UseSetting("Attachments:RootPath", _attachmentsRootPathOverride ?? AttachmentsRoot);
+        // 청소 잡의 백그라운드 주기 실행을 끈다: 파일 마지막 쓰기 시각을 직접 조작하는 테스트(AttachmentJanitorTests)와
+        // 백그라운드 스윕이 동시에 같은 파일을 건드리면 결과가 흔들린다. 청소 로직 자체는 SweepOnceAsync를 직접 불러 검증한다.
+        builder.UseSetting("Attachments:JanitorEnabled", "false");
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);
@@ -206,13 +220,14 @@ public class ApiFactory : WebApplicationFactory<Program>
         return setCookie.Split(';', 2)[0];
     }
 
-    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.</summary>
-    /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·임시 폴더)까지 해제한다.</param>
+    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.
+    /// 풀 정리가 예외를 던져도(예: 연결 문자열 조립 실패) 첨부 임시 폴더 정리는 <c>finally</c>로 항상 실행된다.</summary>
+    /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·연결 풀·임시 폴더)까지 해제한다.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> xUnit이 픽스처 해제 시 1회만 호출한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 추가 할당 없음.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 공개 연결 문자열을 다시 조립하는 문자열 1개(<see cref="PublicDbContext.BuildConnectionString"/>) + 반복용 배열 1개.</description></item>
     /// <item><description><b>Blocking:</b> 동기 파일 시스템 I/O(디렉터리 재귀 삭제). <c>base.Dispose</c>가 먼저 호스트를 내려 파일 핸들을 놓아야 삭제가 실패하지 않으므로 반드시 그 다음에 호출한다.</description></item>
     /// </list>
     /// </remarks>
@@ -221,8 +236,27 @@ public class ApiFactory : WebApplicationFactory<Program>
         base.Dispose(disposing);
         if (!disposing) return;
         // NpgsqlConnection.ClearPool: 풀은 연결 문자열별 프로세스 전역 상태라 호스트를 내려도 유휴 연결이 Connection Idle Lifetime(기본 300초) 동안
-        // 서버에 남는다. 이 팩토리 전용 DB의 풀을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
-        using (var connection = new NpgsqlConnection(_connectionString)) NpgsqlConnection.ClearPool(connection);
-        if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
+        // 서버에 남는다. 이 팩토리가 연 두 풀(관리·공개)을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
+        // 공개 조회 풀도 닫는다(연결 문자열이 달라 풀이 따로다). 시간 제한 값이 연결 문자열의 일부라 앱과 같은 값으로 조립해야 같은 풀을 가리킨다.
+        // int.TryParse: Dispose 안에서 예외를 던지면 바로 아래 첨부 임시 폴더 정리가 건너뛰어지므로, 파싱 실패를 예외 대신
+        // PublicOptions 기본값으로 흡수한다(정리 자체는 최선 노력이고, 여기서 죽을 이유가 없다).
+        // try/finally: PublicDbContext.BuildConnectionString은 Options가 이미 있으면 예외를 던질 수 있다(정상 경로에서는
+        // _connectionString에 Options가 없어 도달하지 않지만, 그 호출이 실패하더라도 아래 첨부 임시 폴더 정리는 반드시 실행되어야 한다).
+        try
+        {
+            var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null
+                && int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : new PublicOptions().StatementTimeoutMs;
+            foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_connectionString, timeout) })
+            {
+                using var connection = new NpgsqlConnection(cs);
+                NpgsqlConnection.ClearPool(connection);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
+        }
     }
 }

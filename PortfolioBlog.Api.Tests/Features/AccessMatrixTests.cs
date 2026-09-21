@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using PortfolioBlog.Api.Infrastructure.Access;
+using PortfolioBlog.Api.Infrastructure.Web;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
@@ -62,7 +63,7 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// 첨부 업로드 핸들러가 스스로 만드는 415의 <c>"지원하지 않는 이미지"</c> 제목과는 다르다)가 온다 — 핸들러가 호출되지 않았다는 뜻이다.
     /// 같은 요청에 Content-Type만 <c>multipart/form-data</c>로 맞추면(필드는 비워도) 정상적으로 401이 나온다(그 아래 별도로 확인함, 인가 우회 아님).
     /// <see cref="Build"/>가 매번 <c>application/json</c>을 보내면 이 엔드포인트만 401/403 대신 415가 나와 이 테스트들의 전제가 가려지므로 피한다.
-    /// 추가 실측(fix round 1, A6): JSON 본문을 받는 <c>POST /api/posts</c>에 <c>text/plain</c>으로(세션 없이, 다른 게이트는 전부 통과시킨 채) 보내도
+    /// 추가 실측: JSON 본문을 받는 <c>POST /api/posts</c>에 <c>text/plain</c>으로(세션 없이, 다른 게이트는 전부 통과시킨 채) 보내도
     /// 똑같이 415가 나왔다 — 이 415-vs-401 현상은 첨부 업로드만의 특이 동작이 아니라 <c>IAcceptsMetadata</c>를 선언하는 엔드포인트 일반에서
     /// 관찰된다는 뜻이다(관찰된 동작만 적는다: 정확한 메커니즘은 라우팅이 Content-Type 불일치 시 인가가 보기 전에 그 엔드포인트를
     /// 메타데이터 없는 415 전용 엔드포인트로 바꿔치기하는 것으로 추정되나, 프레임워크 내부까지 검증하지는 않았다).</param>
@@ -203,12 +204,21 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     }
 
     /// <summary><c>/api</c> 밖에 매핑해도 되는 공개 라우트의 명시적 허용 목록. 여기에 없는 라우트가 생기면 테스트가 실패한다.
-    /// Task 5가 공개 첨부 GET을, Plan 2B가 공개 페이지들을 추가한다.</summary>
+    /// 공개 첨부 GET·공개 Razor 페이지·강조 CSS도 이 목록에 있다.</summary>
     private static readonly string[] PublicAllowlist =
     [
+        "", // 목록(Index) — Razor 페이지의 RawText에는 앞 슬래시가 없다
+        "posts/{slug}",
+        "tags/{tag}",
+        "series/{slug}",
         "/health",
         "/openapi/{documentName}.json", // Development에서만 매핑된다
         "/attachments/{id:guid}/{fileName}",
+        "/css/highlight.css",
+        "search", // Razor 페이지의 RawText에는 앞 슬래시가 없다(Index와 같은 규칙)
+        "/feed.xml",
+        "/sitemap.xml",
+        "/robots.txt",
     ];
 
     /// <summary><see cref="IsUnderApi"/>가 접두사가 아니라 세그먼트 경계로 판정하는지 검증한다: <c>/api-import</c>·<c>/apifeed.json</c>처럼
@@ -228,8 +238,8 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// <summary>Content-Type이 안 맞아 415가 나는 경로도(<see cref="Target.RequiresMultipart"/> 참조) 접근 게이트를 우회하지 않는지
     /// <c>POST /api/attachments</c>에 JSON 본문을 보내 직접 확인한다: 허용 IP 밖·CSRF 헤더 없음·공개 호스트는 각각 평소대로 403/403/404이고,
     /// 게이트를 전부 통과했는데 세션만 없으면(실측: 401 또는 415) 핸들러 자신의 문제 제목이 응답에 없다 — 핸들러가 호출되지 않았다는 증거다.
-    /// <see cref="AccessMatrixTests.Build"/>가 multipart 전용 엔드포인트에는 더 이상 JSON을 보내지 않게 된 뒤(fix round 1로) 이 특정 시나리오의
-    /// 커버리지가 없어졌으므로 별도로 복원한다(fix round 1, A6).</summary>
+    /// <see cref="AccessMatrixTests.Build"/>가 multipart 전용 엔드포인트에는 더 이상 JSON을 보내지 않게 된 뒤 이 특정 시나리오의
+    /// 커버리지가 없어졌으므로 별도로 복원한다.</summary>
     [Fact]
     public async Task WrongContentType_FromOutside_IsStillRejectedByTheGate_AndNeverReachesTheHandler()
     {
@@ -270,13 +280,13 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         {
             using var req = JsonPost();
             using var res = await noSession.SendAsync(req);
-            // 실측(Task 5 report 참조): Content-Type 불일치는 401 대신 415(프레임워크 기본 ProblemDetails)를 낸다;
+            // 실측: Content-Type 불일치는 401 대신 415(프레임워크 기본 ProblemDetails)를 낸다;
             // Content-Type을 맞추면 같은 무세션 요청은 401이 된다(인가는 정상 적용됨, 별도 확인함). 여기서는 두 상태 코드 중 하나이기만 하면
             // 되고, 핵심 증거는 응답 본문에 핸들러 자신의 문제 제목이 없다는 것 — 핸들러가 호출되지 않았다는 뜻이다.
             Assert.Contains(res.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.UnsupportedMediaType });
             var body = await res.Content.ReadAsStringAsync();
             // "지원하지 않는 이미지"는 UploadAsync가 파일을 store.SaveAsync에 성공적으로 바인딩한 뒤에만 만드는 제목이라(JSON 본문으로는
-            // 절대 거기까지 못 간다) 이 본문에 없는 것이 당연해서 이 단언만으로는 "핸들러가 호출되지 않았다"를 증명하지 못한다(fix round 2, B2).
+            // 절대 거기까지 못 간다) 이 본문에 없는 것이 당연해서 이 단언만으로는 "핸들러가 호출되지 않았다"를 증명하지 못한다.
             // 실제로 핸들러가 세션 없이도 호출됐다면 나올 첫 반응은 file 필드 누락 400(AttachmentEndpoints.cs:110-113)의 상세 문구이므로
             // 그 문구가 없는지 확인해야 진짜 판별력이 있다. 두 문구를 UploadAsync의 두 관문(바인딩 성공 뒤 415, 바인딩 자체가 안 됐을 때 400)에
             // 각각 대응시켜 둘 다 없는지 본다.
@@ -297,10 +307,50 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         Assert.NotEmpty(outside); // 최소한 /health는 있어야 한다(열거가 비어 통과하는 일을 막는다)
         foreach (var endpoint in outside)
         {
-            var raw = endpoint.RoutePattern.RawText ?? string.Empty;
+            // null을 ""로 뭉개면 Index 페이지(RawText == "")의 허용 목록 항목과 구분할 수 없어져, RawText가 null인 엔드포인트가
+            // 조용히 통과할 수 있다 — null은 그 자체로 실패 처리한다(빈 문자열과 다른 값으로 취급).
+            var raw = endpoint.RoutePattern.RawText;
+            Assert.True(raw is not null, "RawText가 null인 라우트가 있다(허용 목록의 빈 문자열과 구분되지 않아 오탐할 위험).");
             Assert.True(PublicAllowlist.Contains(raw, StringComparer.Ordinal), $"허용 목록에 없는 공개 라우트: {raw}");
             var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
             Assert.True(methods.Count > 0 && methods.All(m => m is "GET" or "HEAD"), $"{raw}: 공개 라우트는 GET/HEAD 전용이어야 한다(실제: {string.Join(",", methods)})");
         }
+    }
+
+    /// <summary>양쪽 호스트에서 열려도 되는 <c>/api</c> 밖 라우트. 여기에 없는 공개 라우트는 전부 공개 호스트에만 매칭되어야 한다.</summary>
+    private static readonly string[] SharedBetweenHosts = ["/health", "/openapi/{documentName}.json", "/attachments/{id:guid}/{fileName}"];
+
+    /// <summary>공개 페이지·피드 라우트에 공개 호스트 제한을 빠뜨리면(그러면 관리 origin에서도 렌더링된다) 여기서 잡힌다.
+    /// 속도 제한 메타데이터(<see cref="RateLimitMetadata"/>)를 빠뜨리면(그러면 무제한 요청을 받는다) 이 테스트도 함께 잡는다 —
+    /// <see cref="PortfolioBlog.Api.Pages.PublicPageConvention"/>이 두 메타데이터를 같은 곳에서 걸기 때문이다.
+    /// 속도 제한 단언은 호스트 제한 <c>continue</c>보다 <b>앞</b>에 둔다: 양쪽 호스트에서 열리는 공유 라우트(<c>/health</c>·<c>/attachments/…</c>)도
+    /// 무제한이면 안 되므로, 그것들이 호스트 검사에서 빠진다는 이유로 속도 제한 검사까지 함께 빠져서는 안 된다.
+    /// <c>/openapi</c>만 예외다 — Development에서만 매핑되고 운영에서는 존재하지 않으며(<c>Program.cs</c>의 <c>IsDevelopment</c> 분기),
+    /// 프레임워크의 <c>MapOpenApi</c>가 등록하는 엔드포인트라 이 저장소가 메타데이터를 달지 않는다.</summary>
+    [Fact]
+    public void EveryPublicRoute_ExceptTheSharedOnes_IsBoundToThePublicHost()
+    {
+        using var _ = factory.CreateClient();
+        var publicHost = new Uri(ApiFactory.PublicOrigin).Host;
+        var bound = 0;
+        var rateLimited = 0;
+        foreach (var endpoint in factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>())
+        {
+            var raw = endpoint.RoutePattern.RawText;
+            Assert.True(raw is not null, "RawText가 null인 라우트가 있다(공유 목록의 빈 문자열과 구분되지 않아 오탐할 위험).");
+            if (IsUnderApi(raw)) continue;
+            if (!raw.StartsWith("/openapi", StringComparison.Ordinal))
+            {
+                Assert.NotNull(endpoint.Metadata.GetMetadata<RateLimitMetadata>());
+                rateLimited++;
+            }
+            if (SharedBetweenHosts.Contains(raw, StringComparer.Ordinal)) continue;
+            var hosts = endpoint.Metadata.GetMetadata<IHostMetadata>()?.Hosts ?? [];
+            Assert.True(hosts.SequenceEqual([publicHost]), $"'{raw}': 공개 호스트 제한이 없다(실제: {string.Join(",", hosts)})");
+            bound++;
+        }
+        Assert.True(bound >= 5, $"검사된 공개 라우트가 너무 적다: {bound}");
+        // 공유 라우트(/health·/attachments/…)까지 세었으므로 호스트 제한 대상보다 많아야 한다 — 그렇지 않으면 위 단언이 공유 라우트를 못 봤다는 뜻이다.
+        Assert.True(rateLimited > bound, $"속도 제한을 확인한 공개 라우트가 호스트 제한 대상({bound})보다 많지 않다: {rateLimited}");
     }
 }

@@ -1,0 +1,5 @@
+@page "/tags/{tag}"
+@model TagPageModel
+<h1 class="list-title">태그: @Model.Tag.Name</h1>
+@await Html.PartialAsync("_PostList", Model.Posts.Items)
+@await Html.PartialAsync("_Pager", Model.Pager)

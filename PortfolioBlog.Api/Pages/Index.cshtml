@@ -1,0 +1,5 @@
+@page "/"
+@model IndexModel
+<h1 class="list-title">최신 글</h1>
+@await Html.PartialAsync("_PostList", Model.Posts.Items)
+@await Html.PartialAsync("_Pager", Model.Pager)

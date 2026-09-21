@@ -271,7 +271,7 @@ flowchart TD
     C -->|"예"| E["바인딩 → 엔드포인트"]
 ```
 
-미들웨어 순서: `ForwardedHeaders(KnownProxies = Caddy 고정 IP)` → `AllowedHosts` → 보안 헤더 → `AdminSurfaceMiddleware` → 속도 제한 → 쿠키 인증 → 인가 → 엔드포인트. **IP 검사가 속도 제한보다 앞이다**(Plan 1 작성 중 수정): 속도 제한이 앞이면 허용 IP 밖의 요청이 로그인 전역 한도를 소진해 작성자의 로그인을 막을 수 있다.
+미들웨어 순서(2B 구현 확정, Program.cs 실측): 호스트 필터(설정된 두 호스트) → 보안 헤더 → ForwardedHeaders → 예외 처리 → 상태 코드 본문 → 정적 파일 → `AdminSurfaceMiddleware` → 속도 제한 → 쿠키 인증 → 인가 → 관리 JSON 본문 상한 → 엔드포인트. **IP 검사가 속도 제한보다 앞이다**(Plan 1 작성 중 수정): 속도 제한이 앞이면 허용 IP 밖의 요청이 로그인 전역 한도를 소진해 작성자의 로그인을 막을 수 있다.
 
 **IP 판정**
 - 관리자 허용 목록(`ADMIN_ALLOWED_CIDRS`, 공백 구분)과 신뢰 프록시(`TRUSTED_PROXY_IP`)는 별도 설정이다. Caddy 주소를 허용 목록에 넣는 우회 운영은 금지한다.
@@ -332,16 +332,18 @@ sequenceDiagram
 
 | 경로 | 내용 |
 |---|---|
-| `/` | 최신 글 목록, `?page=`(20개, 상한 500) |
+| `/` | 최신 글 목록, `?page=`(20개, 상한 500). 잘못된 `page`(숫자 아님·0·상한 초과·결과 없는 쪽)는 404 |
 | `/posts/{slug}` | 글 상세: 렌더링된 본문, 태그, 시리즈 이전/다음 편, `<title>`·description·OG·canonical |
 | `/tags/{tag}` | 정규화명으로 조회(경로 값은 URL 인코딩, `C#` → `C%23`) |
 | `/series/{slug}` | 시리즈 설명 + 순서대로 글 목록 |
-| `/search?q=` | 제목·요약·본문 `ILIKE`. `q` 2~100자, `%_\` 이스케이프, 매개변수화 |
+| `/search?q=` | 제목·요약·본문 `ILIKE`. `q` 2~100자, `%_\` 이스케이프, 매개변수화. 경계 밖 `q`는 400(안내문), 결과 쪽은 `noindex`. 원시 `q`가 약 8KB를 넘으면 Kestrel이 414로 먼저 끊는다(실측: 8,100자까지 앱 400, 9,000자부터 414) |
 | `/feed.xml` | Atom 1.0 최신 20개. `id`는 Post `Id` 기반 URN, `published=CreatedAt`, `updated=UpdatedAt`, 내용은 `Summary`(text) |
 | `/sitemap.xml`, `/robots.txt` | 전체 글·태그·시리즈. `robots.txt`는 sitemap 위치만 |
 | `/attachments/{id}/{fileName}` | 조회는 `id`로만. `fileName`은 표시용이며 파일 경로에 결합하지 않는다 |
 
-절대 URL은 요청 Host가 아니라 설정값 `PUBLIC_ORIGIN`으로 만든다. OG 이미지는 본문 첫 첨부 이미지, 없으면 생략.
+공개 페이지·피드·sitemap·robots·`/css/highlight.css`는 공개 호스트에만 매칭된다(관리 호스트에서는 404). `/attachments`·`/health`만 양쪽.
+
+절대 URL은 요청 Host가 아니라 설정값 `PUBLIC_ORIGIN`으로 만든다. OG 이미지는 렌더러의 URL 정책을 통과한 본문 첫 이미지, 없으면 생략.
 
 **관리 (`admin.<도메인>/api`, JSON `record` DTO)**
 
@@ -406,21 +408,28 @@ sequenceDiagram
 |---|---|---|
 | 공개 HTML | `default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` | HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`(전부 비활성) |
 | 관리 SPA (Caddy) | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; frame-src 'self'; base-uri 'none'; frame-ancestors 'none'` | 위와 동일. `'unsafe-inline'` 스타일은 CodeMirror 동적 스타일 때문이며 관리 origin에만 적용. production 빌드로 검증 |
-| 관리 API | – | 위 + `Cache-Control: no-store` |
+| 관리 API | 공개 HTML과 같은 값(2B 구현: `SecurityHeadersMiddleware`가 첨부 응답의 sandbox CSP만 예외로 유지하고 그 밖은 전부 이 값으로 덮어쓴다 — 관리 API도 예외가 아니다) | 위 + `Cache-Control: no-store` |
 | 첨부 | `default-src 'none'; sandbox` | `nosniff`, Content-Type은 시그니처 판정값, `Cache-Control: public, max-age=31536000, immutable`(내용 주소) |
 | 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'">` | |
+
+모든 행 공통으로 `X-Frame-Options: DENY`, HSTS(Development 제외), `Server` 헤더 없음(Kestrel `AddServerHeader = false`)이 붙는다. 헤더는 전송 직전(`OnStarting`)에 붙는다 — 라우트 제약 실패 404와 예외 500에도 실린다. 호스트 필터의 400(본문 없음)과 Kestrel이 직접 거부하는 요청(요청 줄 8KB 초과 414, 경로의 NUL·잘못된 Host 400 — 모두 본문 없음)에는 헤더가 없다(실측 — 2B 최종 리뷰가 실제 Kestrel Production 호스트에 HTTPS로 직접 요청해 관측했다. 스위트의 TestServer로는 재현되지 않는다). `Cross-Origin-Resource-Policy`는 붙이지 않는다(미리보기 iframe의 이미지가 관리 오리진에서 읽힌다).
 
 ### 3.7 자원 제한
 
 | 대상 | 제한 |
 |---|---|
-| 공개 페이지 전역(Plan 2B 예정) | IP별 120회/분 |
-| `/search`(Plan 2B 예정) | IP별 20회/분, 동시 실행 4, `q` 2~100자, `page` 상한 50 |
+| 공개 페이지 전역 | IP별 120회/분(Atom·sitemap도 이 창을 쓴다) |
+| 첨부 GET·`/health`·`robots.txt`·`highlight.css` | IP별 600회/분 |
+| `/search` | IP별 20회/분, 동시 실행 4, `q` 2~100자, `page` 상한 50(페이지 전역 창에도 함께 계산된다) |
 | `/api/preview` | 전역 60회/분, 동시 실행 2, 본문 200KB |
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 실행 2. 영구 잠금 없음(작성자 서비스 거부 방지) |
-| 업로드 | 앱 10MB(`AttachmentOptions.MaxBytes`, 넘으면 앱의 413 ProblemDetails) · 프레임워크 11MB(`RequestSizeLimit` 메타데이터 + `FormOptions.MultipartBodyLengthLimit`, 넘으면 프레임워크 413) — 1MB 여유는 multipart 프레이밍(경계·헤더) 몫이다(실측, Kestrel). Caddy `request_body`는 Plan 4에서 앱 값이 아니라 이 프레임워크 값(11MB)에 맞춘다 — 그보다 작으면 Caddy가 정상 업로드를 앱보다 먼저 끊는다. 접근 검사는 본문을 읽기 전에 끝난다 |
-| DB(Plan 2B 예정) | 공개 조회 커넥션에 `statement_timeout` 3초 |
-| JSON 본문(Plan 2B 예정) | 관리 API 256KB |
+| 업로드 | 속도: 전역 30회/분 + 동시 실행 2. 크기: 앱 10MB(`AttachmentOptions.MaxBytes`, 넘으면 앱의 413 ProblemDetails) · 프레임워크 11MB(`RequestSizeLimit` 메타데이터 + `FormOptions.MultipartBodyLengthLimit`, 넘으면 프레임워크 413) — 1MB 여유는 multipart 프레이밍(경계·헤더) 몫이다(실측, Kestrel). Caddy `request_body`는 Plan 4에서 앱 값이 아니라 이 프레임워크 값(11MB)에 맞춘다 — 그보다 작으면 Caddy가 정상 업로드를 앱보다 먼저 끊는다. 접근 검사는 본문을 읽기 전에 끝난다 |
+| 렌더링 | 프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503. 공개 글은 `(PostId, xmin)` 메모리 캐시(64MB, 정상 24시간·시간 예산 초과 렌더 2분) + 단일 비행 |
+| DB | 공개 조회는 별도 연결(`statement_timeout` 3초 + `default_transaction_read_only=on`). read-only는 세션에서 끌 수 있는(`SET default_transaction_read_only = off`) 심층 방어일 뿐이다 — 진짜 경계는 쓰기 권한이 없는 DB 롤(7절)이다 |
+| JSON 본문 | 관리 API 256KB. 직렬화 후 바이트 기준. 이스케이프가 많은 본문은 200KB 미만에서도 413이 될 수 있다 |
+| 과부하 응답 | `statement_timeout`·잠금 대기·렌더 슬롯 대기 초과는 503 + `Retry-After: 5` |
+
+속도 제한기 체인은 동시 실행 제한기가 고정 창보다 앞이다: 동시 실행 거부가 분당 허용량을 쓰지 않고 `Retry-After`는 5초다(고정 창 거부는 창 종료까지 1~60초).
 
 ### 3.8 첨부
 
@@ -458,7 +467,7 @@ sequenceDiagram
 - 확장자·Content-Type은 업로드된 파일명이 아니라 시그니처에서 유도한다. SVG는 허용하지 않는다.
 - 메타데이터 제거는 서버가 이미지를 **디코딩하지 않는다**: 스트림을 처음부터 끝까지 한 번만 읽으며 컨테이너 구조(세그먼트·청크)만 따라가는 허용 목록 기반(allow-by-default-DENY) 파서로 확정했다. 형식마다: JPEG는 구조 마커(SOFn·DQT·DHT·DRI·SOS)를 그대로 두고 APPn·COM은 원칙적으로 전부 버리되 APP0(`JFIF`)·APP2(`ICC_PROFILE`)·APP14(`Adobe`)만 식별자 확인 뒤 남기며, 엔트로피 부호화 구간은 마커 단위로 따라가 EOI 뒤의 바이트를 버린다. PNG는 청크 허용 목록 + 고정/상한 크기표로 규격 밖 길이를 거부하고 IHDR이 처음이자 한 번뿐이며 IDAT이 최소 1개 있어야 통과한다(IEND 뒤는 버림). WebP는 청크 허용 목록에 더해 VP8X를 정확히 10바이트일 때만 받아 EXIF·XMP 플래그를 지우고, ANIM은 정확히 6바이트만 받으며, RIFF 크기 필드를 다시 쓴다. GIF는 그래픽 제어 확장(모양을 검증한 뒤 재구성)과 NETSCAPE2.0/ANIMEXTS1.0의 반복 횟수 서브블록(맨 처음 것 하나)만 남기고 나머지 확장·트레일러 뒤 바이트는 버린다. 이 파서가 디코딩하지 않아서 못 막는 잔여 표면(ICC 프로파일 바이트, WebP ANMF 프레임 페이로드, JPEG DQT/DHT/SOF 페이로드, PNG CRC 미검증, GIF LZW 서브블록 체인)은 업로드 크기 상한·시그니처 기반 Content-Type·`X-Content-Type-Options: nosniff`로 막는다(브라우저에서 실행될 수 없다). SHA-256은 **제거 후** 바이트 기준이다.
 - 저장 루트는 정적 파일 루트 밖(`/data/attachments`)이며, 경로는 서버 생성 값만 쓴다.
-- 업로드된 첨부는 글에 연결되지 않아도 URL을 알면 읽힌다(Guid v7의 무작위 74비트에 의존). 필요 없는 첨부는 목록·삭제 API로 지운다. DB 삭제 후 파일 삭제가 실패하면 로그에 남기고 고아 파일 정리는 확장 포인트로 둔다.
+- 업로드된 첨부는 글에 연결되지 않아도 URL을 알면 읽힌다(Guid v7의 무작위 74비트에 의존). 필요 없는 첨부는 목록·삭제 API로 지운다. DB 삭제 후 파일 삭제가 실패하면 로그에 남긴다. 청소 잡이 1시간 넘은 임시 파일과 참조 없는 내용 주소 파일을 6시간마다 지운다. 업로드의 행 삽입·삭제·청소는 sha256 단위 세션 advisory lock으로 직렬화한다.
 - 공개 GET 응답은 `max-age=31536000, immutable`이라, 첨부를 삭제해도 이미 그 응답을 받은 브라우저 캐시나(Plan 4에서 앞단에 놓일) Caddy 등 공유 캐시·CDN이 들고 있는 사본까지 회수하지는 못한다. 삭제가 보장하는 것은 오리진이 더 이상 그 파일을 내주지 않는다는 것뿐이다.
 
 ### 3.9 관리 SPA
@@ -510,7 +519,7 @@ PortfolioBlog.Web/Dockerfile   # node:22 빌드 → caddy:2 이미지에 dist �
 - 1차 배포 토폴로지는 **인터넷 → Caddy → api**로 고정한다. 앞단에 CDN·로드밸런서를 두면 `remote_ip`가 프록시 주소를 보게 되므로, 그때는 `trusted_proxies` + `client_ip`로 재설계한다.
 - 배포 직후 검증: 허용 IP 밖에서 `admin.<도메인>` 전 경로 404, Caddy 액세스 로그의 원본 IP가 실제 클라이언트 IP인지 확인(Docker 네트워크 모드에 따라 게이트웨이 주소로 보일 수 있음).
 - API 시작 시 `Database.Migrate()`(단일 인스턴스). 설정은 환경변수(`ConnectionStrings__Default`, `Site__PublicOrigin`, `Site__AdminOrigin`, `Admin__AllowedCidrs`, `Admin__PasswordHash`, `Proxy__TrustedIp`, `Attachments__RootPath`, `DataProtection__KeysPath`).
-- 헬스체크: postgres `pg_isready`, api `/health`, `depends_on: condition: service_healthy`.
+- 헬스체크: postgres `pg_isready`, api `/health`, `depends_on: condition: service_healthy`. **api 헬스체크 요청에는 `Host: <공개 호스트>` 헤더가 필요하다** — 호스트 필터가 설정된 두 origin의 호스트만 받으므로 컨테이너 이름·`localhost`로 부르면 본문 없는 400이 온다(Plan 4에서 compose의 healthcheck 명령에 반영).
 - 백업 = `pgdata` 덤프 + `attachments`를 같은 시점에. `dpkeys`·`caddy_data`는 제외. 복원 리허설 절차를 `OPERATIONS.md`에 둔다.
 
 ## 4. 핵심 API
@@ -590,7 +599,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 dotnet build PortfolioBlog.slnx -c Release
 dotnet test  PortfolioBlog.slnx -c Release            # Docker Desktop 필요(Testcontainers)
 cd PortfolioBlog.Web; npm ci; npx tsc --noEmit; npm run build
-cd deploy; docker compose up --build -d; curl -f http://localhost/health
+cd deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" http://localhost/health   # 호스트 필터 때문에 Host 헤더가 필요하다
 ```
 
 필수 통과 테스트:
@@ -608,9 +617,10 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 - **초안/예약 발행** 상태(현재는 저장 즉시 공개).
 - **slug 변경 + 리다이렉트 테이블**, 하드 삭제된 slug의 410 응답.
 - **전문 검색:** `tsvector` 생성 컬럼 + GIN, 또는 `pg_trgm`.
-- **렌더 캐시:** 키에 글 `xmin`과 렌더러 정책 버전을 포함.
-- **첨부 고아 파일 정리 잡**, 글↔첨부 참조 추적.
-- **마이그레이션 전용 DB 역할 분리**, DB readiness 헬스체크 분리.
+- **표 정렬**(지금은 sanitizer가 `style`을 지운다 — 허용 클래스로 바꾸는 렌더러 수정 필요).
+- **렌더 캐시의 다중 인스턴스 공유**(지금은 프로세스 메모리).
+- 글↔첨부 참조 추적.
+- **마이그레이션 전용 DB 역할 분리**, **공개 연결 전용 쓰기 권한 없는 DB 역할**(지금은 `default_transaction_read_only`가 최종 방어선이며, 세션이 스스로 켤 수 있는 이스케이프가 있다 — `PublicDbContext` 참조), DB readiness 헬스체크 분리.
 - **앞단 CDN:** `trusted_proxies` + `client_ip` 재설계와 함께.
 - 댓글(외부 서비스 임베드는 공개 CSP를 깨므로 별도 설계), 다크 모드 토글(현재는 `prefers-color-scheme` CSS만), 마크다운 파일 가져오기.
 
@@ -620,6 +630,6 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 |---|---|---|
 | Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
 | Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
-| Plan 2B | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` · 작성됨(승인·실행 대기) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 제한·공개/업로드 속도 제한과 체인 순서·`statement_timeout`(읽기 전용 연결)·렌더 게이트/캐시·관리 JSON 256KB·첨부 정합성(잠금·고아 청소)·앱 검증⊆DB 제약 테스트 |
+| Plan 2B | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` · 완료(PR #3, 보고서 `plan/tech_blog_2b_report_0921.md`) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 제한·공개/업로드 속도 제한과 체인 순서·`statement_timeout`(읽기 전용 연결)·렌더 게이트/캐시·관리 JSON 256KB·첨부 정합성(잠금·고아 청소)·앱 검증⊆DB 제약 테스트 |
 | Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |

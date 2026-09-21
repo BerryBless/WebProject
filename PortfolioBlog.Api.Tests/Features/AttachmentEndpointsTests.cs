@@ -5,10 +5,12 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
@@ -27,6 +29,9 @@ namespace PortfolioBlog.Api.Tests.Features;
 public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
 {
     private static readonly Dictionary<string, string?> NoOverrides = new();
+
+    /// <summary>공개 조회 연결의 <c>statement_timeout</c>을 200ms로 줄이는 설정(잠금 대기가 시간 제한에 걸리는지 짧게 관측하기 위한 값).</summary>
+    private static readonly Dictionary<string, string?> FastPublicTimeout = new() { ["Public:StatementTimeoutMs"] = "200" };
 
     private static byte[] Fixture(string name) => File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "Images", name));
 
@@ -170,7 +175,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, await UploadStatusAsync(admin, Form(tooBig, "big.png")));
     }
 
-    /// <summary>양성 대조군(fix round 2, B2): 로그인한 세션으로 <c>file</c> 파트가 없는 multipart를 보내면 400이 나고, 그 본문에는
+    /// <summary>양성 대조군: 로그인한 세션으로 <c>file</c> 파트가 없는 multipart를 보내면 400이 나고, 그 본문에는
     /// 실제로 핸들러가 만드는 필드 누락 문구가 있다 — <c>AccessMatrixTests</c>의 "핸들러가 호출되지 않았다" 단언이 같은 문구의 부재를
     /// 보고 있다는 것이 의미 있는 검사임을 증명한다(그 문구가 애초에 어떤 응답에도 나타나지 않는 죽은 문자열이 아님을 확인).</summary>
     [Fact]
@@ -252,13 +257,13 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     }
 
     /// <summary>파일 이름 길이 제한이 서러게이트 쌍 한가운데를 자르는 위치라도 500이 아니라 201이 나오고, 반환된 파일 이름에는
-    /// 홀로 남은 서러게이트가 없으며, 반환된 URL은 <see cref="UrlPolicy.IsAllowedImage"/>를 통과한다(fix round 1, A1).</summary>
+    /// 홀로 남은 서러게이트가 없으며, 반환된 URL은 <see cref="UrlPolicy.IsAllowedImage"/>를 통과한다.</summary>
     [Fact]
     public async Task Upload_FileNameTruncationSplitsSurrogatePair_Returns201_NotServerError()
     {
         using var factory = new ApiFactory(pg, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
-        // 리뷰어의 재현: 249개의 'a' + 이모지(서러게이트 쌍) + "bbbb.webp" — 255자 길이 제한이 정확히 이모지 한가운데를 자른다.
+        // 재현 케이스: 249개의 'a' + 이모지(서러게이트 쌍) + "bbbb.webp" — 255자 길이 제한이 정확히 이모지 한가운데를 자른다.
         var uploadedName = new string('a', 249) + "\U0001F600" + "bbbb.webp";
 
         var dto = await UploadAsync(admin, Fixture("exif-xmp.webp"), uploadedName);
@@ -338,7 +343,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         await AssertHandleReleasedAsync(await PhysicalPathAsync(factory, dto.Id));
     }
 
-    /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다(fix round 1, A2).</summary>
+    /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다.</summary>
     [Fact]
     public async Task PublicGet_WhenFileIsMissingOnDisk_Returns404()
     {
@@ -382,6 +387,46 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         using var visitor = factory.CreatePublicClient();
         using var res = await visitor.GetAsync(dto.Url);
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    /// <summary>공개 첨부 GET은 관리 풀이 아니라 공개 조회 연결을 쓴다: <c>Attachments</c>가 <c>ACCESS EXCLUSIVE</c>로 잠긴 동안 요청하면
+    /// 잠금이 풀릴 때까지 매달리지 않고 <c>statement_timeout</c>(이 테스트에서는 200ms)에 SqlState 57014로 끊겨 503 + <c>Retry-After</c>가 온다.
+    /// 핸들러가 관리 컨텍스트를 쓰면(<c>statement_timeout</c> 없음) 이 요청은 잠금이 풀릴 때까지 기다려 아래 5초 유계 대기에서 실패한다 —
+    /// 그 유계 대기가 있어야 사보타주 상태의 테스트가 잠금 해제까지 매달리지 않는다.</summary>
+    [Fact]
+    public async Task PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter()
+    {
+        using var factory = new ApiFactory(pg, FastPublicTimeout);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
+
+        // 잠금은 명시적 트랜잭션 안에서만 유지된다(LOCK TABLE은 트랜잭션이 끝나면 풀린다). 관리 연결 문자열을 쓰는
+        // 별도 연결이라 앱의 두 풀(관리·공개)과 물리 연결을 공유하지 않는다 — 앱 요청이 이 잠금을 자기 연결로 우회할 수 없다.
+        await using var holder = new NpgsqlConnection(factory.ConnectionString);
+        await holder.OpenAsync();
+        var tx = await holder.BeginTransactionAsync();
+        try
+        {
+            await using (var lockCmd = new NpgsqlCommand("LOCK TABLE \"Attachments\" IN ACCESS EXCLUSIVE MODE", holder, tx))
+            {
+                await lockCmd.ExecuteNonQueryAsync();
+            }
+
+            using var visitor = factory.CreatePublicClient();
+            // CancellationTokenSource(5초): 200ms 제한이 실제로 걸렸다면 훨씬 먼저 끝난다. 걸리지 않은 구현에서 이 대기가
+            // 테스트를 잠금 해제 시점까지(= finally까지) 붙잡아 교착하는 것을 막는 상한이다.
+            using var bounded = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var res = await visitor.GetAsync(dto.Url, bounded.Token);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
+            Assert.Equal(TimeSpan.FromSeconds(OverloadExceptionHandler.RetryAfterSeconds), res.Headers.RetryAfter?.Delta);
+        }
+        finally
+        {
+            // 잠금 연결은 어떤 경로로 빠져나가도 되돌리고 닫는다(테스트 DB는 팩토리와 함께 버려지지만, 잠금이 남으면
+            // 같은 팩토리의 뒤이은 정리 작업이 막힐 수 있다).
+            await tx.RollbackAsync();
+            await tx.DisposeAsync();
+        }
     }
 
     /// <summary>임시 파일이 남지 않는다(성공·거부 어느 경로든).</summary>

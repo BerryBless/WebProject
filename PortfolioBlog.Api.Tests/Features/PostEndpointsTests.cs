@@ -81,8 +81,10 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
     {
         using var client = await factory.CreateLoggedInClientAsync();
         var tooBig = new string('가', 70_000); // '가'는 UTF-8 3바이트 → 210,000바이트 > 204,800
+        // RelaxedOptions: 기본 인코더로 보내면 '가'가 \uXXXX로 부풀어 256KB 본문 상한(스펙 3.7)에 먼저 걸려 413이 된다(실측).
+        // 실제 브라우저가 보내는 바이트 수를 재현해 이 테스트가 의도한 200KB 마크다운 검증(400)까지 도달하게 한다.
         using var res = await client.PostAsJsonAsync("/api/posts",
-            new UpsertPostRequest("Bad Slug", "   ", new string('s', 301), tooBig, ["a/b"], null, 3, null));
+            new UpsertPostRequest("Bad Slug", "   ", new string('s', 301), tooBig, ["a/b"], null, 3, null), TestJson.RelaxedOptions);
 
         var errors = await ErrorsAsync(res);
         Assert.Contains("slug", errors.Keys);

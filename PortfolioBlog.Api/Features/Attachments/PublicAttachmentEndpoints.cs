@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Net.Http.Headers;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Features.Attachments;
 
@@ -10,12 +11,14 @@ namespace PortfolioBlog.Api.Features.Attachments;
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> 무상태 정적 핸들러.</description></item>
+/// <item><description><b>Data Access:</b> 이 엔드포인트의 첨부 행 조회는 <see cref="PublicDbContext"/>(공개 조회 전용 연결 — <c>statement_timeout</c> +
+/// <c>default_transaction_read_only=on</c>)로 한다. 관리 풀을 쓰면 DB가 느릴 때 공개 요청이 시간 제한 없이 매달린다.</description></item>
 /// <item><description><b>Memory Allocation:</b> DB 프로젝션 1행. 본체는 <c>TypedResults.Stream</c>이 만드는 <c>FileStreamHttpResult</c>가 <c>Response.Body</c>로
 /// 버퍼링 복사(<c>CopyToAsync</c>)한다(<c>PhysicalFile</c>의 커널 sendfile 경로가 아니다) — 그래도 파일 전체를 메모리에 한 번에 올리지는 않는다.</description></item>
 /// <item><description><b>Blocking:</b> 비동기 DB 조회 + 비동기 파일 전송. 이 앱은 <c>AddAuthentication</c>에 명시적 기본 쿠키 스킴을 등록하므로(<see cref="Infrastructure.Access.AuthServiceCollectionExtensions.AddAdminAuth"/>
 /// 참조), 인증 미들웨어는 이 엔드포인트를 포함한 <b>모든</b> 요청에서 그 스킴을 평가한다 — 형식이 맞는 관리 세션 쿠키가 실려 오면 이 공개 엔드포인트에서도 세션 검증 DB 조회(행 1개)가 일어난다.
 /// 다만 그 쿠키는 <c>__Host-</c> 접두사로 관리 호스트에 바인딩된 host-only 쿠키라 브라우저가 이 공개 호스트로는 애초에 보내지 않으므로,
-/// 이 비용은 쿠키를 직접 조작해 보낸 요청에서만 발생한다(공개 속도 제한은 Plan 2B에서 이 표면을 마저 제한한다).</description></item>
+/// 이 비용은 쿠키를 직접 조작해 보낸 요청에서만 발생하며, <c>PublicAsset</c> 한도(IP별, 기본 600회/분)가 그 상한이다.</description></item>
 /// </list>
 /// 조회 키는 <c>id</c>뿐이다. <c>fileName</c>은 URL을 읽기 좋게 하는 장식이며 어떤 값이 와도 경로에 결합하지 않는다.
 /// 응답은 스니핑 금지 + 자체 CSP(<c>default-src 'none'; sandbox</c>)로, 설령 이미지로 위장한 콘텐츠가 저장돼 있어도 문서로 실행되지 않는다 —
@@ -46,31 +49,41 @@ public static class PublicAttachmentEndpoints
     /// </remarks>
     public static void MapPublicAttachmentEndpoints(this WebApplication app)
     {
-        app.MapMethods(Pattern, ["GET", "HEAD"], GetAsync).AllowAnonymous().WithName("GetAttachment");
+        app.MapMethods(Pattern, ["GET", "HEAD"], GetAsync).AllowAnonymous().WithName("GetAttachment")
+            .WithMetadata(new RateLimitMetadata(RateLimitPolicy.PublicAsset));
     }
 
     /// <summary><paramref name="id"/>로 첨부를 찾아 파일을 스트리밍한다. <paramref name="fileName"/>은 무시한다.</summary>
     /// <param name="id">조회할 첨부의 Id(유일한 조회 키).</param>
     /// <param name="http">응답 헤더를 직접 쓰기 위한 <see cref="HttpContext"/>.</param>
-    /// <param name="db">조회에 쓸 DbContext.</param>
+    /// <param name="db">조회에 쓸 공개 전용 컨텍스트. 관리 풀이 아니라 <see cref="PublicDbContext"/>를 쓰므로 이 조회에도
+    /// <c>statement_timeout</c>(<c>Public:StatementTimeoutMs</c>)과 <c>default_transaction_read_only=on</c>이 걸린다.</param>
     /// <param name="store">저장 경로를 실제 파일 시스템 경로로 바꾸는 저장소.</param>
     /// <param name="ct">요청 취소 토큰.</param>
     /// <returns>파일이 있으면 200(스트리밍 본문, GET일 때만 — HEAD는 프레임워크가 본문을 비운다) 또는 <c>If-None-Match</c>가 일치하면 304(본문 없음),
-    /// DB 행이 없거나 파일을 열 수 없으면 404.</returns>
+    /// DB 행이 없거나 파일을 열 수 없으면 404. DB 조회가 <c>statement_timeout</c>을 넘기면 SqlState 57014 →
+    /// <see cref="OverloadExceptionHandler"/>가 503 + <c>Retry-After</c>로 바꾼다.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. 파일을 여는 <see cref="FileStream"/> 생성자 호출은 짧은 동기 I/O다(비동기 오버랩 I/O로 여는 핸들 자체를 만드는 단계는 동기적으로 끝난다).</description></item>
     /// <item><description><b>Memory Policy:</b> DB 조회는 <c>StoragePath</c>·<c>ContentType</c> 두 필드만 프로젝션한다. 본체는 <c>TypedResults.Stream</c>이 응답으로 버퍼링 복사하므로 파일 전체를 메모리에 한 번에 올리지 않는다.</description></item>
+    /// <item><description><b>Overload:</b> 이 조회는 <see cref="PublicDbContext"/>(공개 연결 풀)를 쓴다 — <c>Attachments</c> 테이블이 잠겨 조회가 <c>statement_timeout</c>을
+    /// 넘기면 무한정 기다리지 않고 SqlState 57014로 끊겨 503 + <c>Retry-After</c>가 된다(실측: 테스트 프로젝트의
+    /// <c>AttachmentEndpointsTests.PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter</c>가 <c>ACCESS EXCLUSIVE</c> 잠금으로 고정한다).
+    /// 관리 풀(<see cref="AppDbContext"/>)에는 <c>statement_timeout</c>이 없어 같은 조건에서 잠금이 풀릴 때까지 기다린다 —
+    /// 그 테스트의 타입을 <see cref="AppDbContext"/>로 되돌리면 5초 유계 대기가 먼저 끊긴다(실측). 실제 대기 시간은 이 저장소에서 측정하지 않았다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 존재 확인과 여는 시점을 분리하지 않고 <c>FileStream</c>을 직접 열어 실패를 잡는다(<c>File.Exists</c> 뒤에 열기가 실패하는 TOCTOU 경쟁이 없다). 삭제와 경쟁하면(<see cref="AttachmentEndpoints.DeleteAsync"/> 참조) DB 행이 먼저 지워지므로 이 조회가 404가 되거나, DB 행이 아직 남아 있는 사이 파일이 지워졌으면(관리자가 볼륨에서 직접 지운 경우 포함) <see cref="FileNotFoundException"/>을 잡아 404가 된다 — 이 핸들러가 잘못된 내용을 돌려주는 경로는 없다. <see cref="FileShare.Delete"/>로 열기 때문에 이 핸들러가 스트리밍 중인 동안 <see cref="FileSystemAttachmentStore.TryDelete"/>가 같은 파일을 지워도(Windows에서) 공유 위반 없이 성공한다 — 삭제는 즉시 디렉터리 항목을 없애고(이후 요청은 404), 이미 열려 있는 이 핸들은 응답이 끝날 때까지 데이터를 계속 읽을 수 있다. Non-blocking: DB 조회는 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
-    private static async Task<IResult> GetAsync(Guid id, HttpContext http, AppDbContext db, FileSystemAttachmentStore store, CancellationToken ct)
+    // PublicDbContext: 관리 풀과 연결 문자열이 달라 Npgsql이 풀을 따로 만들고, 그 연결은 시작 매개변수로 statement_timeout을 갖는다 —
+    // 관리 작업이 Attachments를 잠가도 공개 요청이 그 시간 안에 57014로 끊겨 503이 되고, 관리 풀의 연결을 잡아먹지도 않는다.
+    private static async Task<IResult> GetAsync(Guid id, HttpContext http, PublicDbContext db, FileSystemAttachmentStore store, CancellationToken ct)
     {
         // 이 핸들러가 내는 모든 응답(200·404)에 스니핑 금지·CSP를 건다 — 캐시 헤더만 200 전용이다(아래).
         var headers = http.Response.Headers;
         headers.XContentTypeOptions = "nosniff";
-        headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        headers.ContentSecurityPolicy = SecurityHeadersMiddleware.SandboxCsp;
 
         var row = await db.Attachments.AsNoTracking().Where(a => a.Id == id)
             .Select(a => new { a.StoragePath, a.ContentType, a.Sha256, a.CreatedAt }).SingleOrDefaultAsync(ct);

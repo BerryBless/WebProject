@@ -37,4 +37,10 @@ public sealed class AdminOptions
 
     /// <summary>동시에 실행할 수 있는 미리보기 렌더링 수(렌더링은 CPU 바운드이며 취소할 수 없다).</summary>
     public int PreviewConcurrency { get; set; } = 2;
+
+    /// <summary>첨부 업로드의 분당 전역 한도.</summary>
+    public int UploadPerMinute { get; set; } = 30;
+
+    /// <summary>동시에 실행할 수 있는 업로드 수(메타데이터 제거·해시는 요청 스레드를 막는 동기 I/O다).</summary>
+    public int UploadConcurrency { get; set; } = 2;
 }

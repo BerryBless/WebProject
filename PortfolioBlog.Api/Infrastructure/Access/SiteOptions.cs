@@ -15,26 +15,19 @@ public sealed class SiteOptions
     public const string SectionName = "Site";
 
     /// <summary>예: <c>https://blog.example.com</c>. Plan 2의 canonical·Atom·sitemap이 쓴다.</summary>
-    /// <remarks>
-    /// <b>[성능 및 동시성 제약 조건]</b>
-    /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> 문자열은 불변이므로 Thread-safe.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 할당 없음. 참조만 반환.</description></item>
-    /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
-    /// </list>
-    /// </remarks>
     public string PublicOrigin { get; set; } = string.Empty;
 
     /// <summary>예: <c>https://admin.example.com</c>. <c>/api</c>의 Host·Origin 검사 기준.</summary>
-    /// <remarks>
-    /// <b>[성능 및 동시성 제약 조건]</b>
-    /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> 문자열은 불변이므로 Thread-safe.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 할당 없음. 참조만 반환.</description></item>
-    /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
-    /// </list>
-    /// </remarks>
     public string AdminOrigin { get; set; } = string.Empty;
+
+    /// <summary>사이트 이름. <c>&lt;title&gt;</c>·머리글·Atom 피드 제목에 쓴다. 비울 수 없다.</summary>
+    public string Title { get; set; } = "Blog";
+
+    /// <summary>사이트 한 줄 소개. 첫 쪽의 meta description과 Atom subtitle. 비어 있으면 생략한다.</summary>
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>Atom 피드의 작성자 이름. 비어 있으면 <see cref="Title"/>을 쓴다.</summary>
+    public string Author { get; set; } = string.Empty;
 
     /// <summary>origin에서 호스트 이름만 뽑는다(포트·스킴 제외). 형식이 틀리면 <see cref="FormatException"/>.</summary>
     /// <param name="origin">검증할 origin 문자열(예: https://admin.example.com).</param>

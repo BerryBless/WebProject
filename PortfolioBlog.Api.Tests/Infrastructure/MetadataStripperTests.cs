@@ -5,7 +5,7 @@ using PortfolioBlog.Api.Infrastructure.Storage;
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
 /// <summary>메타데이터 제거기 단위 테스트. 서버는 이미지를 디코딩하지 않으므로 "메타데이터 바이트가 사라졌는가"와 "컨테이너 구조가 온전한가"를 본다.
-/// fix round 1부터는 허용 목록(allow-by-default-DENY) 위반 — 알려지지 않은 블록이 살아남는지 — 도 실제 파일을 바이트 스플라이싱해 검사한다.</summary>
+/// 허용 목록(allow-by-default-DENY) 위반 — 알려지지 않은 블록이 살아남는지 — 도 실제 파일을 바이트 스플라이싱해 검사한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -543,7 +543,7 @@ public sealed class MetadataStripperTests
         Assert.True(allocated < 256 * 1024, $"청크 5만 개 처리에 {allocated}바이트가 할당됐다(청크 수에 비례하면 안 된다).");
     }
 
-    // === fix round 2: kept 블록의 "모양"(SHAPE) 검사 ===
+    // === kept 블록의 "모양"(SHAPE) 검사 ===
 
     private static byte[] PadTo(byte[] data, int length, byte fill = 0x41)
     {

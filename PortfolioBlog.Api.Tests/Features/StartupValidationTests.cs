@@ -1,3 +1,4 @@
+using Npgsql;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
@@ -98,6 +99,12 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     public void AnyEnvironment_OriginWithPath_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["Site:AdminOrigin"] = "https://admin.test/" }, "Site:AdminOrigin");
 
+    /// <summary>환경에 상관없이 <c>Site:Title</c>이 공백뿐이면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다.
+    /// 비어 있으면 <c>&lt;title&gt;</c>·머리글·Atom 피드 제목이 " · Blog" 꼴로 깨지므로 첫 요청이 아니라 시작 시점에 막는다.</summary>
+    [Fact]
+    public void AnyEnvironment_BlankSiteTitle_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["Site:Title"] = "   " }, "Site:Title");
+
     /// <summary><c>Staging</c>처럼 <c>Production</c>이 아닌(그러나 <c>Development</c>도 아닌) 환경에서도 필수 설정 누락으로 시작이 실패하는지 검증한다.
     /// <c>environment.IsProduction()</c> 판정만으로는 이런 환경 이름을 걸러내지 못해 필수 검사를 조용히 건너뛰던 결함의 회귀 테스트다.</summary>
     [Fact]
@@ -186,4 +193,24 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     [Fact]
     public void AnyEnvironment_ZeroPreviewConcurrency_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["Admin:PreviewConcurrency"] = "0" }, "PreviewConcurrency");
+
+    /// <summary>환경에 상관없이 <c>ConnectionStrings:Default</c>에 이미 <c>Options</c>가 있으면(공개 조회 전용 옵션과 합칠 수 없다) 시작이
+    /// 실패하고 예외에 그 키가 포함되는지 검증한다 — 첫 공개 요청이 아니라 시작 시점에 드러나는지가 이 테스트의 핵심이다.</summary>
+    [Fact]
+    public void AnyEnvironment_ConnectionStringHasOptions_Fails()
+    {
+        var withOptions = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { Options = "-c work_mem=1MB" }.ConnectionString;
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = withOptions }, "ConnectionStrings:Default");
+    }
+
+    /// <summary>환경에 상관없이 <c>ConnectionStrings:Default</c>의 Command Timeout(초)이 <c>Public:StatementTimeoutMs</c>(밀리초)보다
+    /// 먼저 끊기면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다 — 그렇지 않으면 클라이언트 취소가 DB의 statement_timeout(57014)보다
+    /// 먼저 발생해 <c>OverloadExceptionHandler</c>의 503 매핑 설계가 성립하지 않는다. 기본 <c>Public:StatementTimeoutMs</c>는
+    /// 3000이므로 Command Timeout=1(=1000ms)이면 1000 &lt;= 3000 조건에 걸린다.</summary>
+    [Fact]
+    public void AnyEnvironment_CommandTimeoutNotLargerThanStatementTimeout_Fails()
+    {
+        var shortCommandTimeout = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { CommandTimeout = 1 }.ConnectionString;
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = shortCommandTimeout }, "ConnectionStrings:Default");
+    }
 }

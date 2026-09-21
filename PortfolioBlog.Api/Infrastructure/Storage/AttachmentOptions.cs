@@ -9,4 +9,6 @@ public sealed class AttachmentOptions
     public const int MaxBytes = 10_485_760;
     /// <summary>첨부 저장 루트. 상대 경로면 콘텐츠 루트 기준. 정적 파일 루트 밖이어야 한다. 비어 있으면 시작 실패.</summary>
     public string RootPath { get; set; } = string.Empty;
+    /// <summary>고아 파일 청소 잡을 돌릴지. 테스트는 끈다(파일 시각을 조작하는 테스트와 백그라운드 실행이 섞이지 않게).</summary>
+    public bool JanitorEnabled { get; set; } = true;
 }
