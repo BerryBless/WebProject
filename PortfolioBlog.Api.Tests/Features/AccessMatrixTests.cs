@@ -322,23 +322,35 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
 
     /// <summary>공개 페이지·피드 라우트에 공개 호스트 제한을 빠뜨리면(그러면 관리 origin에서도 렌더링된다) 여기서 잡힌다.
     /// 속도 제한 메타데이터(<see cref="RateLimitMetadata"/>)를 빠뜨리면(그러면 무제한 요청을 받는다) 이 테스트도 함께 잡는다 —
-    /// <see cref="PortfolioBlog.Api.Pages.PublicPageConvention"/>이 두 메타데이터를 같은 곳에서 걸기 때문이다.</summary>
+    /// <see cref="PortfolioBlog.Api.Pages.PublicPageConvention"/>이 두 메타데이터를 같은 곳에서 걸기 때문이다.
+    /// 속도 제한 단언은 호스트 제한 <c>continue</c>보다 <b>앞</b>에 둔다: 양쪽 호스트에서 열리는 공유 라우트(<c>/health</c>·<c>/attachments/…</c>)도
+    /// 무제한이면 안 되므로, 그것들이 호스트 검사에서 빠진다는 이유로 속도 제한 검사까지 함께 빠져서는 안 된다.
+    /// <c>/openapi</c>만 예외다 — Development에서만 매핑되고 운영에서는 존재하지 않으며(<c>Program.cs</c>의 <c>IsDevelopment</c> 분기),
+    /// 프레임워크의 <c>MapOpenApi</c>가 등록하는 엔드포인트라 이 저장소가 메타데이터를 달지 않는다.</summary>
     [Fact]
     public void EveryPublicRoute_ExceptTheSharedOnes_IsBoundToThePublicHost()
     {
         using var _ = factory.CreateClient();
         var publicHost = new Uri(ApiFactory.PublicOrigin).Host;
         var bound = 0;
+        var rateLimited = 0;
         foreach (var endpoint in factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>())
         {
             var raw = endpoint.RoutePattern.RawText;
             Assert.True(raw is not null, "RawText가 null인 라우트가 있다(공유 목록의 빈 문자열과 구분되지 않아 오탐할 위험).");
-            if (IsUnderApi(raw) || SharedBetweenHosts.Contains(raw, StringComparer.Ordinal)) continue;
+            if (IsUnderApi(raw)) continue;
+            if (!raw.StartsWith("/openapi", StringComparison.Ordinal))
+            {
+                Assert.NotNull(endpoint.Metadata.GetMetadata<RateLimitMetadata>());
+                rateLimited++;
+            }
+            if (SharedBetweenHosts.Contains(raw, StringComparer.Ordinal)) continue;
             var hosts = endpoint.Metadata.GetMetadata<IHostMetadata>()?.Hosts ?? [];
             Assert.True(hosts.SequenceEqual([publicHost]), $"'{raw}': 공개 호스트 제한이 없다(실제: {string.Join(",", hosts)})");
-            Assert.NotNull(endpoint.Metadata.GetMetadata<RateLimitMetadata>());
             bound++;
         }
         Assert.True(bound >= 5, $"검사된 공개 라우트가 너무 적다: {bound}");
+        // 공유 라우트(/health·/attachments/…)까지 세었으므로 호스트 제한 대상보다 많아야 한다 — 그렇지 않으면 위 단언이 공유 라우트를 못 봤다는 뜻이다.
+        Assert.True(rateLimited > bound, $"속도 제한을 확인한 공개 라우트가 호스트 제한 대상({bound})보다 많지 않다: {rateLimited}");
     }
 }

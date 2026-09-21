@@ -23,7 +23,9 @@ public sealed class PublicDbContextTests(PostgresContainerFixture pg)
 {
     private static readonly Dictionary<string, string?> FastTimeout = new() { ["Public:StatementTimeoutMs"] = "200" };
 
-    /// <summary>느린 문장은 statement_timeout에서 57014로 끊긴다. 2초짜리 pg_sleep이 1.5초 안에 끝나야 한다(타임아웃이 없으면 2초를 다 기다린다).</summary>
+    /// <summary>느린 문장은 statement_timeout에서 57014로 끊긴다. 2초짜리 pg_sleep이 1.5초 안에 끝나야 한다(타임아웃이 없으면 2초를 다 기다린다).
+    /// 측정 전에 연결을 미리 열어 둔다: 이 팩토리의 공개 연결 풀은 이 테스트가 처음 쓰는 것이라 첫 물리 연결 수립(TCP + 인증 + 시작 매개변수)이
+    /// 측정 구간에 섞이면 느린 러너에서 1.5초 상한을 statement_timeout과 무관한 이유로 넘길 수 있다.</summary>
     [Fact]
     public async Task SlowStatement_IsCancelledByStatementTimeout()
     {
@@ -31,6 +33,7 @@ public sealed class PublicDbContextTests(PostgresContainerFixture pg)
         using var _ = factory.CreateClient();
         await using var scope = factory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
+        await db.Database.OpenConnectionAsync();
 
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("SELECT pg_sleep(2)"));

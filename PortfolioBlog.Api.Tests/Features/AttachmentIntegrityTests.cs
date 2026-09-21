@@ -114,10 +114,14 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
     }
 
     /// <summary>업로드가 잠금을 기다리는 사이 같은 내용의 파일이 디스크에서 사라지면(다른 요청의 삭제·청소), 잠금을 잡은 뒤 파일 존재를 다시 확인해
-    /// 없으면 <see cref="IFormFile"/>을 다시 열어 재저장한다. 결정적으로 만들기 위해 테스트가 먼저 그 sha의 잠금을 쥐고, 업로드를 시작한 뒤
-    /// <see cref="Task.WhenAny(Task, Task)"/> + 유계 대기로 "업로드가 아직 안 끝났다(=잠금 대기 중)"를 확인하고 나서야 파일을 지운다 — 고정 지연만
-    /// 쓰면, 두 번째 업로드 자신의 (잠금 밖) 최초 저장이 그 사이 끝나지 않은 채로 지워져 <c>FileSystemAttachmentStore.SaveAsync</c>의 통상적인
-    /// "없으면 옮긴다" 동작만으로 통과해 버려 이 테스트가 실제로 검증하려는 "잠금 안 재확인·재오픈" 경로를 전혀 타지 않고도 통과할 수 있다.
+    /// 없으면 <see cref="IFormFile"/>을 다시 열어 재저장한다. 테스트가 먼저 그 sha의 잠금을 쥐고 업로드를 시작한 뒤, <b>이 데이터베이스에서 아직
+    /// 허가되지 않은 advisory lock 대기자 행(<c>pg_locks</c>)을 실제로 관측한 뒤에만</b> 파일을 지운다 — 즉 업로드가 (잠금 밖) 최초 저장을 이미
+    /// 끝내고 잠금 대기에 들어갔음을 확인한 다음에 지운다. 고정 지연만 쓰면 느린 러너에서 그 최초 저장이 끝나기 전에 파일을 지워
+    /// <c>FileSystemAttachmentStore.SaveAsync</c>의 통상적인 "없으면 옮긴다" 동작만으로 통과해 버려, 이 테스트가 검증하려는 "잠금 안 재확인·재오픈"
+    /// 경로를 전혀 타지 않고도 통과할 수 있다.
+    /// 대기자 조회는 <c>database = (SELECT oid FROM pg_database WHERE datname = current_database())</c>로 이 테스트 전용 DB에 한정한다 —
+    /// <c>pg_locks</c>는 클러스터 전역이라 조건을 걸지 않으면 같은 컨테이너의 다른 테스트가 만든 대기를 자기 것으로 오인할 수 있다.
+    /// 그 조건 덕분에 "컬렉션이 직렬 실행되므로 안전하다" 같은 외부 전제 없이 이 테스트 안에서 판별이 닫힌다.
     /// 이 테스트의 업로드는 작은(64KB 미만) 픽스처라 프레임워크가 메모리에 버퍼링한 <c>IFormFile</c>을 다시 여는 경로만 검증한다 — 64KB를 넘겨
     /// 디스크로 버퍼링되는 경로는 별도로 검증하지 않았다(미검증).</summary>
     [Fact]
@@ -139,9 +143,10 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
         await ExecuteAsync(holder, "SELECT pg_advisory_lock(hashtextextended(@k, 0))", key); // 테스트가 먼저 그 내용의 잠금을 쥔다.
 
         var upload = client.PostAsync("/api/attachments", Form());
-        // 두 번째 업로드가 (잠금 밖) 최초 저장까지 끝내고 잠금 대기에 실제로 들어갔음을 확인한다 — 그렇지 않다면 요청이 800ms 안에 끝나 버렸을 것이다.
-        var firstDone = await Task.WhenAny(upload, Task.Delay(TimeSpan.FromMilliseconds(800)));
-        Assert.NotSame(upload, firstDone); // "잠금을 쥐고 있는데 요청이 끝났다"가 아니어야 한다 — 이때는 파일이 아직 살아 있으므로 지워도 안전하다.
+        // holder는 이 순간에도 잠금을 쥔 세션이므로 폴링에 쓰지 않는다(같은 연결로 명령을 겹쳐 보내지 않는다) — 별도 연결을 연다.
+        await using var watcher = new NpgsqlConnection(factory.ConnectionString);
+        await watcher.OpenAsync();
+        await WaitForBlockedAdvisoryLockWaiterAsync(watcher);
 
         File.Delete(physicalPath);
         Assert.False(File.Exists(physicalPath), "사전 조건: 대기 중 파일을 지우지 못했다.");
@@ -313,6 +318,28 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
             await using var cleanup = new NpgsqlConnection(cs);
             NpgsqlConnection.ClearPool(cleanup);
         }
+    }
+
+    // 이 DB에서 "허가되지 않은 advisory lock" 행이 하나라도 보일 때까지 유계 폴링한다. pg_locks는 클러스터 전역이므로
+    // database 조건으로 이 테스트 전용 DB에 한정해야, 같은 컨테이너의 다른 테스트가 만든 대기를 자기 것으로 오인하지 않는다.
+    // 10초 상한은 "대기자를 못 봤다"를 매달림이 아니라 명시적 실패로 만들기 위한 것이다(업로드의 잠금 대기 상한 자체는 lock_timeout 10초로 별개다).
+    private static async Task WaitForBlockedAdvisoryLockWaiterAsync(NpgsqlConnection connection)
+    {
+        const string sql = """
+            SELECT count(*) FROM pg_locks
+            WHERE locktype = 'advisory' AND NOT granted
+              AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+            """;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            await using (var cmd = new NpgsqlCommand(sql, connection))
+            {
+                if ((long)(await cmd.ExecuteScalarAsync())! >= 1) return;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+        }
+        Assert.Fail("10초 안에 advisory lock 대기자 행을 보지 못했다 — 업로드가 잠금 대기에 들어갔음을 확인하지 못한 채로는 파일을 지울 수 없다.");
     }
 
     // 반환값(살펴본 행 수)은 호출부가 "검사 루프가 실제로 무언가를 봤는지"를 누적해 판별할 수 있게 한다(위 InterleavedDeleteAndReupload의 공집합 통과 방지).

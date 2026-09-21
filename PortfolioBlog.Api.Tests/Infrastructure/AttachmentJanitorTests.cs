@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -81,9 +82,10 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOut
         Assert.True(store.Exists(Path.GetRelativePath(root, keptPath).Replace('\\', '/'))); // Exists 접근자가 실제 경로 규칙과 맞는다
     }
 
-    /// <summary>버킷 디렉터리가 심볼릭 링크(저장 루트 밖 실제 디렉터리를 가리킴)면, 그 안에 오래되고 모양이 맞는 파일이 있어도 스윕이 링크를
-    /// 따라가지 않아 지워지지 않는다. 이 개발 환경(Windows)은 심볼릭 링크 생성에 관리자 권한·개발자 모드가 필요할 수 있으므로, 권한이 없으면
-    /// 사유를 출력하고 건너뛴다(Linux CI에서는 보통 제약 없이 실행된다).</summary>
+    /// <summary>버킷 디렉터리가 디렉터리 링크(저장 루트 밖 실제 디렉터리를 가리킴)면, 그 안에 오래되고 모양이 맞는 파일이 있어도 스윕이 링크를
+    /// 따라가지 않아 지워지지 않는다. Windows에서 심볼릭 링크 생성은 권한(관리자·개발자 모드)을 요구할 수 있으므로 그때는 정션(<c>mklink /J</c>)으로
+    /// 대체한다 — 정션도 reparse point라 <see cref="DirectoryInfo.LinkTarget"/>이 non-null이고, 스윕이 검사하는 성질이 심볼릭 링크와 같다.
+    /// 둘 다 실패할 때만 사유를 출력하고 건너뛴다(그래야 이 방어가 검증 없이 통과하는 환경이 줄어든다).</summary>
     [Fact]
     public async Task Sweep_DoesNotFollowASymbolicLinkBucket_ToDeleteFilesOutsideTheRoot()
     {
@@ -103,15 +105,8 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOut
             File.SetLastWriteTimeUtc(outsideFile, old);
 
             var linkedBucket = Path.Combine(root, sha[..2]);
-            try
-            {
-                Directory.CreateSymbolicLink(linkedBucket, outsideTarget);
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-            {
-                output.WriteLine($"심볼릭 링크를 만들 권한이 없어 이 테스트를 건너뛴다({ex.GetType().Name}: {ex.Message}).");
-                return;
-            }
+            if (!await TryCreateDirectoryLinkAsync(linkedBucket, outsideTarget)) return;
+            Assert.NotNull(new DirectoryInfo(linkedBucket).LinkTarget); // 사전 조건: 스윕이 검사하는 성질(reparse point)을 실제로 만들었다
 
             var janitor = factory.Services.GetRequiredService<AttachmentJanitor>();
             await janitor.SweepOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
@@ -120,11 +115,54 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOut
         }
         finally
         {
-            // 링크(reparse point) 자체만 제거한다 — .NET의 재귀 삭제는 reparse point를 따라가지 않고 링크만 지우는 것으로 문서화돼 있다.
-            // factory의 using 처분(AttachmentsRoot 재귀 삭제)보다 먼저 여기서 링크를 치워, 그 처분이 링크를 다루는 방식에 기대지 않는다.
+            // 링크(reparse point) 자체만 제거한다: 비재귀 Directory.Delete는 링크 항목만 지우고 링크가 가리키는 대상 디렉터리의
+            // 내용에는 손대지 않는다. 재귀 삭제를 쓰면 대상 디렉터리 안(저장 루트 밖!)의 파일까지 지울 위험을 문서화된 동작에만 의존하게 된다.
+            // factory의 using 처분(AttachmentsRoot 재귀 삭제)보다 먼저 여기서 링크를 치워, 그 처분이 링크를 다루는 방식에도 기대지 않는다.
             var linkedBucket = Path.Combine(root, new string('c', 2));
-            if (Directory.Exists(linkedBucket)) Directory.Delete(linkedBucket, recursive: true);
+            if (Directory.Exists(linkedBucket)) Directory.Delete(linkedBucket);
             if (Directory.Exists(outsideTarget)) Directory.Delete(outsideTarget, recursive: true);
         }
+    }
+
+    // 심볼릭 링크 → (Windows면) 정션 순으로 시도한다. Windows의 심볼릭 링크 생성은 SeCreateSymbolicLinkPrivilege(관리자 또는 개발자 모드)를
+    // 요구하지만 정션(디렉터리 마운트 지점)은 요구하지 않아 일반 권한으로 만들 수 있고, .NET은 정션도 reparse point로 보아
+    // DirectoryInfo.LinkTarget을 non-null로 돌려준다 — 스윕의 링크 검사가 보는 성질이 심볼릭 링크와 같다(실측: 이 개발 PC에서 mklink /J 성공, LinkTarget non-null).
+    // mklink는 cmd.exe 내장 명령이라 별도 실행 파일이 없어 cmd.exe를 거쳐야 하고, 인자는 cmd가 다시 파싱하므로 ArgumentList로 쪼개지 않고 한 문자열로 넘긴다.
+    private async Task<bool> TryCreateDirectoryLinkAsync(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                output.WriteLine($"디렉터리 링크를 만들 수 없어 이 테스트를 건너뛴다({ex.GetType().Name}: {ex.Message}).");
+                return false;
+            }
+            output.WriteLine($"심볼릭 링크 생성 실패({ex.GetType().Name}: {ex.Message}) — 정션으로 대체한다.");
+        }
+
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        if (process is null)
+        {
+            output.WriteLine("cmd.exe를 시작할 수 없어 이 테스트를 건너뛴다.");
+            return false;
+        }
+        var stdout = await process.StandardOutput.ReadToEndAsync();
+        var stderr = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        if (process.ExitCode == 0 && new DirectoryInfo(link).LinkTarget is not null) return true;
+
+        output.WriteLine($"정션 생성도 실패해 이 테스트를 건너뛴다(exit {process.ExitCode}): {stdout}{stderr}");
+        return false;
     }
 }
