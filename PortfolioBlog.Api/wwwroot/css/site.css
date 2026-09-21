@@ -50,4 +50,5 @@ time { color: var(--muted); font-size: 0.875rem; }
 .search-form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
 .search-form input { flex: 1; padding: 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
 .search-form button { padding: 0.5rem 1rem; border: 1px solid var(--line); border-radius: 6px; background: var(--code-bg); color: var(--fg); font: inherit; }
+.search-count { color: var(--muted); font-size: 0.875rem; margin: 0 0 1rem; }
 .error-page { text-align: center; padding-top: 4rem; }
