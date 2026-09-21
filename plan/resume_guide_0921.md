@@ -1,4 +1,4 @@
-# 작업 재개 가이드 (2026-09-21 기준, 2B 완료 후 갱신)
+# 작업 재개 가이드 (2026-09-22 기준, 3단계 완료 후 갱신)
 
 > 이 문서 하나만 읽으면 어느 세션에서든 이어서 작업할 수 있도록 쓴 인계 기록이다. 상태가 바뀌면 **이 문서를 갱신**하고 날짜를 고친다(새 파일을 만들지 않는다).
 
@@ -11,12 +11,12 @@
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API | 완료 | PR #1 → `5604f2d` |
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
-| **3** | 관리 에디터 SPA(React 19 + Vite) | **다음 작업 — 계획 작성됨, 승인·실행 대기** | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md`, 3절 |
-| 4 | Docker Compose·Caddy·백업/복원 | 예정, 계획 미작성 | 스펙 8절 |
+| 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4(squash 병합), 보고서 `plan/tech_blog_3_report_0922.md` |
+| **4** | Docker Compose·Caddy·백업/복원 | **다음 작업 — 계획 미작성** | 스펙 3.10·8절, 3절 |
 
-- 기준 커밋: master `80c8dc4`(이 문서의 해시를 채운 문서 커밋이 그 위에 하나 더 있다). 작업 트리 깨끗함, 열린 PR 없음.
-- 검증 상태: Release 빌드 경고 0 / 오류 0, 테스트 **589개 통과**, 하네스 감사 8/8, CI(ubuntu-latest) 통과.
-- 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
+- 기준 커밋: master의 PR #4 squash 커밋(`git log --oneline -3 master`로 확인). 작업 트리 깨끗함, 열린 PR 없음.
+- 검증 상태: .NET Release 빌드 경고 0 / 오류 0, 테스트 **591개 통과**. 웹: 타입 오류 0·린트 경고 0·Vitest **188개**·Playwright E2E **8개**(Chromium+Firefox). 하네스 감사 8/8, CI(ubuntu-latest: `test`·`web`·`web-e2e`) 통과.
+- 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`, `origin/feature/blog-admin-spa`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
 
 ## 2. 다시 시작할 때 5분 점검
 
@@ -27,38 +27,29 @@ Test-Path .git/harness_commit_in_progress  # False여야 한다(True면 이전 �
 Test-Path .git/hooks/commit-msg            # False면: Copy-Item scripts/git-hooks/commit-msg .git/hooks/
 docker info --format '{{.ServerVersion}}'  # Docker가 떠 있어야 통합 테스트가 돈다
 dotnet build PortfolioBlog.slnx -c Release # 경고 0 / 오류 0
-dotnet test  PortfolioBlog.slnx -c Release # 589개 통과 (한 개가 연결 타임아웃으로 실패하면 5절 참고 후 재실행)
+dotnet test  PortfolioBlog.slnx -c Release # 591개 통과 (한 개가 연결 타임아웃으로 실패하면 5절 참고 후 재실행)
+cd PortfolioBlog.Web; npm ci; npm run lint; npm run typecheck; npm test; npm run build   # Vitest 188개
+npm run e2e:prepare; npm run e2e; docker rm -f pb-e2e-pg; cd ..                          # E2E 8개(포트 7198·4173·5433이 비어 있어야 한다)
 pwsh scripts/harness-audit.ps1             # PASS 8/8
 ```
 
-필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만). Plan 3부터 Node.js(버전은 계획에서 정한다).
+필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만). Node.js 24(react-router 8이 22.22 이상 요구), Playwright 브라우저(`npx playwright install chromium firefox`).
 
-## 3. 다음 작업: Plan 3(관리 에디터 SPA) 승인 → 실행
+## 3. 다음 작업: Plan 4(배포) 계획 작성
 
-**흐름(저장소 규칙):** `superpowers:writing-plans`(**완료, 2026-09-21**) → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰(실제 호스트 공격 포함) → PR → CI → squash 병합 → 보고서.
+**흐름(저장소 규칙):** `superpowers:writing-plans` → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰(실제 호스트 공격 포함) → PR → CI → squash 병합 → 보고서.
 
-계획: `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` — Task 8개(골격·CI → API 클라이언트 → 순수 함수(next 검증·임시본·미리보기 문서) → 셸·인증·목록 → 미리보기·CSS 스냅숏·소스 가드 → 글 편집 → 첨부 → E2E·문서). 백엔드 변경은 테스트 1개뿐. **계획의 코드는 작성 중에 저장소 밖에서 실제로 조립해 돌려 본 것이다**(tsc 0·oxlint 0·Vitest 110개·실제 백엔드 Playwright 6개 2회 연속 통과). 문서 앞의 **스파이크 표 S1~S13**과 **설계 결정 표 D1~D16**(질문 없이 추천안으로 정한 것 — 승인할 때 뒤집을 수 있다: react-router 8, HTTPS 개발 서버, 스펙보다 좁힌 CSP, `/tags` 화면 추가, E2E를 CI에 넣음), 끝의 "작성 중에 잡은 결함" 6건·"알려진 불확실성" 8건부터 읽는다.
+입력 자료: 스펙 `plan/tech_blog_0920.md` 3.10(배포)·3.6(응답 헤더)·8절의 Plan 4 행, 3단계 보고서 `plan/tech_blog_3_report_0922.md` 8절, 2B 보고서 8절, 2A 보고서 8절.
 
-승인 뒤 Claude Code에 이렇게 요청하면 된다:
+**Plan 4가 이어받는 사실(1~3단계에서 확정된 것):**
 
-```
-/superpowers:subagent-driven-development docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md
-브랜치 feature/blog-admin-spa. 모든 선택지는 추천안으로, 끝나면 "내린 판정" 표가 든 보고서.
-```
-
-계획의 입력 자료였던 것: 스펙 `plan/tech_blog_0920.md` 8절의 Plan 3 행과 3.2(관리 표면)·3.6(CSP)·3.7(자원 제한), 2B 보고서 8절, 2B 계획 끝의 "구현 중 발견해 고친 계획 결함"(있다면), 2A 보고서 8절.
-
-**백엔드가 SPA에 요구하는 것(2A·2B에서 확정된 사실):**
-
-1. 본문은 `JSON.stringify`(비 ASCII를 이스케이프하지 않음)로 보낸다 — 관리 JSON 본문 상한은 **직렬화 후 256KB**다. 비 ASCII를 이스케이프하는 인코더는 200KB 한글 본문을 최대 6배로 부풀려 413을 받는다.
-2. 글 수정의 **409(version 불일치)는 본문 검증 400보다 먼저** 올 수 있다. 409를 받으면 최신본을 다시 불러오게 안내한다.
-3. 과부하는 **503 + `Retry-After`**(렌더 슬롯 대기 초과, DB statement/lock timeout), 속도 제한은 **429 + `Retry-After`**(미리보기·업로드: 전역 30/분·동시 2). 둘 다 재시도 안내가 필요하다.
-4. 모든 관리 요청은 `X-Requested-With` 헤더 + 같은 오리진(`admin.<도메인>`) + 세션 쿠키. 매칭되지 않는 `/api/...`는 404.
-5. 미리보기 iframe은 `sandbox=""` + `srcdoc` 안 CSP meta. iframe의 이미지는 **관리 오리진**에서 읽힌다(첨부 응답에 `Cross-Origin-Resource-Policy: same-origin`을 붙이면 깨진다). 첨부 GET은 공개 읽기 전용 연결(3초 statement_timeout)을 쓴다.
-6. 공개 CSP는 스크립트를 허용하지 않는다 — SPA는 `admin.<도메인>`에서 Caddy가 서빙하는 정적 파일이고 API 앱의 CSP와 별개다(Plan 4의 Caddyfile에서 SPA용 CSP를 정한다).
-
-**Plan 4 메모(2B에서 추가된 것):** 컨테이너 헬스체크·`curl`은 `Host: <공개 호스트>` 헤더가 필요하다(`localhost`는 본문 없는 400). `ConnectionStrings:Default`에 `Options`를 넣으면 시작 실패, `Command Timeout`(초)×1000은 `Public:StatementTimeoutMs`보다 커야 한다. Caddy `request_body`는 프레임워크 상한 **11MB**. 저장 볼륨은 앱 시작 전에 마운트. multipart 버퍼링이 프로세스 임시 폴더에 쓴다(읽기 전용 루트 FS 불가). Release 출력의 EF 디자인 타임 어셈블리 제거. 이미지의 `wwwroot`가 `css/site.css` 하나인지 검증(csproj의 `CompressionEnabled=false`가 지워지면 `.gz`·`.br`가 돌아온다 — 회귀 테스트 없음). 쓰기 권한 없는 DB 롤(공개 연결의 read-only는 세션에서 끌 수 있는 심층 방어일 뿐). 503 1건당 로그 약 50줄. 첨부 GET이 공개 풀을 공유한다 — 풀 고갈 시 500 가능성(추론)은 부하 검증 항목. 실제 Kestrel 고유 동작(요청 줄 8KB 초과 414, `Expect: 100-continue`의 413)은 스모크 테스트로.
-
+1. **관리 사이트 헤더:** Caddyfile의 관리 사이트 블록은 `PortfolioBlog.Web/admin-headers.ts`의 다섯 헤더(CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`)를 옮기고 **HSTS를 따로 더한다**(그 파일에는 의도적으로 없다 — 루프백 미리보기 서버에서도 쓰인다). 일치 + HSTS 존재를 검사한다. CSP에 `blob:`은 없다.
+2. **관리 사이트 라우팅:** `/api/*`·`/attachments/*`만 백엔드로, 나머지는 SPA 정적 파일 + `index.html` fallback. SPA 라우트 `/attachments`(슬래시 없는 화면 주소)가 백엔드로 가면 안 된다(3단계에서 개발 프록시의 접두사 매칭이 이 결함을 만들었다). `/assets/없는파일`은 404로 주는 편이 낫다(청크 해시가 바뀐 뒤의 증상이 분명해진다). COOP 헤더 검토.
+3. **SPA 빌드:** `PortfolioBlog.Web/Dockerfile`(node 24 빌드 → caddy 이미지에 `dist/` 복사). `npm ci` + `npm audit --omit=dev --audit-level=high`. `.certs/`·`.e2e/`가 이미지에 들어가지 않게 `.dockerignore`.
+4. **공개 origin:** SPA는 공개 사이트의 주소를 모른다(글 목록에는 경로만 보인다). 필요하면 빌드 시점 환경변수(`VITE_PUBLIC_ORIGIN`)로 넣는다.
+5. **백엔드(2B에서):** 컨테이너 헬스체크·`curl`은 `Host: <공개 호스트>` 헤더 필요(`localhost`는 본문 없는 400). `ConnectionStrings:Default`에 `Options` 금지, `Command Timeout`(초)×1000 > `Public:StatementTimeoutMs`. Caddy `request_body`는 프레임워크 상한 **11MB**. 저장 볼륨은 앱 시작 전에 마운트. multipart 버퍼링이 프로세스 임시 폴더에 쓴다(읽기 전용 루트 FS 불가). Release 출력의 EF 디자인 타임 어셈블리 제거. 이미지의 `wwwroot`가 `css/site.css` 하나인지 검증(`CompressionEnabled=false`가 지워지면 `.gz`·`.br`가 돌아온다). 쓰기 권한 없는 DB 롤. 503 1건당 로그 약 50줄. 첨부 GET이 공개 풀을 공유한다(부하 검증). 실제 Kestrel 고유 동작(요청 줄 8KB 초과 414, `Expect: 100-continue`의 413)의 스모크 테스트.
+6. **브라우저:** WebKit(Safari) 미검증 — 작성자의 브라우저에 따라 Playwright 프로젝트를 더한다. 파일 입력의 `sr-only` 포커스 가능성은 실제 브라우저에서 미확인.
+7. 공개 사이트 CSS(`wwwroot/css/site.css`나 강조 CSS)를 바꾸면 `PortfolioBlog.Web/public/preview/*.css` 스냅숏을 갱신해야 한다(README의 PowerShell 명령 — 갱신 실행은 의도적으로 실패로 끝난다). 안 하면 `dotnet test`의 `PreviewCssSnapshotTests`가 실패한다.
 ## 4. 계획 실행 중에 끊겼다면 (Subagent-Driven Development)
 
 - 진행 기록은 `.superpowers/sdd/<계획 파일 이름>/progress.md`에 있다(git 무시 대상). 첫 줄이 그 계획 파일을 가리키면 `Task N: complete`가 찍힌 작업은 **끝난 것**이다 — 다시 맡기지 않는다. 마지막 줄이 수정 라운드면 그 라운드부터 잇는다. 기록이 없으면 `git log`로 복구한다.
@@ -67,6 +58,10 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 - 리뷰어에게는 diff 파일(`scripts/review-package PLAN BASE HEAD`의 출력)과 지시서 경로만 넘긴다. 구현자 보고는 **검증 대상**이다.
 - 서브에이전트의 완료 보고가 늦거나 오지 않을 때가 있다(2B에서 2회). 결과를 가정하지 말고 저장소를 직접 본다(커밋, 작업 트리, 보고서 파일, 남은 dotnet 프로세스, 사보타주 복구 여부). 지시문에 "응답을 마지막 행동으로 하라"를 넣는다.
 - 효과가 컸던 것: 리뷰어에게 "계획 코드 자체가 틀렸을 수 있다 — 직접 공격하고 측정하라"고 명시, 새·고친 테스트마다 **사보타주로 실패를 확인**(규칙 8), 최종 리뷰에서 **실제 Production 호스트를 HTTPS로 찔러 보기**(2B에서 TestServer 스위트 579개가 놓친 결함 3건을 여기서 찾았다), 첫 Linux CI를 게이트로 취급.
+- 리뷰어는 **저장소 밖 `git archive` 복사본에서만** 측정하게 한다(`node_modules`는 정션으로, 끝나면 정션만 비재귀 제거 — `tsconfig.node.json`까지 꺼내야 vitest가 뜬다). 3단계에서 리뷰어 1명이 작업 트리에 임시 파일을 만들었다 지웠다. 리뷰 N과 구현 N+1을 겹쳐 돌릴 때는 서로 다른 폴더일 때만, 구현자끼리는 절대 겹치지 않는다.
+- **규칙 8의 함정:** 사보타주가 통과해 버리면 테스트의 전제 조건이 실제로 성립했는지 본다(3단계에서 세 번: 지울 임시본이 애초에 없었다 ×2, 가짜 범위가 현재 소스에 없는 구문이라 적용되지 않았다).
+- **보안 통제(소스 가드·테스트 하네스)도 제품 코드만큼 의심한다.** 3단계의 정규식 기반 소스 가드는 세 번 연속 다른 입력에서 코드를 삼켜 그 구간의 위반을 놓쳤고, 테스트 도구의 "표에 없는 호출은 실패"는 거짓이었다. 리뷰어에게 독립 정본을 만들어 전수 비교하게 한다.
+- 화면 상태 기계(편집 화면)는 수정 라운드가 많이 든다(3라운드 + 최종 물결) — 계획에 상태 전이 표(저장 중 입력, 저장 직후, 언마운트, 세션 만료, 저장소 실패)를 먼저 그린다.
 - 계획을 쓸 때: **기반을 바꾸는 작업에는 "기존 소비자 목록"을 넣는다.** 2B에서 새 공개 DB 연결을 만든 작업이 2A의 공개 첨부 핸들러를 옮기지 않아 최종 리뷰에서야 발견됐다.
 
 ## 5. 이 저장소에서 자주 밟는 함정
@@ -103,13 +98,14 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 | 제품이 무엇이고 왜 이렇게 설계했나 | `plan/tech_blog_0920.md`(스펙, 구속력 있는 기준 — 2B에서 3.3~3.8이 as-built로 갱신됐다) |
 | 2A에서 무엇을 만들고 어떻게 검증했나, 내린 판정 12건, 잔여 위험 | `plan/tech_blog_2a_report_0921.md` |
 | 2B에서 무엇을 만들고 어떻게 검증했나, 계획 결함과 교훈, 내린 판정 28건, 잔여 위험, Plan 3·4 인계 | `plan/tech_blog_2b_report_0921.md` |
+| 3단계(관리 SPA)에서 무엇을 만들고 어떻게 검증했나, 계획 코드의 결함 약 20건과 교훈, 내린 판정 16건, 잔여 위험, Plan 4 인계 | `plan/tech_blog_3_report_0922.md` |
 | 계획 코드가 틀렸던 곳과 다음 계획이 지킬 규칙 1~9 | 1단계·2A 구현 계획 문서의 끝 "구현 중 발견해 고친 계획 결함", 2B는 보고서 4절 |
-| 구현 계획(TDD 단계별) | `docs/superpowers/plans/2026-09-20-…backend-core.md`, `…2026-09-21-…content-pipeline.md`, `…2026-09-21-tech-blog-public-site.md`(앞의 스파이크 표 S1~S12·설계 결정 D1~D12) |
+| 구현 계획(TDD 단계별) | `docs/superpowers/plans/2026-09-20-…backend-core.md`, `…2026-09-21-…content-pipeline.md`, `…2026-09-21-tech-blog-public-site.md`(앞의 스파이크 표 S1~S12·설계 결정 D1~D12), `…2026-09-21-tech-blog-admin-spa.md`(S1~S13·D1~D16, 끝에 구현 중 고친 계획 결함) |
 | 프로젝트 규칙(주석·커밋·하네스·경로) | `CLAUDE.md`(Codex용 미러 `AGENTS.md` — 함께 고친다) |
 | 하네스 변경 이력 | `plan/harness_changelog.md` |
 | 로컬 실행 방법, 설정 키 표, API 예시 요청 | `README.md`, `PortfolioBlog.Api/PortfolioBlog.Api.http` |
 
-## 7. 코드 지도 (2B 이후)
+## 7. 코드 지도 (3단계 이후)
 
 ```
 PortfolioBlog.Api/
@@ -130,7 +126,18 @@ PortfolioBlog.Api/
    ├─ Markdown/                    # MarkdownRenderer(TimeProvider) · RenderGate · RenderedPostCache · UrlPolicy · HighlightingCodeBlockRenderer · HeadingIds · HtmlAllowlist · HighlightCss
    ├─ Storage/                     # ImageSignature · MetadataStripper · FileSystemAttachmentStore · AttachmentLock · AttachmentJanitor
    └─ Web/                         # ClientIp · RateLimit* · PublicOptions · SecurityHeadersMiddleware · ErrorResponses · OverloadExceptionHandler · ApiBodyLimitMiddleware · PublicUrls · XmlText
-PortfolioBlog.Api.Tests/           # 589개. ApiFactory(팩토리별 DB·임시 첨부 루트·청소 잡 꺼짐), AccessMatrixTests(닫힌 세계), PublicSeed, HtmlDoc, SteppingTimeProvider
+PortfolioBlog.Api.Tests/           # 591개(PreviewCssSnapshotTests — 관리 SPA의 미리보기 CSS 사본이 원본과 같은지). ApiFactory(팩토리별 DB·임시 첨부 루트·청소 잡 꺼짐), AccessMatrixTests(닫힌 세계), PublicSeed, HtmlDoc, SteppingTimeProvider
+```
+
+```
+PortfolioBlog.Web/                 # 관리 SPA. admin-headers.ts(보안 헤더 정본) · vite.config.ts(HTTPS, 프록시 ^/api/ · ^/attachments/) · scripts/e2e-prepare.mjs
+├─ src/api/                        # client(fetch의 유일한 자리: CSRF 헤더·same-origin·redirect error·경로 검사) · errors · endpoints · types
+├─ src/lib/                        # safeNext(정규화 뒤 재검사) · validation(서버 규칙의 사본) · drafts(localStorage의 유일한 자리) · previewDoc(CSP에 출처 명시) · markdownImage
+├─ src/app/ · src/auth/            # queryClient(401 전역 기록) · routes(오류 경계) · RequireAuth · LoginPage
+├─ src/components/                 # PreviewPane(sandbox="" iframe — 서버 HTML의 유일한 자리) · MarkdownEditor(CodeMirror) · TagInput · ConflictPanel · RouteError
+├─ src/pages/                      # Posts · PostEditor(지연 로딩) · Series · Tags · Attachments
+├─ src/test/                       # Vitest 188개. harness(stubApi — 표 밖 호출은 실패) · stripComments(TS 파서) · source-guards(전체 소스 금지 패턴)
+└─ e2e/admin.spec.ts               # Playwright 8개: 실제 백엔드 + 배포용 CSP, CSP 위반 0건
 ```
 
 파일 위치는 위 트리가 어긋나면 코드가 맞다(`Glob`으로 확인). 의존 방향: `Features·Pages → Infrastructure → Contracts → Domain`. Feature끼리, `Pages`와 `Features`는 서로 참조하지 않는다. 패키지 버전은 `Directory.Packages.props`가 일괄 관리한다(2B에서 새 패키지·마이그레이션 없음).
@@ -148,6 +155,8 @@ PortfolioBlog.Api.Tests/           # 589개. ApiFactory(팩토리별 DB·임시 
 
 ```bash
 dotnet build PortfolioBlog.slnx -c Release   # 경고 0 / 오류 0
-dotnet test  PortfolioBlog.slnx -c Release   # 589개 통과 (Docker 필요)
+dotnet test  PortfolioBlog.slnx -c Release   # 591개 통과 (Docker 필요)
+(cd PortfolioBlog.Web && npm ci && npm run lint && npm run typecheck && npm test && npm run build)   # Vitest 188개
+(cd PortfolioBlog.Web && npm run e2e:prepare && npm run e2e; docker rm -f pb-e2e-pg)               # E2E 8개
 pwsh scripts/harness-audit.ps1               # 8/8 PASS
 ```
