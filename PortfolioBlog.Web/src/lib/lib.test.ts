@@ -3,6 +3,7 @@ import { hasControlChar, safeNext } from './safeNext'
 import { buildPreviewDocument, previewCsp } from './previewDoc'
 import { clearDraft, loadDraft, saveDraft, sameFields, type Draft } from './drafts'
 import { LIMITS, displayTag, utf8ByteLength, validateImageFile, validatePost, validateSeries } from './validation'
+import { altTextOf } from './markdownImage'
 import type { UpsertPostRequest } from '../api/types'
 
 const ORIGIN = 'https://admin.blog.test'
@@ -15,12 +16,32 @@ describe('safeNext', () => {
   it.each([
     null, '', 'posts', 'https://evil.test/', '//evil.test/x', '/\\evil.test/x', 'javascript:alert(1)',
     '/login', '/login?next=/x', '/a' + String.fromCharCode(10) + 'b', '/a' + String.fromCharCode(0), '/' + 'a'.repeat(2048),
+    '/.//evil.test', '/x/..//evil.test', '/%2e%2e//evil.test', '/./' + String.fromCharCode(92) + 'evil.test',
+    '/LOGIN', '/login/', '/Login//',
   ])('그 밖은 전부 "/": %s', (raw) => expect(safeNext(raw, ORIGIN)).toBe('/'))
+
+  it.each(['/loginx', '/login-help'])('로그인 경로와 접두사만 같은 경로는 통과: %s', (raw) => expect(safeNext(raw, ORIGIN)).toBe(raw))
 
   it('제어 문자 판정', () => {
     expect(hasControlChar('abc 한글')).toBe(false)
     expect(hasControlChar('a' + String.fromCharCode(0x1f))).toBe(true)
     expect(hasControlChar('a' + String.fromCharCode(0x7f))).toBe(true)
+  })
+
+  it('반환값은 항상 같은 출처의 절대 경로다(정규화가 만드는 새 // 포함)', () => {
+    const adversarial = [
+      null, '', 'posts', 'https://evil.test/', '//evil.test/x', '/\\evil.test/x', 'javascript:alert(1)',
+      '/login', '/login?next=/x', '/a' + String.fromCharCode(10) + 'b', '/a' + String.fromCharCode(0), '/' + 'a'.repeat(2048),
+      '/.//evil.test', '/x/..//evil.test', '/%2e%2e//evil.test', '/./' + String.fromCharCode(92) + 'evil.test',
+      '/LOGIN', '/login/', '/Login//', '/posts/new', '/posts/0199?x=1#top', '/',
+    ]
+    for (const raw of adversarial) {
+      const result = safeNext(raw, ORIGIN)
+      expect(result.startsWith('/')).toBe(true)
+      expect(result.startsWith('//')).toBe(false)
+      expect(result.startsWith('/' + String.fromCharCode(92))).toBe(false)
+      expect(new URL(result, ORIGIN).origin).toBe(ORIGIN)
+    }
   })
 })
 
@@ -31,8 +52,12 @@ describe('previewDoc', () => {
     expect(csp).not.toContain("'self'")
     expect(csp).not.toContain('script-src')
   })
-  it.each(["https://a.test; script-src *", "https://a.test'", 'https://a.test/path', 'javascript:x', '', 'https://a b'])('이상한 출처는 거부: %s', (origin) => {
+  it.each(["https://a.test; script-src *", "https://a.test'", 'https://a.test/path', 'javascript:x', '', 'https://a b', 'https://[::1', 'https://[::1]]', 'https://[x"y]'])('이상한 출처는 거부: %s', (origin) => {
     expect(() => previewCsp(origin)).toThrow()
+  })
+  it('IPv6 리터럴 출처는 던지지 않고 그 출처를 담는다', () => {
+    const origin = 'https://[::1]:5173'
+    expect(previewCsp(origin)).toBe(`default-src 'none'; img-src ${origin}; style-src ${origin}; base-uri 'none'; form-action 'none'`)
   })
   it('CSP meta가 head의 첫 요소이고, 서버 HTML은 article-body 안에만 들어간다', () => {
     const doc = buildPreviewDocument('<p>본문</p>', 'https://localhost:5173')
@@ -59,7 +84,7 @@ describe('drafts', () => {
     clearDraft('id-1', s)
     expect(loadDraft('id-1', s)).toBeNull()
   })
-  it.each(['{', '[]', 'null', '{"slug":1}', JSON.stringify({ ...draft, tagNames: [1] }), JSON.stringify({ ...draft, baseVersion: 'x' })])('깨진 값은 없는 것으로 본다: %s', (raw) => {
+  it.each(['{', '[]', 'null', '{"slug":1}', JSON.stringify({ ...draft, tagNames: [1] }), JSON.stringify({ ...draft, baseVersion: 'x' }), '"x"', '5', 'true'])('깨진 값은 없는 것으로 본다: %s', (raw) => {
     const s = memory(); s.setItem('pb.draft.v1:x', raw)
     expect(loadDraft('x', s)).toBeNull()
   })
@@ -122,5 +147,15 @@ describe('validation', () => {
     expect(validateImageFile({ size: 0, type: 'image/png' })).not.toBeNull()
     expect(validateImageFile({ size: LIMITS.attachmentMaxBytes + 1, type: 'image/png' })).not.toBeNull()
     expect(validateImageFile({ size: 10, type: 'image/svg+xml' })).not.toBeNull()
+  })
+})
+
+describe('markdownImage', () => {
+  it('100자 절단이 서로게이트 쌍을 끊지 않는다', () => {
+    const result = altTextOf('a' + '😀'.repeat(60) + '.png')
+    // 마지막 코드 유닛이 상위 서로게이트(0xD800~0xDBFF) 단독으로 남으면 문자열이 깨진 것이다.
+    const lastCode = result.charCodeAt(result.length - 1)
+    expect(lastCode < 0xd800 || lastCode > 0xdbff).toBe(true)
+    expect([...result].length).toBeLessThanOrEqual(100)
   })
 })

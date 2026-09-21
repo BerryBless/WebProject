@@ -3,12 +3,14 @@
 // 방어는 세 겹이다: (1) 서버의 마크다운 파이프라인이 이미 정제했다, (2) iframe sandbox=""(토큰 없음)라 스크립트·폼·팝업·
 // 같은 출처 접근이 전부 꺼진다, (3) 문서 안 CSP가 default-src 'none'이라 이 출처의 이미지·스타일시트 말고는 아무것도 못 읽는다.
 //
-// CSP에 'self'를 쓰지 않는 이유(실측, Playwright): Firefox는 about:srcdoc 문서의 'self'를 부모 출처로 보지 않아
-// 스타일시트와 이미지를 모두 차단한다. Chromium은 허용한다. 출처를 명시하면 둘 다 허용한다.
+// CSP에 'self'를 쓰지 않는 이유: Firefox는 about:srcdoc 문서의 'self'를 부모 출처로 보지 않아 스타일시트와 이미지를
+// 모두 차단한다(저장소 밖 Playwright 측정 — 이 저장소의 E2E가 Chromium·Firefox에서 다시 확인한다). Chromium은 허용한다.
+// 출처를 명시하면 둘 다 허용한다.
 
-const ORIGIN_PATTERN = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i
+// IPv6 리터럴 호스트([::1] 등)를 대괄호째 허용한다 — window.location.origin이 실제로 이 형태일 수 있다(예: https://[::1]:5173).
+const ORIGIN_PATTERN = /^https?:\/\/(\[[0-9a-f:]+\]|[a-z0-9.-]+)(:\d{1,5})?$/i
 
-/** 공개 사이트와 같은 모양으로 보이게 하는 스타일시트(공개 사이트 CSS의 스냅숏 — 서버 테스트가 원본과 같은지 검사한다). */
+/** 공개 사이트와 같은 모양으로 보이게 하는 스타일시트(공개 사이트 CSS의 스냅숏 — 원본: PortfolioBlog.Api/wwwroot/css/site.css와 서버가 생성하는 강조 CSS). */
 export const PREVIEW_STYLESHEETS = ['/preview/site.css', '/preview/highlight.css'] as const
 
 export function previewCsp(origin: string): string {
