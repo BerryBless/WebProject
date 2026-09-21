@@ -49,6 +49,27 @@ describe('인증 흐름', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('42초'))
   })
 
+  it('비밀번호는 mutation 캐시에 변수로 남지 않는다(실패·성공 모두)', async () => {
+    // useState를 지우는 것만으로는 부족하다: mutate에 넘긴 변수는 MutationCache의 항목에 그대로 남아
+    // 관찰자가 사라진 뒤에도 기본 gcTime(5분) 동안 메모리에 있다(실패한 시도도 마찬가지).
+    let status = 401
+    stubApi({ 'POST /api/auth/login': () => status === 401 ? { status, body: { title: '로그인 실패' } } : { status: 204 }, ...LOGGED_IN, 'GET /api/posts': EMPTY_LIST })
+    const { client } = renderApp('/login')
+    const input = screen.getByLabelText('비밀번호')
+    await userEvent.type(input, 'wrong-dummy')
+    await userEvent.click(screen.getByRole('button', { name: '로그인' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('비밀번호가 맞지 않습니다.')
+    expect(client.getMutationCache().getAll().length).toBeGreaterThan(0) // 검사할 항목이 실제로 있다
+    expect(client.getMutationCache().getAll().every(m => m.state.variables === undefined)).toBe(true)
+
+    status = 204
+    await userEvent.type(input, 'dummy-pass')
+    await userEvent.click(screen.getByRole('button', { name: '로그인' }))
+    await screen.findByRole('heading', { name: '글' })
+    expect(client.getMutationCache().getAll().length).toBeGreaterThan(0)
+    expect(client.getMutationCache().getAll().every(m => m.state.variables === undefined)).toBe(true)
+  })
+
   it('화면을 쓰는 중에 401이 오면(세션 만료) 로그인 화면으로 돌아간다', async () => {
     stubApi({ ...LOGGED_IN, 'GET /api/tags': { status: 401 } })
     const { router } = renderApp('/tags')
@@ -75,9 +96,11 @@ describe('인증 흐름', () => {
       'GET /api/tags': { status: 200, body: [] },
       'POST /api/auth/logout': () => { loggedIn = false; return { status: 204 } },
     })
-    renderApp('/tags')
+    const { client } = renderApp('/tags')
     await userEvent.click(await screen.findByRole('button', { name: '로그아웃' }))
     await screen.findByRole('heading', { name: '관리자 로그인' })
     expect(calls.some(c => c.method === 'POST' && c.url === '/api/auth/logout')).toBe(true)
+    // 다음 사람이 같은 브라우저를 쓸 수 있다 — 앞사람의 mutation 기록(변수·결과)도 함께 버린다.
+    expect(client.getMutationCache().getAll()).toEqual([])
   })
 })

@@ -17,6 +17,8 @@ export function Layout() {
       client.setQueryData<AuthStatus>(ME_KEY, { authenticated: false })
       // 다른 사람이 같은 브라우저로 로그인했을 때 앞사람의 목록이 캐시에서 보이지 않게 나머지는 지운다. 임시본은 남긴다.
       client.removeQueries({ predicate: query => query.queryKey[0] !== ME_KEY[0] })
+      // mutation 기록(변수·결과)도 함께 버린다 — 쿼리와 달리 removeQueries가 건드리지 않고 기본 gcTime(5분) 동안 남는다.
+      client.getMutationCache().clear()
     },
   })
   return (

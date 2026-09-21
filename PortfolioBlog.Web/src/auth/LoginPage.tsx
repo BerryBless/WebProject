@@ -16,7 +16,11 @@ export function LoginPage() {
   const client = useQueryClient()
 
   const login = useMutation({
-    mutationFn: (value: string) => auth.login(value),
+    // 비밀번호를 mutate의 변수로 넘기지 않는다(실측): 변수는 MutationCache 항목의 state.variables에 남아
+    // 관찰자가 사라진 뒤에도 기본 gcTime(5분) 동안 메모리에 있다 — 실패한 시도도 그대로 남는다.
+    // 대신 이 클로저가 제출 시점의 값을 읽는다. mutate()를 부르는 순간의 옵션이 그대로 쓰이고, 연타는
+    // login.isPending이 막으며, 입력을 비우는 onSettled는 요청이 나간 뒤에 돈다.
+    mutationFn: () => auth.login(password),
     // 성공·실패와 무관하게 입력을 지운다: 비밀번호를 필요 이상으로 메모리(React 상태)에 두지 않는다.
     onSettled: () => setPassword(''),
     onSuccess: () => {
@@ -32,7 +36,7 @@ export function LoginPage() {
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (password.length === 0 || login.isPending) return
-    login.mutate(password)
+    login.mutate()
   }
 
   return (

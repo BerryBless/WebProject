@@ -40,11 +40,12 @@ export function stubApi(table: Record<string, Handler>) {
   return calls
 }
 
-/** 실제 라우트 표(app/routes)를 메모리 라우터로 띄운다. */
+/** 실제 라우트 표(app/routes)를 메모리 라우터로 띄운다. client는 캐시에 무엇이 남았는지 검사하려는 테스트가 쓴다. */
 export function renderApp(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] })
-  const view = render(<QueryClientProvider client={createQueryClient()}><RouterProvider router={router} /></QueryClientProvider>)
-  return { router, ...view }
+  const client = createQueryClient()
+  const view = render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
+  return { router, client, ...view }
 }
 
 export const LOGGED_IN = { 'GET /api/auth/me': { status: 200, body: { authenticated: true } } } as const
