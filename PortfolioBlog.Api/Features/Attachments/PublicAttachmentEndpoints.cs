@@ -72,7 +72,7 @@ public static class PublicAttachmentEndpoints
         // 이 핸들러가 내는 모든 응답(200·404)에 스니핑 금지·CSP를 건다 — 캐시 헤더만 200 전용이다(아래).
         var headers = http.Response.Headers;
         headers.XContentTypeOptions = "nosniff";
-        headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
+        headers.ContentSecurityPolicy = SecurityHeadersMiddleware.SandboxCsp;
 
         var row = await db.Attachments.AsNoTracking().Where(a => a.Id == id)
             .Select(a => new { a.StoragePath, a.ContentType, a.Sha256, a.CreatedAt }).SingleOrDefaultAsync(ct);

@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Web;
 
@@ -33,7 +35,11 @@ public sealed class ErrorPipelineTests
     /// </remarks>
     private static async Task<WebApplication> StartAsync(RequestDelegate terminal)
     {
-        var builder = WebApplication.CreateBuilder();
+        // EnvironmentName 고정: 지정하지 않으면 호스트 프로세스의 ASPNETCORE_ENVIRONMENT를 그대로 물려받는다.
+        // 이 미니 파이프라인은 UseDeveloperExceptionPage를 등록하지 않으므로 ASPNETCORE_ENVIRONMENT=Development로
+        // 재실행해도 이 클래스의 테스트는 재현되지 않았지만(실측), 환경 변수 값에 따라 결과가 갈릴 수 있는 요인을
+        // 아예 없애 이 클래스가 검증하려는 것과 무관한 흔들림을 방지한다.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Production });
         builder.WebHost.UseTestServer();
         builder.Services.AddProblemDetails();
         builder.Services.AddExceptionHandler<OverloadExceptionHandler>();
@@ -82,5 +88,29 @@ public sealed class ErrorPipelineTests
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
         Assert.Equal(mediaType, res.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain("script", await res.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>EF Core의 SaveChangesAsync가 PostgresException을 감싸는 DbUpdateException도 내부까지 훑어 과부하로 판정한다(55P03 → 503).
+    /// 무엇이든 감싸면 503으로 새는 것은 아님을 23505 → 500으로 함께 확인한다(과하게 넓어지지 않았다는 증거).</summary>
+    [Theory]
+    [InlineData("55P03", 503)]
+    [InlineData("23505", 500)]
+    public async Task WrappedPostgresOverload_MapsTo503_ButNotOverWidened(string sqlState, int expected)
+    {
+        await using var app = await StartAsync(_ => throw new DbUpdateException("save failed", new PostgresException("simulated", "ERROR", "ERROR", sqlState)));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(expected, (int)res.StatusCode);
+        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
+    }
+
+    /// <summary>다른 코드가 CSP를 먼저 넣어도(fail-open 방지) 더 엄격한 PublicCsp로 덮어쓴다. 첨부 핸들러의 SandboxCsp만 예외로 유지된다.</summary>
+    [Theory]
+    [InlineData("default-src *", SecurityHeadersMiddleware.PublicCsp)]
+    [InlineData(SecurityHeadersMiddleware.SandboxCsp, SecurityHeadersMiddleware.SandboxCsp)]
+    public async Task ExistingCsp_OnlySandboxCspSurvives_OthersAreOverwritten(string preset, string expected)
+    {
+        await using var app = await StartAsync(ctx => { ctx.Response.Headers.ContentSecurityPolicy = preset; return Task.CompletedTask; });
+        using var res = await app.GetTestClient().GetAsync("/api/x");
+        Assert.Equal(expected, res.Headers.GetValues("Content-Security-Policy").Single());
     }
 }

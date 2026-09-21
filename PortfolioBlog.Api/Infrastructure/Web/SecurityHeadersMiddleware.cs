@@ -15,6 +15,9 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next, IHostEnviron
     public const string PublicCsp =
         "default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
+    /// <summary>첨부 GET 핸들러(<c>PublicAttachmentEndpoints</c>)가 미리 넣는 sandbox CSP. <see cref="InvokeAsync"/>는 응답에 이미 이 값이 있을 때만 예외로 유지하고, 그 밖의 값은 전부 <see cref="PublicCsp"/>로 덮어쓴다.</summary>
+    public const string SandboxCsp = "default-src 'none'; sandbox";
+
     /// <summary>브라우저 기능 전부 비활성.</summary>
     public const string PermissionsPolicy =
         "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), usb=(), xr-spatial-tracking=()";
@@ -40,7 +43,9 @@ public sealed class SecurityHeadersMiddleware(RequestDelegate next, IHostEnviron
         {
             var (headers, hsts) = ((IHeaderDictionary, bool))state;
             headers.XContentTypeOptions = "nosniff";
-            headers.TryAdd("Content-Security-Policy", PublicCsp); // 첨부 핸들러가 넣은 sandbox CSP는 덮어쓰지 않는다
+            // fail-open 방지: "없으면 채운다"(TryAdd)로 두면 다른 어떤 코드가 실수로 느슨한 CSP를 먼저 넣어도 그대로 나간다.
+            // 첨부 핸들러가 넣는 SandboxCsp만 예외로 유지하고, 그 밖의 값(빈 값 포함)은 전부 더 엄격한 PublicCsp로 덮어쓴다.
+            if (headers.ContentSecurityPolicy != SandboxCsp) headers.ContentSecurityPolicy = PublicCsp;
             headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             headers["Permissions-Policy"] = PermissionsPolicy;
             headers.XFrameOptions = "DENY";

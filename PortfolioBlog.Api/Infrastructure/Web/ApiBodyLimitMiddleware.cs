@@ -11,6 +11,9 @@ namespace PortfolioBlog.Api.Infrastructure.Web;
 /// <item><description><b>Memory Allocation:</b> Content-Length 초과 시 <see cref="ErrorResponses.WriteAsync"/>의 응답 버퍼만 할당한다. 통과 경로는 <see cref="LengthLimitedStream"/> 래퍼 1개를 할당해 <c>Request.Body</c>를 감싼다(내부 버퍼를 새로 잡지 않는다).</description></item>
 /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). 실제 본문 읽기·바이트 계수는 다음 미들웨어(모델 바인딩)가 <see cref="LengthLimitedStream.ReadAsync(Memory{byte}, CancellationToken)"/>를 호출하는 시점으로 지연된다.</description></item>
 /// </list>
+/// <see cref="JsonLimitBytes"/>는 직렬화 후 전송 바이트 기준이다. 비 ASCII 문자를 <c>\uXXXX</c>로 이스케이프하는 클라이언트(.NET의 기본 <c>JsonSerializerOptions</c> 인코더)는
+/// 같은 논리 내용이라도 본문이 최대 6배까지 부풀 수 있다 — 관리 SPA가 쓰는 브라우저의 <c>JSON.stringify</c>는 비 ASCII를 이스케이프하지 않으므로 운영 트래픽에서는
+/// 해당하지 않는다(이번 라운드에서 기존 테스트 2건이 이 인코더 차이로 413이 나는 것을 실측했다).
 /// </remarks>
 public sealed class ApiBodyLimitMiddleware(RequestDelegate next)
 {
@@ -19,7 +22,7 @@ public sealed class ApiBodyLimitMiddleware(RequestDelegate next)
 
     private static readonly PathString ApiPrefix = new("/api");
 
-    /// <summary><c>/api</c> 요청 중 자체 크기 상한이 없는 것만 골라 <see cref="JsonLimitBytes"/>를 넘는 본문을 읽기 전에(선언 길이) 또는 읽는 도중(미선언 길이) 413으로 끊는다.</summary>
+    /// <summary><c>/api</c> 요청 중 매칭되는 엔드포인트가 있고 자체 크기 상한이 없는 것만 골라 <see cref="JsonLimitBytes"/>를 넘는 본문을 읽기 전에(선언 길이) 또는 읽는 도중(미선언 길이) 413으로 끊는다.</summary>
     /// <param name="context">현재 HTTP 요청 컨텍스트.</param>
     /// <returns>통과 시 다음 미들웨어가 완료되면 끝나는 작업, 거부 시 413 응답 쓰기가 완료되면 끝나는 작업.</returns>
     /// <remarks>
@@ -32,8 +35,12 @@ public sealed class ApiBodyLimitMiddleware(RequestDelegate next)
     /// </remarks>
     public Task InvokeAsync(HttpContext context)
     {
+        // GetEndpoint()가 null이면(=매칭되는 라우트가 없다) 이 요청은 어차피 404로 끝나고 어떤 핸들러도 본문을 읽지 않는다.
+        // 여기서 걸러 두지 않으면 큰 본문을 가진 존재하지 않는 /api 경로가 404가 아니라 413이 된다.
+        var endpoint = context.GetEndpoint();
         if (!context.Request.Path.StartsWithSegments(ApiPrefix)
-            || context.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>() is not null)
+            || endpoint is null
+            || endpoint.Metadata.GetMetadata<IRequestSizeLimitMetadata>() is not null)
         {
             return next(context);
         }

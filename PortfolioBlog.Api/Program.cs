@@ -73,7 +73,7 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
 
-app.UseMiddleware<SecurityHeadersMiddleware>(); // 맨 앞: 뒤의 어떤 미들웨어가 응답을 끝내도 헤더가 붙는다
+app.UseMiddleware<SecurityHeadersMiddleware>(); // 앱 미들웨어 중 맨 앞(프레임워크의 HostFiltering·ForwardedHeaders 시작 필터는 이보다 바깥이라 그 400에는 헤더가 없다 — 본문 없는 응답)
 app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync);

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace PortfolioBlog.Api.Infrastructure.Web;
@@ -39,18 +40,28 @@ public sealed class OverloadExceptionHandler : IExceptionHandler
         return true;
     }
 
-    // 클라이언트가 끊어서 취소된 명령은 Npgsql이 OperationCanceledException으로 바꾸므로, 여기 오는 57014는 statement_timeout뿐이다.
-    /// <summary>예외가 통계 시간 초과(57014) 또는 잠금 대기 초과(55P03)를 나타내는 <see cref="PostgresException"/>인지 판정한다.</summary>
+    // (미검증) 57014는 보통 statement_timeout이지만, 클라이언트 취소와 겹치는 경합에서 다른 경로로도 나올 가능성을 배제하지 않는다 —
+    // 그 경우에도 503(Retry-After 포함)은 500보다 안전한 쪽의 오답이라 과부하로 분류해도 위험하지 않다.
+    /// <summary>예외 자신 또는 <see cref="Exception.InnerException"/> 체인 어딘가에 통계 시간 초과(57014)·잠금 대기 초과(55P03)를 나타내는 <see cref="PostgresException"/>이 있는지 판정한다.</summary>
     /// <param name="exception">판정할 예외.</param>
-    /// <returns>과부하로 분류되는 SqlState이면 <see langword="true"/>.</returns>
+    /// <returns>체인 안에 과부하로 분류되는 SqlState의 <see cref="PostgresException"/>이 있으면 <see langword="true"/>.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> Zero-allocation. 타입·필드 패턴 매칭만 수행한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation. <see cref="Exception.InnerException"/> 체인을 따라가며 타입·필드 패턴 매칭만 수행한다(새 컬렉션·델리게이트 없음).</description></item>
     /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
     /// </list>
+    /// EF Core의 <c>SaveChangesAsync</c>는 공급자 예외를 <see cref="DbUpdateException"/>으로 감싸므로(이 저장소 규칙상 감싸이지 않은 채로 올라오는 것은
+    /// <c>ExecuteUpdateAsync</c>/<c>ExecuteDeleteAsync</c>뿐이다), 최상위 예외 타입만 보면 저장 경로의 57014·55P03이 500이 되어 버린다.
+    /// 체인을 끝까지 훑어야 어느 경로에서 와도 동일하게 503으로 매핑된다.
     /// </remarks>
-    internal static bool IsOverload(Exception exception) =>
-        exception is PostgresException { SqlState: "57014" or "55P03" };
+    internal static bool IsOverload(Exception exception)
+    {
+        for (var e = exception; e is not null; e = e.InnerException)
+        {
+            if (e is PostgresException { SqlState: "57014" or "55P03" }) return true;
+        }
+        return false;
+    }
 }
