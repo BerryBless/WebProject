@@ -43,6 +43,7 @@ public static class StartupValidation
 
         Check("Site:PublicOrigin", () => SiteOptions.HostOf(site.PublicOrigin));
         Check("Site:AdminOrigin", () => SiteOptions.HostOf(site.AdminOrigin));
+        if (string.IsNullOrWhiteSpace(site.Title)) throw new InvalidOperationException("설정 Site:Title 은(는) 비울 수 없습니다.");
         var cidrs = Check("Admin:AllowedCidrs", () => CidrList.Parse(admin.AllowedCidrs));
         if (proxy.TrustedIp.Length > 0)
         {

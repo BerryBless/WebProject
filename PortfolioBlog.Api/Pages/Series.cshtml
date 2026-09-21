@@ -1,0 +1,16 @@
+@page "/series/{slug}"
+@model SeriesPageModel
+<h1 class="list-title">시리즈: @Model.Series.Title</h1>
+@if (Model.Series.Description.Length > 0)
+{
+    <p class="series-description">@Model.Series.Description</p>
+}
+<ol class="series-posts">
+    @foreach (var entry in Model.Series.Posts)
+    {
+        <li>
+            <a href="@PublicUrls.Post(entry.Slug)">@entry.Title</a>
+            <time datetime="@PublicFormat.Rfc3339(entry.CreatedAt)">@PublicFormat.DisplayDate(entry.CreatedAt)</time>
+        </li>
+    }
+</ol>

@@ -203,12 +203,17 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     }
 
     /// <summary><c>/api</c> 밖에 매핑해도 되는 공개 라우트의 명시적 허용 목록. 여기에 없는 라우트가 생기면 테스트가 실패한다.
-    /// Task 5가 공개 첨부 GET을, Plan 2B가 공개 페이지들을 추가한다.</summary>
+    /// Task 5가 공개 첨부 GET·공개 Razor 페이지·강조 CSS를 추가했다.</summary>
     private static readonly string[] PublicAllowlist =
     [
+        "", // 목록(Index) — Razor 페이지의 RawText에는 앞 슬래시가 없다
+        "posts/{slug}",
+        "tags/{tag}",
+        "series/{slug}",
         "/health",
         "/openapi/{documentName}.json", // Development에서만 매핑된다
         "/attachments/{id:guid}/{fileName}",
+        "/css/highlight.css",
     ];
 
     /// <summary><see cref="IsUnderApi"/>가 접두사가 아니라 세그먼트 경계로 판정하는지 검증한다: <c>/api-import</c>·<c>/apifeed.json</c>처럼
@@ -302,5 +307,26 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
             var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
             Assert.True(methods.Count > 0 && methods.All(m => m is "GET" or "HEAD"), $"{raw}: 공개 라우트는 GET/HEAD 전용이어야 한다(실제: {string.Join(",", methods)})");
         }
+    }
+
+    /// <summary>양쪽 호스트에서 열려도 되는 <c>/api</c> 밖 라우트. 여기에 없는 공개 라우트는 전부 공개 호스트에만 매칭되어야 한다.</summary>
+    private static readonly string[] SharedBetweenHosts = ["/health", "/openapi/{documentName}.json", "/attachments/{id:guid}/{fileName}"];
+
+    /// <summary>공개 페이지·피드 라우트에 공개 호스트 제한을 빠뜨리면(그러면 관리 origin에서도 렌더링된다) 여기서 잡힌다.</summary>
+    [Fact]
+    public void EveryPublicRoute_ExceptTheSharedOnes_IsBoundToThePublicHost()
+    {
+        using var _ = factory.CreateClient();
+        var publicHost = new Uri(ApiFactory.PublicOrigin).Host;
+        var bound = 0;
+        foreach (var endpoint in factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>())
+        {
+            var raw = endpoint.RoutePattern.RawText ?? string.Empty;
+            if (IsUnderApi(raw) || SharedBetweenHosts.Contains(raw, StringComparer.Ordinal)) continue;
+            var hosts = endpoint.Metadata.GetMetadata<IHostMetadata>()?.Hosts ?? [];
+            Assert.True(hosts.SequenceEqual([publicHost]), $"'{raw}': 공개 호스트 제한이 없다(실제: {string.Join(",", hosts)})");
+            bound++;
+        }
+        Assert.True(bound >= 5, $"검사된 공개 라우트가 너무 적다: {bound}");
     }
 }

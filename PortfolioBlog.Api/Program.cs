@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.HostFiltering;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PortfolioBlog.Api.Features;
@@ -9,6 +10,7 @@ using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Storage;
 using PortfolioBlog.Api.Infrastructure.Web;
+using PortfolioBlog.Api.Pages;
 
 // CLI 경로: 웹 호스트를 만들지 않고 해시만 출력하고 끝낸다.
 if (args is [HashPasswordCommand.Name])
@@ -51,6 +53,10 @@ builder.Services.Configure<AttachmentOptions>(builder.Configuration.GetSection(A
 builder.Services.AddSingleton<FileSystemAttachmentStore>();
 // multipart 한도를 첨부 한도보다 1MB 크게: 10MB를 조금 넘는 업로드는 앱이 413으로 답하고, 그보다 훨씬 큰 본문은 프레임워크가 읽다가 끊는다.
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = AttachmentOptions.MaxBytes + 1_048_576);
+builder.Services.AddRazorPages();
+// 규약은 설정(공개 호스트)이 필요하므로 옵션 지연 구성으로 단다(Build 이후 첫 해석).
+builder.Services.AddOptions<RazorPagesOptions>().Configure<IOptions<SiteOptions>>((o, site) =>
+    o.Conventions.Add(new PublicPageConvention(SiteOptions.HostOf(site.Value.PublicOrigin))));
 
 var app = builder.Build();
 
@@ -73,6 +79,8 @@ app.UseMiddleware<SecurityHeadersMiddleware>(); // 앱 미들웨어 중 맨 앞(
 app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync);
+// 정적 파일은 wwwroot/css/site.css 하나뿐이다. 엔드포인트가 이미 매칭된 요청은 이 미들웨어가 건드리지 않는다.
+app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = static ctx => ctx.Context.Response.Headers.CacheControl = "public, max-age=3600" });
 app.UseMiddleware<AdminSurfaceMiddleware>();
 app.UseRateLimiter();      // IP 검사 뒤: 외부 요청이 로그인 한도를 소진하지 못한다
 app.UseAuthentication();
@@ -92,6 +100,8 @@ app.MapGet("/health", static () =>
     .WithMetadata(new RateLimitMetadata(RateLimitPolicy.PublicAsset));
 app.MapApiEndpoints();
 app.MapPublicAttachmentEndpoints();
+app.MapRazorPages();
+app.MapPublicSiteEndpoints();
 
 app.Run();
 return 0;

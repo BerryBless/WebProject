@@ -1,0 +1,22 @@
+@model IReadOnlyList<PublicPostSummary>
+@if (Model.Count == 0)
+{
+    <p class="empty">글이 없습니다.</p>
+}
+else
+{
+    <ul class="post-list">
+        @foreach (var post in Model)
+        {
+            <li>
+                <a class="post-title" href="@PublicUrls.Post(post.Slug)">@post.Title</a>
+                <time datetime="@PublicFormat.Rfc3339(post.CreatedAt)">@PublicFormat.DisplayDate(post.CreatedAt)</time>
+                @if (post.Summary.Length > 0)
+                {
+                    <p class="post-summary">@post.Summary</p>
+                }
+                @await Html.PartialAsync("_TagList", post.Tags)
+            </li>
+        }
+    </ul>
+}

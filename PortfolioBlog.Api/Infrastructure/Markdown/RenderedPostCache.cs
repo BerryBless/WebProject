@@ -29,7 +29,9 @@ public sealed class RenderedPostCache : IDisposable
     // 우선순위·LRU로 "비우고 넣는" 것이 아니라 그 Set 자체가 조용히 거부된다(즉시 TryGetValue해도 없음, Count 불변) — 이 상태가 195회 연속 Set 동안 유지됐다.
     // 압축은 스레드풀에 큐잉되는 비동기 작업이라 지연된다: 500ms 대기 후에야 Count가 200→190(정확히 5% = 기본 CompactionPercentage)으로 줄었고,
     // 그 뒤의 Set 1회가 다시 성공했다. 즉 상한 초과 상태에서 새 요청이 몰리면(쓰기가 압축보다 빠르면) 신규 항목이 한동안 전부 유실될 수 있다 —
-    // TryGet 미스는 GetOrRenderAsync가 다시 렌더링하므로 틀린 결과가 나가지는 않지만, 이 캐시가 기대만큼 "글 버전당 렌더 1회"를 못 지키는 시간대가 생길 수 있다(설계 우려 — Task 3 리뷰 라운드 1에서 실측, 컨트롤러 판정 대기).
+    // 결론(Task 3 리뷰 라운드 1 실측 기반): 거부된 Set의 대가는 다음 요청에서 렌더 1회가 더 도는 것뿐이고 틀린 내용이 나가는 일은 없다
+    // (TryGet 미스는 GetOrRenderAsync가 그 자리에서 다시 렌더링한다). 그 추가 렌더 비용의 상한은 RenderGate가 이미 건다(동시 렌더 수 제한).
+    // 그래서 이 상태를 막는 별도 설계 변경(예: LRU 축출을 즉시 수행)은 필요 없다고 판단했다 — 상한을 넉넉히 잡는 것으로 충분하다.
     private readonly MemoryCache _cache;
 
     // ConcurrentDictionary<키, Lazy<Task>>: GetOrAdd는 값 팩토리를 여러 번 부를 수 있지만 저장되는 Lazy는 하나고, 그 하나의 Value만 실행된다 → 키당 렌더 1회.
