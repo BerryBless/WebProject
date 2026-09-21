@@ -208,7 +208,7 @@ PortfolioBlog.slnx
 │  ├─ Pages/                # 공개 Razor 페이지(GET/HEAD·공개 호스트 전용 규약, PublicPageConvention)
 │  └─ wwwroot/               # 정적 파일 — css/site.css 하나뿐
 ├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers PostgreSQL
-├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite (예정)
+├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite
 ├─ deploy/                  # docker-compose · Caddyfile · 운영 절차 (예정)
 ├─ plan/                    # 설계 문서
 └─ .claude/ .agents/ .codex/ scripts/   # 개발 하네스
@@ -221,8 +221,8 @@ PortfolioBlog.slnx
 | 설계 | 스펙 작성, Codex 교차 검토 반영 | 완료 |
 | 0 | 솔루션 정리(`PortfolioBlog`로 개명, `.slnx` 전환, 템플릿 잔재·샘플 프로젝트 제거) | 완료 |
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API | 완료 |
-| 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 2A 완료(마크다운 파이프라인·미리보기·첨부) / 2B 완료(공개 페이지·검색·피드·보안 헤더·속도 제한·첨부 정합성, `feature/blog-public-site` 브랜치, 최종 리뷰·병합 대기) |
-| 3 | 관리 에디터 SPA | 예정 |
+| 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 2A 완료(마크다운 파이프라인·미리보기·첨부) / 2B 완료(공개 페이지·검색·피드·보안 헤더·속도 제한·첨부 정합성) |
+| 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — 글·시리즈·태그·첨부 관리, sandbox 미리보기, 실제 백엔드 E2E) | 완료 |
 | 4 | Docker Compose · Caddy · CI · 백업/복원 절차 | 예정 |
 
 ## 시작하기
@@ -235,7 +235,7 @@ dotnet build PortfolioBlog.slnx
 dotnet test  PortfolioBlog.slnx
 ```
 
-.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 589개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
+.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 591개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
 
 ### 로컬 실행 (API)
 
@@ -248,6 +248,46 @@ dotnet test  PortfolioBlog.slnx
 `appsettings.Development.json`은 `Site:PublicOrigin`·`Site:AdminOrigin`을 둘 다 `https://localhost:7198`로 두므로, 같은 주소가 공개·관리 양쪽 역할을 겸합니다. 앱이 뜨면 **`https://localhost:7198/`**을 브라우저로 열어 공개 첫 쪽(최신 글 목록)을 볼 수 있습니다. 관리 API 호출은 `PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록·미리보기·첨부 업로드 예시 요청이 있고, 같은 파일 뒤쪽에 공개 페이지·태그·검색·피드·sitemap·robots 요청 예시도 있습니다.
 
 EF Core 마이그레이션 도구는 컨텍스트가 둘(`AppDbContext`·`PublicDbContext`)이라 `--context AppDbContext`가 필요합니다: `dotnet ef migrations add <이름> --project PortfolioBlog.Api --context AppDbContext`.
+
+### 관리 SPA
+
+`PortfolioBlog.Web`은 관리 에디터 전용 React 19 + TypeScript + Vite SPA입니다. Node 24가 필요합니다(다른 버전은 검증하지 않았습니다).
+
+```powershell
+cd PortfolioBlog.Web
+npm ci
+npm run certs   # .NET 개발 인증서를 .certs/로 내보냅니다(node scripts/e2e-prepare.mjs certs) — SPA도 세션 쿠키가 Secure라 HTTPS로 떠야 합니다
+```
+
+백엔드를 이 SPA의 출처로 띄운 뒤(세션 쿠키의 Origin 검사가 `Site:AdminOrigin`과 SPA 출처가 같아야 통과합니다):
+
+```powershell
+$env:Site__AdminOrigin = 'https://localhost:5173'
+dotnet run --project PortfolioBlog.Api --launch-profile https
+```
+
+새 터미널에서 `npm run dev`로 개발 서버를 띄웁니다(`https://localhost:5173`, `/api`·`/attachments`는 `https://localhost:7198`으로 프록시됩니다).
+
+단위 테스트: `npm test`(Vitest, 188개 — jsdom, 실제 백엔드 없이 컴포넌트·유틸리티를 검사합니다). 정적 검사: `npm run lint`(oxlint) · `npm run typecheck`(`tsc -b`).
+
+E2E(Playwright, 실제 백엔드 + PostgreSQL + production 빌드 + 배포용 보안 헤더 — Docker Desktop 필요):
+
+```powershell
+npm run e2e:prepare   # 개발 인증서, 버려질 PostgreSQL 컨테이너(pb-e2e-pg), 버려질 관리자 비밀번호의 해시를 준비합니다
+npm run e2e           # Chromium·Firefox에서 8개 테스트를 순차 실행합니다(재시도 없음)
+docker rm -f pb-e2e-pg   # 끝나면 정리합니다
+```
+
+미리보기 iframe에 넣는 공개 사이트 CSS는 `PortfolioBlog.Api/wwwroot/css/site.css`(와 서버가 만드는 강조 CSS)의 스냅숏이며, 사본은 `PortfolioBlog.Web/public/preview/{site,highlight}.css`에 있습니다(`PortfolioBlog.Web/src/lib/previewDoc.ts`는 이 파일들을 참조할 뿐입니다). 공개 사이트 CSS를 바꾸면 이 스냅숏도 갱신해야 합니다:
+
+```powershell
+$env:UPDATE_PREVIEW_SNAPSHOTS = '1'
+dotnet test PortfolioBlog.Api.Tests -c Release --filter "FullyQualifiedName~PreviewCssSnapshotTests"
+Remove-Item Env:UPDATE_PREVIEW_SNAPSHOTS
+dotnet test PortfolioBlog.Api.Tests -c Release --filter "FullyQualifiedName~PreviewCssSnapshotTests"   # 통과를 확인
+```
+
+갱신 실행은 파일을 쓴 뒤 **의도적으로 실패로 끝납니다**(환경변수를 끄지 않은 채로 두면 드리프트 검사가 항상 통과해 버리는 것을 막기 위해서입니다) — 환경변수를 끄고 다시 돌려 통과를 확인하세요.
 
 ### 설정 키
 
@@ -267,6 +307,10 @@ EF Core 마이그레이션 도구는 컨텍스트가 둘(`AppDbContext`·`Public
 | `Rendering:Concurrency` | `2` | 프로세스 전체 동시 렌더 수(미리보기·저장·공개 페이지 합산) |
 | `Rendering:QueueTimeoutMs` | `5000` | 렌더 슬롯 대기 상한(밀리초). 넘으면 503 |
 | `Rendering:CacheMegabytes` | `64` | 렌더 결과 캐시의 메모리 상한(MB) |
+| `Admin:LoginPerIpPerMinute` | `5` | 분당 IP별 로그인 시도 제한 횟수 |
+| `Admin:LoginGlobalPerMinute` | `20` | 분당 전체 로그인 시도 제한 횟수 |
+| `Admin:LoginConcurrency` | `2` | 동시에 실행할 수 있는 해시 검증 수(PBKDF2는 CPU 바운드) |
+| `Admin:SessionHours` | `12` | 세션 절대 수명(시간). sliding 연장 없음 |
 | `Admin:UploadPerMinute` | `30` | 첨부 업로드의 분당 전역 한도 |
 | `Admin:UploadConcurrency` | `2` | 첨부 업로드의 동시 실행 한도 |
 | `Attachments:JanitorEnabled` | `true` | 첨부 고아 파일 청소 잡 실행 여부(테스트는 끈다). 켜면 **시작 직후 1회 + 이후 6시간마다** 스윕한다: 마지막 쓰기가 **1시간 안**인 파일은 진행 중인 업로드일 수 있어 건드리지 않고, 내용 주소 모양(`ab/<sha256>.<ext>`)이 아닌 파일과 심볼릭 링크·정션도 건너뛴다. 지우는 것은 오래된 `.tmp` 파일과 참조하는 행이 없는 오래된 첨부 파일뿐이며, 삭제 직전 같은 내용의 잠금 안에서 DB를 다시 조회한다. `파일이 없는 첨부 행 N건` 경고는 **그 반대 방향의 불일치**(DB 행은 있는데 파일이 없다)를 알리는 진단이며 청소 잡이 고치지 않는다 — 같은 이미지를 다시 올리면 복구된다 |

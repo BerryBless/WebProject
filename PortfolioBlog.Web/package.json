@@ -1,0 +1,44 @@
+{
+  "name": "portfolioblog-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "oxlint",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "certs": "node scripts/e2e-prepare.mjs certs",
+    "e2e:prepare": "node scripts/e2e-prepare.mjs",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/state": "6.7.5",
+    "@codemirror/view": "6.43.12",
+    "@tanstack/react-query": "5.103.2",
+    "codemirror": "6.0.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router": "8.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
+    "jsdom": "30.1.0",
+    "oxlint": "1.81.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.2",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}

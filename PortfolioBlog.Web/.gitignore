@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.local
+*.log
+
+# 개발 인증서의 개인 키(.NET 개발 인증서를 내보낸 것). 절대 커밋하지 않는다.
+.certs/
+# E2E 실행마다 새로 만드는 버려질 비밀번호·해시.
+.e2e/
+# Playwright 산출물
+test-results/
+playwright-report/
