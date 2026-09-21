@@ -11,7 +11,7 @@
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API | 완료 | PR #1 → `5604f2d` |
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
-| **3** | 관리 에디터 SPA(React 19 + Vite) | **다음 작업 — 계획 미작성** | 스펙 8절, 3절 |
+| **3** | 관리 에디터 SPA(React 19 + Vite) | **다음 작업 — 계획 작성됨, 승인·실행 대기** | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md`, 3절 |
 | 4 | Docker Compose·Caddy·백업/복원 | 예정, 계획 미작성 | 스펙 8절 |
 
 - 기준 커밋: master `80c8dc4`(이 문서의 해시를 채운 문서 커밋이 그 위에 하나 더 있다). 작업 트리 깨끗함, 열린 PR 없음.
@@ -33,11 +33,20 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 
 필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만). Plan 3부터 Node.js(버전은 계획에서 정한다).
 
-## 3. 다음 작업: Plan 3(관리 에디터 SPA) 계획 작성
+## 3. 다음 작업: Plan 3(관리 에디터 SPA) 승인 → 실행
 
-**흐름(저장소 규칙):** `superpowers:writing-plans` → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰(실제 호스트 공격 포함) → PR → CI → squash 병합 → 보고서.
+**흐름(저장소 규칙):** `superpowers:writing-plans`(**완료, 2026-09-21**) → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰(실제 호스트 공격 포함) → PR → CI → squash 병합 → 보고서.
 
-입력 자료: 스펙 `plan/tech_blog_0920.md` 8절의 Plan 3 행과 3.2(관리 표면)·3.6(CSP)·3.7(자원 제한), 2B 보고서 8절, 2B 계획 끝의 "구현 중 발견해 고친 계획 결함"(있다면), 2A 보고서 8절.
+계획: `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` — Task 8개(골격·CI → API 클라이언트 → 순수 함수(next 검증·임시본·미리보기 문서) → 셸·인증·목록 → 미리보기·CSS 스냅숏·소스 가드 → 글 편집 → 첨부 → E2E·문서). 백엔드 변경은 테스트 1개뿐. **계획의 코드는 작성 중에 저장소 밖에서 실제로 조립해 돌려 본 것이다**(tsc 0·oxlint 0·Vitest 110개·실제 백엔드 Playwright 6개 2회 연속 통과). 문서 앞의 **스파이크 표 S1~S13**과 **설계 결정 표 D1~D16**(질문 없이 추천안으로 정한 것 — 승인할 때 뒤집을 수 있다: react-router 8, HTTPS 개발 서버, 스펙보다 좁힌 CSP, `/tags` 화면 추가, E2E를 CI에 넣음), 끝의 "작성 중에 잡은 결함" 6건·"알려진 불확실성" 8건부터 읽는다.
+
+승인 뒤 Claude Code에 이렇게 요청하면 된다:
+
+```
+/superpowers:subagent-driven-development docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md
+브랜치 feature/blog-admin-spa. 모든 선택지는 추천안으로, 끝나면 "내린 판정" 표가 든 보고서.
+```
+
+계획의 입력 자료였던 것: 스펙 `plan/tech_blog_0920.md` 8절의 Plan 3 행과 3.2(관리 표면)·3.6(CSP)·3.7(자원 제한), 2B 보고서 8절, 2B 계획 끝의 "구현 중 발견해 고친 계획 결함"(있다면), 2A 보고서 8절.
 
 **백엔드가 SPA에 요구하는 것(2A·2B에서 확정된 사실):**
 
@@ -76,6 +85,7 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 | 이 PC의 AdGuard | 평문 HTTP(`http://127.0.0.1:…`) 응답의 HTML `<head>`에 `<script src="//local.adguard.org…">`를 **주입하고 CSP 헤더까지 다시 쓴다**(`default-src local.adguard.org …`). curl·pwsh 소켓도 가로채고 h2c는 끊는다(2B 최종 리뷰 실측) | 실제 호스트 프로브는 **개발 인증서로 HTTPS 엔드포인트를 띄워 `curl -k`로 직결**한다. 평문 HTTP에서 본 헤더·본문은 믿지 않는다. TestServer(인메모리)는 영향 없음 |
 | Razor Pages의 `page` | 핸들러 매개변수 `int? page`가 쿼리 문자열이 아니라 예약 라우트 값(`/Index`)을 바인딩하려다 실패한다 | `Request.Query["page"]`를 직접 읽는다(`PageNumber`). 링크도 `asp-route-page`를 쓰지 않는다 |
 | MVC 바인딩의 공백 → null | 경로 값이 공백뿐이면(`/tags/%20`) `string` 매개변수가 **null**로 들어와 NRE → 500(2B 최종 리뷰 실측) | 핸들러 매개변수는 `string?`, 첫 줄에서 `IsNullOrWhiteSpace` → 404. 쿼리 값은 `Request.Query`에서 직접 읽는다 |
+| `srcdoc` iframe의 CSP `'self'` | Firefox는 `about:srcdoc` 문서의 `'self'`를 부모 출처로 보지 않는다 — 미리보기의 CSS·이미지가 전부 차단된다(Plan 3 스파이크 실측, Chromium은 허용) | CSP에 출처를 명시한다(`img-src https://host`). 브라우저 동작에 기대는 것은 Chromium·Firefox 둘 다에서 잰다 |
 | Razor와 한글 | `@Model.Total건`은 컴파일되지 않는다(한글을 식별자 문자로 읽는다) | `@(Model.Total)건` |
 | 프레임워크 기본값 | 호스트 필터의 400이 HTML 본문을 보낸다(`IncludeFailureMessage` 기본 true), publish가 `wwwroot`에 `.gz`·`.br` 사본을 만든다(`CompressionEnabled` 기본 true) — 둘 다 TestServer에서는 안 보인다 | 2B에서 둘 다 껐다. 새 미들웨어·SDK 기능을 켤 때는 publish 출력과 실제 호스트 응답을 확인한다 |
 | EF Core 10 런타임 모델 | `db.Model.GetCheckConstraints()`가 예외를 던진다 | `db.GetService<IDesignTimeModel>().Model`을 쓴다 |

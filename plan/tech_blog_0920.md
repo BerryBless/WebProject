@@ -631,5 +631,5 @@ cd deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" h
 | Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
 | Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
 | Plan 2B | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` · 완료(PR #3, 보고서 `plan/tech_blog_2b_report_0921.md`) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 제한·공개/업로드 속도 제한과 체인 순서·`statement_timeout`(읽기 전용 연결)·렌더 게이트/캐시·관리 JSON 256KB·첨부 정합성(잠금·고아 청소)·앱 검증⊆DB 제약 테스트 |
-| Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
+| Plan 3 | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` · 계획 작성됨(승인·실행 대기) | 3단계: 관리 SPA(React 19 + Vite) — API 클라이언트·인증 흐름·글 편집(CodeMirror·409 비교·임시본)·sandbox 미리보기·첨부·Playwright E2E(실제 백엔드 + 배포용 CSP). 계획 작성 중 실측으로 이 문서의 3.6(미리보기 CSP의 `'self'`는 Firefox에서 동작하지 않음, 관리 SPA CSP를 더 좁힘)·3.9(react-router 8, HTTPS 개발 서버)와 달라지는 점을 확정했다 — 본문 반영은 Plan 3의 Task 8 |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |
