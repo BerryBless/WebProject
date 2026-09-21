@@ -61,7 +61,11 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// 실측: 이런 엔드포인트에 세션 없이 <c>application/json</c> 본문을 보내면 401이 아니라 415(ASP.NET Core의 일반 RFC 9110 ProblemDetails 본문이며,
     /// 첨부 업로드 핸들러가 스스로 만드는 415의 <c>"지원하지 않는 이미지"</c> 제목과는 다르다)가 온다 — 핸들러가 호출되지 않았다는 뜻이다.
     /// 같은 요청에 Content-Type만 <c>multipart/form-data</c>로 맞추면(필드는 비워도) 정상적으로 401이 나온다(그 아래 별도로 확인함, 인가 우회 아님).
-    /// <see cref="Build"/>가 매번 <c>application/json</c>을 보내면 이 엔드포인트만 401/403 대신 415가 나와 이 테스트들의 전제가 가려지므로 피한다.</param>
+    /// <see cref="Build"/>가 매번 <c>application/json</c>을 보내면 이 엔드포인트만 401/403 대신 415가 나와 이 테스트들의 전제가 가려지므로 피한다.
+    /// 추가 실측(fix round 1, A6): JSON 본문을 받는 <c>POST /api/posts</c>에 <c>text/plain</c>으로(세션 없이, 다른 게이트는 전부 통과시킨 채) 보내도
+    /// 똑같이 415가 나왔다 — 이 415-vs-401 현상은 첨부 업로드만의 특이 동작이 아니라 <c>IAcceptsMetadata</c>를 선언하는 엔드포인트 일반에서
+    /// 관찰된다는 뜻이다(관찰된 동작만 적는다: 정확한 메커니즘은 라우팅이 Content-Type 불일치 시 인가가 보기 전에 그 엔드포인트를
+    /// 메타데이터 없는 415 전용 엔드포인트로 바꿔치기하는 것으로 추정되나, 프레임워크 내부까지 검증하지는 않았다).</param>
     private sealed record Target(string Method, string Path, bool AllowsAnonymous, bool RequiresMultipart);
 
     /// <summary>호스트의 <see cref="EndpointDataSource"/>를 순회해 <c>/api</c>로 시작하는 모든 라우트 엔드포인트를 <see cref="Target"/> 목록으로 뽑아낸다.</summary>
@@ -220,6 +224,60 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     [InlineData("/health", false)]
     [InlineData("/attachments/{id:guid}/{fileName}", false)]
     public void IsUnderApi_MatchesSegmentBoundary(string raw, bool expected) => Assert.Equal(expected, IsUnderApi(raw));
+
+    /// <summary>Content-Type이 안 맞아 415가 나는 경로도(<see cref="Target.RequiresMultipart"/> 참조) 접근 게이트를 우회하지 않는지
+    /// <c>POST /api/attachments</c>에 JSON 본문을 보내 직접 확인한다: 허용 IP 밖·CSRF 헤더 없음·공개 호스트는 각각 평소대로 403/403/404이고,
+    /// 게이트를 전부 통과했는데 세션만 없으면(실측: 401 또는 415) 핸들러 자신의 문제 제목이 응답에 없다 — 핸들러가 호출되지 않았다는 증거다.
+    /// <see cref="AccessMatrixTests.Build"/>가 multipart 전용 엔드포인트에는 더 이상 JSON을 보내지 않게 된 뒤(fix round 1로) 이 특정 시나리오의
+    /// 커버리지가 없어졌으므로 별도로 복원한다(fix round 1, A6).</summary>
+    [Fact]
+    public async Task WrongContentType_FromOutside_IsStillRejectedByTheGate_AndNeverReachesTheHandler()
+    {
+        const string path = "/api/attachments";
+        static HttpRequestMessage JsonPost() => new(HttpMethod.Post, path) { Content = new StringContent("{broken", Encoding.UTF8, "application/json") };
+
+        using (var outsider = factory.CreateAdminClient())
+        {
+            outsider.DefaultRequestHeaders.Remove(RemoteIpStartupFilter.HeaderName);
+            outsider.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, ApiFactory.OutsiderIp);
+            using var req = JsonPost();
+            using var res = await outsider.SendAsync(req);
+            Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        }
+
+        using (var noCsrf = factory.CreateAdminClient())
+        {
+            noCsrf.DefaultRequestHeaders.Remove(AdminSurfaceMiddleware.CsrfHeaderName);
+            using var req = JsonPost();
+            using var res = await noCsrf.SendAsync(req);
+            Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        }
+
+        using (var pub = factory.CreatePublicClient())
+        {
+            // CreatePublicClient()는 기본으로 허용되지 않은 IP를 쓴다 — 여기서는 "호스트가 관리 호스트가 아니라서 404"를 증명하려는 것이므로
+            // IP 게이트가 아니라 호스트 게이트가 404를 내는지 보려면 허용 IP로 바꿔야 한다(그러지 않으면 어느 게이트가 막았는지 알 수 없다).
+            pub.DefaultRequestHeaders.Remove(RemoteIpStartupFilter.HeaderName);
+            pub.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, ApiFactory.AllowedIp);
+            pub.DefaultRequestHeaders.Add(AdminSurfaceMiddleware.CsrfHeaderName, AdminSurfaceMiddleware.CsrfHeaderValue);
+            pub.DefaultRequestHeaders.Add("Origin", ApiFactory.AdminOrigin);
+            using var req = JsonPost();
+            using var res = await pub.SendAsync(req);
+            Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+        }
+
+        using (var noSession = factory.CreateAdminClient())
+        {
+            using var req = JsonPost();
+            using var res = await noSession.SendAsync(req);
+            // 실측(Task 5 report 참조): Content-Type 불일치는 401 대신 415(프레임워크 기본 ProblemDetails)를 낸다;
+            // Content-Type을 맞추면 같은 무세션 요청은 401이 된다(인가는 정상 적용됨, 별도 확인함). 여기서는 두 상태 코드 중 하나이기만 하면
+            // 되고, 핵심 증거는 응답 본문에 핸들러 자신의 문제 제목이 없다는 것 — 핸들러가 호출되지 않았다는 뜻이다.
+            Assert.Contains(res.StatusCode, new[] { HttpStatusCode.Unauthorized, HttpStatusCode.UnsupportedMediaType });
+            var body = await res.Content.ReadAsStringAsync();
+            Assert.DoesNotContain("지원하지 않는 이미지", body, StringComparison.Ordinal);
+        }
+    }
 
     /// <summary><c>/api</c> 밖의 모든 라우트는 허용 목록에 있어야 하고 GET/HEAD만 받아야 한다 —
     /// 관리 핸들러를 실수로 <c>/api</c> 그룹 밖에 매핑하면(그러면 어떤 접근 검사도 받지 않는다) 여기서 잡힌다.</summary>

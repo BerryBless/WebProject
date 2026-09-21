@@ -48,6 +48,9 @@ var app = builder.Build();
 
 // 설정 오류가 DB 접속 오류에 가려지지 않도록 마이그레이션보다 먼저 검증한다.
 StartupValidation.Validate(app.Services, app.Environment);
+// 첨부 저장 루트가 실제로 쓸 수 있는지 시작 시점에 확인한다(첫 업로드가 아니라). StartupValidation은 I/O가 없다는 계약을 지키므로
+// 이 파일 시스템 검사는 별도 단계로 둔다.
+app.Services.GetRequiredService<FileSystemAttachmentStore>().EnsureRootIsWritable();
 
 // 단일 인스턴스 배포이므로 시작 시 마이그레이션을 적용한다(스펙 3.10).
 using (var scope = app.Services.CreateScope())

@@ -214,4 +214,43 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     [Fact]
     public void AnyEnvironment_MissingAttachmentsRoot_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["Attachments:RootPath"] = "" }, "Attachments:RootPath");
+
+    /// <summary>Production 환경에서 <c>Attachments:RootPath</c>가 상대 경로면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다.
+    /// 상대 경로는 콘텐츠 루트(배포 시 작업 디렉터리)에 따라 달라져 운영에서 의도치 않은 위치를 가리키기 쉽다.
+    /// <c>appsettings.Development.json</c>은 상대 경로(<c>.data/attachments</c>)를 그대로 쓰므로 Development는 이 검사에서 예외다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void Production_RelativeAttachmentsRoot_Fails() =>
+        AssertStartupFails(Production(s => s["Attachments:RootPath"] = ".data/attachments"), "Attachments:RootPath");
+
+    /// <summary>환경에 상관없이 <c>Attachments:RootPath</c>가 이미 존재하는 파일(디렉터리가 아님)을 가리키면 시작 시점의 쓰기 가능 확인에서
+    /// 실패하고 예외에 그 키가 포함되는지 검증한다 — 첫 업로드가 아니라 시작 시점에 드러나는지가 fix round 1 A5의 핵심이다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 이 테스트 전용 <see cref="ApiFactory"/>와 전용 임시 파일만 사용하므로 다른 테스트와 공유하는 가변 상태가 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 팩토리 1개와 임시 파일 1개.</description></item>
+    /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다. 임시 파일 생성·삭제는 동기 파일 I/O.</description></item>
+    /// </list>
+    /// </remarks>
+    [Fact]
+    public void AnyEnvironment_AttachmentsRootIsAnExistingFile_Fails()
+    {
+        var tempFile = Path.GetTempFileName(); // 절대 경로의 0바이트 파일을 만들어 준다 — "디렉터리 자리에 파일이 있다"를 재현한다
+        try
+        {
+            AssertStartupFails(new Dictionary<string, string?> { ["Attachments:RootPath"] = tempFile }, "Attachments:RootPath");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
 }

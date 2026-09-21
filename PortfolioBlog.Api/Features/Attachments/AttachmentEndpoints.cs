@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -180,10 +181,13 @@ public static class AttachmentEndpoints
         return TypedResults.NoContent();
     }
 
-    /// <summary>업로드된 파일 이름을 표시용으로 정리한다: 경로 조각·제어문자(NUL 포함) 제거, 확장자는 시그니처 기준으로 교체, 길이 제한.</summary>
+    /// <summary>업로드된 파일 이름을 표시용으로 정리한다: 경로 조각·제어문자(NUL 포함)·홀로 남은 UTF-16 서러게이트 제거,
+    /// 확장자는 시그니처 기준으로 교체, 길이 제한(코드 포인트 경계에서 자른다).</summary>
     /// <param name="uploaded">클라이언트가 보낸 원본 파일 이름(신뢰하지 않음).</param>
     /// <param name="kind">시그니처로 판정한 실제 형식(확장자의 출처).</param>
-    /// <returns>경로 조각·제어문자가 제거되고 확장자가 시그니처 기준으로 교체된 표시용 이름. 저장 경로에는 쓰이지 않는다.</returns>
+    /// <returns>경로 조각·제어문자·홀로 남은 서러게이트가 제거되고 확장자가 시그니처 기준으로 교체된 표시용 이름. 저장 경로에는 쓰이지 않는다.
+    /// 반환값은 어떤 UTF-16 코드 단위에 대해서도 홀로 남은 서러게이트를 포함하지 않는다(<see cref="RemoveUnpairedSurrogates"/> 참조) —
+    /// 그런 문자열을 그대로 DB에 쓰면 Npgsql의 UTF-8 인코더가 예외 폴백으로 <see cref="System.Text.EncoderFallbackException"/>을 던져 500이 된다(fix round 1, A1, 실측).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -196,14 +200,63 @@ public static class AttachmentEndpoints
     {
         var name = (uploaded ?? string.Empty).Replace('\\', '/');
         name = name[(name.LastIndexOf('/') + 1)..];
-        name = new string(name.Where(c => !char.IsControl(c)).ToArray()).Replace("..", string.Empty, StringComparison.Ordinal).Trim().Trim('.');
+        name = new string(name.Where(c => !char.IsControl(c)).ToArray());
+        // ".." 제거보다 먼저 한다: 홀로 남은 서러게이트를 나중에 지우면 그 자리 양옆의 마침표가 새로 ".."을 만들 수 있다
+        // (예: "a." + 홀로 있는 서러게이트 + ".b" → 서러게이트를 나중에 지우면 "a..b"가 된다).
+        name = RemoveUnpairedSurrogates(name);
+        name = name.Replace("..", string.Empty, StringComparison.Ordinal).Trim().Trim('.');
         var dot = name.LastIndexOf('.');
         var stem = (dot > 0 ? name[..dot] : name).Trim();
         if (stem.Length == 0) stem = "image";
         var extension = "." + ImageSignature.Extension(kind);
         var max = AppDbContext.FileNameMax - extension.Length;
-        if (stem.Length > max) stem = stem[..max];
+        if (stem.Length > max)
+        {
+            stem = stem[..max];
+            // UTF-16 코드 단위 기준으로 자르므로 서러게이트 쌍 한가운데를 자를 수 있다 — 마지막 문자가 상위 서러게이트로 남으면
+            // 짝(하위 서러게이트)이 잘려 나간 것이므로 함께 버려 코드 포인트 경계에서 자른 것으로 만든다.
+            if (stem.Length > 0 && char.IsHighSurrogate(stem[^1])) stem = stem[..^1];
+            stem = stem.TrimEnd();
+            if (stem.Length == 0) stem = "image";
+        }
         return stem + extension;
+    }
+
+    /// <summary>문자열에서 홀로 남은(짝 없는) UTF-16 서러게이트를 제거한다: 상위 서러게이트 뒤에 하위 서러게이트가 없거나,
+    /// 하위 서러게이트 앞에 상위 서러게이트가 없으면 그 문자는 완전한 코드 포인트를 이루지 못하므로 버린다.</summary>
+    /// <param name="value">정리할 문자열.</param>
+    /// <returns>온전한 서러게이트 쌍만 남긴(또는 애초에 서러게이트가 없던) 문자열.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 무상태 정적 함수.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 서러게이트가 하나도 없으면(대부분의 파일 이름) 원본을 그대로 반환해 할당이 없다.
+    /// 하나라도 있으면 <see cref="StringBuilder"/> 1개를 새로 만든다 — 파일 이름 하나 분량이라 크기가 작다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환. I/O 없음.</description></item>
+    /// </list>
+    /// </remarks>
+    private static string RemoveUnpairedSurrogates(string value)
+    {
+        var hasSurrogate = false;
+        foreach (var c in value) { if (char.IsSurrogate(c)) { hasSurrogate = true; break; } }
+        if (!hasSurrogate) return value;
+
+        var builder = new StringBuilder(value.Length);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+            {
+                builder.Append(c).Append(value[i + 1]);
+                i++; // 짝을 함께 썼으니 하위 서러게이트 자리는 건너뛴다
+            }
+            else if (!char.IsSurrogate(c))
+            {
+                builder.Append(c);
+            }
+            // else: 홀로 남은 상위/하위 서러게이트 — 버린다
+        }
+        return builder.ToString();
     }
 
     /// <summary>413(첨부 크기 한도 초과) <see cref="ProblemDetails"/> 응답을 만든다.</summary>

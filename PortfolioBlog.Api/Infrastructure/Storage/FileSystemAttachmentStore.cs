@@ -50,25 +50,59 @@ public sealed class FileSystemAttachmentStore
     private const int BufferSize = 64 * 1024;
     private readonly string _root;
     private readonly string _temp;
+    private readonly string _configuredRootPath; // 오류 메시지용 원본 설정값(운영 파일 시스템의 절대 경로 구조는 로그·예외 메시지에 남기지 않는다)
+    private readonly ILogger<FileSystemAttachmentStore> _logger;
 
     /// <summary><c>Attachments:RootPath</c> 설정으로 저장 루트를 계산한다.</summary>
     /// <param name="options">저장 루트 설정.</param>
     /// <param name="environment">콘텐츠 루트 경로를 얻기 위한 호스팅 환경(상대 경로 기준).</param>
+    /// <param name="logger">임시 파일 정리 실패 등 사용자에게 노출하지 않는 경고를 남기는 로거.</param>
     /// <exception cref="InvalidOperationException"><c>RootPath</c>가 비어 있을 때.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> 싱글턴 등록으로 앱 시작 시 1회만 호출된다.</description></item>
     /// <item><description><b>Memory Allocation:</b> 경로 문자열 계산에 따른 시작 시 1회성 할당만 발생한다.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 실행. I/O 없음(디렉터리 생성은 <see cref="SaveAsync"/> 첫 호출로 지연된다).</description></item>
+    /// <item><description><b>Blocking:</b> 동기 실행. I/O 없음(이 생성자 자체는 경로 계산만 한다 — 디렉터리를 실제로 만들고 쓰기 가능한지 확인하는
+    /// I/O는 <see cref="EnsureRootIsWritable"/>이 시작 시퀀스에서 한 번 수행하고, <see cref="SaveAsync"/>는 매 호출 <c>.tmp</c> 하위 디렉터리를 확인한다).</description></item>
     /// </list>
     /// </remarks>
-    public FileSystemAttachmentStore(IOptions<AttachmentOptions> options, IHostEnvironment environment)
+    public FileSystemAttachmentStore(IOptions<AttachmentOptions> options, IHostEnvironment environment, ILogger<FileSystemAttachmentStore> logger)
     {
         var configured = options.Value.RootPath;
         if (string.IsNullOrWhiteSpace(configured)) throw new InvalidOperationException("Attachments:RootPath 설정이 없습니다.");
+        _configuredRootPath = configured;
         _root = Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured));
         _temp = Path.Combine(_root, ".tmp");
+        _logger = logger;
+    }
+
+    /// <summary>저장 루트 디렉터리가 존재하는지 확인하고(없으면 만들고) 실제로 쓸 수 있는지 0바이트 확인 파일을 만들었다 지워 검증한다.</summary>
+    /// <exception cref="InvalidOperationException">디렉터리를 만들 수 없거나 확인 파일을 쓰거나 지울 수 없을 때. 메시지는 설정 키와 설정값 원문만 담는다 —
+    /// 서버가 계산한 절대 경로(운영 파일 시스템 구조)는 포함하지 않는다.</exception>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> 시작 시퀀스에서 단일 스레드로 1회 호출하도록 의도했다. 동시에 호출해도 확인 파일 이름이
+    /// 매번 새 Guid라 서로 간섭하지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 경로 문자열 몇 개, 실패 시 예외 메시지 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 I/O(디렉터리 생성 + 0바이트 파일 생성·삭제). 시작 시 한 번만 호출한다 — 요청 처리 경로에서는 호출하지 않는다.</description></item>
+    /// </list>
+    /// </remarks>
+    public void EnsureRootIsWritable()
+    {
+        try
+        {
+            Directory.CreateDirectory(_root);
+            var probe = Path.Combine(_root, ".startup-probe-" + Guid.NewGuid().ToString("N"));
+            File.WriteAllBytes(probe, []);
+            File.Delete(probe);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"설정 Attachments:RootPath('{_configuredRootPath}')이 가리키는 디렉터리를 만들거나 쓸 수 없습니다.", ex);
+        }
     }
 
     /// <summary>저장 루트 기준 상대 경로를 실제 파일 시스템 경로로 바꾼다.</summary>
@@ -170,9 +204,28 @@ public sealed class FileSystemAttachmentStore
         }
         finally
         {
-            File.Delete(rawPath);   // 없으면 아무 일도 하지 않는다
-            File.Delete(cleanPath);
+            // 각각 최선형으로 지운다: 첫 번째가 실패해도(잠김·권한) 두 번째 삭제 시도는 반드시 일어나고,
+            // 정리 실패로 인한 새 예외가 원래 실패(413·415 등)를 가리지 않는다.
+            TryDeleteTempFile(rawPath);
+            TryDeleteTempFile(cleanPath);
         }
+    }
+
+    /// <summary>임시 파일 하나를 최선형으로 지운다: 실패해도 예외를 던지지 않고 경고만 남긴다.</summary>
+    /// <param name="path">지울 임시 파일의 전체 경로. 로그에는 서버가 만든 파일 이름만 남기고 클라이언트가 보낸 값은 애초에 이 경로에 들어가지 않는다.</param>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 호출마다 독립된 경로를 받는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 실패 시에만 로그 메시지 문자열을 할당한다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 I/O.</description></item>
+    /// </list>
+    /// </remarks>
+    private void TryDeleteTempFile(string path)
+    {
+        try { File.Delete(path); } // 없으면 아무 일도 하지 않는다
+        catch (IOException) { _logger.LogWarning("임시 파일 정리 실패(잠김 등). TempFile={TempFile}", Path.GetFileName(path)); }
+        catch (UnauthorizedAccessException) { _logger.LogWarning("임시 파일 정리 실패(권한). TempFile={TempFile}", Path.GetFileName(path)); }
     }
 
     /// <summary>업로드 스트림을 64KB 단위로 임시 파일에 받으며, 누적 크기가 한도를 넘으면 즉시 중단한다.</summary>

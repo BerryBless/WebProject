@@ -78,6 +78,9 @@ public static class StartupValidation
             // HostOf가 이미 절대 URI 형식을 검증했으므로 여기서는 예외 없이 재구성할 수 있다. 세션 쿠키가 Secure라 http origin은 애초에 쿠키를 주고받지 못한다.
             Require(string.Equals(new Uri(site.PublicOrigin).Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal), "Site:PublicOrigin");
             Require(string.Equals(new Uri(site.AdminOrigin).Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal), "Site:AdminOrigin");
+            // 상대 경로는 콘텐츠 루트(배포 시 작업 디렉터리)에 따라 달라져 운영에서는 의도치 않은 위치를 가리키기 쉽다.
+            // appsettings.Development.json은 로컬 상대 경로(.data/attachments)를 그대로 쓰므로 Development만 예외로 허용한다.
+            Require(Path.IsPathFullyQualified(attachments.RootPath), "Attachments:RootPath");
         }
     }
 

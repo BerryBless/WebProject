@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Storage;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -200,6 +201,56 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         using var post = await visitor.PostAsync($"/attachments/{Guid.NewGuid()}/x.png", form);
         Assert.Equal(HttpStatusCode.MethodNotAllowed, post.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, await UploadStatusAsync(visitor, Form(Fixture("exif-text.png"), "x.png")));
+    }
+
+    /// <summary>파일 이름 길이 제한이 서러게이트 쌍 한가운데를 자르는 위치라도 500이 아니라 201이 나오고, 반환된 파일 이름에는
+    /// 홀로 남은 서러게이트가 없으며, 반환된 URL은 <see cref="UrlPolicy.IsAllowedImage"/>를 통과한다(fix round 1, A1).</summary>
+    [Fact]
+    public async Task Upload_FileNameTruncationSplitsSurrogatePair_Returns201_NotServerError()
+    {
+        using var factory = new ApiFactory(pg, NoOverrides);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        // 리뷰어의 재현: 249개의 'a' + 이모지(서러게이트 쌍) + "bbbb.webp" — 255자 길이 제한이 정확히 이모지 한가운데를 자른다.
+        var uploadedName = new string('a', 249) + "\U0001F600" + "bbbb.webp";
+
+        var dto = await UploadAsync(admin, Fixture("exif-xmp.webp"), uploadedName);
+
+        for (var i = 0; i < dto.FileName.Length; i++)
+        {
+            if (char.IsHighSurrogate(dto.FileName[i]))
+            {
+                Assert.True(i + 1 < dto.FileName.Length && char.IsLowSurrogate(dto.FileName[i + 1]), $"홀로 남은 상위 서러게이트: \"{dto.FileName}\"");
+                i++;
+            }
+            else
+            {
+                Assert.False(char.IsLowSurrogate(dto.FileName[i]), $"홀로 남은 하위 서러게이트: \"{dto.FileName}\"");
+            }
+        }
+        Assert.True(UrlPolicy.IsAllowedImage(dto.Url), $"반환된 URL이 UrlPolicy.IsAllowedImage를 통과하지 못했다: {dto.Url}");
+    }
+
+    /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다(fix round 1, A2).</summary>
+    [Fact]
+    public async Task PublicGet_WhenFileIsMissingOnDisk_Returns404()
+    {
+        using var factory = new ApiFactory(pg, NoOverrides);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
+
+        string physical;
+        await using (var scope = factory.CreateScope())
+        {
+            var row = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Attachments.AsNoTracking().SingleAsync(a => a.Id == dto.Id);
+            physical = scope.ServiceProvider.GetRequiredService<FileSystemAttachmentStore>().PhysicalPath(row.StoragePath);
+        }
+        File.Delete(physical); // 볼륨에서 직접 지움 — DB 행은 남아 있다
+
+        using var visitor = factory.CreatePublicClient();
+        using var res = await visitor.GetAsync(dto.Url);
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+        Assert.Equal("nosniff", res.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("default-src 'none'; sandbox", res.Headers.GetValues("Content-Security-Policy").Single());
     }
 
     /// <summary>임시 파일이 남지 않는다(성공·거부 어느 경로든).</summary>
