@@ -1,4 +1,4 @@
-// 서버 DTO(PortfolioBlog.Api/Contracts/*.cs)의 JSON 모양. ASP.NET Core 기본 직렬화라 속성은 camelCase,
+// 서버 DTO(PortfolioBlog.Api/Contracts 폴더)의 JSON 모양. ASP.NET Core 기본 직렬화라 속성은 camelCase,
 // Guid·DateTimeOffset은 문자열, uint Version은 number(최대 4,294,967,295 — Number.MAX_SAFE_INTEGER 안)다.
 
 export interface AuthStatus { authenticated: boolean }

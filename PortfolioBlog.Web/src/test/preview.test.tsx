@@ -1,8 +1,9 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createQueryClient } from '../app/queryClient'
 import { PREVIEW_DEBOUNCE_MS, PreviewPane } from '../components/PreviewPane'
+import { LIMITS } from '../lib/validation'
 import { stubApi } from './harness'
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -56,5 +57,49 @@ describe('미리보기', () => {
     await act(() => vi.advanceTimersByTimeAsync(5000))
     expect(calls.length).toBe(afterLimit + 1)
     expect(calls.at(-1)?.body).toEqual({ markdown: 'three' })
+  })
+
+  it('본문이 UTF-8 204,800바이트면 요청을 보내고, 204,801바이트면 보내지 않고 안내한다', async () => {
+    vi.useFakeTimers()
+    const calls = stubApi({ 'POST /api/preview': { status: 200, body: { html: '<p>ok</p>' } } })
+    const atLimit = 'a'.repeat(LIMITS.contentMaxBytes) // 'a'는 UTF-8에서 1바이트다 — 글자 수 그대로가 바이트 수다
+    const view = render(pane(atLimit))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(calls.length).toBe(1)
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    view.rerender(pane(atLimit + 'a'))
+    await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS))
+    expect(calls.length).toBe(1) // 한도를 넘은 값으로는 보내지 않는다
+    expect(screen.getByRole('alert')).toHaveTextContent('KB를 넘어')
+  })
+
+  it('Retry-After 없는 실패(500)는 다시 시도 버튼으로 입력을 바꾸지 않고도 재요청한다', async () => {
+    vi.useFakeTimers()
+    let fail = true
+    const calls = stubApi({ 'POST /api/preview': () => fail ? { status: 500, body: { title: 'x' } } : { status: 200, body: { html: '<p>fixed</p>' } } })
+    render(pane('one'))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    const before = calls.length
+
+    fail = false
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(calls.length).toBe(before + 1) // Retry-After가 없으므로 대기 없이 바로 다시 보낸다
+    expect(frame().getAttribute('srcdoc')).toContain('<p>fixed</p>')
+  })
+
+  it('429 대기 중에는 다시 시도 버튼을 눌러도 요청을 보내지 않는다', async () => {
+    vi.useFakeTimers()
+    const calls = stubApi({ 'POST /api/preview': { status: 429, body: { title: 'x' }, headers: { 'Retry-After': '5' } } })
+    render(pane('one'))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(screen.getByRole('alert')).toHaveTextContent('5초')
+    const afterFirst = calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(calls.length).toBe(afterFirst) // blockedUntil 대기 중이라 버튼을 눌러도 보내지 않는다
   })
 })
