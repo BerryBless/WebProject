@@ -52,8 +52,8 @@ public sealed class HighlightingCodeBlockRenderer : HtmlObjectRenderer<CodeBlock
     // 프로세스 수명 동안 하나만 두고 모든 렌더가 공유한다. 인스턴스 자체가 Thread-safe(내부 ConcurrentDictionary)라 안전하다.
     private static readonly TimeBoundedLanguageCompiler SharedCompiler = new();
 
-    // ILanguageRepository: Languages.All을 Id로 인덱싱한 사전. LanguageRepository.FindById는 이 사전과 무관하게
-    // 대소문자 무시 + 별칭(예: "csharp"→"c#") 해석을 자체적으로 수행한다(리플렉션으로 확인 — 보고서 "LanguageRepository.FindById" 절 참조).
+    // ILanguageRepository: Languages.All을 Id로 인덱싱한 사전. LanguageRepository.FindById는 이 사전 키의 대소문자·구성과
+    // 무관하게 대소문자 무시 + 별칭(예: "csharp"→"c#") 해석을 자체적으로 수행한다(리플렉션으로 확인한 내부 동작).
     // 그래서 키를 Languages.All의 원본 Id 그대로 채우면 ColorCode 기본 인스턴스와 동일하게(중첩 언어 조회 포함) 동작한다.
     private static readonly ILanguageRepository SharedRepository = new LanguageRepository(Languages.All.ToDictionary(l => l.Id));
 

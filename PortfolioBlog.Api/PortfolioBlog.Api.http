@@ -23,3 +23,24 @@ Origin: {{Host}}
 ### 글 목록
 GET {{Host}}/api/posts?take=10
 X-Requested-With: XMLHttpRequest
+
+### 마크다운 미리보기 (sandbox iframe에 넣을 안전한 HTML을 돌려준다)
+POST {{Host}}/api/preview
+Content-Type: application/json
+X-Requested-With: XMLHttpRequest
+Origin: {{Host}}
+
+{ "markdown": "# 제목\n\n본문 `code` 예시입니다." }
+
+### 첨부 업로드 (REST 클라이언트의 파일 선택기로 이미지를 고른다 — PNG·JPEG·GIF·WebP만 허용)
+POST {{Host}}/api/attachments
+Content-Type: multipart/form-data; boundary=----WebProjectBoundary
+X-Requested-With: XMLHttpRequest
+Origin: {{Host}}
+
+------WebProjectBoundary
+Content-Disposition: form-data; name="file"; filename="example.png"
+Content-Type: image/png
+
+< ./path/to/local/example.png
+------WebProjectBoundary--

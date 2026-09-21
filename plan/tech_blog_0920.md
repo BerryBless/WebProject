@@ -371,7 +371,7 @@ flowchart LR
 ```
 
 - **확장 허용 목록:** 파이프 테이블, 자동 식별자(제목 앵커), 작업 목록, 각주, 취소선, 자동 링크. 임의 속성(`{#id .class}`)·미디어 임베드·raw HTML은 제외.
-- **UrlPolicy:** 링크는 `http`·`https`·`mailto`·같은 사이트 상대경로만. 이미지는 **자체 `/attachments/` 경로만**(외부 핫링크 금지, CSP `img-src 'self'`와 이중). 위반 URL은 링크를 제거하고 텍스트만 남긴다. 스킴 판정은 제어문자·공백 제거와 소문자화 뒤에 한다.
+- **UrlPolicy:** 링크는 `http`·`https`·`mailto`·같은 사이트 상대경로만. 이미지는 **자체 `/attachments/` 경로만**(외부 핫링크 금지, CSP `img-src 'self'`와 이중). 위반 URL은 링크를 제거하고 텍스트만 남긴다. URL에 공백·제어문자·백슬래시가 하나라도 있으면 제거·정규화를 시도하지 않고 그 자리에서 거부한다(`UrlPolicy.IsClean`) — 통과한 뒤에야 스킴을 본다(엔티티로 난독화한 스킴도 Markdig가 파싱 단계에서 이미 복원하므로 이 시점엔 원래 문자로 보인다).
 - **하이라이팅:** 서버 측에서 CSS 클래스 방식으로 출력(인라인 `style` 금지 — `style-src 'self'`와 충돌). 라이브러리는 `ColorCode.HTML`(`HtmlClassFormatter.GetHtmlString`)로 확정했다 — `<div class="csharp"><pre><span class="keyword">…` 형태로 클래스만 낸다. 지원하지 않는 언어(bash·yaml·go·rust 등)는 일반 `<pre><code>` 코드블록으로 떨어진다. 렌더 비용은 입력 크기에 상관없이 상한을 둔다: 코드 라인은 400자, 문서 전체 강조 대상은 60,000자를 넘으면 그 이후는 하이라이팅 없이 일반 코드블록으로 처리하고, 정규식 매칭 자체에 250ms 타임아웃을 걸며, 렌더 1회의 강조 누적 시간이 2,000ms를 넘으면 남은 블록은 강조를 포기한다(TimeBoundedLanguageCompiler). Markdig 자체의 중첩 한도(대괄호·인용·강조 등 128단계)를 넘는 입력은 `MarkdownTooComplexException`으로 필드 키가 있는 400이 된다(500이 아니다).
 - **HtmlAllowlist:** 최종 HTML을 허용 목록으로 한 번 더 정제한다. 하이라이터나 확장의 버그에 대한 3차 방어다.
 - 제목·요약·태그는 Razor 자동 인코딩을 그대로 쓰고 `Html.Raw`는 위 파이프라인 출력에만 쓴다.
@@ -414,13 +414,13 @@ sequenceDiagram
 
 | 대상 | 제한 |
 |---|---|
-| 공개 페이지 전역 | IP별 120회/분 |
-| `/search` | IP별 20회/분, 동시 실행 4, `q` 2~100자, `page` 상한 50 |
+| 공개 페이지 전역(Plan 2B 예정) | IP별 120회/분 |
+| `/search`(Plan 2B 예정) | IP별 20회/분, 동시 실행 4, `q` 2~100자, `page` 상한 50 |
 | `/api/preview` | 전역 60회/분, 동시 실행 2, 본문 200KB |
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 실행 2. 영구 잠금 없음(작성자 서비스 거부 방지) |
-| 업로드 | 10MB. Caddy `request_body`·Kestrel `MaxRequestBodySize`·multipart 한도를 같은 값으로. 접근 검사는 본문을 읽기 전에 끝난다 |
-| DB | 공개 조회 커넥션에 `statement_timeout` 3초 |
-| JSON 본문 | 관리 API 256KB |
+| 업로드 | 앱 10MB(`AttachmentOptions.MaxBytes`, 넘으면 앱의 413 ProblemDetails) · 프레임워크 11MB(`RequestSizeLimit` 메타데이터 + `FormOptions.MultipartBodyLengthLimit`, 넘으면 프레임워크 413) — 1MB 여유는 multipart 프레이밍(경계·헤더) 몫이다(실측, Kestrel). Caddy `request_body`는 Plan 4에서 앱 값이 아니라 이 프레임워크 값(11MB)에 맞춘다 — 그보다 작으면 Caddy가 정상 업로드를 앱보다 먼저 끊는다. 접근 검사는 본문을 읽기 전에 끝난다 |
+| DB(Plan 2B 예정) | 공개 조회 커넥션에 `statement_timeout` 3초 |
+| JSON 본문(Plan 2B 예정) | 관리 API 256KB |
 
 ### 3.8 첨부
 
@@ -619,7 +619,7 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 | 계획 | 파일 | 범위 |
 |---|---|---|
 | Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
-| Plan 2A | `.superpowers/sdd/2026-09-21-tech-blog-content-pipeline/` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
+| Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
 | Plan 2B | (2A 완료 후 작성) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·공개 속도 제한 |
 | Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |

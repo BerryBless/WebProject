@@ -19,9 +19,9 @@ namespace PortfolioBlog.Api.Features.Attachments;
 /// </list>
 /// 조회 키는 <c>id</c>뿐이다. <c>fileName</c>은 URL을 읽기 좋게 하는 장식이며 어떤 값이 와도 경로에 결합하지 않는다.
 /// 응답은 스니핑 금지 + 자체 CSP(<c>default-src 'none'; sandbox</c>)로, 설령 이미지로 위장한 콘텐츠가 저장돼 있어도 문서로 실행되지 않는다 —
-/// 이 두 헤더는 이 핸들러가 만드는 <b>모든</b> 응답(200·404)에 실린다(fix round 1, A3). 파일을 여는 시점과 DB 조회 시점 사이의
+/// 이 두 헤더는 이 핸들러가 만드는 <b>모든</b> 응답(200·404)에 실린다. 파일을 여는 시점과 DB 조회 시점 사이의
 /// TOCTOU 경쟁(삭제와 겹치면 <c>File.Exists</c> 확인 뒤 열기가 실패할 수 있었다)을 없애려고 <c>File.Exists</c> 대신 파일을 직접 열어 보고
-/// 실패를 잡는다(fix round 1, A2) — 그 결과 <see cref="FileSystemAttachmentStore.TryDelete"/>가 서빙 중인 파일과 경쟁해도 더 이상
+/// 실패를 잡는다 — 그 결과 <see cref="FileSystemAttachmentStore.TryDelete"/>가 서빙 중인 파일과 경쟁해도 더 이상
 /// 고아 파일로 남지 않는다(아래 <see cref="GetAsync"/> Concurrency 항목 참조).
 /// </remarks>
 public static class PublicAttachmentEndpoints
@@ -87,7 +87,7 @@ public static class PublicAttachmentEndpoints
         catch (FileNotFoundException) { return TypedResults.NotFound(); }
         catch (DirectoryNotFoundException) { return TypedResults.NotFound(); }
 
-        // 스트림을 연 뒤부터는 결과를 만들어 반환할 때까지 예외가 나도 핸들이 새지 않도록 감싼다(fix round 2, B6 — "열기와 반환 사이에
+        // 스트림을 연 뒤부터는 결과를 만들어 반환할 때까지 예외가 나도 핸들이 새지 않도록 감싼다 — "열기와 반환 사이에
         // 아무것도 못 던지게" 구조적으로 보장하는 대신, 던지면 반드시 스트림을 정리하고 다시 던지는 형태를 택했다: Cache-Control은
         // 404 경로에는 절대 실리면 안 되므로 스트림을 연 뒤에만 설정해야 하고, 그 순서 제약 자체는 없앨 수 없기 때문이다).
         try

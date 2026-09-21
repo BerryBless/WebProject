@@ -189,7 +189,7 @@ public static class AttachmentEndpoints
     /// <param name="kind">시그니처로 판정한 실제 형식(확장자의 출처).</param>
     /// <returns>경로 조각·제어문자·홀로 남은 서러게이트가 제거되고 확장자가 시그니처 기준으로 교체된 표시용 이름. 저장 경로에는 쓰이지 않는다.
     /// 반환값은 어떤 UTF-16 코드 단위에 대해서도 홀로 남은 서러게이트를 포함하지 않는다(<see cref="RemoveUnpairedSurrogates"/> 참조) —
-    /// 그런 문자열을 그대로 DB에 쓰면 Npgsql의 UTF-8 인코더가 예외 폴백으로 <see cref="System.Text.EncoderFallbackException"/>을 던져 500이 된다(fix round 1, A1, 실측).</returns>
+    /// 그런 문자열을 그대로 DB에 쓰면 Npgsql의 UTF-8 인코더가 예외 폴백으로 <see cref="System.Text.EncoderFallbackException"/>을 던져 500이 된다(실측).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -210,7 +210,7 @@ public static class AttachmentEndpoints
         var dot = name.LastIndexOf('.');
         // 아직 다듬지 않은 stem이다 — 끝의 마침표·공백은 아래 TrimTrailingDotsAndWhitespace가 자르기 이후(있다면)까지 포함해 한 번에 처리한다.
         // 슬라이스 직후에 곧바로 .Trim()하면 "a. .png" 같은 입력에서 마침표 앞 공백만 지워지고 그 뒤에 드러나는 마침표는 거르지 못해
-        // stem이 "a."로 끝난 채 확장자와 합쳐져 ".."이 생긴다(fix round 2, B3 — 자르기 없이도 재현됨).
+        // stem이 "a."로 끝난 채 확장자와 합쳐져 ".."이 생긴다(자르기 없이도 재현됨).
         var stem = dot > 0 ? name[..dot] : name;
         var extension = "." + ImageSignature.Extension(kind);
         var max = AppDbContext.FileNameMax - extension.Length;

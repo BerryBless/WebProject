@@ -109,7 +109,9 @@ public static class RateLimitingExtensions
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다. 반환된 제한기 내부의 임대 카운터는 <c>Interlocked</c> 기반으로 스레드 간 경합 없이 갱신된다(프레임워크 구현).</description></item>
+    /// <item><description><b>Thread Safety:</b> 정적 메서드로 공유 상태가 없다. 반환된 제한기는 Thread-safe하다 — 임대 획득·반납마다
+    /// 내부적으로 락을 하나씩 잡는다(<c>ConcurrencyLimiter</c> 내부의 private <c>Lock</c>과 <c>AttemptAcquireCore</c>의 try/finally를
+    /// 리플렉션으로 확인). 경합 비용은 그 짧은 임계 구간뿐이다.</description></item>
     /// <item><description><b>Memory Allocation:</b> 해당 정책 전체가 파티션 키 1개(상수 <paramref name="key"/>)를 공유하므로 요청량과 무관하게 제한기 인스턴스는 1개만 생성된다.</description></item>
     /// <item><description><b>Blocking:</b> 즉시 반환. 대기열(<c>QueueLimit</c>) 0 — 초과분은 기다리지 않고 즉시 거부된다. 임대 반납은 요청 파이프라인 종료 시 미들웨어가 수행한다.</description></item>
     /// </list>
