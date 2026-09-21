@@ -4,6 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- CompressionEnabled=false: 기본값(true)이면 publish 출력 wwwroot에 css/site.css.br·css/site.css.gz가 함께 생기고,
+         정적 파일 미들웨어가 그 파일들도 그대로 서빙해 /css/site.css.gz가 200이 된다(실측). 내용은 공개 CSS와 같아 유출은 없지만
+         공개 표면에 의도하지 않은 경로가 늘어난다. 이 앱의 유일한 정적 파일은 site.css 하나라 압축 산출물의 이득이 없으므로 끈다
+         (실측: 이 속성을 넣으면 publish 출력 wwwroot가 css/site.css 하나가 되고, staticwebassets 엔드포인트 매니페스트에도 .gz·.br 항목이 없다). -->
+    <CompressionEnabled>false</CompressionEnabled>
   </PropertyGroup>
 
   <ItemGroup>
