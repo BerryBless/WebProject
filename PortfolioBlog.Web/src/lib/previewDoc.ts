@@ -4,8 +4,9 @@
 // 같은 출처 접근이 전부 꺼진다, (3) 문서 안 CSP가 default-src 'none'이라 이 출처의 이미지·스타일시트 말고는 아무것도 못 읽는다.
 //
 // CSP에 'self'를 쓰지 않는 이유: Firefox는 about:srcdoc 문서의 'self'를 부모 출처로 보지 않아 스타일시트와 이미지를
-// 모두 차단한다(저장소 밖 Playwright 측정 — 이 저장소의 E2E가 Chromium·Firefox에서 다시 확인한다). Chromium은 허용한다.
-// 출처를 명시하면 둘 다 허용한다.
+// 모두 차단한다(저장소 밖 Playwright 측정). Chromium은 허용한다. 출처를 명시하면 Chromium·Firefox 둘 다 스타일시트·
+// 이미지를 로드한다 — 이 긍정 명제는 이 저장소의 E2E(admin.spec.ts)가 매번 확인한다. 위 CSP를 'self'로 되돌리면
+// Firefox에서 그 확인이 깨진다는 것은 한 번 관측한 사실이며, 상시 확인 대상은 아니다.
 
 // IPv6 리터럴 호스트([::1] 등)를 대괄호째 허용한다 — window.location.origin이 실제로 이 형태일 수 있다(예: https://[::1]:5173).
 const ORIGIN_PATTERN = /^https?:\/\/(\[[0-9a-f:]+\]|[a-z0-9.-]+)(:\d{1,5})?$/i

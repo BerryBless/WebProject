@@ -407,10 +407,10 @@ sequenceDiagram
 | 대상 | CSP | 그 외 |
 |---|---|---|
 | 공개 HTML | `default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` | HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`(전부 비활성) |
-| 관리 SPA (Caddy) | `default-src 'none'; script-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self' blob:; connect-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` | 정본은 `PortfolioBlog.Web/admin-headers.ts` — `vite preview`(E2E)가 이미 이 값을 쓰고, Plan 4의 Caddyfile이 관리 사이트 블록에 그대로 옮긴다. `style-src`를 요소/속성으로 나눠 CodeMirror가 주입하는 `<style>` 요소에만 `'unsafe-inline'`을 준다(속성 스타일은 막는다). E2E가 Chromium·Firefox 양쪽에서 CSP 위반 0건을 검사한다 |
+| 관리 SPA (Caddy) | `default-src 'none'; script-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self' blob:; connect-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` | 정본은 `PortfolioBlog.Web/admin-headers.ts` — `vite preview`(E2E)가 이미 이 값을 쓴다. CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`는 Plan 4의 Caddyfile이 이 파일의 값을 관리 사이트 블록에 옮기지만, **HSTS는 Caddy가 따로 더한다**(이 파일에는 의도적으로 없다 — 같은 값이 루프백의 `vite preview`에서도 나가는데, `localhost`에 HSTS를 걸면 그 헤더를 받은 개발자 브라우저 프로필의 루프백 전체가 이후 HTTPS로 고정되기 때문이다). `style-src`를 요소/속성으로 나눠 CodeMirror가 주입하는 `<style>` 요소에만 `'unsafe-inline'`을 준다(속성 스타일은 막는다). E2E가 Chromium·Firefox 양쪽에서 CSP 위반 0건과 배포될 CSP 값 자체(`admin.spec.ts`가 `admin-headers.ts`의 `ADMIN_CSP`와 문자열 동일성까지)를 검사한다 |
 | 관리 API | 공개 HTML과 같은 값(2B 구현: `SecurityHeadersMiddleware`가 첨부 응답의 sandbox CSP만 예외로 유지하고 그 밖은 전부 이 값으로 덮어쓴다 — 관리 API도 예외가 아니다) | 위 + `Cache-Control: no-store` |
 | 첨부 | `default-src 'none'; sandbox` | `nosniff`, Content-Type은 시그니처 판정값, `Cache-Control: public, max-age=31536000, immutable`(내용 주소) |
-| 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src <관리 origin>; style-src <관리 origin>; base-uri 'none'; form-action 'none'">` | `'self'`는 쓰지 않는다 — Firefox는 `about:srcdoc` 문서의 `'self'`를 부모 출처로 보지 않아 스타일시트·이미지를 전부 막는다(실측, `PortfolioBlog.Web/e2e/admin.spec.ts`가 Chromium·Firefox 양쪽에서 재확인). 출처를 명시하면 둘 다 허용한다 |
+| 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src <관리 origin>; style-src <관리 origin>; base-uri 'none'; form-action 'none'">` | `'self'`는 쓰지 않는다 — Firefox는 `about:srcdoc` 문서의 `'self'`를 부모 출처로 보지 않아 스타일시트·이미지를 전부 막는다(실측). 출처를 명시하면 Chromium·Firefox 둘 다 스타일시트·이미지를 로드한다는 것은 `PortfolioBlog.Web/e2e/admin.spec.ts`가 매번 확인하는 긍정 명제다. `'self'`로 되돌리면 Firefox에서 그 확인이 깨진다는 것은 한 번 관측한 사실이며, 상시 확인 대상은 아니다 |
 
 모든 행 공통으로 `X-Frame-Options: DENY`, HSTS(Development 제외), `Server` 헤더 없음(Kestrel `AddServerHeader = false`)이 붙는다. 헤더는 전송 직전(`OnStarting`)에 붙는다 — 라우트 제약 실패 404와 예외 500에도 실린다. 호스트 필터의 400(본문 없음)과 Kestrel이 직접 거부하는 요청(요청 줄 8KB 초과 414, 경로의 NUL·잘못된 Host 400 — 모두 본문 없음)에는 헤더가 없다(실측 — 2B 최종 리뷰가 실제 Kestrel Production 호스트에 HTTPS로 직접 요청해 관측했다. 스위트의 TestServer로는 재현되지 않는다). `Cross-Origin-Resource-Policy`는 붙이지 않는다(미리보기 iframe의 이미지가 관리 오리진에서 읽힌다).
 
@@ -515,7 +515,7 @@ PortfolioBlog.Web/Dockerfile   # node:22 빌드 → caddy:2 이미지에 dist �
 ```
 
 - **`route` 블록은 필수다.** Caddy는 지시문을 자체 우선순위로 재정렬하므로, `route` 없이 `handle`과 `respond`를 섞으면 IP 거부(`respond @denied`)보다 `handle`이 먼저 평가될 수 있다. `route` 안에서는 적힌 순서대로 실행된다. 4단계에서 비허용 IP로 관리 호스트의 모든 경로가 404인지 실제 요청으로 검증한다.
-- 3.6절의 관리 SPA 보안 헤더는 관리 사이트 블록의 `header` 지시문으로 붙인다.
+- 3.6절의 관리 SPA 보안 헤더는 관리 사이트 블록의 `header` 지시문으로 붙인다. 4단계 검증 항목: 관리 사이트 블록의 헤더가 `admin-headers.ts`와 같은 값이면서 **거기에 HSTS(`Strict-Transport-Security`)가 더해져 있는지** 확인한다(그 파일에는 의도적으로 빠져 있다 — 3.6절 참고).
 
 - 1차 배포 토폴로지는 **인터넷 → Caddy → api**로 고정한다. 앞단에 CDN·로드밸런서를 두면 `remote_ip`가 프록시 주소를 보게 되므로, 그때는 `trusted_proxies` + `client_ip`로 재설계한다.
 - 배포 직후 검증: 허용 IP 밖에서 `admin.<도메인>` 전 경로 404, Caddy 액세스 로그의 원본 IP가 실제 클라이언트 IP인지 확인(Docker 네트워크 모드에 따라 게이트웨이 주소로 보일 수 있음).

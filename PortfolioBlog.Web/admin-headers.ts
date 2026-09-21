@@ -20,6 +20,9 @@ export const ADMIN_CSP = [
   "frame-ancestors 'none'",
 ].join('; ')
 
+// Strict-Transport-Security는 의도적으로 없다: 이 값은 루프백(`vite preview`, E2E)에서도 그대로 나가는데,
+// localhost에 HSTS를 걸면 그 헤더를 받은 개발자 브라우저 프로필의 루프백 전체가 이후 HTTPS로 고정된다.
+// 운영에서는 Plan 4의 Caddyfile이 관리 사이트 블록에 HSTS를 별도로 더한다(이 파일에는 없다).
 export const ADMIN_SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy': ADMIN_CSP,
   'X-Content-Type-Options': 'nosniff',
