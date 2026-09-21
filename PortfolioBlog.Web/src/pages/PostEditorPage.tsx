@@ -23,10 +23,12 @@ const fromServer = (post: PostDetail): DraftFields => ({
 const detailKey = (postId: string) => ['posts', 'detail', postId] as const
 
 /** 409 뒤 최신본 재조회가 실패했을 때 보여줄 문구. 404는 "그 사이 삭제됐다"는 우리 쪽 해석이라 서버 문자열이
-    아니라 고정 문구를 쓴다(401은 noteAuthFailure가 이미 로그인 화면으로 보내 여기까지 오지 않는다). */
+    아니라 고정 문구를 쓴다(401은 noteAuthFailure가 이미 로그인 화면으로 보내 여기까지 오지 않는다). 404 문구는
+    "임시본에 남아 있다"고 단정하지 않는다 — 디바운스 전이면 임시본이 아직 없고, 그 글을 다시 열어도 상세 조회
+    자체가 404라 복원할 화면이 없다. 이 화면에 지금 보이는 내용만은 확실히 참이라 그것만 말한다. */
 const conflictRefetchMessage = (error: unknown): string =>
   error instanceof ApiError && error.status === 404
-    ? '이 글은 다른 곳에서 삭제되었습니다. 내용은 임시본에 남아 있습니다.'
+    ? '이 글은 다른 곳에서 삭제되었습니다. 이 화면의 내용은 그대로 있으니 필요하면 복사해 새 글로 저장하세요.'
     : describeError(error)
 
 export function PostEditorPage() {
@@ -64,6 +66,8 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [draftFailed, setDraftFailed] = useState(false)
+  // 새 글을 만들었지만(서버에 이미 존재) 그사이 더 친 내용을 임시본으로 남기지 못했을 때만 켠다 — 아래 onSuccess 참고.
+  const [postCreatedButDraftFailed, setPostCreatedButDraftFailed] = useState(false)
 
   const dirty = !sameFields(fields, baseline.fields)
   const set = <K extends keyof DraftFields>(key: K, value: DraftFields[K]) => setFields(prev => ({ ...prev, [key]: value }))
@@ -73,23 +77,27 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   // 매 렌더 뒤 최신값으로 갱신되는 ref를 따로 두고 onSuccess에서는 이 ref만 읽는다.
   const fieldsRef = useRef(fields)
   useEffect(() => { fieldsRef.current = fields })
-  // 새 글 생성이 성공한 뒤에는 이 Editor 인스턴스(postId=null, draftKey='new')가 완전히 언마운트되기 전까지
-  // 잠깐 더 살아 있을 수 있다 — 그 틈에 남은 디바운스 틱이 자동 저장 effect를 한 번 더 돌려 방금 지운 'new'
-  // 임시본을 되살릴 수 있어 막는다(경합의 재현 여부는 테스트에서 직접 확인한다).
-  const discardDraftsRef = useRef(false)
+  // 자동 저장 effect가 기준선을 읽을 때 의존성으로 넣지 않기 위한 ref(아래 effect 참고).
+  const baselineRef = useRef(baseline)
+  useEffect(() => { baselineRef.current = baseline })
 
   const seriesList = useQuery({ queryKey: ['series', 'list'], queryFn: ({ signal }) => seriesApi.list(signal) })
   const tagList = useQuery({ queryKey: ['tags', 'list'], queryFn: ({ signal }) => tagsApi.list(signal) })
 
   // 임시본 자동 저장(1초 디바운스). 복원 여부를 아직 고르지 않았으면(pendingDraft) 기존 임시본을 건드리지 않는다.
+  // baseline은 의존성에 넣지 않는다(실측 결함): 저장 성공으로 onSuccess가 setBaseline을 부르면, baseline이
+  // 의존성에 있을 때 이 effect가 같은 커밋에서 한 번 더 도는데, 그 시점의 settled는 아직 디바운스 전 값(저장 전
+  // 내용)이다 — 그 낡은 값이 방금 받은 새 baseVersion과 함께 임시본으로 다시 쓰여, 저장 직후 화면을 떠나면
+  // "저장 전 내용을 복원하시겠습니까"를 경고 없이 제안하게 된다. 저장 뒤의 임시본 처리는 onSuccess가 그 시점의
+  // 실제 입력으로 직접 한다(아래 save 참고).
   const settled = useDebounced(fields, 1000)
   useEffect(() => {
-    if (pendingDraft !== null || discardDraftsRef.current) return
-    // oxlint-disable-next-line react/set-state-in-effect
-    if (sameFields(settled, baseline.fields)) { clearDraft(draftKey); setDraftFailed(false); return }
+    if (pendingDraft !== null) return
+    const currentBaseline = baselineRef.current
+    if (sameFields(settled, currentBaseline.fields)) { clearDraft(draftKey); setDraftFailed(false); return }
     // 저장소 쓰기(부수 효과)의 성공 여부를 화면에 알려야 한다 — 렌더 중에 파생할 수 있는 값이 아니다.
-    setDraftFailed(!saveDraft(draftKey, { ...settled, baseVersion: baseline.version, savedAt: new Date().toISOString() }))
-  }, [settled, baseline, pendingDraft, draftKey])
+    setDraftFailed(!saveDraft(draftKey, { ...settled, baseVersion: currentBaseline.version, savedAt: new Date().toISOString() }))
+  }, [settled, pendingDraft, draftKey])
 
   // 임시본을 저장하지 못했는데(용량 초과 등) 바뀐 내용이 있으면 창을 닫기 전에 한 번 묻는다.
   useEffect(() => {
@@ -119,11 +127,19 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
       void client.invalidateQueries({ queryKey: ['tags'] })
       void client.invalidateQueries({ queryKey: ['series'] })
       if (postId === null) {
+        if (unchanged) {
+          clearDraft(NEW_POST_KEY)
+          void navigate(`/posts/${saved.id}`, { replace: true })
+          return
+        }
         // 그사이 친 내용이 있으면 새 글 id 키로 임시본을 남긴다 — 이동한 편집 화면이 "임시본 복원"을 제안한다.
-        // slug는 생성 뒤 바꿀 수 없으므로 서버가 확정한 값으로 고정한다.
-        if (!unchanged) saveDraft(saved.id, { ...fieldsRef.current, slug: saved.slug, baseVersion: saved.version, savedAt: new Date().toISOString() })
+        // slug는 생성 뒤 바꿀 수 없으므로 서버가 확정한 값으로 고정한다. 반환값을 확인한다: 저장에 실패했는데
+        // 그대로 이동하면 이 Editor 인스턴스가 곧바로 언마운트돼 draftFailed를 화면에 보일 틈이 없다 — 그 경우는
+        // 이동하지 않고 남는다(서버에는 이미 글이 생겼으므로 postCreatedButDraftFailed로 "저장"을 막아 중복
+        // 생성을 막고, 화면의 내용은 지우지 않아 사용자가 직접 복사할 수 있게 둔다).
+        const savedToStorage = saveDraft(saved.id, { ...fieldsRef.current, slug: saved.slug, baseVersion: saved.version, savedAt: new Date().toISOString() })
+        if (!savedToStorage) { setPostCreatedButDraftFailed(true); return }
         clearDraft(NEW_POST_KEY)
-        discardDraftsRef.current = true
         void navigate(`/posts/${saved.id}`, { replace: true })
         return
       }
@@ -134,6 +150,10 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         // 응답이 오기까지 아무것도 안 바뀌었을 때만 임시본을 지운다(더 지킬 내용이 없을 때만).
         clearDraft(draftKey)
         if (next.contentMarkdown !== submitted.contentMarkdown) setEditorKey(k => k + 1) // 편집기는 비제어라 다시 마운트해야 본문이 바뀐다
+      } else {
+        // 응답이 오는 동안 더 바뀐 내용이 있다 — 자동 저장 틱(최대 1초)을 기다리지 않고 지금 내용으로 임시본을
+        // 다시 쓴다. baseVersion을 방금 받은 새 version으로 맞춰야 다음에 열었을 때 정확히 이어서 복원된다.
+        setDraftFailed(!saveDraft(draftKey, { ...fieldsRef.current, baseVersion: saved.version, savedAt: new Date().toISOString() }))
       }
     },
     onError: async error => {
@@ -157,7 +177,16 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
     if (!hasErrors(errors)) save.mutate(fields)
   }
 
+  // uploading(state)만으로는 재진입을 막을 수 없다 — setState는 다음 렌더까지 반영이 늦어져, 업로드 도중
+  // 빠르게 또 uploadImages가 불리면(붙여넣기·드롭·파일 선택이 겹칠 때) uploading이 아직 false로 보일 수 있다.
+  // ref는 그 자리에서 바로 읽고 쓰므로 같은 창을 만들지 않는다.
+  const uploadingRef = useRef(false)
   const uploadImages = async (files: File[]) => {
+    if (uploadingRef.current) {
+      setUploadErrors(prev => [...prev, '이미 업로드가 진행 중입니다 — 끝난 뒤 다시 시도하세요.'])
+      return
+    }
+    uploadingRef.current = true
     setUploadErrors([]); setUploading(true)
     const errors: string[] = []
     for (let index = 0; index < files.length; index++) { // 순차 업로드: 서버의 업로드 동시 실행 한도는 전역 2다
@@ -174,6 +203,7 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         break // 서버 호출 실패는 여기서 멈춘다(다음 파일이 또 실패할 가능성이 높다) — 남은 파일은 올리지 않는다
       }
     }
+    uploadingRef.current = false
     setUploading(false)
     setUploadErrors(errors)
   }
@@ -190,7 +220,7 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         {draftFailed && <span className="text-xs text-amber-700">임시본을 저장하지 못했습니다(브라우저 저장 공간).</span>}
         {/* 글에는 초안 상태가 없다 — 저장이 곧 발행이다. */}
         <span className="text-sm font-medium text-red-700">저장하면 즉시 공개됩니다</span>
-        <button type="button" onClick={submit} disabled={save.isPending || conflict !== null || (postId !== null && !dirty)}
+        <button type="button" onClick={submit} disabled={save.isPending || conflict !== null || postCreatedButDraftFailed || (postId !== null && !dirty)}
           className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-40">{save.isPending ? '저장 중…' : '저장'}</button>
       </div>
 
@@ -212,7 +242,13 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
           <span>{conflictRefetchMessage(conflictRefetchError)}</span>
         </div>
       )}
-      {!conflict && <ErrorNotice error={save.error instanceof ApiError && save.error.status === 400 ? null : save.error} />}
+      {/* 재조회 실패 안내가 이미 409 실패의 원인을 설명하므로, 같은 실패에 대한 일반 안내(ErrorNotice)를 겹쳐 보여주지 않는다. */}
+      {!conflict && conflictRefetchError === null && <ErrorNotice error={save.error instanceof ApiError && save.error.status === 400 ? null : save.error} />}
+      {postCreatedButDraftFailed && (
+        <div role="alert" className="rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
+          글은 이미 만들어졌지만 그사이 입력한 내용을 임시 저장하지 못했습니다(브라우저 저장 공간). 이 화면의 내용을 복사해 둔 뒤 새로고침해서 이어서 고치세요.
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3">

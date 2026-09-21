@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PostDetail } from '../api/types'
+import type { Attachment, PostDetail } from '../api/types'
 import { loadDraft, saveDraft } from '../lib/drafts'
 import { LOGGED_IN, renderApp, stubApi } from './harness'
 
@@ -57,6 +57,18 @@ describe('글 편집', () => {
     await waitFor(() => expect(calls.find(c => c.method === 'PUT')).toBeDefined())
     expect(calls.find(c => c.method === 'PUT')?.body).toMatchObject({ title: '바뀐 제목', version: 7, tagNames: ['C#'] })
     await waitFor(() => expect(screen.getByRole('button', { name: '저장' })).toBeDisabled()) // 저장 뒤 기준선이 갱신된다
+  })
+
+  it('저장 성공 직후 저장 전 내용을 담은 낡은 임시본이 남지 않는다', async () => {
+    // 자동 저장 effect의 의존성에 baseline이 있으면, 저장 성공으로 setBaseline이 새 객체를 만드는 순간 같은
+    // 커밋에서 effect가 한 번 더 돌고, 그때 settled는 아직 디바운스 전 값(저장 전 내용)이다 — 그 값이 새
+    // baseVersion과 함께 임시본으로 다시 쓰인다(실측).
+    stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, [`PUT /api/posts/${POST.id}`]: { status: 200, body: { ...POST, contentMarkdown: '# 고친 본문', version: 8 } } })
+    renderApp(`/posts/${POST.id}`)
+    fireEvent.change(await screen.findByLabelText('본문(마크다운)'), { target: { value: '# 고친 본문' } })
+    await userEvent.click(screen.getByRole('button', { name: '저장' })) // 1초 디바운스가 끝나기 전에 저장한다
+    await waitFor(() => expect(screen.getByRole('button', { name: '저장' })).toBeDisabled())
+    expect(loadDraft(POST.id)).toBeNull()
   })
 
   it('서버의 400은 필드 옆에 표시한다', async () => {
@@ -129,6 +141,22 @@ describe('글 편집', () => {
     expect(calls.filter(c => c.method === 'POST' && c.url === '/api/attachments')).toHaveLength(1) // good2는 시도되지 않음
   })
 
+  it('업로드가 도는 중에 또 업로드를 걸면 받지 않고 그 사실을 알린다', async () => {
+    let resolveFirst!: (reply: { status: number; body: Attachment }) => void
+    const firstPromise = new Promise<{ status: number; body: Attachment }>(resolve => { resolveFirst = resolve })
+    const attachment: Attachment = { id: 'a1', url: '/attachments/a.png', fileName: 'a.png', contentType: 'image/png', sizeBytes: 3, sha256: 'x', createdAt: '2026-09-01T00:00:00Z' }
+    const calls = stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, 'POST /api/attachments': () => firstPromise })
+    renderApp(`/posts/${POST.id}`)
+    const input = await screen.findByLabelText('이미지 올리기')
+    const file1 = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' })
+    const file2 = new File([new Uint8Array([1, 2, 3])], 'b.png', { type: 'image/png' })
+    await userEvent.upload(input, file1) // 아직 응답 전(firstPromise가 안 풀림)
+    await userEvent.upload(input, file2) // 그 사이 또 업로드를 건다 — 파일 선택이 겹치는 상황(붙여넣기·드롭과의 경합)을 흉내낸다
+    expect(await screen.findByText(/이미 업로드가 진행 중입니다/)).toBeInTheDocument()
+    resolveFirst({ status: 201, body: attachment })
+    await waitFor(() => expect(calls.filter(c => c.method === 'POST' && c.url === '/api/attachments')).toHaveLength(1)) // 두 번째 호출은 나가지 않았다
+  })
+
   it('저장 요청이 돌아오기 전에 친 글자는 남는다(수정 화면)', async () => {
     let resolvePut!: (reply: { status: number; body: PostDetail }) => void
     const putPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePut = resolve })
@@ -146,6 +174,8 @@ describe('글 편집', () => {
     resolvePut({ status: 200, body: { ...POST, title: '바뀐 제목', version: 8 } })
     await waitFor(() => expect(screen.getByRole('button', { name: '저장' })).not.toBeDisabled()) // 응답 뒤에도 dirty(더 바뀐 게 있음)
     expect(screen.getByLabelText(/^요약/)).toHaveValue('요약수정중') // 사라지지 않았다
+    // 임시본도 화면과 같은 내용을 담아야 한다 — 자동 저장 틱을 기다리지 않고 onSuccess가 지금 내용으로 바로 쓴다.
+    expect(loadDraft(POST.id)).toMatchObject({ summary: '요약수정중', baseVersion: 8 })
     await userEvent.click(screen.getByRole('button', { name: '저장' }))
     await waitFor(() => expect(calls.filter(c => c.method === 'PUT')).toHaveLength(2))
     expect(calls.filter(c => c.method === 'PUT')[1].body).toMatchObject({ version: 8, summary: '요약수정중' }) // 다음 저장은 최신 version을 그대로 싣는다
@@ -165,17 +195,36 @@ describe('글 편집', () => {
     expect(loadDraft(POST.id)?.summary).toBe('중간에 더 씀')
   })
 
-  it('새 글 생성 성공 뒤 남은 디바운스 틱이 지운 임시본을 되살리지 않는다', async () => {
-    // 이 경합은 jsdom 실시간 타이머에서도 실제로 재현된다(가드를 지우면 아래 첫 waitFor에서 곧바로 실패로 확인함) —
-    // 타이핑이 끝나자마자 저장을 눌러 1초 디바운스가 아직 안 끝난 채로 경합 창을 만든다.
+  it('새 글: 생성 요청이 도는 동안 친 내용을 임시본으로 남기지 못하면 이동하지 않고 저장을 막는다', async () => {
+    // 여기서 실패하면 이동 직전이라 setDraftFailed(true)를 화면에 보일 틈이 없다(새 Editor가 곧바로 마운트되며
+    // 그 상태를 버린다) — 그래서 이 경우만 이동하지 않는다. 서버에는 이미 글이 생겼으므로 "저장"을 막아
+    // 다시 눌러도 중복 글이 생기지 않게 한다.
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError') })
+    let resolvePost!: (reply: { status: number; body: PostDetail }) => void
+    const postPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePost = resolve })
+    stubApi({ ...COMMON, 'POST /api/posts': () => postPromise, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    const { router } = renderApp('/posts/new')
+    await userEvent.type(await screen.findByLabelText(/^제목/), '새 글 제목')
+    await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await userEvent.type(screen.getByLabelText(/^요약/), '중간에 더 씀') // 요청이 도는 동안 더 친다
+    resolvePost({ status: 201, body: { ...POST, slug: 'new-post', title: '새 글 제목' } })
+    await screen.findByText(/임시 저장하지 못했습니다/)
+    expect(router.state.location.pathname).toBe('/posts/new') // 이동하지 않았다
+    expect(screen.getByRole('button', { name: '저장' })).toBeDisabled() // 다시 눌러 중복 글을 만들 수 없다
+    setItemSpy.mockRestore()
+  })
+
+  it('새 글 생성 성공 뒤에도 저장 전 내용을 담은 낡은 임시본이 남지 않는다', async () => {
+    // 자동 저장 effect는 baseline을 의존성으로 보지 않는다(O1) — 저장 성공으로 baseline이 바뀌어도 이 effect가
+    // 다시 돌아 저장 전 settled 값을 새 baseVersion과 함께 되쓰지 않는다. 타이핑 직후(1초 디바운스가 끝나기
+    // 전) 곧바로 저장해 그 경로를 확인한다.
     stubApi({ ...COMMON, 'POST /api/posts': { status: 201, body: { ...POST, slug: 'new-post' } }, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
     renderApp('/posts/new')
     await userEvent.type(await screen.findByLabelText(/^제목/), '새 글 제목')
     await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
     await userEvent.click(screen.getByRole('button', { name: '저장' }))
     await waitFor(() => expect(loadDraft('new')).toBeNull())
-    await new Promise(resolve => setTimeout(resolve, 1500)) // 남아 있을 수 있는 디바운스 틱이 실제로 지나가길 기다린다(실시간)
-    expect(loadDraft('new')).toBeNull()
   })
 
   it('409 뒤 최신본 재조회가 404면(그사이 삭제됨) 사실을 알리고, 충돌 화면은 뜨지 않는다', async () => {
@@ -188,7 +237,8 @@ describe('글 편집', () => {
     renderApp(`/posts/${POST.id}`)
     fireEvent.change(await screen.findByLabelText('본문(마크다운)'), { target: { value: '# 내 본문' } })
     await userEvent.click(screen.getByRole('button', { name: '저장' }))
-    await screen.findByText('이 글은 다른 곳에서 삭제되었습니다. 내용은 임시본에 남아 있습니다.')
+    await screen.findByText('이 글은 다른 곳에서 삭제되었습니다. 이 화면의 내용은 그대로 있으니 필요하면 복사해 새 글로 저장하세요.')
     expect(screen.queryByRole('alertdialog', { name: '저장 충돌' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('alert')).toHaveLength(1) // 같은 실패에 대한 일반 안내(ErrorNotice)가 겹쳐 뜨지 않는다
   })
 })
