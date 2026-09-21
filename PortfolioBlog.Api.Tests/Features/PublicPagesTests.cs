@@ -99,13 +99,22 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
         Assert.Null((await HtmlDoc.GetAsync(client, "/posts/no-image")).QuerySelector("meta[property='og:image']"));
     }
 
-    /// <summary>없는 글·형식 밖 slug는 고정 HTML 404이고 요청 값을 반사하지 않는다.</summary>
+    /// <summary>없는 글·형식 밖 slug는 고정 HTML 404이고 요청 값을 반사하지 않는다.
+    /// 공백뿐인 경로 값(스페이스·탭·개행·NBSP·전각 공백)도 포함한다: MVC 모델 바인딩이 그런 값을 <c>null</c>로 바꿔 주기 때문에
+    /// 핸들러가 널을 방어하지 않으면 404가 아니라 500이 된다.</summary>
     [Theory]
     [InlineData("/posts/no-such-post")]
     [InlineData("/posts/Bad_Slug")]
     [InlineData("/posts/%3Cscript%3Ealert(1)%3C%2Fscript%3E")]
     [InlineData("/tags/no-such-tag")]
     [InlineData("/series/no-such-series")]
+    [InlineData("/posts/%20")]
+    [InlineData("/series/%20")]
+    [InlineData("/series/%0A")]
+    [InlineData("/tags/%20")]
+    [InlineData("/tags/%09")]
+    [InlineData("/tags/%C2%A0")]
+    [InlineData("/tags/%E3%80%80")]
     public async Task Missing_Is404Html_WithoutReflection(string path)
     {
         using var client = factory.CreatePublicClient();

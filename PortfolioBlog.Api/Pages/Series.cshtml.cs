@@ -23,9 +23,9 @@ public sealed class SeriesPageModel(PublicDbContext db, IOptions<SiteOptions> si
     public PublicSeries Series { get; private set; } = null!;
 
     /// <summary>slug로 시리즈를 찾아 상세와 소속 글 목록을 채운다.</summary>
-    /// <param name="slug">요청 경로의 시리즈 slug.</param>
+    /// <param name="slug">요청 경로의 시리즈 slug. 모델 바인딩은 공백뿐인 값을 <see langword="null"/>로 바꾼다(실측: <c>/series/%20</c>) — 그래서 널 허용이다.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>정상이면 이 페이지, slug 형식이 틀리거나 시리즈가 없으면 404.</returns>
+    /// <returns>정상이면 이 페이지, slug가 없거나(공백뿐) 형식이 틀리거나 시리즈가 없으면 404.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -34,8 +34,9 @@ public sealed class SeriesPageModel(PublicDbContext db, IOptions<SiteOptions> si
     /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 시리즈+소속 글 조회(총 2회)를 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
-    public async Task<IActionResult> OnGetAsync(string slug, CancellationToken ct)
+    public async Task<IActionResult> OnGetAsync(string? slug, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(slug)) return NotFound();
         if (!SlugRules.IsValid(slug)) return NotFound();
         var series = await PublicQueries.GetSeriesAsync(db, slug, ct);
         if (series is null) return NotFound();

@@ -29,9 +29,9 @@ public sealed class PostModel(PublicDbContext db, RenderedPostCache cache, IOpti
     public string? BodyHtml { get; private set; }
 
     /// <summary>slug로 글을 찾아 메타데이터를 채우고, 본문을 캐시에서 찾거나(미스면) 렌더링한다.</summary>
-    /// <param name="slug">요청 경로의 글 slug.</param>
+    /// <param name="slug">요청 경로의 글 slug. 모델 바인딩은 공백뿐인 값을 <see langword="null"/>로 바꾼다(실측: <c>/posts/%20</c>) — 그래서 널 허용이다.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>정상이면 이 페이지, slug 형식이 틀리거나 글이 없으면 404.</returns>
+    /// <returns>정상이면 이 페이지, slug가 없거나(공백뿐) 형식이 틀리거나 글이 없으면 404.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -40,8 +40,9 @@ public sealed class PostModel(PublicDbContext db, RenderedPostCache cache, IOpti
     /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 메타데이터 조회 1~2회 + (캐시 미스일 때만) 본문 조회·렌더를 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
-    public async Task<IActionResult> OnGetAsync(string slug, CancellationToken ct)
+    public async Task<IActionResult> OnGetAsync(string? slug, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(slug)) return NotFound();
         // 형식 밖 slug(대문자·밑줄·NUL·100자 초과)는 DB에 가지 않는다.
         if (!SlugRules.IsValid(slug)) return NotFound();
         var meta = await PublicQueries.GetPostAsync(db, slug, ct);

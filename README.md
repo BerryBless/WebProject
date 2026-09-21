@@ -78,6 +78,8 @@ flowchart TB
 | JS | 없음 | `script-src 'self'` |
 | 상태 변경 | 불가능(엔드포인트가 이 호스트에 없음) | 전부 여기에만 |
 
+허용되지 않은 `Host` 헤더로 접속하면 **본문 없는 400**이 나옵니다(설정된 두 origin — `Site:PublicOrigin`·`Site:AdminOrigin` — 의 호스트만 허용합니다).
+
 ### 관리 API 접근 판정
 
 방어선은 3겹입니다: Caddy의 IP 차단 → 앱의 호스트·IP·CSRF 검사 → 로그인 세션. 아래 판정은 전부 요청 본문을 읽기 전에 끝납니다.

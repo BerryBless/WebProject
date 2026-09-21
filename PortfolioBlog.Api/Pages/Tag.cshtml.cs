@@ -42,9 +42,10 @@ public sealed class TagPageModel(PublicDbContext db, IOptions<SiteOptions> site)
     public PagerModel Pager => new(_path, null, Posts.Page, Math.Min(Posts.LastPage, IndexModel.MaxPage));
 
     /// <summary>경로의 태그 이름을 정규화해 그 태그가 붙은 글 목록을 채운다.</summary>
-    /// <param name="tag">요청 경로의 태그 이름(URL 디코딩된 원문).</param>
+    /// <param name="tag">요청 경로의 태그 이름(URL 디코딩된 원문). 모델 바인딩은 공백뿐인 값을 <see langword="null"/>로 바꾼다
+    /// (실측: <c>/tags/%20</c>·<c>/tags/%09</c>·<c>/tags/%C2%A0</c>·<c>/tags/%E3%80%80</c>) — 그래서 널 허용이다.</param>
     /// <param name="ct">요청 취소 토큰.</param>
-    /// <returns>정상이면 이 페이지, 입력이 형식 밖이거나 태그가 없거나 쪽 번호가 범위를 벗어나면 404.</returns>
+    /// <returns>정상이면 이 페이지, 태그 이름이 없거나(공백뿐) 형식 밖이거나 태그가 없거나 쪽 번호가 범위를 벗어나면 404.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -53,8 +54,9 @@ public sealed class TagPageModel(PublicDbContext db, IOptions<SiteOptions> site)
     /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <see cref="PublicQueries.ByTagAsync"/>가 태그 조회 1회 + <c>COUNT</c> 1회 + 목록 SELECT 1회, 총 3회를 순차 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
-    public async Task<IActionResult> OnGetAsync(string tag, CancellationToken ct)
+    public async Task<IActionResult> OnGetAsync(string? tag, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(tag)) return NotFound();
         // 정규화 전에 길이를 먼저 자른다: 정규화(NFC)는 입력 길이에 비례하는 작업이다. 공백 축소 여지를 두고 상한의 4배까지만 받는다.
         if (tag.Length > AppDbContext.TagMax * 4 || TextRules.ContainsNul(tag)) return NotFound();
         var key = TagResolver.Normalize(tag);

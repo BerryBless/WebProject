@@ -29,6 +29,9 @@ builder.Services.AddOptions<HostFilteringOptions>().Configure<IOptions<SiteOptio
     o.AllowedHosts = new[] { SiteOptions.HostOf(site.Value.PublicOrigin), SiteOptions.HostOf(site.Value.AdminOrigin) }
         .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     o.AllowEmptyHosts = false;
+    // 기본값 true면 이 400에 334바이트짜리 프레임워크 HTML 본문이 실린다(실측). 그 응답은 앱 미들웨어보다 바깥에서 만들어져
+    // CSP·nosniff가 붙지 않으므로, 본문을 아예 없애 "본문 있는 응답에는 보안 헤더가 있다"를 예외 없이 유지한다.
+    o.IncludeFailureMessage = false;
 });
 builder.Services.AddExceptionHandler<OverloadExceptionHandler>();
 
@@ -77,7 +80,11 @@ using (var scope = app.Services.CreateScope())
 // 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms — 2A 단계 실측, plan/resume_guide_0921.md)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.
 app.Services.GetRequiredService<MarkdownRenderer>().Render("```csharp\nvar warm = 1;\n```\n");
 
-app.UseMiddleware<SecurityHeadersMiddleware>(); // 앱 미들웨어 중 맨 앞(프레임워크의 HostFiltering 시작 필터만 이보다 바깥이라 그 400에는 헤더가 없다 — 본문 없는 응답. 바로 다음 줄의 UseTrustedForwardedHeaders는 일반 앱 미들웨어라 이 줄 뒤에서 실행되고 자체적으로 400을 내지 않는다)
+// 앱 미들웨어 중 맨 앞. 프레임워크의 HostFiltering 시작 필터만 이보다 바깥이라 그 400에는 이 헤더들이 붙지 않는다(실측) —
+// 그래서 위에서 IncludeFailureMessage = false로 그 400의 본문을 없앴다(헤더 없는 응답에 본문도 없다).
+// Kestrel이 앱에 닿기 전에 직접 거부하는 요청(요청 줄 8KB 초과 414, 경로의 NUL·잘못된 Host 400)도 같은 이유로 헤더가 없고 본문도 없다(실측).
+// 바로 다음 줄의 UseTrustedForwardedHeaders는 일반 앱 미들웨어라 이 줄 뒤에서 실행되고 자체적으로 400을 내지 않는다.
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync);

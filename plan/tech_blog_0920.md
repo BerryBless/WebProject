@@ -336,7 +336,7 @@ sequenceDiagram
 | `/posts/{slug}` | 글 상세: 렌더링된 본문, 태그, 시리즈 이전/다음 편, `<title>`·description·OG·canonical |
 | `/tags/{tag}` | 정규화명으로 조회(경로 값은 URL 인코딩, `C#` → `C%23`) |
 | `/series/{slug}` | 시리즈 설명 + 순서대로 글 목록 |
-| `/search?q=` | 제목·요약·본문 `ILIKE`. `q` 2~100자, `%_\` 이스케이프, 매개변수화. 경계 밖 `q`는 400(안내문), 결과 쪽은 `noindex` |
+| `/search?q=` | 제목·요약·본문 `ILIKE`. `q` 2~100자, `%_\` 이스케이프, 매개변수화. 경계 밖 `q`는 400(안내문), 결과 쪽은 `noindex`. 원시 `q`가 약 8KB를 넘으면 Kestrel이 414로 먼저 끊는다(실측: 8,100자까지 앱 400, 9,000자부터 414) |
 | `/feed.xml` | Atom 1.0 최신 20개. `id`는 Post `Id` 기반 URN, `published=CreatedAt`, `updated=UpdatedAt`, 내용은 `Summary`(text) |
 | `/sitemap.xml`, `/robots.txt` | 전체 글·태그·시리즈. `robots.txt`는 sitemap 위치만 |
 | `/attachments/{id}/{fileName}` | 조회는 `id`로만. `fileName`은 표시용이며 파일 경로에 결합하지 않는다 |
@@ -412,7 +412,7 @@ sequenceDiagram
 | 첨부 | `default-src 'none'; sandbox` | `nosniff`, Content-Type은 시그니처 판정값, `Cache-Control: public, max-age=31536000, immutable`(내용 주소) |
 | 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'">` | |
 
-모든 행 공통으로 `X-Frame-Options: DENY`, HSTS(Development 제외), `Server` 헤더 없음(Kestrel `AddServerHeader = false`)이 붙는다. 헤더는 전송 직전(`OnStarting`)에 붙는다 — 라우트 제약 실패 404와 예외 500에도 실린다. 호스트 필터의 400(프레임워크 고정 본문)만 예외다. `Cross-Origin-Resource-Policy`는 붙이지 않는다(미리보기 iframe의 이미지가 관리 오리진에서 읽힌다).
+모든 행 공통으로 `X-Frame-Options: DENY`, HSTS(Development 제외), `Server` 헤더 없음(Kestrel `AddServerHeader = false`)이 붙는다. 헤더는 전송 직전(`OnStarting`)에 붙는다 — 라우트 제약 실패 404와 예외 500에도 실린다. 호스트 필터의 400(본문 없음)과 Kestrel이 직접 거부하는 요청(요청 줄 8KB 초과 414, 경로의 NUL·잘못된 Host 400 — 모두 본문 없음)에는 헤더가 없다(실측). `Cross-Origin-Resource-Policy`는 붙이지 않는다(미리보기 iframe의 이미지가 관리 오리진에서 읽힌다).
 
 ### 3.7 자원 제한
 
