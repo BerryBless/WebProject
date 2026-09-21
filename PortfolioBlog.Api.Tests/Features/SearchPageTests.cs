@@ -119,7 +119,7 @@ public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture
     }
 
     /// <summary>쪽 번호 상한 50이 DB 접근 전에 강제됨을, 51쪽에 실제로 항목이 존재하는 상태로 증명한다(50쪽=200/20건, 51쪽=404).
-    /// 결과가 0건인 검색어로는 상한 검사가 사라져도 "결과 없는 쪽" 폴백이 같은 404를 내 구별하지 못하므로, 51쪽 × 20 + 1건 = 1,001건을 시드해
+    /// 결과가 0건인 검색어로는 상한 검사가 사라져도 "결과 없는 쪽" 폴백이 같은 404를 내 구별하지 못하므로, 50쪽 × 20 + 1건 = 1,001건을 시드해
     /// 51쪽에 정확히 1건이 남도록 만든다 — 상한이 없다면 이 요청은 404가 아니라 200(1건)이 된다.</summary>
     [Fact]
     public async Task Page51_IsRejectedByTheCap_NotByEmptyFallback()

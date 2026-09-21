@@ -216,6 +216,9 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         "/attachments/{id:guid}/{fileName}",
         "/css/highlight.css",
         "search", // Razor 페이지의 RawText에는 앞 슬래시가 없다(Index와 같은 규칙)
+        "/feed.xml",
+        "/sitemap.xml",
+        "/robots.txt",
     ];
 
     /// <summary><see cref="IsUnderApi"/>가 접두사가 아니라 세그먼트 경계로 판정하는지 검증한다: <c>/api-import</c>·<c>/apifeed.json</c>처럼
