@@ -235,7 +235,7 @@ dotnet build PortfolioBlog.slnx
 dotnet test  PortfolioBlog.slnx
 ```
 
-.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 589개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
+.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 591개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
 
 ### 로컬 실행 (API)
 
@@ -248,6 +248,37 @@ dotnet test  PortfolioBlog.slnx
 `appsettings.Development.json`은 `Site:PublicOrigin`·`Site:AdminOrigin`을 둘 다 `https://localhost:7198`로 두므로, 같은 주소가 공개·관리 양쪽 역할을 겸합니다. 앱이 뜨면 **`https://localhost:7198/`**을 브라우저로 열어 공개 첫 쪽(최신 글 목록)을 볼 수 있습니다. 관리 API 호출은 `PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록·미리보기·첨부 업로드 예시 요청이 있고, 같은 파일 뒤쪽에 공개 페이지·태그·검색·피드·sitemap·robots 요청 예시도 있습니다.
 
 EF Core 마이그레이션 도구는 컨텍스트가 둘(`AppDbContext`·`PublicDbContext`)이라 `--context AppDbContext`가 필요합니다: `dotnet ef migrations add <이름> --project PortfolioBlog.Api --context AppDbContext`.
+
+### 관리 SPA
+
+`PortfolioBlog.Web`은 관리 에디터 전용 React 19 + TypeScript + Vite SPA입니다. Node 24가 필요합니다(다른 버전은 검증하지 않았습니다).
+
+```powershell
+cd PortfolioBlog.Web
+npm ci
+npm run certs   # .NET 개발 인증서를 .certs/로 내보냅니다(node scripts/e2e-prepare.mjs certs) — SPA도 세션 쿠키가 Secure라 HTTPS로 떠야 합니다
+```
+
+백엔드를 이 SPA의 출처로 띄운 뒤(세션 쿠키의 Origin 검사가 `Site:AdminOrigin`과 SPA 출처가 같아야 통과합니다):
+
+```powershell
+$env:Site__AdminOrigin = 'https://localhost:5173'
+dotnet run --project PortfolioBlog.Api --launch-profile https
+```
+
+새 터미널에서 `npm run dev`로 개발 서버를 띄웁니다(`https://localhost:5173`, `/api`·`/attachments`는 `https://localhost:7198`으로 프록시됩니다).
+
+단위 테스트: `npm test`(Vitest, 179개 — jsdom, 실제 백엔드 없이 컴포넌트·유틸리티를 검사합니다). 정적 검사: `npm run lint`(oxlint) · `npm run typecheck`(`tsc -b`).
+
+E2E(Playwright, 실제 백엔드 + PostgreSQL + production 빌드 + 배포용 보안 헤더 — Docker Desktop 필요):
+
+```powershell
+npm run e2e:prepare   # 개발 인증서, 버려질 PostgreSQL 컨테이너(pb-e2e-pg), 버려질 관리자 비밀번호의 해시를 준비합니다
+npm run e2e           # Chromium·Firefox에서 8개 테스트를 순차 실행합니다(재시도 없음)
+docker rm -f pb-e2e-pg   # 끝나면 정리합니다
+```
+
+미리보기 iframe에 넣는 공개 사이트 CSS는 `PortfolioBlog.Api/wwwroot/css/site.css`(와 서버가 만드는 강조 CSS)의 스냅숏입니다(`PortfolioBlog.Web/src/lib/previewDoc.ts`). 공개 사이트 CSS를 바꾸면 이 스냅숏도 갱신해야 합니다 — `PortfolioBlog.Api.Tests`에서 `UPDATE_PREVIEW_SNAPSHOTS=1 dotnet test`로 파일을 쓸 수 있습니다(이 실행은 파일을 쓴 뒤 의도적으로 실패로 끝납니다 — 갱신 실행과 통과를 확인하는 평소 실행을 구분하기 위해서입니다. 갱신 후에는 `UPDATE_PREVIEW_SNAPSHOTS` 없이 다시 돌려 통과를 확인하세요).
 
 ### 설정 키
 

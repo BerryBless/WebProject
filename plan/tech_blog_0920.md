@@ -407,10 +407,10 @@ sequenceDiagram
 | 대상 | CSP | 그 외 |
 |---|---|---|
 | 공개 HTML | `default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` | HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`(전부 비활성) |
-| 관리 SPA (Caddy) | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; frame-src 'self'; base-uri 'none'; frame-ancestors 'none'` | 위와 동일. `'unsafe-inline'` 스타일은 CodeMirror 동적 스타일 때문이며 관리 origin에만 적용. production 빌드로 검증 |
+| 관리 SPA (Caddy) | `default-src 'none'; script-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self' blob:; connect-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` | 정본은 `PortfolioBlog.Web/admin-headers.ts` — `vite preview`(E2E)가 이미 이 값을 쓰고, Plan 4의 Caddyfile이 관리 사이트 블록에 그대로 옮긴다. `style-src`를 요소/속성으로 나눠 CodeMirror가 주입하는 `<style>` 요소에만 `'unsafe-inline'`을 준다(속성 스타일은 막는다). E2E가 Chromium·Firefox 양쪽에서 CSP 위반 0건을 검사한다 |
 | 관리 API | 공개 HTML과 같은 값(2B 구현: `SecurityHeadersMiddleware`가 첨부 응답의 sandbox CSP만 예외로 유지하고 그 밖은 전부 이 값으로 덮어쓴다 — 관리 API도 예외가 아니다) | 위 + `Cache-Control: no-store` |
 | 첨부 | `default-src 'none'; sandbox` | `nosniff`, Content-Type은 시그니처 판정값, `Cache-Control: public, max-age=31536000, immutable`(내용 주소) |
-| 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'">` | |
+| 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src <관리 origin>; style-src <관리 origin>; base-uri 'none'; form-action 'none'">` | `'self'`는 쓰지 않는다 — Firefox는 `about:srcdoc` 문서의 `'self'`를 부모 출처로 보지 않아 스타일시트·이미지를 전부 막는다(실측, `PortfolioBlog.Web/e2e/admin.spec.ts`가 Chromium·Firefox 양쪽에서 재확인). 출처를 명시하면 둘 다 허용한다 |
 
 모든 행 공통으로 `X-Frame-Options: DENY`, HSTS(Development 제외), `Server` 헤더 없음(Kestrel `AddServerHeader = false`)이 붙는다. 헤더는 전송 직전(`OnStarting`)에 붙는다 — 라우트 제약 실패 404와 예외 500에도 실린다. 호스트 필터의 400(본문 없음)과 Kestrel이 직접 거부하는 요청(요청 줄 8KB 초과 414, 경로의 NUL·잘못된 Host 400 — 모두 본문 없음)에는 헤더가 없다(실측 — 2B 최종 리뷰가 실제 Kestrel Production 호스트에 HTTPS로 직접 요청해 관측했다. 스위트의 TestServer로는 재현되지 않는다). `Cross-Origin-Resource-Policy`는 붙이지 않는다(미리보기 iframe의 이미지가 관리 오리진에서 읽힌다).
 
@@ -472,13 +472,14 @@ sequenceDiagram
 
 ### 3.9 관리 SPA
 
-- 라우트: `/login`, `/`(글 목록·검색), `/posts/new`, `/posts/:id`, `/series`, `/attachments`. Vite `base: '/'`(관리 호스트 루트).
-- 라이브러리: react-router 7, TanStack Query 5, Tailwind v4, CodeMirror 6(마크다운).
-- fetch 래퍼가 모든 요청에 `X-Requested-With: XMLHttpRequest`와 `credentials: 'same-origin'`을 붙이고, 401이면 `/login`으로 보낸다.
-- 미리보기: 입력 500ms 디바운스 → `/api/preview` → `sandbox=""` iframe `srcdoc`. React DOM에 서버 HTML을 직접 넣지 않는다.
+- 라우트: `/login`, `/`(글 목록·검색), `/posts/new`, `/posts/:id`, `/series`, `/tags`, `/attachments`. Vite `base: '/'`(관리 호스트 루트).
+- 라이브러리: react-router 8(스펙 작성 시점의 7이 아니다 — 계획 작성 중 확정), TanStack Query 5, Tailwind v4, CodeMirror 6(마크다운).
+- fetch 래퍼(`src/api/client.ts`)가 모든 요청에 `X-Requested-With: XMLHttpRequest`와 `credentials: 'same-origin'`을 붙이고, 401이면 `/login`으로 보낸다. 경로에 `..`·퍼센트 인코딩된 `.`(`%2e`)·제어 문자가 있으면 호출 자체를 던진다(프로그래밍 오류로 취급).
+- 개발 서버는 **HTTPS**로 띄운다(`https://localhost:5173`, `.certs/`의 .NET 개발 인증서를 내보낸 사본) — 세션 쿠키가 `Secure`라 평문 HTTP로는 세션이 유지되지 않는다. Vite 프록시는 `https://localhost:7198`을 대상으로 하고, 백엔드는 `Site__AdminOrigin`을 이 SPA의 실제 출처로 재정의해 띄워야 한다(Origin 검사 기준이 SPA와 일치해야 변경 요청이 403이 되지 않는다).
+- 미리보기: 입력 500ms 디바운스 → `/api/preview` → `sandbox=""` iframe `srcdoc`. React DOM에 서버 HTML을 직접 넣지 않는다. 429·503의 `Retry-After` 동안은 새 요청을 보내지 않고 멈춰 있다가(다시 시도 버튼 제공) 대기가 끝나면 이어서 요청한다. 미리보기 iframe에 넣는 공개 사이트 CSS는 원본(`PortfolioBlog.Api/wwwroot/css/site.css`와 서버가 만드는 강조 CSS)의 스냅숏이며, `PortfolioBlog.Api.Tests`의 드리프트 테스트가 사본이 원본과 같은지 검사한다(`UPDATE_PREVIEW_SNAPSHOTS=1`로 스냅숏을 갱신할 수 있다 — 갱신 실행은 파일을 쓴 뒤 의도적으로 실패로 끝난다, 갱신과 검증을 구분하기 위해서다).
 - 임시본: 글별로 localStorage에 저장, 저장 성공 시 삭제. **"저장" 버튼에 "저장하면 즉시 공개됩니다"를 표시한다.**
-- 409(`version` 불일치)면 "다른 탭에서 수정됨" 안내 후 서버본과 임시본을 나란히 보여 준다.
-- 개발 시 Vite 프록시 `/api`·`/attachments` → `http://localhost:5055`.
+- 409(`version` 불일치)면 "다른 탭에서 수정됨" 안내 후 서버본과 임시본을 나란히 보여 준다. 저장 요청이 오가는 동안 입력을 막지 않으며, 응답이 온 시점에 더 바뀐 내용이 있으면 서버 값으로 덮지 않는다.
+- 개발 시 Vite 프록시 `/api`·`/attachments` → `https://localhost:7198`(스펙 작성 시점의 `http://localhost:5055`가 아니다 — 세션 쿠키가 Secure라 HTTPS·포트 7198로 확정했다).
 
 ### 3.10 배포
 
@@ -590,16 +591,18 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 | 1 | `Domain/*`, `Contracts/*`, `Infrastructure/Data/*`, `Infrastructure/Access/*`, `Infrastructure/Web/*`, `Features/{Auth,Posts,Series,Tags}/*`, csproj(EF Core·Npgsql) | 엔티티·제약·마이그레이션, 접근 제어, 비밀번호 로그인·세션 폐기, 관리 API |
 | 1 | `PortfolioBlog.Api.Tests/PostgresFixture.cs`, `AccessMatrixTests.cs`, `SessionTests.cs`, `CidrListTests.cs`, `Posts*Tests.cs`, `Series*Tests.cs`, csproj(Testcontainers) | 실제 Postgres 통합 테스트 |
 | 2 | `Infrastructure/Markdown/*`, `Infrastructure/Storage/*`, `Features/{Attachments,Preview}/*`, `Pages/*`, 피드·sitemap, 보안 헤더·속도 제한 + 테스트 | 공개 표면 전체 |
-| 3 | `PortfolioBlog.Web/**` | 관리 SPA |
-| 4 | `deploy/*`, `PortfolioBlog.Api/Dockerfile`, `PortfolioBlog.Web/Dockerfile`, `.github/workflows/ci.yml`, `README.md` | 배포·CI(`ubuntu-latest` + web 잡)·운영 절차 |
+| 3 | `PortfolioBlog.Web/**`, `.github/workflows/ci.yml`(`web`·`web-e2e` 잡), `README.md` | 관리 SPA + Playwright E2E(실제 백엔드 + PostgreSQL + production 빌드) — CI의 `web` 잡은 Task 1에서, `web-e2e` 잡은 Task 8에서 추가됐다(계획 작성 시점 예상과 달리 4단계가 아니라 3단계에서 붙었다) |
+| 4 | `deploy/*`, `PortfolioBlog.Api/Dockerfile`, `PortfolioBlog.Web/Dockerfile` | 배포·운영 절차 |
 
 ## 6. 빌드 검증
 
 ```powershell
 dotnet build PortfolioBlog.slnx -c Release
 dotnet test  PortfolioBlog.slnx -c Release            # Docker Desktop 필요(Testcontainers)
-cd PortfolioBlog.Web; npm ci; npx tsc --noEmit; npm run build
-cd deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" http://localhost/health   # 호스트 필터 때문에 Host 헤더가 필요하다
+cd PortfolioBlog.Web
+npm ci; npm run lint; npm run typecheck; npm test; npm run build
+npm run e2e:prepare; npm run e2e                      # Docker Desktop 필요 — 실제 백엔드 + PostgreSQL + production 빌드로 Chromium·Firefox를 돌린다
+cd ..\deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" http://localhost/health   # 호스트 필터 때문에 Host 헤더가 필요하다
 ```
 
 필수 통과 테스트:
@@ -631,5 +634,5 @@ cd deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" h
 | Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
 | Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
 | Plan 2B | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` · 완료(PR #3, 보고서 `plan/tech_blog_2b_report_0921.md`) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 제한·공개/업로드 속도 제한과 체인 순서·`statement_timeout`(읽기 전용 연결)·렌더 게이트/캐시·관리 JSON 256KB·첨부 정합성(잠금·고아 청소)·앱 검증⊆DB 제약 테스트 |
-| Plan 3 | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` · 계획 작성됨(승인·실행 대기) | 3단계: 관리 SPA(React 19 + Vite) — API 클라이언트·인증 흐름·글 편집(CodeMirror·409 비교·임시본)·sandbox 미리보기·첨부·Playwright E2E(실제 백엔드 + 배포용 CSP). 계획 작성 중 실측으로 이 문서의 3.6(미리보기 CSP의 `'self'`는 Firefox에서 동작하지 않음, 관리 SPA CSP를 더 좁힘)·3.9(react-router 8, HTTPS 개발 서버)와 달라지는 점을 확정했다 — 본문 반영은 Plan 3의 Task 8 |
+| Plan 3 | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` · Task 1~8 구현 완료, 최종 브랜치 리뷰·병합 대기 | 3단계: 관리 SPA(React 19 + Vite) — API 클라이언트·인증 흐름·글 편집(CodeMirror·409 비교·임시본)·sandbox 미리보기·첨부·Playwright E2E(실제 백엔드 + PostgreSQL + production 빌드 + 배포용 CSP, Chromium·Firefox). 계획 작성 중 실측으로 이 문서의 3.6(미리보기 CSP의 `'self'`는 Firefox에서 동작하지 않음, 관리 SPA CSP를 더 좁힘)·3.9(react-router 8, HTTPS 개발 서버)와 달라지는 점을 확정했고, Task 8이 이 문서(3.6·3.9·5·6·8절)·README·`CLAUDE.md`/`AGENTS.md`에 반영했다 |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |

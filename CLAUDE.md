@@ -7,7 +7,7 @@
 **구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 두 .NET 프로젝트와 SPA 디렉터리가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다. 패키지 버전은 `Directory.Packages.props`(중앙 패키지 관리, 전이 의존성까지 고정)가 일괄 관리한다 — 새 패키지는 거기에 추가한다.
 - `PortfolioBlog.Api` — ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링)(`Microsoft.NET.Sdk.Web`). 통합 테스트 접근용으로 `Program`을 `public partial`로 노출한다. 공개 페이지는 `Pages/`(GET/HEAD·공개 호스트 전용 규약), 정적 파일은 `wwwroot/css/site.css` 하나.
 - `PortfolioBlog.Api.Tests` — xUnit + `Microsoft.AspNetCore.Mvc.Testing`. CI의 `dotnet test` 게이트가 실제로 검사하는 대상이다.
-- `PortfolioBlog.Web` — 관리 에디터 전용 React 19 + TypeScript + Vite SPA(예정, 3단계). `admin.<도메인>`에서만 서빙되며 `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다.
+- `PortfolioBlog.Web` — 관리 에디터 전용 React 19 + TypeScript + Vite SPA(3단계 구현 완료). `admin.<도메인>`에서만 서빙되며 `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다. 보안 헤더(CSP 포함)의 정본은 `admin-headers.ts` — `vite preview`가 이미 쓰고 Plan 4의 Caddyfile이 그대로 옮긴다. `npm run certs`(개발 인증서 내보내기)·`npm run dev`(HTTPS 개발 서버)·`npm test`(Vitest)·`npm run e2e:prepare && npm run e2e`(Playwright, 실제 백엔드 + PostgreSQL + production 빌드, Chromium·Firefox, Docker Desktop 필요)로 검증한다. CI는 `web` 잡(lint·typecheck·test·build)과 `web-e2e` 잡(서비스 컨테이너 PostgreSQL + Playwright)을 돈다.
 - `deploy/` — docker-compose(caddy·api·postgres)·Caddyfile(공개·관리 사이트 2개)·`.env.example`·`OPERATIONS.md`(예정, 4단계).
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(프론트매터, 참조 실존, 절대경로, 팀 도구, 미러 동기화·Codex 에이전트 재귀, 서명, 쓰기 범위 훅). 하네스 파일을 고치면 실행해 PASS를 확인할 것. 감사 결과와 수정 이력은 `plan/harness_audit_0911.md` 참조.

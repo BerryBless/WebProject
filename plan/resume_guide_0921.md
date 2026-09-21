@@ -90,6 +90,11 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 | 프레임워크 기본값 | 호스트 필터의 400이 HTML 본문을 보낸다(`IncludeFailureMessage` 기본 true), publish가 `wwwroot`에 `.gz`·`.br` 사본을 만든다(`CompressionEnabled` 기본 true) — 둘 다 TestServer에서는 안 보인다 | 2B에서 둘 다 껐다. 새 미들웨어·SDK 기능을 켤 때는 publish 출력과 실제 호스트 응답을 확인한다 |
 | EF Core 10 런타임 모델 | `db.Model.GetCheckConstraints()`가 예외를 던진다 | `db.GetService<IDesignTimeModel>().Model`을 쓴다 |
 | 컨텍스트가 둘 | `dotnet ef`가 컨텍스트를 고르지 못한다 | `--context AppDbContext`(마이그레이션은 관리 컨텍스트에만) |
+| 미리보기 CSP `'self'`(스펙 원문, S7) | Firefox에서만 `{ sheets, image }` 단언이 0으로 실패한다(위 "`srcdoc` iframe의 CSP `'self'`" 행과 같은 원인) — Task 8 E2E 사보타주로 재확인 | 관리 origin을 명시한다(`img-src <origin>; style-src <origin>`), `'self'`를 쓰지 않는다 |
+| Vitest가 Playwright 스펙을 집는다(S9) | 기본 include가 `e2e/*.spec.ts`까지 실행해 실패한다 | `vitest.config.ts`의 `test.include`를 `src/**/*.test.{ts,tsx}`로 좁힌다 |
+| Testing Library 자동 정리 미등록(S9) | 컴포넌트 테스트마다 이전 테스트의 DOM이 남는다 | `setupFiles`(`src/test/setup.ts`)에서 `@testing-library/react`의 자동 cleanup을 등록한다 |
+| 로그아웃에서 `queryClient.clear()`(S12) | 로그인 화면으로 가지 않는다 — `RequireAuth`의 관찰자가 없어진 쿼리 객체에 매달린 채 남아 새 값을 보지 못한다 | `setQueryData(ME_KEY, { authenticated: false })` + `removeQueries`(`ME_KEY` 제외)로 바꾼다 |
+| E2E에서 저장 버튼 `disabled`로 저장 완료를 판단 | Chromium에서 간헐 실패: 버튼은 요청 중에도 disabled라 "disabled가 됐다"만으로는 응답이 왔는지 알 수 없다. 실측: 응답 전에 다른 컨텍스트를 닫아 PUT이 취소되고 409가 나지 않았다 | `page.waitForResponse(r => r.request().method() === 'PUT' && r.status() === 200)`로 응답 자체를 기다린다 |
 
 ## 6. 문서 지도
 
