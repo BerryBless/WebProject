@@ -10,7 +10,10 @@
 // IPv6 리터럴 호스트([::1] 등)를 대괄호째 허용한다 — window.location.origin이 실제로 이 형태일 수 있다(예: https://[::1]:5173).
 const ORIGIN_PATTERN = /^https?:\/\/(\[[0-9a-f:]+\]|[a-z0-9.-]+)(:\d{1,5})?$/i
 
-/** 공개 사이트와 같은 모양으로 보이게 하는 스타일시트(공개 사이트 CSS의 스냅숏 — 원본: PortfolioBlog.Api/wwwroot/css/site.css와 서버가 생성하는 강조 CSS). */
+/**
+ * 공개 사이트와 같은 모양으로 보이게 하는 스타일시트(공개 사이트 CSS의 스냅숏 — 원본: PortfolioBlog.Api/wwwroot/css/site.css와 서버가 생성하는 강조 CSS).
+ * 사본이 원본과 같은지는 PortfolioBlog.Api.Tests의 PreviewCssSnapshotTests가 검사한다.
+ */
 export const PREVIEW_STYLESHEETS = ['/preview/site.css', '/preview/highlight.css'] as const
 
 export function previewCsp(origin: string): string {
