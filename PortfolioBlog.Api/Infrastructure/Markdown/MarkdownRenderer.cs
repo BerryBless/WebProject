@@ -9,6 +9,12 @@ using Markdig.Syntax.Inlines;
 
 namespace PortfolioBlog.Api.Infrastructure.Markdown;
 
+/// <summary>렌더 1회의 결과.</summary>
+/// <param name="Html">허용 목록만 남은 정제된 HTML.</param>
+/// <param name="FirstImageUrl">본문에서 URL 정책을 통과한 첫 이미지의 경로(<c>/attachments/…</c>). 없으면 <c>null</c>. OG 이미지에 쓴다.</param>
+/// <param name="HighlightTimedOut">시간 때문에 강조를 포기한 코드블록이 있었는가. 호출부가 이 결과를 오래 캐시하지 않도록 알린다.</param>
+public sealed record RenderedMarkdown(string Html, string? FirstImageUrl, bool HighlightTimedOut);
+
 /// <summary>마크다운을 URL 정책·허용 목록 정제를 거친 안전한 HTML로 변환한다. 공개 페이지와 미리보기가 이 하나를 공유한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
@@ -47,6 +53,33 @@ public sealed class MarkdownRenderer
     // HtmlSanitizer: Sanitize 호출마다 독립된 AngleSharp DOM을 만들기 때문에 구성만 고정돼 있으면 공유 인스턴스를 동시에 쓸 수 있다.
     private readonly HtmlSanitizer _sanitizer = HtmlAllowlist.Create();
 
+    // TimeProvider: 강조 시간 예산(HighlightingCodeBlockRenderer)을 잴 시계를 이 필드로 주입한다. 시스템 시계에서는
+    // Stopwatch 틱을 그대로 읽고, 테스트에서는 결정적으로 전진하는 가짜 시계로 바꿔 끼운다.
+    private readonly TimeProvider _clock;
+
+    /// <summary>시스템 시계로 만든다.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. <see cref="TimeProvider.System"/>은 불변 싱글턴이다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation(필드 대입뿐).</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
+    /// </list>
+    /// </remarks>
+    public MarkdownRenderer() : this(TimeProvider.System) { }
+
+    /// <summary>강조 시간 예산을 잴 시계를 지정한다(테스트가 결정적 시계를 넣는다).</summary>
+    /// <param name="clock">코드 강조 시간 예산 판정에 쓸 시계.</param>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. <paramref name="clock"/>을 읽기 전용 필드에 보관할 뿐 상태를 바꾸지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation(필드 대입뿐).</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
+    /// </list>
+    /// </remarks>
+    public MarkdownRenderer(TimeProvider clock) => _clock = clock;
+
     /// <summary>마크다운을 안전한 HTML로 변환한다. 원본 마크다운은 저장하지 않고 매 요청 렌더링하므로 보안 수정이 과거 글 전체에 즉시 적용된다.</summary>
     /// <param name="markdown">렌더링할 마크다운 원문(UTF-8 <see cref="MaxInputBytes"/>바이트 이하).</param>
     /// <returns>허용 목록만 남은 정제된 HTML 문자열. 빈 입력은 빈 문자열.</returns>
@@ -60,7 +93,22 @@ public sealed class MarkdownRenderer
     /// <item><description><b>Blocking:</b> 클래스 <see cref="MarkdownRenderer"/> 문서의 Blocking 항목 참조. 동기·취소 불가·호출부가 동시성을 제한해야 함은 동일하다.</description></item>
     /// </list>
     /// </remarks>
-    public string Render(string markdown)
+    public string Render(string markdown) => RenderDetailed(markdown).Html;
+
+    /// <summary>마크다운을 안전한 HTML로 변환하고, HTML 외에 OG 이미지 후보와 강조 시간 초과 여부까지 함께 돌려준다.</summary>
+    /// <param name="markdown">렌더링할 마크다운 원문(UTF-8 <see cref="MaxInputBytes"/>바이트 이하).</param>
+    /// <returns>정제된 HTML·첫 이미지 URL·강조 시간 초과 여부를 담은 <see cref="RenderedMarkdown"/>.</returns>
+    /// <exception cref="ArgumentException"><paramref name="markdown"/>이 UTF-8 <see cref="MaxInputBytes"/>바이트를 넘는다(호출부 검증 누락).</exception>
+    /// <exception cref="MarkdownTooComplexException"><paramref name="markdown"/>의 구조(대괄호·인용·강조 등)가 Markdig의 중첩 한도(128단계)를 넘는다.</exception>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 호출마다 새 <see cref="HighlightingCodeBlockRenderer"/>·문서·DOM을 만들어 공유 가변 상태를 쓰지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 입력 크기에 비례(AST + 중간 HTML + 정제용 DOM + 출력 문자열). 반환 <see cref="RenderedMarkdown"/>의 소유권은 호출자.</description></item>
+    /// <item><description><b>Blocking:</b> 클래스 <see cref="MarkdownRenderer"/> 문서의 Blocking 항목 참조. 동기·취소 불가·호출부가 동시성을 제한해야 함은 동일하다.</description></item>
+    /// </list>
+    /// </remarks>
+    public RenderedMarkdown RenderDetailed(string markdown)
     {
         ArgumentNullException.ThrowIfNull(markdown);
         if (Encoding.UTF8.GetByteCount(markdown) > MaxInputBytes)
@@ -74,15 +122,18 @@ public sealed class MarkdownRenderer
             var document = Markdig.Markdown.Parse(markdown, _pipeline);
             ApplyUrlPolicy(document);
             HeadingIds.Assign(document);
+            // ApplyUrlPolicy 뒤라서 남아 있는 이미지는 전부 정책을 통과한 자체 첨부다.
+            var firstImage = document.Descendants<LinkInline>().FirstOrDefault(static l => l.IsImage)?.Url;
 
             using var writer = new StringWriter();
             var renderer = new HtmlRenderer(writer);
             _pipeline.Setup(renderer);
             if (renderer.ObjectRenderers.FindExact<CodeBlockRenderer>() is { } builtIn) renderer.ObjectRenderers.Remove(builtIn);
-            renderer.ObjectRenderers.Add(new HighlightingCodeBlockRenderer());
+            var highlighter = new HighlightingCodeBlockRenderer(_clock);
+            renderer.ObjectRenderers.Add(highlighter);
             renderer.Render(document);
             writer.Flush();
-            return _sanitizer.Sanitize(writer.ToString());
+            return new RenderedMarkdown(_sanitizer.Sanitize(writer.ToString()), firstImage, highlighter.TimedOut);
         }
         catch (ArgumentException ex)
         {

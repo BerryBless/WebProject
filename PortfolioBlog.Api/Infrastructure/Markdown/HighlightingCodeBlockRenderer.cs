@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using ColorCode;
@@ -33,7 +32,7 @@ namespace PortfolioBlog.Api.Infrastructure.Markdown;
 /// 모르는 언어는 이스케이프한 일반 코드블록으로 떨어진다. 시간 예산은 부하에 따라 결과가 달라진다는 뜻이다 — 같은 글이 한가한 서버에서는 강조되고
 /// 바쁜 서버에서는 일반 코드블록이 될 수 있다. 받아들이기로 한 성능 저하다(Plan 2B가 렌더링한 HTML을 캐시하면 이 변동성 자체가 사라진다).
 /// </remarks>
-public sealed class HighlightingCodeBlockRenderer : HtmlObjectRenderer<CodeBlock>
+public sealed class HighlightingCodeBlockRenderer(TimeProvider clock) : HtmlObjectRenderer<CodeBlock>
 {
     /// <summary>강조를 시도할 한 줄의 최대 문자 수. 토크나이저가 줄 길이에 이차이므로, 평범한 소스 줄은 이 값보다 훨씬 짧고
     /// 이 값을 넘는 한 줄(예: 압축된 CSS·minified 코드)은 강조할 가치가 없다고 본다(2KB 한 줄에서 이미 93ms). 이 한 줄이 예산을 넘기면
@@ -69,6 +68,9 @@ public sealed class HighlightingCodeBlockRenderer : HtmlObjectRenderer<CodeBlock
     // finally에서 더한다 — try 블록이 타임아웃·예산 초과로 예외를 던져도 그동안 쓴 시간은 반드시 누적돼야 다음 블록의 예산 판정이 정확하다.
     private double _highlightMilliseconds;
 
+    /// <summary>이 렌더에서 시간 때문에(시간 예산 소진·매치 타임아웃) 강조를 포기한 블록이 하나라도 있었는가. 길이 예산·모르는 언어는 결정적이라 포함하지 않는다.</summary>
+    public bool TimedOut { get; private set; }
+
     protected override void Write(HtmlRenderer renderer, CodeBlock block)
     {
         var code = new StringBuilder();
@@ -86,20 +88,25 @@ public sealed class HighlightingCodeBlockRenderer : HtmlObjectRenderer<CodeBlock
             && longestLine <= MaxHighlightLineLength
             && _highlightedLength + code.Length <= MaxHighlightDocumentLength;
 
-        if (!withinLengthBudget || _highlightMilliseconds >= MaxHighlightMilliseconds)
+        if (!withinLengthBudget)
         {
             WritePlainEscaped(renderer, code);
             return;
         }
+        if (_highlightMilliseconds >= MaxHighlightMilliseconds)
+        {
+            TimedOut = true;
+            WritePlainEscaped(renderer, code);
+            return;
+        }
 
-        // Stopwatch.GetTimestamp(): 고해상도 타이머의 원시 틱 값만 읽는 가장 싼 시각 취득(DateTime.UtcNow보다 오버헤드가 작다).
-        // 이 블록의 시도 시작 시각을 잡아 두고, 남은 예산을 클로저가 매 토큰마다 재계산할 수 있게 한다.
-        var startTicks = Stopwatch.GetTimestamp();
+        // TimeProvider.GetTimestamp(): 시스템 시계에서는 Stopwatch의 고해상도 틱을 그대로 읽는다(가상 호출 1회가 더 붙을 뿐). 테스트는 전진하는 가짜 시계를 넣는다.
+        var startTicks = clock.GetTimestamp();
         var elapsedBeforeThisBlock = _highlightMilliseconds;
         try
         {
             var deadlineParser = new DeadlineLanguageParser(SharedParser,
-                () => elapsedBeforeThisBlock + Stopwatch.GetElapsedTime(startTicks).TotalMilliseconds >= MaxHighlightMilliseconds);
+                () => elapsedBeforeThisBlock + clock.GetElapsedTime(startTicks).TotalMilliseconds >= MaxHighlightMilliseconds);
             // 오늘처럼 로컬 문자열로 먼저 완성한다: GetHtmlString이 실패(타임아웃·예산 초과)하면 Markdig 렌더러에는 아무것도 쓰이지 않은 채
             // 아래 catch로 넘어간다 — 부분적으로 강조된 출력이 새 나갈 수 없다.
             var html = new HtmlClassFormatter(languageParser: deadlineParser).GetHtmlString(code.ToString(), language!);
@@ -107,17 +114,20 @@ public sealed class HighlightingCodeBlockRenderer : HtmlObjectRenderer<CodeBlock
             renderer.Write(html);
             renderer.Write("\n");
         }
+        // 정규식 매치 타임아웃(250ms)은 .NET 정규식 엔진이 실제 시계로 재므로 주입 대상이 아니다.
         catch (RegexMatchTimeoutException)
         {
+            TimedOut = true;
             WritePlainEscaped(renderer, code);
         }
         catch (HighlightBudgetExceededException)
         {
+            TimedOut = true;
             WritePlainEscaped(renderer, code);
         }
         finally
         {
-            _highlightMilliseconds += Stopwatch.GetElapsedTime(startTicks).TotalMilliseconds;
+            _highlightMilliseconds += clock.GetElapsedTime(startTicks).TotalMilliseconds;
         }
     }
 

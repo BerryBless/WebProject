@@ -53,7 +53,11 @@ builder.Services.AddAdminAccess(builder.Configuration);
 builder.Services.AddAdminAuth();
 builder.Services.Configure<PublicOptions>(builder.Configuration.GetSection(PublicOptions.SectionName));
 builder.Services.AddAppRateLimiting();
-builder.Services.AddSingleton<MarkdownRenderer>();
+// 시스템 시계를 명시한다: 통합 테스트는 DI의 TimeProvider를 세션 만료용 가짜 시계로 바꾸는데, 렌더 시간 예산은 그 영향을 받으면 안 된다.
+builder.Services.AddSingleton(_ => new MarkdownRenderer(TimeProvider.System));
+builder.Services.Configure<RenderingOptions>(builder.Configuration.GetSection(RenderingOptions.SectionName));
+builder.Services.AddSingleton<RenderGate>();
+builder.Services.AddSingleton<RenderedPostCache>();
 builder.Services.Configure<AttachmentOptions>(builder.Configuration.GetSection(AttachmentOptions.SectionName));
 builder.Services.AddSingleton<FileSystemAttachmentStore>();
 // multipart 한도를 첨부 한도보다 1MB 크게: 10MB를 조금 넘는 업로드는 앱이 413으로 답하고, 그보다 훨씬 큰 본문은 프레임워크가 읽다가 끊는다.
@@ -73,7 +77,10 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
 
-app.UseMiddleware<SecurityHeadersMiddleware>(); // 앱 미들웨어 중 맨 앞(프레임워크의 HostFiltering·ForwardedHeaders 시작 필터는 이보다 바깥이라 그 400에는 헤더가 없다 — 본문 없는 응답)
+// 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.
+app.Services.GetRequiredService<MarkdownRenderer>().Render("```csharp\nvar warm = 1;\n```\n");
+
+app.UseMiddleware<SecurityHeadersMiddleware>(); // 앱 미들웨어 중 맨 앞(프레임워크의 HostFiltering 시작 필터만 이보다 바깥이라 그 400에는 헤더가 없다 — 본문 없는 응답. 바로 다음 줄의 UseTrustedForwardedHeaders는 일반 앱 미들웨어라 이 줄 뒤에서 실행되고 자체적으로 400을 내지 않는다)
 app.UseTrustedForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync);

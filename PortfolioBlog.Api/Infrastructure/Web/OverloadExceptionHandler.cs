@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using PortfolioBlog.Api.Infrastructure.Markdown;
 
 namespace PortfolioBlog.Api.Infrastructure.Web;
 
-/// <summary>과부하로 포기한 요청을 500이 아니라 503 + Retry-After로 돌려준다: statement_timeout(57014), 잠금 대기 초과(55P03).</summary>
+/// <summary>과부하로 포기한 요청을 500이 아니라 503 + Retry-After로 돌려준다: statement_timeout(57014), 잠금 대기 초과(55P03), 렌더 게이트 대기 초과(<see cref="RenderBusyException"/>).</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -55,12 +56,15 @@ public sealed class OverloadExceptionHandler : IExceptionHandler
     /// EF Core의 <c>SaveChangesAsync</c>는 공급자 예외를 <see cref="DbUpdateException"/>으로 감싸므로(이 저장소 규칙상 감싸이지 않은 채로 올라오는 것은
     /// <c>ExecuteUpdateAsync</c>/<c>ExecuteDeleteAsync</c>뿐이다), 최상위 예외 타입만 보면 저장 경로의 57014·55P03이 500이 되어 버린다.
     /// 체인을 끝까지 훑어야 어느 경로에서 와도 동일하게 503으로 매핑된다.
+    /// 알려진 한계(미검증, 추론): 이 메서드는 <see cref="Exception.InnerException"/> 체인만 훑으므로, <see cref="AggregateException"/>이 오면
+    /// <see cref="AggregateException.InnerExceptions"/>의 첫 번째만(그 요소가 <see cref="Exception.InnerException"/>에 그대로 노출되는 것) 보고 나머지는 보지 않는다 —
+    /// 이 앱에는 <see cref="AggregateException"/>을 만드는 코드 경로가 없으므로(동기 대기·<c>Task.WhenAll</c> 예외 집계 없음) 현재는 영향이 없다고 판단했을 뿐, 실측한 것은 아니다.
     /// </remarks>
     internal static bool IsOverload(Exception exception)
     {
         for (var e = exception; e is not null; e = e.InnerException)
         {
-            if (e is PostgresException { SqlState: "57014" or "55P03" }) return true;
+            if (e is PostgresException { SqlState: "57014" or "55P03" } or RenderBusyException) return true;
         }
         return false;
     }

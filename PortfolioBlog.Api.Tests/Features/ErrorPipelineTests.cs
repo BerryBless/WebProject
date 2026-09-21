@@ -103,6 +103,16 @@ public sealed class ErrorPipelineTests
         Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
     }
 
+    /// <summary>렌더 게이트가 가득 차 포기한 요청도 503 + Retry-After다.</summary>
+    [Fact]
+    public async Task RenderBusy_MapsTo503()
+    {
+        await using var app = await StartAsync(_ => throw new PortfolioBlog.Api.Infrastructure.Markdown.RenderBusyException());
+        using var res = await app.GetTestClient().GetAsync("/api/preview");
+        Assert.Equal(503, (int)res.StatusCode);
+        Assert.True(res.Headers.Contains("Retry-After"));
+    }
+
     /// <summary>다른 코드가 CSP를 먼저 넣어도(fail-open 방지) 더 엄격한 PublicCsp로 덮어쓴다. 첨부 핸들러의 SandboxCsp만 예외로 유지된다.</summary>
     [Theory]
     [InlineData("default-src *", SecurityHeadersMiddleware.PublicCsp)]
