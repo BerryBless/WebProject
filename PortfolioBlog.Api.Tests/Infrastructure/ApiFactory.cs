@@ -219,6 +219,10 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
+        if (!disposing) return;
+        // NpgsqlConnection.ClearPool: 풀은 연결 문자열별 프로세스 전역 상태라 호스트를 내려도 유휴 연결이 Connection Idle Lifetime(기본 300초) 동안
+        // 서버에 남는다. 이 팩토리 전용 DB의 풀을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
+        using (var connection = new NpgsqlConnection(_connectionString)) NpgsqlConnection.ClearPool(connection);
+        if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
     }
 }
