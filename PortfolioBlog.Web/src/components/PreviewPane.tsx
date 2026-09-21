@@ -52,7 +52,8 @@ export function PreviewPane({ markdown }: { markdown: string }) {
         if (controller.signal.aborted) return
         noteAuthFailure(client, cause)
         if (cause instanceof ApiError && cause.retryAfterSeconds !== null) {
-          blockedUntil.current = Date.now() + cause.retryAfterSeconds * 1000
+          // Math.max: Retry-After가 최소 간격보다 짧아도(1초 등) 요청 직전에 예약한 하한을 앞당기지 않는다.
+          blockedUntil.current = Math.max(blockedUntil.current, Date.now() + cause.retryAfterSeconds * 1000)
           setRetryTick(t => t + 1)
         }
         setError(cause)
