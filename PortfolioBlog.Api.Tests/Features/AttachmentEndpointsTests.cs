@@ -54,6 +54,37 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         }
     }
 
+    // DB 행의 StoragePath를 실제 파일 시스템 경로로 바꾼다. 스코프는 조회 즉시 해제한다.
+    private static async Task<string> PhysicalPathAsync(ApiFactory factory, Guid id)
+    {
+        await using var scope = factory.CreateScope();
+        var row = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Attachments.AsNoTracking().SingleAsync(a => a.Id == id);
+        return scope.ServiceProvider.GetRequiredService<FileSystemAttachmentStore>().PhysicalPath(row.StoragePath);
+    }
+
+    // 프로덕션 핸들은 FileShare.Read | FileShare.Delete로 열리므로 File.Delete는 핸들이 새고 있어도 성공해 버려
+    // "핸들이 released됐다"를 증명하지 못한다(File.Delete로는 절대 실패할 수 없는 단언이었다). FileShare.None으로
+    // 배타적으로 열어야만 살아 있는 핸들과 진짜로 충돌해 IOException을 던진다. TestServer가 응답을 완료로 표시하는
+    // 시점과 서버 쪽 스트림이 실제로 Dispose되는 시점 사이에 짧은 간극이 있을 수 있어 몇 차례 재시도한다.
+    private static async Task AssertHandleReleasedAsync(string physical)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                using var fs = new FileStream(physical, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                return;
+            }
+            catch (IOException ex)
+            {
+                last = ex;
+                await Task.Delay(50);
+            }
+        }
+        Assert.Fail($"응답이 끝난 뒤에도 파일을 배타적으로 열 수 없다 — 핸들이 새고 있다: {last}");
+    }
+
     /// <summary>업로드하면 메타데이터가 제거된 파일이 저장되고, 공개 호스트에서 익명으로 받을 수 있으며, 응답 헤더가 스니핑·실행을 막는다.</summary>
     [Fact]
     public async Task Upload_StripsMetadata_AndServesPubliclyWithHardenedHeaders()
@@ -248,7 +279,8 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     }
 
     /// <summary>공개 GET 200 응답에 내용 주소 SHA-256을 강한 ETag로, 업로드 시각을 Last-Modified로 담는다. 그 ETag를 If-None-Match로
-    /// 다시 보내면 304(빈 본문)가 오고 nosniff·CSP는 그대로 실린다(fix round 2, B4 — 내용 자체가 검증자이므로 재해시 없이 캐시를 재검증할 수 있다).</summary>
+    /// 다시 보내면 304(빈 본문)가 오고 nosniff·CSP는 그대로 실린다(내용 자체가 검증자이므로 재해시 없이 캐시를 재검증할 수 있다).
+    /// 304 응답이 끝난 뒤에도 파일 핸들이 새지 않는지(배타적으로 다시 열 수 있는지)까지 확인한다.</summary>
     [Fact]
     public async Task PublicGet_HasEtagAndLastModified_AndConditionalGetReturns304()
     {
@@ -272,10 +304,13 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         Assert.Equal("nosniff", conditional.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal("default-src 'none'; sandbox", conditional.Headers.GetValues("Content-Security-Policy").Single());
         Assert.Empty(await conditional.Content.ReadAsByteArrayAsync());
+
+        await AssertHandleReleasedAsync(await PhysicalPathAsync(factory, dto.Id));
     }
 
     /// <summary>공개 GET 라우트는 HEAD도 받는다: 200에 GET과 같은 헤더(Content-Type·Content-Length·nosniff·CSP·Cache-Control·ETag)가 실리지만
-    /// 본문은 비어 있고, 핸들은 응답이 끝나면 해제된다(같은 파일을 곧장 지울 수 있는지로 확인 — fix round 2, B5).</summary>
+    /// 본문은 비어 있고, 핸들은 응답이 끝나면 해제된다(응답이 끝난 뒤 그 파일을 배타적으로(<see cref="FileShare.None"/>) 다시 열 수 있는지로 확인한다 —
+    /// 프로덕션 핸들은 <see cref="FileShare.Read"/> | <see cref="FileShare.Delete"/>로 열리므로 <c>File.Delete</c>는 핸들이 새고 있어도 성공해 버려 증거가 되지 못한다).</summary>
     [Fact]
     public async Task PublicGet_Head_ReturnsHeadersWithoutBody_AndReleasesHandle()
     {
@@ -300,15 +335,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         var headBody = await headRes.Content.ReadAsByteArrayAsync();
         Assert.Empty(headBody);
 
-        // 핸들이 새지 않았다면 HEAD 응답이 끝난 뒤 바로 파일을 지울 수 있어야 한다.
-        string physical;
-        await using (var scope = factory.CreateScope())
-        {
-            var row = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Attachments.AsNoTracking().SingleAsync(a => a.Id == dto.Id);
-            physical = scope.ServiceProvider.GetRequiredService<FileSystemAttachmentStore>().PhysicalPath(row.StoragePath);
-        }
-        File.Delete(physical); // 예외 없이 지워져야 핸들이 남지 않았다는 뜻이다
-        Assert.False(File.Exists(physical));
+        await AssertHandleReleasedAsync(await PhysicalPathAsync(factory, dto.Id));
     }
 
     /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다(fix round 1, A2).</summary>
@@ -332,6 +359,29 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
         Assert.Equal("nosniff", res.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal("default-src 'none'; sandbox", res.Headers.GetValues("Content-Security-Policy").Single());
+    }
+
+    /// <summary><c>Attachments:RootPath</c>가 구분자로 끝나도(운영 compose에서 자연스러운 오타, 예: <c>/data/attachments/</c>)
+    /// 업로드가 201로 성공하고 저장된 파일을 공개 GET이 200으로 서빙하는지 검증한다(F1 회귀 — 끝 구분자가 남으면
+    /// <c>PhysicalPath</c>의 접두사 비교가 영원히 실패해 모든 업로드·공개 GET이 500이 됐었다).</summary>
+    [Fact]
+    public async Task Upload_RootPathEndsWithDirectorySeparator_StillWorks() =>
+        await AssertUploadAndPublicGetSucceed(Path.DirectorySeparatorChar);
+
+    /// <summary><c>Attachments:RootPath</c>가 대체 구분자(Windows에서는 <c>/</c>)로 끝나도 F1 회귀가 없는지 검증한다.</summary>
+    [Fact]
+    public async Task Upload_RootPathEndsWithAltDirectorySeparator_StillWorks() =>
+        await AssertUploadAndPublicGetSucceed(Path.AltDirectorySeparatorChar);
+
+    private async Task AssertUploadAndPublicGetSucceed(char rootTrailingSeparator)
+    {
+        using var factory = new ApiFactory(pg, NoOverrides, rootTrailingSeparator);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
+
+        using var visitor = factory.CreatePublicClient();
+        using var res = await visitor.GetAsync(dto.Url);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
     }
 
     /// <summary>임시 파일이 남지 않는다(성공·거부 어느 경로든).</summary>

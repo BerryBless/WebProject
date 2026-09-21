@@ -88,6 +88,7 @@ public sealed class PreviewEndpointsTests(ApiFactory factory, PostgresContainerF
     public async Task Preview_TooDeeplyNested_Returns400()
     {
         using var client = await factory.CreateLoggedInClientAsync();
+        // Markdig 1.4.0 중첩 한도(128) 초과, 크기 상한(200KB)은 훨씬 밑돈다
         using var res = await client.PostAsJsonAsync("/api/preview", new PreviewRequest(new string('[', 200) + "x"));
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);

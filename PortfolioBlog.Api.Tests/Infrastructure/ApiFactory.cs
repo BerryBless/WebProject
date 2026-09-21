@@ -42,6 +42,7 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
+    private readonly string? _attachmentsRootPathOverride;
 
     /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
     public MutableTimeProvider Clock { get; } = new();
@@ -62,7 +63,10 @@ public class ApiFactory : WebApplicationFactory<Program>
     public ApiFactory(PostgresContainerFixture pg) : this(pg, new Dictionary<string, string?>()) { }
 
     // xUnit 2.x는 클래스 픽스처에 public 인스턴스 생성자가 정확히 하나여야 한다. 설정 오버라이드용은 internal로 둔다.
-    internal ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings)
+    // attachmentsRootTrailingSeparator: 지정하면 AttachmentsRoot 뒤에 이 구분자 하나를 붙인 값을 Attachments:RootPath로
+    // 앱에 넘긴다(트레일링 구분자가 있는 운영 설정값 재현용, F1 회귀 테스트 전용 훅). AttachmentsRoot 프로퍼티 자체(정리용 경로)는
+    // 구분자 없이 그대로 둔다 — 같은 파일 시스템 위치를 가리키므로 정리에는 영향이 없다.
+    internal ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings, char? attachmentsRootTrailingSeparator = null)
     {
         // 클래스마다 새 DB 이름을 써서 테스트 간 데이터 간섭을 없앤다. Migrate()가 DB를 생성한다.
         var csb = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
@@ -71,6 +75,7 @@ public class ApiFactory : WebApplicationFactory<Program>
         };
         _connectionString = csb.ToString();
         _settings = settings;
+        _attachmentsRootPathOverride = attachmentsRootTrailingSeparator is { } separator ? AttachmentsRoot + separator : null;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -87,7 +92,7 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Admin:LoginConcurrency", "64");
         builder.UseSetting("Admin:PreviewPerMinute", "1000");
         builder.UseSetting("Admin:PreviewConcurrency", "64");
-        builder.UseSetting("Attachments:RootPath", AttachmentsRoot);
+        builder.UseSetting("Attachments:RootPath", _attachmentsRootPathOverride ?? AttachmentsRoot);
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);

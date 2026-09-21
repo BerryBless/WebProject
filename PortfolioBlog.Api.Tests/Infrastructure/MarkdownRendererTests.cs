@@ -302,7 +302,7 @@ public sealed class MarkdownRendererTests
     /// (1) 한 문서 안의 타임아웃 블록 여러 개가 합쳐져도 유계로 끝난다는 것과 (2) 같은 렌더러 인스턴스의 다음 렌더가
     /// 새 예산으로 시작한다는 것 두 가지다.</summary>
     [Fact]
-    public void Render_ThreeExponentialBlocks_ShareOneTimeBudget()
+    public void Render_ThreeExponentialBlocks_StayBounded_AndNextRenderGetsFreshBudget()
     {
         var block = $"```javascript\n{UnterminatedCommentBody(40)}```\n\n";
         var markdown = string.Concat(Enumerable.Repeat(block, 3));
@@ -317,7 +317,7 @@ public sealed class MarkdownRendererTests
 
     /// <summary>블록 하나하나는 매치 타임아웃(250ms)에 걸리지 않을 만큼 짧아도(13줄, 수십 ms), 그런 블록을 200개 한 문서에 넣으면
     /// 합계가 렌더당 시간 예산(<see cref="HighlightingCodeBlockRenderer.MaxHighlightMilliseconds"/> = 2,000ms)을 넘어 뒤쪽 블록은
-    /// 강조를 포기하는지 검증한다. 이것이 <see cref="Render_ThreeExponentialBlocks_ShareOneTimeBudget"/>이 증명하지 못하는 부분이다 —
+    /// 강조를 포기하는지 검증한다. 이것이 <see cref="Render_ThreeExponentialBlocks_StayBounded_AndNextRenderGetsFreshBudget"/>이 증명하지 못하는 부분이다 —
     /// 거기서는 블록 각각이 250ms 매치 타임아웃에서 끊기므로 "블록마다 독립 예산"이어도 통과하지만, 여기서는 블록 각각이 예산 안에서
     /// 끝나므로 오직 렌더 1회에 걸친 누적 시계만 마지막 블록을 막을 수 있다. 13줄×200블록을 고른 이유: 이 환경에서 블록 하나가
     /// 수십 ms이므로(250ms 매치 타임아웃보다 한참 작다) 200개의 합은 2,000ms 예산을 웃돌지만, 이 머신보다 몇 배 빠른 머신에서도

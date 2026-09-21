@@ -5,27 +5,11 @@ using Microsoft.Extensions.Options;
 namespace PortfolioBlog.Api.Infrastructure.Storage;
 
 /// <summary>업로드가 <see cref="AttachmentOptions.MaxBytes"/> 한도를 넘었다. 호출부(업로드 엔드포인트)는 이를 413으로 바꾼다.</summary>
-/// <remarks>
-/// <b>[성능 및 동시성 제약 조건]</b>
-/// <list type="bullet">
-/// <item><description><b>Thread Safety:</b> Thread-safe. 불변 예외 인스턴스이며 공유 가변 상태가 없다.</description></item>
-/// <item><description><b>Memory Allocation:</b> 예외 인스턴스 1개(+ 스택 트레이스). 정상 업로드 경로의 비용은 0이다.</description></item>
-/// <item><description><b>Blocking:</b> 해당 없음. 예외 타입 자체는 코드를 실행하지 않는다.</description></item>
-/// </list>
-/// </remarks>
 public sealed class AttachmentTooLargeException() : Exception("첨부 크기 한도를 넘었다.");
 
 /// <summary>업로드된 바이트가 허용 시그니처(PNG·JPEG·GIF·WebP) 밖이거나 <see cref="MetadataStripper.Strip"/>이 구조 오류로 거부했다. 호출부는 이를 415로 바꾼다.</summary>
 /// <param name="message">사용자·로그에 보여줄 한국어 메시지.</param>
 /// <param name="inner"><see cref="MetadataStripper.Strip"/>이 던진 원본 <see cref="InvalidDataException"/>(시그니처 미판정이면 <see langword="null"/>).</param>
-/// <remarks>
-/// <b>[성능 및 동시성 제약 조건]</b>
-/// <list type="bullet">
-/// <item><description><b>Thread Safety:</b> Thread-safe. 불변 예외 인스턴스이며 공유 가변 상태가 없다.</description></item>
-/// <item><description><b>Memory Allocation:</b> 예외 인스턴스 1개(+ 스택 트레이스). 정상 업로드 경로의 비용은 0이다.</description></item>
-/// <item><description><b>Blocking:</b> 해당 없음. 예외 타입 자체는 코드를 실행하지 않는다.</description></item>
-/// </list>
-/// </remarks>
 public sealed class UnsupportedImageException(string message, Exception? inner = null) : Exception(message, inner);
 
 /// <summary>저장 결과.</summary>
@@ -75,7 +59,12 @@ public sealed class FileSystemAttachmentStore
         _configuredRootPath = configured;
         try
         {
-            _root = Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured));
+            // TrimEndingDirectorySeparator: Path.GetFullPath는 입력에 있던 끝 구분자를 그대로 남긴다("/data/attachments/"
+            // → "/data/attachments/"). 남겨 두면 PhysicalPath의 "루트 + 구분자" 접두사 비교가 절대 매치되지 않아
+            // (구분자가 중복된다) 모든 업로드·공개 GET이 InvalidOperationException으로 500이 된다 — 드라이브/파일 시스템
+            // 루트("C:\", "/")는 TrimEndingDirectorySeparator가 예외적으로 그대로 둔다(PhysicalPath가 그 경우를 따로 처리한다).
+            _root = Path.TrimEndingDirectorySeparator(
+                Path.GetFullPath(Path.IsPathRooted(configured) ? configured : Path.Combine(environment.ContentRootPath, configured)));
         }
         catch (Exception ex)
         {
@@ -109,6 +98,9 @@ public sealed class FileSystemAttachmentStore
             Directory.CreateDirectory(_root);
             probe = Path.Combine(_root, ".startup-probe-" + Guid.NewGuid().ToString("N"));
             File.WriteAllBytes(probe, []);
+            // 루트 계산 자체가 잘못됐으면(트레일링 구분자 등) 업로드 요청이 아니라 여기서, 시작 시점에 터지게 한다.
+            // 결과는 쓰지 않는다 — 이 호출의 목적은 PhysicalPath가 예외를 던지지 않는지 확인하는 것뿐이다.
+            _ = PhysicalPath("00/startup-probe");
         }
         catch (Exception ex)
         {
@@ -144,8 +136,12 @@ public sealed class FileSystemAttachmentStore
     public string PhysicalPath(string storagePath)
     {
         var full = Path.GetFullPath(Path.Combine(_root, storagePath.Replace('/', Path.DirectorySeparatorChar)));
+        // _root는 보통 끝 구분자가 없다(생성자가 TrimEndingDirectorySeparator로 정리한다) — 그때는 구분자를 붙여야
+        // 접두사 비교가 "…/attachments-evil"처럼 이름만 겹치는 형제 디렉터리를 오탐하지 않는다. 다만 드라이브/파일 시스템
+        // 루트("C:\", "/")는 TrimEndingDirectorySeparator가 구분자를 남겨 두므로 그때는 또 붙이면 "C:\\"가 되어 버려 다시 붙이지 않는다.
+        var rootWithSeparator = Path.EndsInDirectorySeparator(_root) ? _root : _root + Path.DirectorySeparatorChar;
         // DB 값이 손상됐더라도 루트 밖을 가리키면 읽지 않는다.
-        return full.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+        return full.StartsWith(rootWithSeparator, StringComparison.Ordinal)
             ? full
             : throw new InvalidOperationException("첨부 경로가 저장 루트를 벗어난다.");
     }
@@ -158,7 +154,7 @@ public sealed class FileSystemAttachmentStore
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe. 파일 시스템 자체의 원자적 삭제에 의존한다.</description></item>
     /// <item><description><b>Memory Allocation:</b> 경로 문자열 계산 외 추가 할당 없음.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 파일 I/O. 호출부(관리 표면 전용)가 짧은 지연을 감수한다. <see cref="PortfolioBlog.Api.Features.Attachments.PublicAttachmentEndpoints"/>가
+    /// <item><description><b>Blocking:</b> 동기 파일 I/O. 호출부(관리 표면 전용)가 짧은 지연을 감수한다. 이 파일들을 서빙하는 호출부는
     /// 파일을 <see cref="FileShare.Read"/> | <see cref="FileShare.Delete"/>로 열기 때문에, 공개 GET이 그 파일을 스트리밍하는 도중에 이 메서드를 호출해도
     /// (Windows에서 실측: 디렉터리 항목이 즉시 unlink되고, 이미 열린 핸들은 응답이 끝날 때까지 원래 바이트를 계속 읽을 수 있다 — Linux는
     /// POSIX unlink 의미상 같은 결과가 될 것으로 보이지만 이 환경에서 직접 측정하지는 않았다) 공유 위반 없이 성공한다 — 삭제 직후
@@ -204,6 +200,8 @@ public sealed class FileSystemAttachmentStore
             ImageKind kind;
             // FileStream(FileOptions.SequentialScan): OS 미리 읽기 힌트. 제거기는 앞에서 뒤로 한 번만 읽는다.
             using (var raw = new FileStream(rawPath, FileMode.Open, FileAccess.Read, FileShare.None, BufferSize, FileOptions.SequentialScan))
+            // FileStream(FileOptions 기본값=동기): 제거기가 쓰는 대상. 최대 10MB짜리 임시 파일이고 이 클래스 호출부는
+            // 관리 표면 전용이라, 비동기 오버랩 I/O를 여는 커널 호출 비용이 짧은 동기 쓰기보다 오히려 더 크다.
             using (var clean = new FileStream(cleanPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, BufferSize))
             {
                 Span<byte> header = stackalloc byte[ImageSignature.HeaderLength];
@@ -219,6 +217,8 @@ public sealed class FileSystemAttachmentStore
             using (var clean = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.None, BufferSize, FileOptions.SequentialScan))
             {
                 size = clean.Length;
+                // SHA256.HashDataAsync(Stream): 스트림을 청크 단위로 읽으며 해시하는 스트리밍 API라, 바이트 배열을
+                // 통째로 받는 HashData(byte[]) 오버로드와 달리 10MB 파일 전체를 먼저 메모리에 올릴 필요가 없다.
                 sha = Convert.ToHexStringLower(await SHA256.HashDataAsync(clean, ct));
             }
 
@@ -277,6 +277,8 @@ public sealed class FileSystemAttachmentStore
         var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         try
         {
+            // FileOptions.Asynchronous: 커널 오버랩 I/O로 연다. 이 메서드는 요청 처리 스레드에서 직접 호출되므로
+            // (관리 표면이라도) WriteAsync가 스레드 풀 스레드를 동기적으로 막지 않고 진짜 비동기로 완료돼야 한다.
             await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous);
             long total = 0;
             int read;

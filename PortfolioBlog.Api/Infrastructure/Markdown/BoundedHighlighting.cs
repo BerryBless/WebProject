@@ -28,19 +28,26 @@ internal sealed class TimeBoundedLanguageCompiler : ILanguageCompiler
     private readonly LanguageCompiler _inner = new(new Dictionary<string, CompiledLanguage>(), new ReaderWriterLockSlim());
 
     // ConcurrentDictionary<string, CompiledLanguage>: 이 컴파일러 인스턴스는 프로세스 전체 싱글턴이라 여러 렌더(스레드)가
-    // 동시에 같은 언어를 처음 컴파일할 수 있다. GetOrAdd(Func<TKey,TValue> 오버로드)는 같은 키의 동시 생성을 직렬화하지 않는다 —
+    // 동시에 같은 언어를 처음 컴파일할 수 있다. GetOrAdd(state 오버로드)는 같은 키의 동시 생성을 직렬화하지 않는다 —
     // 동시에 도착한 호출은 각자 팩토리를 실행할 수 있고, 그중 하나의 결과만 저장된다(나머지는 버려진다). 이미 채워진 키의 읽기는
     // 락 없이 진행되므로 요청마다 반복되는 "캐시 히트" 경로(거의 모든 호출)가 경합 없이 빠르다. 이 중복 실행은 여기서는 무해하다 —
     // 같은 언어를 재컴파일한 결과는 항상 동일한(등가인) 정규식이라, 어느 스레드의 결과가 저장되든 이후 조회 결과는 같다.
     private readonly ConcurrentDictionary<string, CompiledLanguage> _rebuilt = new(StringComparer.Ordinal);
 
-    public CompiledLanguage Compile(ILanguage language) =>
-        _rebuilt.GetOrAdd(language.Id, _ =>
+    public CompiledLanguage Compile(ILanguage language)
+    {
+        // 캐시 히트 빠른 경로: 언어당 최초 1회를 뺀 거의 모든 호출이 여기서 끝난다. 아래 GetOrAdd에 넘기는 정적 람다는
+        // 캐시 미스에만 실행되므로, 히트 경로에서는 델리게이트·클로저 할당이 전혀 없다.
+        if (_rebuilt.TryGetValue(language.Id, out var cached)) return cached;
+        // GetOrAdd(state 오버로드): 팩토리가 캡처 없는 static 람다라 호출마다 클로저를 새로 할당하지 않는다 —
+        // this·language는 클로저가 아니라 state 인자로 명시적으로 전달한다.
+        return _rebuilt.GetOrAdd(language.Id, static (_, state) =>
         {
-            var inner = _inner.Compile(language);
+            var inner = state.Inner.Compile(state.Language);
             var timed = new Regex(inner.Regex.ToString(), inner.Regex.Options, MatchTimeout);
             return new CompiledLanguage(inner.Id, inner.Name, timed, inner.Captures);
-        });
+        }, (Inner: _inner, Language: language));
+    }
 }
 
 /// <summary>강조 도중 토큰 콜백이 호출될 때마다 이번 렌더에 남은 시간 예산을 확인해, 다 썼으면 즉시 멈춘다.
