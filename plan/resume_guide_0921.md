@@ -10,7 +10,7 @@
 | 0 | 솔루션 개명(`PortfolioBlog`), `.slnx` 전환, 샘플 제거 | 완료 | master |
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API | 완료 | PR #1 → `5604f2d` |
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
-| **2B** | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·공개 속도 제한·렌더 캐시 | **다음 작업 — 계획 미작성** | 3절 |
+| **2B** | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·공개 속도 제한·렌더 캐시 | **다음 작업 — 계획 작성됨, 승인·실행 대기** | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md`, 3절 |
 | 3 | 관리 에디터 SPA(React 19 + Vite) | 예정, 계획 미작성 | 스펙 8절 |
 | 4 | Docker Compose·Caddy·백업/복원 | 예정, 계획 미작성 | 스펙 8절 |
 
@@ -33,21 +33,20 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 
 필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만).
 
-## 3. 다음 작업: Plan 2B 계획 작성
+## 3. 다음 작업: Plan 2B 승인 → 실행
 
-**흐름(저장소 규칙):** `superpowers:writing-plans` → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰 → PR → CI → squash 병합 → 보고서.
+**흐름(저장소 규칙):** `superpowers:writing-plans`(**완료, 2026-09-21**) → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰 → PR → CI → squash 병합 → 보고서.
 
-Claude Code에 이렇게 요청하면 된다:
+계획: `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` — Task 9개(속도 제한 체인 → 보안 헤더·호스트·본문 상한 → 렌더 게이트/캐시 → 읽기 전용 DbContext → 공개 페이지 → 검색 → 피드·sitemap → 첨부 정합성 → 검증⊆제약 테스트·문서). 새 NuGet 패키지·마이그레이션 없음. 문서 앞의 **스파이크 표 S1~S12**(실측한 가정)와 **설계 결정 표 D1~D12**(질문 없이 추천안으로 정한 것 — 승인할 때 뒤집을 수 있다), 끝의 "알려진 불확실성" 6건부터 읽는다.
+
+승인 뒤 Claude Code에 이렇게 요청하면 된다:
 
 ```
-/superpowers:writing-plans plan/tech_blog_0920.md 스펙의 Plan 2B: 공개 Razor 페이지(목록·글·태그·시리즈·검색),
-Atom·sitemap·robots, 보안 헤더(CSP), 공개·검색 속도 제한, statement_timeout, 공개 읽기 전용 DbContext/프로젝션,
-렌더 결과 캐시 또는 렌더 동시성 게이트(글 저장 경로 포함), 앱 검증 ⊆ DB 제약 테스트.
-입력: docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md 끝의 정오표(규칙 5~9, "Plan 2B로 넘기는 항목")와
-2026-09-20 계획 끝의 규칙 1~4, plan/tech_blog_2a_report_0921.md 6~8절.
+/superpowers:subagent-driven-development docs/superpowers/plans/2026-09-21-tech-blog-public-site.md
+브랜치 feature/blog-public-site. 모든 선택지는 추천안으로, 끝나면 "내린 판정" 표가 든 보고서.
 ```
 
-**2B가 반드시 다뤄야 하는 것**(2A가 남긴 숙제 — 출처: 2A 계획 정오표, 2A 보고서 6·8절):
+**2B가 다루는 것**(2A가 남긴 숙제 — 출처: 2A 계획 정오표, 2A 보고서 6·8절. 계획의 Self-Review 표가 항목별 담당 Task를 적어 두었다):
 
 1. **렌더 비용**: 렌더링은 동기·취소 불가다. 코드 강조는 렌더당 약 2.25초가 상한이지만 Markdig 파서 자체가 적대적 200KB 입력에서 인라인 약 8.5초, 블록 약 6.6초 걸린다. 공개 페이지는 렌더 결과를 **캐시**하거나 동시성을 제한해야 하고, 글 저장(`POST`/`PUT /api/posts`)도 같은 게이트 안에 넣는다. 시작 시 렌더러 워밍업(첫 렌더 약 185ms).
 2. **보안 헤더·호스트**: 전역 보안 헤더 미들웨어(라우트 제약 실패 404에도 nosniff), `AllowedHosts`를 두 호스트로 제한(지금 `*`), `Server` 헤더 제거. 사이트 CSS에 id 선택자 금지(제목 id가 작성자 텍스트에서 나온다).
@@ -78,6 +77,8 @@ Plan 3·4 메모: 미리보기 iframe의 이미지는 **관리 오리진**에서
 | `Accepts` 메타데이터 | Content-Type이 안 맞으면 라우팅이 인가보다 먼저 415(핸들러는 실행되지 않음) | 접근 매트릭스는 엔드포인트가 받는 형식으로 본문을 보낸다 |
 | 줄 끝 | 작업 트리는 CRLF(`autocrlf=true`), `CLAUDE.md`·`AGENTS.md`·`plan/*.md` 일부는 LF | 파일의 기존 스타일 유지, 한 파일 안에서 섞지 않는다 |
 | Codex 실행 뒤 | `.agents/skills/{codex,cross-verify}`·`.codex/agents/cross-*.toml`이 다시 생길 수 있다 | 턴 끝에 untracked 확인 후 삭제(미러 제외 대상) |
+| 이 PC의 AdGuard | 평문 HTTP(`http://127.0.0.1:…`)로 받은 HTML `<head>`에 `<script src="//local.adguard.org…">`가 **주입돼 있다**(2B 스파이크에서 실측). 앱이 낸 것이 아니다 | 실제 호스트를 HTTP로 찔러 볼 때 XSS로 오판하지 말 것. 서버 쪽 바이트로 확인하거나 AdGuard를 끄고 본다. TestServer(인메모리)는 영향 없음 |
+| Razor Pages의 `page` | 핸들러 매개변수 `int? page`가 쿼리 문자열이 아니라 예약 라우트 값(`/Index`)을 바인딩하려다 실패한다 | `Request.Query["page"]`를 직접 읽는다(2B 계획의 `PageNumber`). 링크도 `asp-route-page`를 쓰지 않는다 |
 
 ## 6. 문서 지도
 
