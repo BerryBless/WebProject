@@ -425,7 +425,7 @@ sequenceDiagram
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 실행 2. 영구 잠금 없음(작성자 서비스 거부 방지) |
 | 업로드 | 속도: 전역 30회/분 + 동시 실행 2. 크기: 앱 10MB(`AttachmentOptions.MaxBytes`, 넘으면 앱의 413 ProblemDetails) · 프레임워크 11MB(`RequestSizeLimit` 메타데이터 + `FormOptions.MultipartBodyLengthLimit`, 넘으면 프레임워크 413) — 1MB 여유는 multipart 프레이밍(경계·헤더) 몫이다(실측, Kestrel). Caddy `request_body`는 Plan 4에서 앱 값이 아니라 이 프레임워크 값(11MB)에 맞춘다 — 그보다 작으면 Caddy가 정상 업로드를 앱보다 먼저 끊는다. 접근 검사는 본문을 읽기 전에 끝난다 |
 | 렌더링 | 프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503. 공개 글은 `(PostId, xmin)` 메모리 캐시(64MB, 정상 24시간·시간 예산 초과 렌더 2분) + 단일 비행 |
-| DB | 공개 조회는 별도 연결(`statement_timeout` 3초 + `default_transaction_read_only=on`) |
+| DB | 공개 조회는 별도 연결(`statement_timeout` 3초 + `default_transaction_read_only=on`). read-only는 세션에서 끌 수 있는(`SET default_transaction_read_only = off`) 심층 방어일 뿐이다 — 진짜 경계는 쓰기 권한이 없는 DB 롤(7절)이다 |
 | JSON 본문 | 관리 API 256KB. 직렬화 후 바이트 기준. 이스케이프가 많은 본문은 200KB 미만에서도 413이 될 수 있다 |
 | 과부하 응답 | `statement_timeout`·잠금 대기·렌더 슬롯 대기 초과는 503 + `Retry-After: 5` |
 
@@ -519,7 +519,7 @@ PortfolioBlog.Web/Dockerfile   # node:22 빌드 → caddy:2 이미지에 dist �
 - 1차 배포 토폴로지는 **인터넷 → Caddy → api**로 고정한다. 앞단에 CDN·로드밸런서를 두면 `remote_ip`가 프록시 주소를 보게 되므로, 그때는 `trusted_proxies` + `client_ip`로 재설계한다.
 - 배포 직후 검증: 허용 IP 밖에서 `admin.<도메인>` 전 경로 404, Caddy 액세스 로그의 원본 IP가 실제 클라이언트 IP인지 확인(Docker 네트워크 모드에 따라 게이트웨이 주소로 보일 수 있음).
 - API 시작 시 `Database.Migrate()`(단일 인스턴스). 설정은 환경변수(`ConnectionStrings__Default`, `Site__PublicOrigin`, `Site__AdminOrigin`, `Admin__AllowedCidrs`, `Admin__PasswordHash`, `Proxy__TrustedIp`, `Attachments__RootPath`, `DataProtection__KeysPath`).
-- 헬스체크: postgres `pg_isready`, api `/health`, `depends_on: condition: service_healthy`.
+- 헬스체크: postgres `pg_isready`, api `/health`, `depends_on: condition: service_healthy`. **api 헬스체크 요청에는 `Host: <공개 호스트>` 헤더가 필요하다** — 호스트 필터가 설정된 두 origin의 호스트만 받으므로 컨테이너 이름·`localhost`로 부르면 본문 없는 400이 온다(Plan 4에서 compose의 healthcheck 명령에 반영).
 - 백업 = `pgdata` 덤프 + `attachments`를 같은 시점에. `dpkeys`·`caddy_data`는 제외. 복원 리허설 절차를 `OPERATIONS.md`에 둔다.
 
 ## 4. 핵심 API
@@ -599,7 +599,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 dotnet build PortfolioBlog.slnx -c Release
 dotnet test  PortfolioBlog.slnx -c Release            # Docker Desktop 필요(Testcontainers)
 cd PortfolioBlog.Web; npm ci; npx tsc --noEmit; npm run build
-cd deploy; docker compose up --build -d; curl -f http://localhost/health
+cd deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" http://localhost/health   # 호스트 필터 때문에 Host 헤더가 필요하다
 ```
 
 필수 통과 테스트:

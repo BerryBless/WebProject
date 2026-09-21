@@ -235,7 +235,7 @@ dotnet build PortfolioBlog.slnx
 dotnet test  PortfolioBlog.slnx
 ```
 
-.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 579개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
+.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 589개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
 
 ### 로컬 실행 (API)
 
@@ -262,13 +262,14 @@ EF Core 마이그레이션 도구는 컨텍스트가 둘(`AppDbContext`·`Public
 | `Public:AssetPerIpPerMinute` | `600` | 첨부 GET·`/health`·`robots.txt`·`highlight.css`의 IP별 분당 한도 |
 | `Public:SearchPerIpPerMinute` | `20` | `/search`의 IP별 분당 한도 |
 | `Public:SearchConcurrency` | `4` | 검색의 전역 동시 실행 한도 |
-| `Public:StatementTimeoutMs` | `3000` | 공개 조회 연결의 `statement_timeout`(밀리초) |
+| `Public:StatementTimeoutMs` | `3000` | 공개 조회 연결의 `statement_timeout`(밀리초). 100~60000 밖이면 시작 실패 |
+| `ConnectionStrings:Default` | (빈 값 — 없으면 시작 실패) | 관리 연결 문자열. **`Options`를 넣을 수 없다**(공개 조회 연결이 `statement_timeout`·`default_transaction_read_only`를 시작 옵션으로 붙이므로 합칠 수 없어 시작 실패). `Command Timeout`(초)을 지정하면 ×1000이 `Public:StatementTimeoutMs`보다 **커야** 한다 — 어기면 시작 실패(클라이언트 취소가 DB의 `statement_timeout`보다 먼저 나면 503 매핑이 깨진다). `Command Timeout=0`(무한)은 이 검사에서 제외 |
 | `Rendering:Concurrency` | `2` | 프로세스 전체 동시 렌더 수(미리보기·저장·공개 페이지 합산) |
 | `Rendering:QueueTimeoutMs` | `5000` | 렌더 슬롯 대기 상한(밀리초). 넘으면 503 |
 | `Rendering:CacheMegabytes` | `64` | 렌더 결과 캐시의 메모리 상한(MB) |
 | `Admin:UploadPerMinute` | `30` | 첨부 업로드의 분당 전역 한도 |
 | `Admin:UploadConcurrency` | `2` | 첨부 업로드의 동시 실행 한도 |
-| `Attachments:JanitorEnabled` | `true` | 첨부 고아 파일 청소 잡 실행 여부(테스트는 끈다) |
+| `Attachments:JanitorEnabled` | `true` | 첨부 고아 파일 청소 잡 실행 여부(테스트는 끈다). 켜면 **시작 직후 1회 + 이후 6시간마다** 스윕한다: 마지막 쓰기가 **1시간 안**인 파일은 진행 중인 업로드일 수 있어 건드리지 않고, 내용 주소 모양(`ab/<sha256>.<ext>`)이 아닌 파일과 심볼릭 링크·정션도 건너뛴다. 지우는 것은 오래된 `.tmp` 파일과 참조하는 행이 없는 오래된 첨부 파일뿐이며, 삭제 직전 같은 내용의 잠금 안에서 DB를 다시 조회한다. `파일이 없는 첨부 행 N건` 경고는 **그 반대 방향의 불일치**(DB 행은 있는데 파일이 없다)를 알리는 진단이며 청소 잡이 고치지 않는다 — 같은 이미지를 다시 올리면 복구된다 |
 
 ## 문서
 
