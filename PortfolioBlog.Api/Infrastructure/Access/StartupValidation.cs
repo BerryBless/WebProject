@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.Options;
+using Npgsql;
+using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Storage;
 using PortfolioBlog.Api.Infrastructure.Web;
@@ -72,6 +74,25 @@ public static class StartupValidation
         if (pub.StatementTimeoutMs is < 100 or > 60_000)
         {
             throw new InvalidOperationException("Public:StatementTimeoutMs 는 100~60000 이어야 합니다.");
+        }
+        // 연결 문자열이 비어 있으면 기존 가드(DataServiceCollectionExtensions.RequireConnectionString, 컨텍스트가 처음 해석될 때)가
+        // 그대로 처리한다 — 여기서는 값이 있을 때만, 그 값이 공개 연결 조립과 실제로 합쳐지는지를 시작 시점에 미리 확인한다.
+        var connectionString = services.GetRequiredService<IConfiguration>().GetConnectionString("Default");
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            // BuildConnectionString은 순수 파싱·문자열 조립이라 I/O가 없다 — 이 클래스의 "I/O 없음" 계약을 지킨다.
+            // Options가 이미 있으면 여기서 던지므로, 그 조용한 덮어쓰기가 첫 공개 요청이 아니라 시작 시점에 드러난다.
+            PublicDbContext.BuildConnectionString(connectionString, pub.StatementTimeoutMs);
+
+            // CommandTimeout(초, 0=무한)이 statement_timeout(밀리초)보다 먼저 끊기면 클라이언트가 DB보다 먼저 취소해버려서
+            // OverloadExceptionHandler가 기대하는 57014(DB 시간제한) 대신 클라이언트 취소 예외가 난다 — 503 매핑 설계가 깨진다.
+            var commandTimeoutSeconds = new NpgsqlConnectionStringBuilder(connectionString).CommandTimeout;
+            if (commandTimeoutSeconds != 0 && commandTimeoutSeconds * 1000L <= pub.StatementTimeoutMs)
+            {
+                throw new InvalidOperationException(
+                    "ConnectionStrings:Default 의 Command Timeout(초)이 Public:StatementTimeoutMs(밀리초)보다 커야 합니다 — " +
+                    "그렇지 않으면 클라이언트 취소가 DB의 statement_timeout보다 먼저 발생합니다.");
+            }
         }
         var rendering = services.GetRequiredService<IOptions<RenderingOptions>>().Value;
         if (rendering.Concurrency is < 1 or > 64 || rendering.QueueTimeoutMs is < 1 or > 60_000 || rendering.CacheMegabytes is < 1 or > 1024)

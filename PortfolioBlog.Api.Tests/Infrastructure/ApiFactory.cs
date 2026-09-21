@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -233,7 +234,12 @@ public class ApiFactory : WebApplicationFactory<Program>
         // NpgsqlConnection.ClearPool: 풀은 연결 문자열별 프로세스 전역 상태라 호스트를 내려도 유휴 연결이 Connection Idle Lifetime(기본 300초) 동안
         // 서버에 남는다. 이 팩토리가 연 두 풀(관리·공개)을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
         // 공개 조회 풀도 닫는다(연결 문자열이 달라 풀이 따로다). 시간 제한 값이 연결 문자열의 일부라 앱과 같은 값으로 조립해야 같은 풀을 가리킨다.
-        var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null ? int.Parse(raw, System.Globalization.CultureInfo.InvariantCulture) : 3000;
+        // int.TryParse: Dispose 안에서 예외를 던지면 바로 아래 첨부 임시 폴더 정리가 건너뛰어지므로, 파싱 실패를 예외 대신
+        // PublicOptions 기본값으로 흡수한다(정리 자체는 최선 노력이고, 여기서 죽을 이유가 없다).
+        var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null
+            && int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : new PublicOptions().StatementTimeoutMs;
         foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_connectionString, timeout) })
         {
             using var connection = new NpgsqlConnection(cs);

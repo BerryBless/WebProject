@@ -13,6 +13,10 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// </list>
 /// 앱 검증과 별개로 핵심 불변식은 DB 제약(CHECK·UNIQUE)으로 한 번 더 막는다.
 /// EF 도구는 컨텍스트가 둘이라 <c>--context AppDbContext</c>가 필요하다. 마이그레이션은 이 타입에만 속한다.
+/// <see cref="PublicDbContext"/>가 파생되도록 봉인을 풀었으므로, 원래 <c>AppDbContext</c>를 받던 쓰기 헬퍼(예: <c>TagResolver.ResolveIdsAsync</c>,
+/// 시리즈 삭제 경로의 <c>FOR UPDATE</c> 잠금 쿼리)에 실수로 <see cref="PublicDbContext"/> 인스턴스를 넘기는 코드도 이제 컴파일된다.
+/// 그런 코드를 실행하면 <see cref="PublicDbContext"/>의 쓰기 차단(SaveChanges 예외 또는 DB의 25006)에 걸려 fail-closed로 끝난다 — 컴파일이
+/// 통과한다고 안전이 보장되는 것은 아니라는 뜻이므로, 리뷰에서 이런 시그니처를 보면 의도한 컨텍스트 타입인지 확인한다.
 /// </remarks>
 public class AppDbContext : DbContext
 {

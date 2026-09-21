@@ -40,14 +40,6 @@ public static class DataServiceCollectionExtensions
     /// <param name="sp">연결 문자열을 읽을 서비스 프로바이더.</param>
     /// <returns><c>ConnectionStrings:Default</c> 값.</returns>
     /// <exception cref="InvalidOperationException"><c>ConnectionStrings:Default</c>가 없거나 공백뿐이다.</exception>
-    /// <remarks>
-    /// <b>[성능 및 동시성 제약 조건]</b>
-    /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> Thread-safe. 읽기 전용 설정 조회이며 공유 가변 상태를 건드리지 않는다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 설정 값 문자열 1개(이미 <see cref="IConfiguration"/>이 보유한 값을 참조).</description></item>
-    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). I/O 없음(설정은 시작 시 이미 메모리에 로드되어 있다).</description></item>
-    /// </list>
-    /// </remarks>
     // appsettings.json의 기본값이 빈 문자열이라 ??로는 걸러지지 않는다(Plan 1 정오표). 메시지는 ConnectionStringGuardTests가 고정한다.
     private static string RequireConnectionString(IServiceProvider sp)
     {

@@ -78,7 +78,10 @@ public static class PublicQueries
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Not Thread-safe. <paramref name="db"/> 스코프 안에서만 호출한다.</description></item>
     /// <item><description><b>Memory Allocation:</b> <see cref="LikePattern.Contains"/>의 패턴 문자열 1개 + <see cref="PageAsync"/>의 페이지 결과.</description></item>
-    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <c>ILIKE</c> 3열 전체 스캔이라 인덱스가 없으면 테이블 크기에 비례해 오래 걸릴 수 있다 — <c>statement_timeout</c>이 상한, <c>PublicOptions.SearchConcurrency</c>가 동시 실행 수 상한이다(이 메서드 자체는 그 제한을 강제하지 않는다, 호출부의 계약).</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <c>ILIKE</c> 3열 전체 스캔이라 인덱스가 없으면 테이블 크기에 비례해 오래 걸릴 수 있다 —
+    /// <c>statement_timeout</c>은 <b>문장 하나</b>의 상한이고 <see cref="PageAsync"/>가 이 조건으로 <c>COUNT</c> 1회 + 목록 SELECT 1회, 즉
+    /// 문장 2개를 순차 실행하므로 호출 1회의 실질 상한은 <c>statement_timeout</c>의 최대 2배다. <c>PublicOptions.SearchConcurrency</c>가
+    /// 동시 실행 수 상한이다(이 메서드 자체는 그 제한을 강제하지 않는다, 호출부의 계약).</description></item>
     /// </list>
     /// </remarks>
     public static Task<PublicPage<PublicPostSummary>> SearchAsync(PublicDbContext db, string term, int page, CancellationToken ct)
@@ -216,9 +219,13 @@ public static class PublicQueries
 
     /// <summary><paramref name="query"/>를 최신순으로 페이지네이션해 본문을 뺀 요약 DTO로 투영한다.</summary>
     /// <param name="query">필터가 이미 적용된 <see cref="Post"/> 쿼리(이 메서드가 정렬·페이지네이션·프로젝션을 추가한다).</param>
-    /// <param name="page">1부터 시작하는 쪽 번호.</param>
+    /// <param name="page">1부터 시작하는 쪽 번호. 호출부(예: Task 5의 페이지 매개변수)가 보통 상한을 이미 강제하지만, 이 메서드도 심층 방어로
+    /// 범위를 직접 검사한다 — 검사가 없으면 음수 <paramref name="page"/>가 음수 OFFSET으로 내려가 PostgreSQL이 이를 0으로 취급해 조용히
+    /// 1쪽을 반환해 버린다(오류 없이 틀린 결과).</param>
     /// <param name="ct">요청 취소 토큰.</param>
     /// <returns>최신순으로 정렬된 한 쪽.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="page"/>가 1보다 작거나, <c>(page - 1) * <see cref="PageSize"/></c>가
+    /// <see cref="int"/> 범위를 넘어설 만큼 클 때.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -229,6 +236,11 @@ public static class PublicQueries
     /// </remarks>
     private static async Task<PublicPage<PublicPostSummary>> PageAsync(IQueryable<Post> query, int page, CancellationToken ct)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
+        // (page - 1) * PageSize가 int를 오버플로하지 않는 가장 큰 page 값까지만 허용한다 — 오버플로하면 Skip에 음수가 들어가
+        // 위와 같은 이유로 조용히 잘못된 결과를 낼 수 있다. 호출부가 이미 훨씬 작은 상한(스펙 3.4의 500쪽 등)을 강제하므로
+        // 이 상한에 실제로 닿는 것은 방어선이 뚫렸을 때뿐이다.
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(page, int.MaxValue / PageSize);
         var total = await query.CountAsync(ct);
         var rows = await query.OrderByDescending(p => p.CreatedAt).ThenBy(p => p.Id)
             .Skip((page - 1) * PageSize).Take(PageSize)

@@ -83,4 +83,17 @@ public sealed class PublicQueriesTests(PostgresContainerFixture pg)
         Assert.Equal(new[] { "pct" }, (await QueryAsync(factory, db => PublicQueries.SearchAsync(db, "a_b", 1, CancellationToken.None))).Items.Select(p => p.Slug));
         Assert.Equal(2, (await QueryAsync(factory, db => PublicQueries.SearchAsync(db, "완료", 1, CancellationToken.None))).Total);
     }
+
+    /// <summary>0·음수·오버플로 경계의 page는 조용히 틀린 결과(예: 음수 OFFSET이 0으로 취급돼 1쪽이 나옴)를 내는 대신 즉시 예외로 거부된다(Fix round 1, 심층 방어).</summary>
+    [Fact]
+    public async Task Latest_OutOfRangePage_Throws()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => PublicQueries.LatestAsync(db, 0, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => PublicQueries.LatestAsync(db, -1, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => PublicQueries.LatestAsync(db, int.MaxValue, CancellationToken.None));
+    }
 }
