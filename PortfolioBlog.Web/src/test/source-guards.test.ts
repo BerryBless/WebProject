@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { collectCommentRanges, stripComments } from './stripComments'
 
@@ -25,43 +26,59 @@ const FILES = sources(ROOT).map(path => {
 const offenders = (pattern: RegExp, allow: (path: string) => boolean = () => false) =>
   FILES.filter(f => !allow(f.path) && pattern.test(f.text)).map(f => f.path)
 
+/**
+ * stripComments.ts와 무관하게(따로 옮겨 적은 코드로) 파일 하나의 실제 코드 토큰 span 목록을 구한다.
+ * "stripComments가 스스로 무엇을 주석이라 선언했는가"를 믿지 않고, 같은 typescript 패키지로 이 테스트가
+ * 직접 다시 파싱해 "진짜 코드가 어디 있는가"를 구한다 — 그래서 stripComments가 주석이 아닌 구간을 주석으로
+ * 잘못 선언해도(예: 문자열 안의 //부터를 가짜 범위로 선언) 이 검사는 속지 않는다.
+ */
+function isJsDocKind(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstJSDocNode && kind <= ts.SyntaxKind.LastJSDocNode
+}
+function codeTokenSpans(text: string, fileName: string): { start: number; end: number }[] {
+  const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const spans: { start: number; end: number }[] = []
+  const visit = (node: ts.Node): void => {
+    if (isJsDocKind(node.kind)) return
+    const children = node.getChildren(sourceFile)
+    if (children.length === 0) {
+      const start = node.getStart(sourceFile)
+      const end = node.getEnd()
+      if (end > start) spans.push({ start, end }) // 폭이 0인 토큰(EndOfFileToken 등)은 뺀다
+      return
+    }
+    for (const child of children) visit(child)
+  }
+  visit(sourceFile)
+  return spans
+}
+
 describe('소스 가드', () => {
   it('검사 대상이 비어 있지 않다(경로가 바뀌어 공집합으로 통과하지 않게)', () => {
     expect(FILES.length).toBeGreaterThan(15)
     expect(FILES.map(f => f.path)).toContain('components/PreviewPane.tsx')
   })
 
-  // 정규식으로 흉내 낸 "줄 수가 같다" 자기 검사는 구조적으로 무력하다 — 가드가 쫓는 위반은 대개 블록·함수 몸통
-  // 안(들여쓴 줄)에 있고, export·import 줄 수는 블록 안에서 몇 줄이 사라지든 바뀌지 않는다(실측: 재현 가능).
-  // 그래서 문자 단위 불변식으로 바꾼다 — stripComments의 공개 계약(collectCommentRanges가 찾은 범위만 공백으로
-  // 바뀐다) 그 자체를 파일마다 직접 확인한다. stripComments 내부 구현을 신뢰하지 않고 그 출력만 본다.
-  it('주석 제거가 코드를 지우지 않는다: 길이·문자·주석 범위의 구조적 불변식', () => {
+  it('주석 제거가 실제 코드 토큰을 건드리지 않는다(토큰 span과 대조 — stripComments의 범위 선언을 믿지 않는다)', () => {
     const violations: string[] = []
     for (const f of FILES) {
-      if (f.text.length !== f.raw.length) {
-        violations.push(`${f.path}: 길이가 다르다(원본 ${f.raw.length}, 제거본 ${f.text.length})`)
-        continue
-      }
-      const ranges = collectCommentRanges(f.raw, f.path)
-      // (c) 각 주석 범위의 원본 텍스트가 실제로 //나 /*로 시작한다 — collectCommentRanges가 주석이 아닌 것을
-      // 주석으로 잘못 판단하지 않았는지 확인한다.
-      const blanked = new Set<number>()
-      for (const { pos, end } of ranges) {
-        const original = f.raw.slice(pos, end)
-        if (!(original.startsWith('//') || original.startsWith('/*'))) {
-          violations.push(`${f.path}:${pos} 주석이 아닌 구간을 지웠다: ${JSON.stringify(original.slice(0, 30))}`)
-        }
-        for (let i = pos; i < end; i++) if (f.raw[i] !== '\n' && f.raw[i] !== '\r') blanked.add(i)
-      }
-      // (a)(b) 바뀐 위치는 전부 공백이고, 바뀐 위치는 전부 선언된 주석 범위 안에 있다(stripComments가
-      // collectCommentRanges 밖의 문자를 지우지 않았다는 것을 출력만 보고 확인한다).
+      if (f.text.length !== f.raw.length) { violations.push(`${f.path}: 길이가 다르다(원본 ${f.raw.length}, 제거본 ${f.text.length})`); continue }
+      const spans = codeTokenSpans(f.raw, f.path)
       for (let i = 0; i < f.raw.length; i++) {
         if (f.text[i] === f.raw[i]) continue
         if (f.text[i] !== ' ') { violations.push(`${f.path}:${i} 공백이 아닌 다른 문자로 바뀌었다(원본 ${JSON.stringify(f.raw[i])})`); break }
-        if (!blanked.has(i)) { violations.push(`${f.path}:${i} 선언된 주석 범위 밖에서 지워졌다`); break }
+        const inCodeToken = spans.some(s => i >= s.start && i < s.end)
+        if (inCodeToken) { violations.push(`${f.path}:${i} 실제 코드 토큰 안을 지웠다`); break }
       }
     }
     expect(violations).toEqual([])
+  })
+
+  it('주석 제거가 모든 주석을 지운다(완전성 — 제거본을 다시 파싱하면 남은 주석이 0개)', () => {
+    const incomplete = FILES
+      .map(f => ({ path: f.path, remaining: collectCommentRanges(f.text, f.path) }))
+      .filter(f => f.remaining.length > 0)
+    expect(incomplete.map(f => `${f.path}:${f.remaining.length}`)).toEqual([])
   })
 
   it('서버 HTML을 React DOM에 넣는 경로가 없다', () => {
@@ -76,8 +93,9 @@ describe('소스 가드', () => {
     expect(offenders(/<iframe|createElement\(\s*['"`]iframe|\.srcdoc\s*=|setAttribute\(\s*['"`]srcdoc/i)).toEqual(['components/PreviewPane.tsx'])
     const pane = FILES.find(f => f.path === 'components/PreviewPane.tsx')!.text
     expect(pane).toMatch(/<iframe[^>]*\ssandbox=""/)
-    // sandbox 토큰 이름을 낱낱이 나열하지 않는다 — 새 토큰(pointer-lock 등)이 추가돼도 놓치지 않게 접두사로 잡는다.
-    expect(offenders(/allow-[a-z-]+/)).toEqual([])
+    // sandbox 토큰 이름을 낱낱이 나열하지 않는다 — 새 토큰(pointer-lock 등)이나 대문자 표기가 추가돼도 놓치지 않게
+    // 접두사로 잡는다(브라우저는 sandbox 토큰의 대소문자를 가리지 않는다).
+    expect(offenders(/allow-[a-z-]+/i)).toEqual([])
   })
 
   it('fetch는 API 클라이언트 한 곳에서만 부른다(CSRF 헤더·same-origin·redirect 거부가 빠진 호출이 생기지 않게)', () => {

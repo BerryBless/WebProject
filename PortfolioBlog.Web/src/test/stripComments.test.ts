@@ -98,6 +98,78 @@ describe('stripComments', () => {
     expect(stripped).toContain('a // b')
   })
 
+  it('JSX 텍스트가 //나 /*로 시작해도 주석으로 읽지 않는다(JsxText 경계 결함 재현)', () => {
+    const input = [
+      'export function ProbeNotice({ n }: { n: number }) {',
+      '  const [v] = useState(n)',
+      '  return <div>',
+      '    /* 서식: 별 기호로 감싸면 강조됩니다 {v}',
+      '  </div>',
+      '}',
+      'export function apply(el: Element, html: string): void {',
+      "  el.innerHTML = html; window.open('#x'); localStorage.setItem('k', '1')",
+      '}',
+    ].join('\n')
+    const stripped = stripComments(input)
+    expect(stripped).toContain('el.innerHTML = html')
+    expect(stripped).toContain("window.open('#x')")
+    expect(stripped).toContain("localStorage.setItem('k', '1')")
+    expect(stripped).toContain('/* 서식: 별 기호로 감싸면 강조됩니다')
+    expect(stripped).toContain('</div>')
+  })
+
+  it('<p>// b</p> 전체가 그대로 남는다(닫는 태그까지 지워지지 않는다)', () => {
+    const input = 'const el = <p>// b</p>'
+    const stripped = stripComments(input)
+    expect(stripped).toBe(input)
+  })
+
+  it('<div>{v}/* 안내</div> 뒤의 코드가 살아남는다', () => {
+    const input = 'const el = <div>{v}/* 안내</div>\nconst after = 1'
+    const stripped = stripComments(input)
+    expect(stripped).toContain('{v}/* 안내</div>')
+    expect(stripped).toContain('const after = 1')
+  })
+
+  it('닫는 구분자 바로 앞의 꼬리 주석이 지워진다(useEffect(() => {...}, []) 모양)', () => {
+    const input = [
+      'useEffect(() => {',
+      '  x()',
+      '  // 설명',
+      '  // 또 설명',
+      '}, [])',
+    ].join('\n')
+    const stripped = stripComments(input)
+    expect(stripped).toContain('x()')
+    expect(stripped).not.toContain('설명')
+    expect(stripped).toContain('}, [])')
+  })
+
+  it('빈 객체·배열·인자 목록·인터페이스 안의 주석이 지워진다', () => {
+    const input = [
+      'const o = { /* x */ }',
+      'const a = [ /* x */ ]',
+      'f(/* x */)',
+      'interface I { /* x */ }',
+    ].join('\n')
+    const stripped = stripComments(input)
+    expect(stripped).not.toContain('/* x */')
+    expect(stripped).toContain('const o = {')
+    expect(stripped).toContain('const a = [')
+    expect(stripped).toContain('f(')
+    expect(stripped).toContain('interface I {')
+  })
+
+  it('파일 맨 끝의 주석(줄·블록)이 지워진다', () => {
+    const lineEnd = stripComments('const x = 1\n// trailing line comment')
+    expect(lineEnd).not.toContain('trailing line comment')
+    expect(lineEnd).toContain('const x = 1')
+
+    const blockEnd = stripComments('const y = 1\n/* trailing block comment */')
+    expect(blockEnd).not.toContain('trailing block comment')
+    expect(blockEnd).toContain('const y = 1')
+  })
+
   it('{/* JSX 주석 */}·/** JSDoc */·줄 끝 // 설명은 공백이 된다', () => {
     const input = '<div>{/* JSX 주석 */}</div>\n/** JSDoc */\nconst x = 1 // 설명'
     const stripped = stripComments(input)
