@@ -27,3 +27,23 @@ jobs:
 
       - name: Run tests (unit + Testcontainers integration)
         run: dotnet test --configuration Release --no-build --verbosity normal
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: PortfolioBlog.Web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: PortfolioBlog.Web/package-lock.json
+      - run: npm ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
