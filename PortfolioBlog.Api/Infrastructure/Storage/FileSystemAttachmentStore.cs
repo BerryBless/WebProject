@@ -258,6 +258,63 @@ public sealed class FileSystemAttachmentStore
         catch (UnauthorizedAccessException) { _logger.LogWarning("임시 파일 정리 실패(권한). TempFile={TempFile}", Path.GetFileName(path)); }
     }
 
+    /// <summary>저장 루트 기준 상대 경로의 파일이 지금 있는가.</summary>
+    /// <param name="storagePath">확인할 상대 경로.</param>
+    /// <returns>파일이 존재하면 <see langword="true"/>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 파일 시스템 자체의 존재 확인에 의존한다(호출과 그 결과를 쓰는 코드 사이에 다른 요청이 파일을 지울 수 있다 — TOCTOU는 호출부의 책임이다).</description></item>
+    /// <item><description><b>Memory Allocation:</b> 경로 문자열 계산 외 추가 할당 없음.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 I/O(단일 존재 확인, 관리 표면 전용이라 짧다).</description></item>
+    /// </list>
+    /// </remarks>
+    public bool Exists(string storagePath) => File.Exists(PhysicalPath(storagePath));
+
+    /// <summary><c>.tmp</c> 밑의 임시 파일 전체 경로를 나열한다(청소 잡 전용).</summary>
+    /// <returns><c>.tmp</c> 디렉터리가 없으면 빈 시퀀스, 있으면 그 밑의 파일 전체 경로.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 반환된 시퀀스를 여는 시점(호출 시점, 지연 평가 아님)에 디렉터리를 한 번 확인하고 <see cref="Directory.EnumerateFiles(string)"/> 결과를 즉시 배열로 감싸지 않고 그대로 돌려준다 — 열거 도중 다른 요청이 파일을 만들거나 지워도 예외 없이 반영되거나 건너뛴다(.NET 파일 열거의 통상 동작).</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="Directory.EnumerateFiles(string)"/>는 스트리밍 열거자라 전체 목록을 한 번에 메모리에 올리지 않는다.</description></item>
+    /// <item><description><b>Blocking:</b> <see cref="Directory.Exists"/> 확인은 호출 시점에 동기로 실행된다. 실제 파일 목록을 읽는 디렉터리 I/O는 반환된 시퀀스를 호출자가 순회하는 시점에 일어난다(이 메서드가 아니라).</description></item>
+    /// </list>
+    /// </remarks>
+    public IEnumerable<string> EnumerateTempFiles() => Directory.Exists(_temp) ? Directory.EnumerateFiles(_temp) : [];
+
+    /// <summary>내용 주소 규칙(<c>{sha[..2]}/{sha}.{확장자}</c>)에 <b>모양이 맞는</b> 파일만 열거한다(청소 잡 전용). 규칙 밖의 것(임시 폴더, 시작 확인 파일, 사람이 둔 파일)은 청소 대상이 아니다(기본 거부).</summary>
+    /// <returns>모양이 맞는 각 파일의 상대 경로와, 파일 이름에서 읽은 SHA-256(버킷 접두사와 일치가 이미 확인된 값).</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 이 메서드는 반복자(iterator) 블록이라 <c>foreach</c>로 실제로 순회하기 전에는 어떤 디렉터리 I/O도 하지 않는다 — 순회 도중 다른 요청이 디렉터리를 바꿔도 예외를 던지지 않고 그 시점의 스냅숏만큼만 본다(.NET 파일 열거의 통상 동작). 루트 밑에 심볼릭 링크·정션이 있으면 <see cref="Directory.EnumerateDirectories(string)"/>는 그것도 디렉터리로 열거한다 — 이 메서드가 링크를 따라가지 않게 막지는 않지만, 이름이 2자 소문자 hex가 아니면(버킷 검사) 걸러지고, 통과해도 그 안의 파일이 이름·해시 접두사 모양(<c>IsLowerHex</c>·<c>sha.StartsWith(bucket)</c>)까지 맞아야 하며, 호출부(<c>AttachmentJanitor</c>)가 삭제 직전 DB 재조회로 다시 걸러 삭제 폭을 좁힌다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 디렉터리·파일 이름 문자열 몇 개를 반복마다 할당한다. 전체 목록을 배열로 모으지 않는다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 시스템 열거. 호출자가 순회하는 동안 디렉터리·파일 I/O가 일어난다(청소 잡은 백그라운드 실행이라 요청 스레드를 막지 않는다).</description></item>
+    /// </list>
+    /// </remarks>
+    public IEnumerable<(string StoragePath, string Sha256)> EnumerateStoredFiles()
+    {
+        if (!Directory.Exists(_root)) yield break;
+        foreach (var directory in Directory.EnumerateDirectories(_root))
+        {
+            var bucket = Path.GetFileName(directory);
+            if (bucket.Length != 2 || !IsLowerHex(bucket)) continue;
+            foreach (var file in Directory.EnumerateFiles(directory))
+            {
+                var name = Path.GetFileName(file);
+                if (name.Length is < 66 or > 70 || name[64] != '.') continue;
+                var sha = name[..64];
+                var extension = name[65..];
+                if (!IsLowerHex(sha) || !sha.StartsWith(bucket, StringComparison.Ordinal) || !extension.All(char.IsAsciiLetterOrDigit)) continue;
+                yield return ($"{bucket}/{name}", sha);
+            }
+        }
+    }
+
+    // 내부 헬퍼: 상용구 remarks 없이 인라인 주석으로 판단 근거만 남긴다 — 소문자 hex만 허용해 대문자·비-hex를 내용 주소가 아닌 것으로 취급한다(기본 거부).
+    private static bool IsLowerHex(string value) => value.All(static c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
+
     /// <summary>업로드 스트림을 64KB 단위로 임시 파일에 받으며, 누적 크기가 한도를 넘으면 즉시 중단한다.</summary>
     /// <param name="upload">읽어들일 원본 업로드 스트림.</param>
     /// <param name="path">받은 바이트를 쓸 임시 파일 경로.</param>

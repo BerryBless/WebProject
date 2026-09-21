@@ -53,6 +53,8 @@ builder.Services.Configure<AttachmentOptions>(builder.Configuration.GetSection(A
 builder.Services.AddSingleton<FileSystemAttachmentStore>();
 // multipart 한도를 첨부 한도보다 1MB 크게: 10MB를 조금 넘는 업로드는 앱이 413으로 답하고, 그보다 훨씬 큰 본문은 프레임워크가 읽다가 끊는다.
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = AttachmentOptions.MaxBytes + 1_048_576);
+builder.Services.AddSingleton<AttachmentJanitor>();
+builder.Services.AddHostedService(static sp => sp.GetRequiredService<AttachmentJanitor>());
 builder.Services.AddRazorPages();
 // 규약은 설정(공개 호스트)이 필요하므로 옵션 지연 구성으로 단다(Build 이후 첫 해석).
 builder.Services.AddOptions<RazorPagesOptions>().Configure<IOptions<SiteOptions>>((o, site) =>

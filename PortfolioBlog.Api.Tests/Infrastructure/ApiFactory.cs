@@ -104,6 +104,9 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Public:SearchPerIpPerMinute", "100000");
         builder.UseSetting("Public:SearchConcurrency", "64");
         builder.UseSetting("Attachments:RootPath", _attachmentsRootPathOverride ?? AttachmentsRoot);
+        // 청소 잡의 백그라운드 주기 실행을 끈다: 파일 마지막 쓰기 시각을 직접 조작하는 테스트(AttachmentJanitorTests)와
+        // 백그라운드 스윕이 동시에 같은 파일을 건드리면 결과가 흔들린다. 청소 로직 자체는 SweepOnceAsync를 직접 불러 검증한다.
+        builder.UseSetting("Attachments:JanitorEnabled", "false");
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);
