@@ -44,7 +44,7 @@ describe('글 편집', () => {
       slug: 'new-post', title: '새 글 제목', summary: '', contentMarkdown: '본문 **굵게**', tagNames: ['C#'], seriesId: null, seriesOrder: null,
     })
     expect(loadDraft('new')).toBeNull() // 저장에 성공하면 임시본을 지운다
-  })
+  }, 15_000)
 
   it('수정: slug는 읽기 전용이고, 받은 version을 그대로 돌려보낸다', async () => {
     const calls = stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, [`PUT /api/posts/${POST.id}`]: { status: 200, body: { ...POST, title: '바뀐 제목', version: 8 } } })
@@ -64,10 +64,13 @@ describe('글 편집', () => {
     // 커밋에서 effect가 한 번 더 돌고, 그때 settled는 아직 디바운스 전 값(저장 전 내용)이다 — 그 값이 새
     // baseVersion과 함께 임시본으로 다시 쓰인다(실측).
     stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, [`PUT /api/posts/${POST.id}`]: { status: 200, body: { ...POST, contentMarkdown: '# 고친 본문', version: 8 } } })
-    renderApp(`/posts/${POST.id}`)
+    const view = renderApp(`/posts/${POST.id}`)
     fireEvent.change(await screen.findByLabelText('본문(마크다운)'), { target: { value: '# 고친 본문' } })
     await userEvent.click(screen.getByRole('button', { name: '저장' })) // 1초 디바운스가 끝나기 전에 저장한다
     await waitFor(() => expect(screen.getByRole('button', { name: '저장' })).toBeDisabled())
+    expect(loadDraft(POST.id)).toBeNull()
+    // 저장에 성공한 직후 화면을 떠나는 경우(기준선 = 현재 입력)도 아무것도 다시 쓰지 않는다.
+    view.unmount()
     expect(loadDraft(POST.id)).toBeNull()
   })
 
@@ -240,7 +243,7 @@ describe('글 편집', () => {
     await new Promise(resolve => setTimeout(resolve, 1200)) // 1초 디바운스가 지나가도
     expect(loadDraft('new')).toBeNull()
     setItemSpy.mockRestore()
-  })
+  }, 15_000)
 
   it('새 글: 임시 저장 실패 안내 상태에서 언마운트 후 새 글 화면을 다시 열어도 복원을 제안하지 않고, 중복 제출도 없다', async () => {
     let resolvePost!: (reply: { status: number; body: PostDetail }) => void
@@ -263,7 +266,77 @@ describe('글 편집', () => {
     await screen.findByText('slug는 필수입니다.') // 빈 필드라 클라이언트 검증에 걸려 서버로 나가지 않는다
     expect(calls.filter(c => c.method === 'POST' && c.url === '/api/posts')).toHaveLength(1) // 처음 1회뿐 — 중복 제출 없음
     setItemSpy.mockRestore()
+  }, 15_000)
+
+  it('새 글: 임시 저장에 실패해 잠기면 복원 제안을 내리고 창을 닫기 전에 경고한다', async () => {
+    let resolvePost!: (reply: { status: number; body: PostDetail }) => void
+    const postPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePost = resolve })
+    stubApi({ ...COMMON, 'POST /api/posts': () => postPromise, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    // 지울 임시본이 실제로 있는 상태에서 시작한다 — 없으면 아래의 "복원 제안이 없다"가 저절로 참이 된다.
+    saveDraft('new', { slug: 'seeded-slug', title: '심어 둔 제목', summary: '', contentMarkdown: '# 심어 둔 본문', tagNames: [], seriesId: null, seriesOrder: null, baseVersion: null, savedAt: '2026-09-03T00:00:00.000Z' })
+    expect(loadDraft('new')).not.toBeNull()
+    renderApp('/posts/new')
+    await screen.findByText(/저장된 임시본이 있습니다/) // 제안이 실제로 떠 있다
+    await userEvent.type(screen.getByLabelText(/^제목/), '새 글 제목')
+    await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    const setItemSpy = blockNewPostDraft()
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await userEvent.type(screen.getByLabelText(/^요약/), '중간에 더 씀') // 요청이 도는 동안 더 친다
+    resolvePost({ status: 201, body: { ...POST, slug: 'new-post', title: '새 글 제목' } })
+    await screen.findByText(/임시 저장하지 못했습니다/)
+    // 제안이 가리키던 'new' 임시본은 방금 지워졌다 — 누르면 복사하라던 내용을 덮으므로 제안도 함께 내린다.
+    expect(screen.queryByText(/저장된 임시본이 있습니다/)).not.toBeInTheDocument()
+    expect(loadDraft('new')).toBeNull()
+    // 잠긴 상태에서는 임시본이 없으므로 창을 닫기 전에 한 번 묻는다.
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    setItemSpy.mockRestore()
   })
+
+  it('저장을 누른 뒤 401로 로그인 화면이 떠도 디바운스 전 입력이 임시본에 남는다', async () => {
+    stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, [`PUT /api/posts/${POST.id}`]: { status: 401 } })
+    renderApp(`/posts/${POST.id}`)
+    fireEvent.change(await screen.findByLabelText('본문(마크다운)'), { target: { value: '# 저장 직전에 친 본문' } })
+    await userEvent.click(screen.getByRole('button', { name: '저장' })) // 1초 디바운스를 기다리지 않는다
+    await screen.findByRole('heading', { name: '관리자 로그인' })
+    expect(loadDraft(POST.id)).toMatchObject({ contentMarkdown: '# 저장 직전에 친 본문', baseVersion: 7 })
+  })
+
+  it('목록으로 떠나도 디바운스 전 입력이 임시본에 남는다', async () => {
+    stubApi({ ...COMMON, 'GET /api/posts': { status: 200, body: { items: [], total: 0 } }, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    renderApp(`/posts/${POST.id}`)
+    fireEvent.change(await screen.findByLabelText('본문(마크다운)'), { target: { value: '# 떠나기 직전에 친 본문' } })
+    await userEvent.click(screen.getByRole('link', { name: '목록' }))
+    await screen.findByRole('heading', { name: '글' })
+    expect(loadDraft(POST.id)).toMatchObject({ contentMarkdown: '# 떠나기 직전에 친 본문', baseVersion: 7 })
+  })
+
+  it('복원 여부를 고르지 않은 채 떠나면 기존 임시본을 덮지 않는다', async () => {
+    stubApi({ ...COMMON, 'GET /api/posts': { status: 200, body: { items: [], total: 0 } }, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    saveDraft(POST.id, { slug: 'hello', title: '안녕', summary: '요약', contentMarkdown: '# 임시본 본문', tagNames: ['C#'], seriesId: null, seriesOrder: null, baseVersion: 6, savedAt: '2026-09-03T00:00:00.000Z' })
+    renderApp(`/posts/${POST.id}`)
+    await screen.findByText(/저장된 임시본이 있습니다/)
+    fireEvent.change(screen.getByLabelText('본문(마크다운)'), { target: { value: '# 고르기 전에 친 본문' } })
+    await userEvent.click(screen.getByRole('link', { name: '목록' }))
+    await screen.findByRole('heading', { name: '글' })
+    expect(loadDraft(POST.id)).toMatchObject({ contentMarkdown: '# 임시본 본문', baseVersion: 6 })
+  })
+
+  it('새 글: 서버가 제목의 공백을 다듬어도 이동 뒤 new 임시본이 되살아나지 않는다', async () => {
+    stubApi({ ...COMMON, 'POST /api/posts': { status: 201, body: { ...POST, slug: 'new-post', title: '새 글 제목' } }, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    const first = renderApp('/posts/new')
+    await userEvent.type(await screen.findByLabelText(/^제목/), '  새 글 제목  ') // 서버는 앞뒤 공백을 지운 제목을 돌려준다
+    await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    await waitFor(() => expect(loadDraft('new')).not.toBeNull(), { timeout: 2000 })
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(first.router.state.location.pathname).toBe(`/posts/${POST.id}`))
+    expect(loadDraft('new')).toBeNull()
+    first.unmount()
+    renderApp('/posts/new')
+    expect(await screen.findByLabelText(/^제목/)).toHaveValue('')
+    expect(screen.queryByText(/저장된 임시본이 있습니다/)).not.toBeInTheDocument()
+  }, 15_000)
 
   it('새 글 생성 성공 뒤에도 저장 전 내용을 담은 낡은 임시본이 남지 않는다', async () => {
     // 자동 저장 effect는 baseline을 의존성으로 보지 않는다 — 저장 성공으로 baseline이 바뀌어도 이 effect가

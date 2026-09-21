@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router'
 import { attachments, posts, series as seriesApi, tags as tagsApi } from '../api/endpoints'
@@ -83,6 +83,14 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   // 자동 저장 effect가 기준선을 읽을 때 의존성으로 넣지 않기 위한 ref(아래 effect 참고).
   const baselineRef = useRef(baseline)
   useEffect(() => { baselineRef.current = baseline })
+  // flushDraft는 언마운트 cleanup에서도 불린다. 그 cleanup은 마운트 시점 클로저만 보므로 state를 그대로 읽으면
+  // 두 가드가 영영 마운트 당시 값(각각 null)에 묶인다 — 아래 두 ref로 최신값을 읽는다.
+  const pendingDraftRef = useRef(pendingDraft)
+  useEffect(() => { pendingDraftRef.current = pendingDraft })
+  const createdPostIdRef = useRef(createdPostId)
+  useEffect(() => { createdPostIdRef.current = createdPostId })
+  // 이 화면을 떠나며 'new' 키에 다시 쓰면 안 되는 상태(새 글 생성 성공·잠금)를 그 자리에서 표시한다.
+  const skipFlushRef = useRef(false)
 
   const seriesList = useQuery({ queryKey: ['series', 'list'], queryFn: ({ signal }) => seriesApi.list(signal) })
   const tagList = useQuery({ queryKey: ['tags', 'list'], queryFn: ({ signal }) => tagsApi.list(signal) })
@@ -103,6 +111,33 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
     // 저장소 쓰기(부수 효과)의 성공 여부를 화면에 알려야 한다 — 렌더 중에 파생할 수 있는 값이 아니다.
     setDraftFailed(!saveDraft(draftKey, { ...settled, baseVersion: currentBaseline.version, savedAt: new Date().toISOString() }))
   }, [settled, pendingDraft, draftKey, createdPostId])
+
+  /**
+   * 지금 화면에 있는 입력을 임시본에 즉시 한 번 쓴다(디바운스를 기다리지 않는다).
+   * 자동 저장은 1초 디바운스라, 마지막으로 1초 이상 멈춘 뒤에 친 내용은 아직 임시본에 없다 — 미리보기(500ms)의
+   * 401이 이 화면을 먼저 언마운트하거나 사용자가 링크·탭 닫기로 떠나면 그 입력이 사라진다(실측, Chromium·Firefox).
+   * 쓰지 않는 조건은 자동 저장 effect와 같다: 복원 여부를 아직 고르지 않았으면 기존 임시본을 덮지 않고, 잠긴
+   * 상태(createdPostId)의 내용은 이미 서버에 제출된 'new' 키와 뒤섞이면 안 되며, 기준선과 같으면 지킬 내용이 없다.
+   * state가 아니라 ref만 읽는다 — 언마운트 cleanup은 마운트 시점의 클로저를 실행한다.
+   * useCallback으로 신원을 고정한다: 아래 두 effect가 이 함수를 의존성으로 받는데, 렌더마다 새 함수가 되면
+   * 매 렌더 cleanup이 돌아 flush가 반복된다. draftKey는 이 인스턴스에서 바뀌지 않는다(Editor가 키로 나뉜다).
+   */
+  const flushDraft = useCallback(() => {
+    if (skipFlushRef.current || pendingDraftRef.current !== null || createdPostIdRef.current !== null) return
+    const currentBaseline = baselineRef.current
+    const current = fieldsRef.current
+    if (sameFields(current, currentBaseline.fields)) return
+    // 실패해도 알릴 화면이 없는 자리다(떠나는 중이다) — 반환값은 자동 저장 effect와 onSuccess가 이미 화면에 반영한다.
+    saveDraft(draftKey, { ...current, baseVersion: currentBaseline.version, savedAt: new Date().toISOString() })
+  }, [draftKey])
+  // 언마운트(401로 로그인 화면 전환·링크 이동·라우트 교체)에서 마지막으로 한 번 쓴다.
+  useEffect(() => () => flushDraft(), [flushDraft])
+  // 탭·창 닫기와 bfcache 진입은 언마운트를 일으키지 않는다. pagehide는 그 두 경우에 모두 오는 이벤트다.
+  useEffect(() => {
+    const onPageHide = () => flushDraft()
+    window.addEventListener('pagehide', onPageHide)
+    return () => window.removeEventListener('pagehide', onPageHide)
+  }, [flushDraft])
 
   // 임시본을 저장하지 못했는데(용량 초과 등) 바뀐 내용이 있으면 창을 닫기 전에 한 번 묻는다.
   useEffect(() => {
@@ -134,6 +169,9 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
       if (postId === null) {
         if (unchanged) {
           clearDraft(NEW_POST_KEY)
+          // 떠나면서 'new' 키에 다시 쓰지 않는다: 서버가 제목의 공백을 다듬는 것만으로도 현재 입력이 기준선과
+          // 달라져 언마운트 flush가 방금 지운 임시본을 되살리고, 그 복원이 곧 중복 발행으로 이어진다.
+          skipFlushRef.current = true
           void navigate(`/posts/${saved.id}`, { replace: true })
           return
         }
@@ -144,6 +182,7 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         const savedToStorage = saveDraft(saved.id, { ...fieldsRef.current, slug: saved.slug, baseVersion: saved.version, savedAt: new Date().toISOString() })
         if (savedToStorage) {
           clearDraft(NEW_POST_KEY)
+          skipFlushRef.current = true // 위와 같은 이유 — 이 화면의 내용은 방금 새 글 id 키로 옮겨 적었다
           void navigate(`/posts/${saved.id}`, { replace: true })
           return
         }
@@ -154,7 +193,12 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         // 자체가 조용히 실패하면(스토리지가 완전히 막힌 극단적 경우) 'new' 임시본이 남아 그 경로가 여전히
         // 열려 있을 수 있다(미검증 잔여 위험).
         clearDraft(NEW_POST_KEY)
+        skipFlushRef.current = true // 떠날 때도 'new' 키에 다시 쓰지 않는다(자동 저장을 멈추는 것과 같은 이유)
         setCreatedPostId(saved.id)
+        // 이 화면의 내용은 어디에도 남아 있지 않다 — 창을 닫기 전에 경고가 뜨도록 저장 실패를 표시한다.
+        setDraftFailed(true)
+        // 방금 지운 'new' 임시본을 가리키던 복원 제안도 내린다 — 누르면 복사하라고 안내한 내용을 덮는다.
+        setPendingDraft(null)
         return
       }
       // 응답이 오기까지 아무것도 안 바뀌었을 때만(prev가 submitted와 같을 때만) 서버 값을 대입한다 — 업데이터
@@ -188,7 +232,8 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
     const errors = validatePost(fields)
     setFieldErrors(errors)
     setConflictRefetchError(null)
-    if (!hasErrors(errors)) save.mutate(fields)
+    // 저장 요청이 401로 돌아오면 이 화면은 곧바로 언마운트된다 — 보내기 전에 지금 입력을 임시본에 남긴다.
+    if (!hasErrors(errors)) { flushDraft(); save.mutate(fields) }
   }
 
   // ref는 그 자리에서 바로 읽고 쓴다(state는 다음 렌더에 반영된다 — 추론, 이 저장소에서 직접 측정하지는 않았다).
