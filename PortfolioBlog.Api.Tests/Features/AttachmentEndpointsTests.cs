@@ -263,7 +263,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     {
         using var factory = new ApiFactory(pg, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
-        // 리뷰어의 재현: 249개의 'a' + 이모지(서러게이트 쌍) + "bbbb.webp" — 255자 길이 제한이 정확히 이모지 한가운데를 자른다.
+        // 재현 케이스: 249개의 'a' + 이모지(서러게이트 쌍) + "bbbb.webp" — 255자 길이 제한이 정확히 이모지 한가운데를 자른다.
         var uploadedName = new string('a', 249) + "\U0001F600" + "bbbb.webp";
 
         var dto = await UploadAsync(admin, Fixture("exif-xmp.webp"), uploadedName);

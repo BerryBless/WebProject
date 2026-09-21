@@ -119,7 +119,9 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOut
             // 내용에는 손대지 않는다. 재귀 삭제를 쓰면 대상 디렉터리 안(저장 루트 밖!)의 파일까지 지울 위험을 문서화된 동작에만 의존하게 된다.
             // factory의 using 처분(AttachmentsRoot 재귀 삭제)보다 먼저 여기서 링크를 치워, 그 처분이 링크를 다루는 방식에도 기대지 않는다.
             var linkedBucket = Path.Combine(root, new string('c', 2));
-            if (Directory.Exists(linkedBucket)) Directory.Delete(linkedBucket);
+            // 링크 제거가 실패해도 아래의 대상 디렉터리 정리는 건너뛰지 않는다(대상이 비면 남은 링크를 따라가도 지울 것이 없다).
+            try { if (Directory.Exists(linkedBucket)) Directory.Delete(linkedBucket); }
+            catch (IOException) { }
             if (Directory.Exists(outsideTarget)) Directory.Delete(outsideTarget, recursive: true);
         }
     }

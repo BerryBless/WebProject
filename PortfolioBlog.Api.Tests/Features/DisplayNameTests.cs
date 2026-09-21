@@ -42,7 +42,7 @@ public sealed class DisplayNameTests
     // XML 1.0은 홀로 남은 서러게이트를 표현할 수 없다 — 케이스 이름(ASCII)만 데이터로 넘기고 실제 문자열은 메서드 본문에서 만든다.
     private static string UploadedNameFor(string caseName) => caseName switch
     {
-        "surrogate-split-by-truncation" => new string('a', 249) + "\U0001F600" + "bbbb.webp", // 리뷰어의 재현 케이스: 자르는 지점이 서러게이트 쌍 한가운데
+        "surrogate-split-by-truncation" => new string('a', 249) + "\U0001F600" + "bbbb.webp", // 재현 케이스: 자르는 지점이 서러게이트 쌍 한가운데
         "lone-high-surrogate" => "\uD83D" + ".png",
         "lone-low-surrogate-middle" => "abc" + "\uDC00" + "def.png",
         "emoji-well-under-limit" => "short-name-" + "\U0001F600" + ".webp",
