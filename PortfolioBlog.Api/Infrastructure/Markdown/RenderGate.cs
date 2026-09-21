@@ -3,6 +3,14 @@ using Microsoft.Extensions.Options;
 namespace PortfolioBlog.Api.Infrastructure.Markdown;
 
 /// <summary>렌더 슬롯을 <see cref="RenderingOptions.QueueTimeoutMs"/> 안에 얻지 못했다. 호출부(예외 처리기)가 503 + Retry-After로 바꾼다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> Thread-safe. 불변 예외 인스턴스이며 공유 가변 상태가 없다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 예외 인스턴스 1개(+ 스택 트레이스). 게이트가 슬롯을 거부하는 경로에서만 할당되고 정상 렌더링 경로의 비용은 0이다.</description></item>
+/// <item><description><b>Blocking:</b> 해당 없음. 예외 타입 자체는 코드를 실행하지 않는다.</description></item>
+/// </list>
+/// </remarks>
 public sealed class RenderBusyException() : Exception("렌더 슬롯을 제때 얻지 못했습니다.");
 
 /// <summary>모든 마크다운 렌더링이 지나는 문. 렌더링은 동기·취소 불가 CPU 작업이라(최악 수 초) 동시에 도는 수를 프로세스 전체에서 묶는다.</summary>

@@ -114,7 +114,8 @@ public static class PostEndpoints
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
     /// <item><description><b>Memory Policy:</b> <see cref="Post"/> 엔티티 1개 + 태그 연결 목록 + 본문(최대 200KB) 문자열 1개를 할당한다.
-    /// 렌더 가능성 확인이 만드는 HTML은 버리지 않고 <paramref name="cache"/>에 선채움한다(첫 방문자가 다시 렌더링하지 않도록).</description></item>
+    /// 렌더 가능성 확인이 만드는 HTML은 버리지 않고, 재조회한 DTO의 본문이 이 요청과 같을 때만(<see cref="CanCacheRenderedResult"/>) <paramref name="cache"/>에 선채움한다 —
+    /// 재조회 사이에 다른 요청이 같은 글을 또 저장했으면 남의 HTML이 그 요청의 최신 버전 키에 꽂히는 것을 막는다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: slug 중복 조회·태그 해석·트랜잭션·저장을 모두 <c>await</c>한다.
     /// 저장 전 렌더 가능성 확인은 <see cref="RenderGate"/>가 프로세스 전체의 동시 렌더 수를 제한하므로(<see cref="RenderGate"/> 문서 참조) 요청 스레드는 슬롯을 얻은 뒤에만 렌더링 시간만큼 점유된다.
     /// 같은 slug 동시 생성은 사전 검사를 통과해도 <c>SaveChangesAsync</c>의 유니크 위반으로 409를 돌려준다(경쟁 창을 DB가 최종 방어한다).</description></item>
@@ -157,7 +158,8 @@ public static class PostEndpoints
 
         loggers.CreateLogger("PortfolioBlog.Api.Audit").LogInformation("글 생성. PostId={PostId} Slug={Slug}", post.Id, post.Slug); // 본문은 기록하지 않는다
         var dto = await PostQueries.GetDetailAsync(db, post.Id, ct);
-        if (dto is not null) cache.Store(dto.Id, dto.Version, rendered);
+        // 재조회~여기 사이에 다른 요청이 같은 글을 또 저장했을 수 있다(CanCacheRenderedResult 문서의 경쟁 시나리오) — 본문이 이번 요청과 다르면 캐시하지 않는다.
+        if (CanCacheRenderedResult(dto, req.ContentMarkdown!)) cache.Store(dto!.Id, dto.Version, rendered);
         return TypedResults.Created($"/api/posts/{post.Id}", dto);
     }
 
@@ -175,7 +177,8 @@ public static class PostEndpoints
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
     /// <item><description><b>Memory Policy:</b> 추적되는 <see cref="Post"/>와 <see cref="PostTag"/> 컬렉션을 로드하고, 본문(최대 200KB) 문자열 1개를 교체 보유한다.
-    /// 렌더 가능성 확인이 만드는 HTML은 버리지 않고 <paramref name="cache"/>에 선채움한다(첫 방문자가 다시 렌더링하지 않도록).</description></item>
+    /// 렌더 가능성 확인이 만드는 HTML은 버리지 않고, 재조회한 DTO의 본문이 이 요청과 같을 때만(<see cref="CanCacheRenderedResult"/>) <paramref name="cache"/>에 선채움한다 —
+    /// 재조회 사이에 다른 요청이 같은 글을 또 저장했으면 남의 HTML이 그 요청의 최신 버전 키에 꽂히는 것을 막는다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: 모든 DB I/O를 <c>await</c>한다.
     /// 저장 전 렌더 가능성 확인은 <see cref="RenderGate"/>가 프로세스 전체의 동시 렌더 수를 제한하므로(<see cref="RenderGate"/> 문서 참조) 요청 스레드는 슬롯을 얻은 뒤에만 렌더링 시간만큼 점유된다.
     /// <c>xmin</c>을 <c>OriginalValue</c>로 고정해 조회 이후 발생한 경쟁도 <c>UPDATE ... WHERE xmin = ...</c>로 잡는다(사전 검사만으로는 조회~저장 사이의 경쟁을 놓친다).</description></item>
@@ -193,13 +196,16 @@ public static class PostEndpoints
         await ValidateSeriesAsync(db, req, errors, ct);
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
 
+        // 버전 검사를 렌더보다 먼저 한다: 오래된 탭이 보낸 요청은 어차피 409로 버려지므로, 굳이 렌더 게이트 슬롯(동시성 예산)과
+        // CPU를 먼저 쓰게 하지 않는다. req.Version은 위 errors.Any 검사에서 null이면 이미 400으로 반환됐으므로 여기서는 항상 값이 있다.
+        if (post.Version != req.Version) return StaleVersion();
+
         // 이 확인이 보장하는 것: 저장되는 글은 예외 없이 렌더링되고, 강조 시간도 상한(HighlightingCodeBlockRenderer 참조) 안에서 끝난다.
         // 남는 위험: Markdig 파서의 초선형 비용은 이 요청에도 그대로 들지만, RenderGate가 프로세스 전체의 동시 렌더 수를 묶으므로
         // 저장 요청 여러 개가 CPU를 동시에 물지 못한다.
         var rendered = await RenderOrAddErrorAsync(gate, req.ContentMarkdown!, errors, ct);
         if (rendered is null) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        if (post.Version != req.Version) return StaleVersion();
         // 읽은 뒤 저장 전까지의 경쟁도 잡도록 UPDATE의 WHERE xmin = ... 비교값을 클라이언트가 본 버전으로 고정한다.
         db.Entry(post).Property(p => p.Version).OriginalValue = req.Version!.Value;
 
@@ -233,7 +239,8 @@ public static class PostEndpoints
 
         loggers.CreateLogger("PortfolioBlog.Api.Audit").LogInformation("글 수정. PostId={PostId} Slug={Slug}", post.Id, post.Slug);
         var updated = await PostQueries.GetDetailAsync(db, post.Id, ct);
-        if (updated is not null) cache.Store(updated.Id, updated.Version, rendered);
+        // 재조회~여기 사이에 다른 요청이 같은 글을 또 저장했을 수 있다(CanCacheRenderedResult 문서의 경쟁 시나리오) — 본문이 이번 요청과 다르면 캐시하지 않는다.
+        if (CanCacheRenderedResult(updated, req.ContentMarkdown!)) cache.Store(updated!.Id, updated.Version, rendered);
         return TypedResults.Ok(updated);
     }
 
@@ -325,6 +332,26 @@ public static class PostEndpoints
             return null;
         }
     }
+
+    /// <summary>저장 뒤 재조회한 DTO를 캐시에 선채움해도 안전한지 판정한다.</summary>
+    /// <param name="dto">저장 뒤(트랜잭션 커밋 이후) 재조회한 상세 DTO. 재조회 자체가 실패했으면 <see langword="null"/>.</param>
+    /// <param name="requestContentMarkdown">이번 요청이 실제로 렌더링에 사용한 본문.</param>
+    /// <returns><paramref name="dto"/>가 있고 그 본문이 <paramref name="requestContentMarkdown"/>과 서수 비교로 같으면 <see langword="true"/>.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 순수 함수(부작용 없음, 매개변수만으로 판정).</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation. <see cref="string.Equals(string?, string?, StringComparison)"/>는 새 문자열을 만들지 않는다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
+    /// </list>
+    /// 왜 필요한가(경쟁 시나리오): A가 저장을 커밋한 뒤 응답을 만들려고 <see cref="PostQueries.GetDetailAsync"/>로 재조회하는 그 사이에
+    /// B가 같은 글을 저장·커밋하면, A의 재조회는 이미 B가 쓴 최신 행(B의 본문·B의 xmin)을 읽는다. 이 확인 없이 <c>cache.Store(dto.Id, dto.Version, rendered)</c>를
+    /// 그대로 부르면 "A가 렌더링한 A의 HTML"이 "B의 최신 버전 키"에 꽂혀, 그 다음 방문자가 B의 글 내용 대신 A가 렌더링한 HTML을 보게 된다.
+    /// 키는 현재 버전과 일치하므로 이 오염은 다음 저장(TTL 24시간 또는 재배포)까지 스스로 회복되지 않는다. 본문이 다르면 캐시를 아예 건너뛰고
+    /// 다음 방문자가 다시 렌더링하게 두는 쪽이 안전하다(틀린 캐시보다 캐시 미스가 낫다).
+    /// </remarks>
+    internal static bool CanCacheRenderedResult(PostDetailDto? dto, string requestContentMarkdown) =>
+        dto is not null && string.Equals(dto.ContentMarkdown, requestContentMarkdown, StringComparison.Ordinal);
 
     /// <summary>낙관적 동시성 충돌(오래된 version)에 대한 409 응답을 만든다.</summary>
     /// <returns>409 Conflict <see cref="IResult"/>.</returns>

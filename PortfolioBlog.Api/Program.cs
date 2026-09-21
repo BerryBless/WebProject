@@ -77,7 +77,7 @@ using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
 }
 
-// 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.
+// 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms — 2A 단계 실측, plan/resume_guide_0921.md)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.
 app.Services.GetRequiredService<MarkdownRenderer>().Render("```csharp\nvar warm = 1;\n```\n");
 
 app.UseMiddleware<SecurityHeadersMiddleware>(); // 앱 미들웨어 중 맨 앞(프레임워크의 HostFiltering 시작 필터만 이보다 바깥이라 그 400에는 헤더가 없다 — 본문 없는 응답. 바로 다음 줄의 UseTrustedForwardedHeaders는 일반 앱 미들웨어라 이 줄 뒤에서 실행되고 자체적으로 400을 내지 않는다)

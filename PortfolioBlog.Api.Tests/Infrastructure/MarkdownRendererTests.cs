@@ -365,7 +365,9 @@ public sealed class MarkdownRendererTests
     }
 
     /// <summary>강조 시간 예산이 "렌더 1회에 걸친 누적"임을 기계 속도와 무관하게 증명한다. 시계가 호출마다 50ms 전진하므로 블록 하나가
-    /// 최소 100ms(시작·종료 두 번)를 쓰고, 60블록이면 2,000ms 예산을 반드시 넘는다. 블록마다 예산이 따로면 마지막 블록도 강조되어 실패한다.</summary>
+    /// 최소 100ms를 쓴다 — 시작 호출(<c>startTicks</c>) 자체는 기준점이라 경과 시간에 0을 기여하고, <see cref="DeadlineLanguageParser"/>가
+    /// 블록마다 예산 델리게이트를 최소 1회 호출해 시계가 한 번 전진(+50ms)하고, <c>finally</c>의 종료 시각 측정이 시계를 한 번 더 전진(+50ms)시켜 도합 100ms가 된다.
+    /// 60블록이면 2,000ms 예산을 반드시 넘는다. 블록마다 예산이 따로면 마지막 블록도 강조되어 실패한다.</summary>
     [Fact]
     public void Render_TimeBudget_IsCumulativePerRender_Deterministically()
     {

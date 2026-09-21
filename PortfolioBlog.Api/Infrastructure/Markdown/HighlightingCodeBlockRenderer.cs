@@ -64,7 +64,7 @@ public sealed class HighlightingCodeBlockRenderer(TimeProvider clock) : HtmlObje
     // 필드로 둬도 스레드 간 공유·경합이 생기지 않는다(락·Interlocked 불필요).
     private int _highlightedLength;
 
-    // double(밀리초): 이 인스턴스가 강조 시도에 실제로 쓴 시간의 누적치. Stopwatch.GetTimestamp()/GetElapsedTime으로 재서
+    // double(밀리초): 이 인스턴스가 강조 시도에 실제로 쓴 시간의 누적치. 주입된 TimeProvider(clock)의 GetTimestamp()/GetElapsedTime으로 재서
     // finally에서 더한다 — try 블록이 타임아웃·예산 초과로 예외를 던져도 그동안 쓴 시간은 반드시 누적돼야 다음 블록의 예산 판정이 정확하다.
     private double _highlightMilliseconds;
 

@@ -24,7 +24,12 @@ public sealed class RenderedPostCache : IDisposable
 
     private readonly RenderGate _gate;
 
-    // MemoryCache(SizeLimit): 항목마다 Size를 주면 합계가 상한을 넘을 때 우선순위·LRU로 비운다. 공용 IMemoryCache가 아닌 전용 인스턴스라 다른 용도와 예산이 섞이지 않는다.
+    // MemoryCache(SizeLimit): 항목마다 Size를 주면 합계 기준으로 예산을 강제한다. 공용 IMemoryCache가 아닌 전용 인스턴스라 다른 용도와 예산이 섞이지 않는다.
+    // 실측(리뷰 프로브, SizeLimit=1,000,000·Size=5,000 항목 400개 연속 Set): 상한에 닿기 전까지는 Set이 전부 성공한다. 상한을 넘기는 순간부터는
+    // 우선순위·LRU로 "비우고 넣는" 것이 아니라 그 Set 자체가 조용히 거부된다(즉시 TryGetValue해도 없음, Count 불변) — 이 상태가 195회 연속 Set 동안 유지됐다.
+    // 압축은 스레드풀에 큐잉되는 비동기 작업이라 지연된다: 500ms 대기 후에야 Count가 200→190(정확히 5% = 기본 CompactionPercentage)으로 줄었고,
+    // 그 뒤의 Set 1회가 다시 성공했다. 즉 상한 초과 상태에서 새 요청이 몰리면(쓰기가 압축보다 빠르면) 신규 항목이 한동안 전부 유실될 수 있다 —
+    // TryGet 미스는 GetOrRenderAsync가 다시 렌더링하므로 틀린 결과가 나가지는 않지만, 이 캐시가 기대만큼 "글 버전당 렌더 1회"를 못 지키는 시간대가 생길 수 있다(설계 우려 — Task 3 리뷰 라운드 1에서 실측, 컨트롤러 판정 대기).
     private readonly MemoryCache _cache;
 
     // ConcurrentDictionary<키, Lazy<Task>>: GetOrAdd는 값 팩토리를 여러 번 부를 수 있지만 저장되는 Lazy는 하나고, 그 하나의 Value만 실행된다 → 키당 렌더 1회.
@@ -56,7 +61,7 @@ public sealed class RenderedPostCache : IDisposable
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe. <see cref="MemoryCache.TryGetValue"/>는 내부적으로 동시 접근에 안전하다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> Zero-allocation(적중 시 기존 인스턴스 참조만 반환).</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation이 <b>아니다</b>: <see cref="IMemoryCache"/>의 키 타입이 <see cref="object"/>라 값 형식인 <c>(Guid, uint)</c> 튜플이 호출마다 박싱된다. 적중해도 반환값 자체는 기존 <see cref="RenderedMarkdown"/> 인스턴스 참조라 그 이상 할당되지 않는다.</description></item>
     /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
     /// </list>
     /// </remarks>
@@ -81,7 +86,7 @@ public sealed class RenderedPostCache : IDisposable
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe. 같은 키로 동시에 호출해도 <see cref="ConcurrentDictionary{TKey,TValue}.GetOrAdd"/>가 <see cref="Lazy{T}"/> 인스턴스 하나만 저장하고, 그 <c>Value</c>(렌더 자체)는 정확히 한 번만 평가된다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 캐시 적중은 Zero-allocation. 미스는 <see cref="Lazy{T}"/> 1개(첫 호출자만) + 렌더 결과 1개를 할당한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation이 아니다. 캐시 적중도 <see cref="TryGet"/> 문서대로 키 박싱 1회 + 완료된 <see cref="Task{TResult}"/> 1개(<see cref="Task.FromResult{TResult}(TResult)"/>)를 할당한다. 미스는 그 위에 <see cref="Lazy{T}"/> 1개(첫 호출자만, <see cref="ConcurrentDictionary{TKey,TValue}"/> 항목 포함) + 렌더 결과 1개를 더 할당한다.</description></item>
     /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <paramref name="ct"/>는 <see cref="Task.WaitAsync(CancellationToken)"/>로 이 호출자의 대기에만 걸리므로, 공유 렌더 자체(<see cref="RenderGate.RenderAsync"/>가 동기로 CPU를 쓰는 구간)는 취소되지 않고 다른 호출자를 위해 계속된다.</description></item>
     /// </list>
     /// </remarks>
@@ -101,14 +106,16 @@ public sealed class RenderedPostCache : IDisposable
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe. <see cref="MemoryCache.Set"/>는 내부적으로 동시 접근에 안전하다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> <see cref="MemoryCacheEntryOptions"/> 1개 + 캐시 항목 자체(<paramref name="rendered"/>의 <c>Html</c> 길이만큼 크기로 계산됨).</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="MemoryCacheEntryOptions"/> 1개 + 캐시 항목 자체(<paramref name="rendered"/>의 <c>Html</c>·<c>FirstImageUrl</c> 길이 합만큼 크기로 계산됨).</description></item>
     /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
     /// </list>
     /// </remarks>
     public void Store(Guid postId, uint version, RenderedMarkdown rendered) =>
         _cache.Set((postId, version), rendered, new MemoryCacheEntryOptions
         {
-            Size = (long)rendered.Html.Length * sizeof(char) + 256,
+            // 리뷰 프로브 실측(Task 3 리뷰 라운드 1): 문자열 페이로드(Html·FirstImageUrl)를 제외한 고정 오버헤드가 항목당 약 290바이트였다.
+            // 512로 넉넉히 잡아 과소평가를 피한다. FirstImageUrl도 문자열이라 Html과 같은 단위(UTF-16 2바이트/문자)로 더한다.
+            Size = (long)rendered.Html.Length * sizeof(char) + (rendered.FirstImageUrl?.Length ?? 0) * sizeof(char) + 512,
             AbsoluteExpirationRelativeToNow = rendered.HighlightTimedOut ? DegradedLifetime : NormalLifetime,
         });
 
