@@ -636,4 +636,4 @@ cd ..\deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>
 | Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
 | Plan 2B | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` · 완료(PR #3, 보고서 `plan/tech_blog_2b_report_0921.md`) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 제한·공개/업로드 속도 제한과 체인 순서·`statement_timeout`(읽기 전용 연결)·렌더 게이트/캐시·관리 JSON 256KB·첨부 정합성(잠금·고아 청소)·앱 검증⊆DB 제약 테스트 |
 | Plan 3 | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` · 완료(PR #4, 보고서 `plan/tech_blog_3_report_0922.md`) | 3단계: 관리 SPA(React 19 + Vite) — API 클라이언트·인증 흐름·글 편집(CodeMirror·409 비교·임시본)·sandbox 미리보기·시리즈·태그·첨부·소스 가드·Playwright E2E(실제 백엔드 + 배포용 CSP)·CI `web`·`web-e2e` |
-| Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |
+| Plan 4 | `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md` · 진행 중 | 4단계: 이미지 둘(비루트·무셸 API, SPA를 품은 Caddy)·compose·Caddyfile·DB 롤 셋(공개 조회는 `SELECT` 전용 롤)·백업/복원·운영 문서·운영과 같은 이미지로 띄워 찌르는 스택 스모크(CI `deploy-smoke`). 실제 서버 배포는 범위 밖(`deploy/OPERATIONS.md`가 절차) |

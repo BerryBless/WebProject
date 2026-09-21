@@ -12,7 +12,7 @@
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
-| **4** | Docker Compose·Caddy·백업/복원 | **다음 작업 — 계획 미작성** | 스펙 3.10·8절, 3절 |
+| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **계획 작성됨, 실행 중**(브랜치 `feature/blog-deploy`) | `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(스파이크 S1~S16·결정 D1~D15), 진행 기록 `.superpowers/sdd/2026-09-22-tech-blog-deploy/progress.md` |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
 - 기준 커밋: master `16a3d25`(이 문서의 해시를 채운 문서 커밋이 그 위에 하나 더 있다). 작업 트리 깨끗함, 열린 PR 없음.
