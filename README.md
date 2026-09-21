@@ -208,7 +208,7 @@ PortfolioBlog.slnx
 │  ├─ Pages/                # 공개 Razor 페이지(GET/HEAD·공개 호스트 전용 규약, PublicPageConvention)
 │  └─ wwwroot/               # 정적 파일 — css/site.css 하나뿐
 ├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers PostgreSQL
-├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite (예정)
+├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite
 ├─ deploy/                  # docker-compose · Caddyfile · 운영 절차 (예정)
 ├─ plan/                    # 설계 문서
 └─ .claude/ .agents/ .codex/ scripts/   # 개발 하네스
@@ -268,7 +268,7 @@ dotnet run --project PortfolioBlog.Api --launch-profile https
 
 새 터미널에서 `npm run dev`로 개발 서버를 띄웁니다(`https://localhost:5173`, `/api`·`/attachments`는 `https://localhost:7198`으로 프록시됩니다).
 
-단위 테스트: `npm test`(Vitest, 179개 — jsdom, 실제 백엔드 없이 컴포넌트·유틸리티를 검사합니다). 정적 검사: `npm run lint`(oxlint) · `npm run typecheck`(`tsc -b`).
+단위 테스트: `npm test`(Vitest, 188개 — jsdom, 실제 백엔드 없이 컴포넌트·유틸리티를 검사합니다). 정적 검사: `npm run lint`(oxlint) · `npm run typecheck`(`tsc -b`).
 
 E2E(Playwright, 실제 백엔드 + PostgreSQL + production 빌드 + 배포용 보안 헤더 — Docker Desktop 필요):
 

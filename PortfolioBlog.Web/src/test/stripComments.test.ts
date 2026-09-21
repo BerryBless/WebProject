@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { stripComments } from './stripComments'
 
 describe('stripComments', () => {
-  it('줄 주석 안의 /* 뒤의 코드가 살아남는다(1차 결함 재현: 경로 표기 Contracts/*.cs)', () => {
+  it('줄 주석 안에 경로 표기(Contracts/*.cs)가 들어 있어도 그 뒤의 코드가 살아남는다', () => {
     const input = [
       '// 서버 DTO(PortfolioBlog.Api/Contracts/*.cs)의 JSON 모양. ASP.NET Core 기본 직렬화라 속성은 camelCase,',
       '// Guid·DateTimeOffset은 문자열, uint Version은 number(최대 4,294,967,295 — Number.MAX_SAFE_INTEGER 안)다.',
@@ -15,7 +15,7 @@ describe('stripComments', () => {
     expect(stripped).not.toContain('서버 DTO')
   })
 
-  it('한 줄로 닫히는 JSDoc 안의 // 뒤에 오는 코드가 살아남는다(2차 결함 재현: client.ts 11~16행을 흉내 낸 입력)', () => {
+  it('한 줄로 닫히는 JSDoc 안에 //가 들어 있는 인터페이스 멤버 뒤의 코드가 살아남는다', () => {
     const input = [
       'export interface RequestOptions {',
       '  /** 쿼리는 반드시 이 옵션으로 넘긴다 — 경로에 ?를 직접 붙이면 값 안의 //가 경로 검사에 걸린다. */',

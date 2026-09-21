@@ -11,7 +11,7 @@ export const ADMIN_CSP = [
   "script-src 'self'",
   "style-src-elem 'self' 'unsafe-inline'",
   "style-src-attr 'none'",
-  "img-src 'self' blob:",
+  "img-src 'self'", // blob:은 쓰는 곳이 없다(URL.createObjectURL 호출 0건) — 쓰지 않는 출처는 열어 두지 않는다
   "connect-src 'self'",
   "font-src 'self'",
   "frame-src 'self'",

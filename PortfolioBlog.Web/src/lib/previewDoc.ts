@@ -3,6 +3,10 @@
 // 방어는 세 겹이다: (1) 서버의 마크다운 파이프라인이 이미 정제했다, (2) iframe sandbox=""(토큰 없음)라 스크립트·폼·팝업·
 // 같은 출처 접근이 전부 꺼진다, (3) 문서 안 CSP가 default-src 'none'이라 이 출처의 이미지·스타일시트 말고는 아무것도 못 읽는다.
 //
+// sandbox를 빼면 (2)가 사라지지만 나머지가 각각 다른 것을 막는다(실측): 스크립트와 리소스는 이 문서 안 CSP가 막고,
+// 프레임 자신의 이동(meta refresh·링크)은 부모 문서의 CSP frame-src 'self'가 막는다. 부모 CSP까지 없으면
+// Chromium에서 meta refresh가 이 iframe을 외부 주소로 이동시켰다.
+//
 // CSP에 'self'를 쓰지 않는 이유: Firefox는 about:srcdoc 문서의 'self'를 부모 출처로 보지 않아 스타일시트와 이미지를
 // 모두 차단한다(저장소 밖 Playwright 측정). Chromium은 허용한다. 출처를 명시하면 Chromium·Firefox 둘 다 스타일시트·
 // 이미지를 로드한다 — 이 긍정 명제는 이 저장소의 E2E(admin.spec.ts)가 매번 확인한다. 위 CSP를 'self'로 되돌리면

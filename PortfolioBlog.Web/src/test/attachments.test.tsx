@@ -36,6 +36,7 @@ describe('첨부', () => {
     const view = renderApp('/attachments')
     await screen.findByText('첨부가 없습니다.')
     const input = view.container.querySelector('input[type=file]') as HTMLInputElement
+    expect(input).not.toHaveAttribute('hidden') // hidden 속성은 요소를 키보드 Tab 순서에서 빼 버린다
     // applyAccept: false — accept 속성은 파일 선택 창의 힌트일 뿐이다. 끌어다 놓기·이름 바꾸기로 들어오는 파일을 흉내 낸다.
     await userEvent.upload(input, new File(['<svg/>'], 'x.svg', { type: 'image/svg+xml' }), { applyAccept: false })
     expect(await screen.findByRole('alert')).toHaveTextContent('PNG·JPEG·GIF·WebP')

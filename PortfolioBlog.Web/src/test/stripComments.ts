@@ -68,7 +68,10 @@ export function collectCommentRanges(text: string, fileName = 'x.tsx'): CommentR
   const ranges: CommentRange[] = []
   for (const leaf of leaves) {
     const triviaStart = leaf.getFullStart()
-    const triviaEnd = leaf.getStart(sourceFile) // includeJsDocComment 인자를 안 줘서(기본 false) JSDoc 앞에서 멈춘다 — JSDoc은 트리비아 구간에 남는다
+    // includeJsDocComment 인자를 안 줘서(기본 false) JSDoc을 지나쳐 실제 토큰에서 멈춘다 — 그래서 JSDoc이
+    // 이 트리비아 구간 안에 들어와 아래 스캔이 블록 주석으로 잡는다(실측: JSDoc 한 줄 뒤에 선언이 오는 입력에서
+    // 기본값은 11, true는 0을 준다 — true를 주면 JSDoc 앞에서 멈춰 구간이 비고 JSDoc이 지워지지 않는다).
+    const triviaEnd = leaf.getStart(sourceFile)
     if (triviaEnd > triviaStart) scanTriviaForComments(text, triviaStart, triviaEnd, ranges)
   }
   return ranges
@@ -77,9 +80,9 @@ export function collectCommentRanges(text: string, fileName = 'x.tsx'): CommentR
 /**
  * 주석을 뺀다. 각 주석 범위(`collectCommentRanges`)를 같은 길이의 공백으로 치환한다 — 범위 안의 개행(`\n`·`\r`)은
  * 그대로 두므로 출력의 줄 수·각 줄의 나머지 문자의 열 위치는 입력과 같다.
- * 보장: 출력 길이는 입력과 같다. 주석이 아닌 문자는 그대로 남는다(`collectCommentRanges`가 찾은 범위 밖은 손대지
- * 않는다). `source-guards.test.ts`는 이 두 가지를 `stripComments`의 내부 구현과 무관하게(자체 파싱으로 얻은
- * 토큰 span과 대조해) 파일마다 직접 확인한다.
+ * 보장: 출력 길이는 입력과 같다. 실제 코드 토큰 안의 문자는 그대로 남는다. 코드 토큰 밖의 비주석 트리비아(파일
+ * 맨 앞 shebang 등)까지 보존한다고는 보장하지 않는다. `source-guards.test.ts`는 이 두 가지를 `stripComments`의
+ * 내부 구현과 무관하게(자체 파싱으로 얻은 토큰 span과 대조해) 파일마다 직접 확인한다.
  * 보장하지 않음: 문법 오류가 있는 입력에서 TypeScript 파서가 어떻게 복구하는지는 검사하지 않았다(미검증) —
  * 이 함수가 훑는 대상은 빌드를 통과하는(`tsc -b` 0 오류) .ts/.tsx 파일뿐이라 실전에서 부딪힐 가능성은 낮다고
  * 본다(추론).

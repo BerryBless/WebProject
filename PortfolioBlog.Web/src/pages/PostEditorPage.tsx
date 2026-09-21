@@ -346,8 +346,10 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
 
           <div className="flex items-center gap-3 text-sm">
             <span>본문 (마크다운)</span>
-            <label className="cursor-pointer underline">이미지 올리기
-              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
+            {/* sr-only: hidden 속성은 요소를 Tab 순서에서 빼 버려 키보드만 쓰는 사람이 이 입력에 닿지 못한다.
+                포커스는 입력에 가므로 표시는 감싸는 라벨에서 focus-within으로 낸다. */}
+            <label className="cursor-pointer underline focus-within:outline-2 focus-within:outline-offset-2">이미지 올리기
+              <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only"
                 onChange={e => { const list = Array.from(e.target.files ?? []); e.target.value = ''; if (list.length > 0) void uploadImages(list) }} /></label>
             {uploading && <span role="status">올리는 중…</span>}
             <span className="flex-1" />

@@ -63,9 +63,11 @@ export function AttachmentsPage() {
         <h1 className="text-xl font-bold">첨부</h1>
         {/* 업로드가 도는 동안 재진입을 막는다 — 그러지 않으면 나중 호출이 먼저 실패한 호출의 오류를 가리고,
             서버의 업로드 동시 실행 한도(전역 2)를 클라이언트 쪽에서 넘길 수 있다. */}
+        {/* sr-only: hidden 속성은 요소를 Tab 순서에서 빼 버려 키보드만 쓰는 사람이 이 입력에 닿지 못한다.
+            업로드 중에는 disabled가 그 자리를 대신한다(그때는 Tab 순서에서 빠지는 것이 맞다). */}
         <label aria-disabled={upload.isPending}
-          className={`rounded bg-black px-3 py-2 text-sm text-white ${upload.isPending ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>이미지 올리기
-          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden disabled={upload.isPending}
+          className={`rounded bg-black px-3 py-2 text-sm text-white focus-within:outline-2 focus-within:outline-offset-2 ${upload.isPending ? 'pointer-events-none opacity-50' : 'cursor-pointer'}`}>이미지 올리기
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="sr-only" disabled={upload.isPending}
             onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ''; if (files.length > 0) upload.mutate(files) }} /></label>
         {upload.isPending && <span role="status" className="text-sm">올리는 중…</span>}
       </div>

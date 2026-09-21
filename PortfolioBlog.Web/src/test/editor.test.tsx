@@ -46,6 +46,17 @@ describe('글 편집', () => {
     expect(loadDraft('new')).toBeNull() // 저장에 성공하면 임시본을 지운다
   }, 15_000)
 
+  it('검증 오류는 보조 기술에 전달되고, 파일 입력은 Tab 순서에 남는다', async () => {
+    stubApi({ ...COMMON })
+    renderApp('/posts/new')
+    await userEvent.click(await screen.findByRole('button', { name: '저장' }))
+    const alerts = (await screen.findAllByRole('alert')).map(node => node.textContent)
+    expect(alerts).toContain('제목은 비울 수 없습니다.')
+    expect(alerts).toContain('slug는 필수입니다.')
+    // hidden 속성은 요소를 Tab 순서에서 빼 버린다 — 화면에서만 감추는 sr-only를 쓴다.
+    expect(screen.getByLabelText('이미지 올리기')).not.toHaveAttribute('hidden')
+  })
+
   it('수정: slug는 읽기 전용이고, 받은 version을 그대로 돌려보낸다', async () => {
     const calls = stubApi({ ...COMMON, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST }, [`PUT /api/posts/${POST.id}`]: { status: 200, body: { ...POST, title: '바뀐 제목', version: 8 } } })
     renderApp(`/posts/${POST.id}`)

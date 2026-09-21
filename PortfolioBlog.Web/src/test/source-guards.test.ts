@@ -26,15 +26,15 @@ const FILES = sources(ROOT).map(path => {
 const offenders = (pattern: RegExp, allow: (path: string) => boolean = () => false) =>
   FILES.filter(f => !allow(f.path) && pattern.test(f.text)).map(f => f.path)
 
+function isJsDocKind(kind: ts.SyntaxKind): boolean {
+  return kind >= ts.SyntaxKind.FirstJSDocNode && kind <= ts.SyntaxKind.LastJSDocNode
+}
 /**
- * stripComments.ts와 무관하게(따로 옮겨 적은 코드로) 파일 하나의 실제 코드 토큰 span 목록을 구한다.
+ * 무엇을 주석이라 선언했는지와 무관하게(리프 열거 원리는 같다) 파일 하나의 실제 코드 토큰 span 목록을 구한다.
  * "stripComments가 스스로 무엇을 주석이라 선언했는가"를 믿지 않고, 같은 typescript 패키지로 이 테스트가
  * 직접 다시 파싱해 "진짜 코드가 어디 있는가"를 구한다 — 그래서 stripComments가 주석이 아닌 구간을 주석으로
  * 잘못 선언해도(예: 문자열 안의 //부터를 가짜 범위로 선언) 이 검사는 속지 않는다.
  */
-function isJsDocKind(kind: ts.SyntaxKind): boolean {
-  return kind >= ts.SyntaxKind.FirstJSDocNode && kind <= ts.SyntaxKind.LastJSDocNode
-}
 function codeTokenSpans(text: string, fileName: string): { start: number; end: number }[] {
   const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const spans: { start: number; end: number }[] = []
