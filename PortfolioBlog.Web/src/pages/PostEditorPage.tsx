@@ -64,10 +64,13 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   const [conflict, setConflict] = useState<PostDetail | null>(null)
   const [conflictRefetchError, setConflictRefetchError] = useState<unknown>(null)
   const [uploadErrors, setUploadErrors] = useState<string[]>([])
+  const [uploadBlockedNotice, setUploadBlockedNotice] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [draftFailed, setDraftFailed] = useState(false)
-  // 새 글을 만들었지만(서버에 이미 존재) 그사이 더 친 내용을 임시본으로 남기지 못했을 때만 켠다 — 아래 onSuccess 참고.
-  const [postCreatedButDraftFailed, setPostCreatedButDraftFailed] = useState(false)
+  // 새 글이 서버에 이미 만들어졌지만(이 Editor 인스턴스는 여전히 postId===null인 "새 글" 화면) 그 뒤에 친
+  // 내용을 임시본으로 남기지 못했을 때만 그 글의 id로 채워진다 — 아래 onSuccess 참고. 채워지면 'new' 키 자동
+  // 저장을 멈추고 저장 버튼을 막는다(서버에는 이미 글이 있으므로 다시 누르면 중복 생성으로 이어진다).
+  const [createdPostId, setCreatedPostId] = useState<string | null>(null)
 
   const dirty = !sameFields(fields, baseline.fields)
   const set = <K extends keyof DraftFields>(key: K, value: DraftFields[K]) => setFields(prev => ({ ...prev, [key]: value }))
@@ -92,12 +95,14 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
   // 실제 입력으로 직접 한다(아래 save 참고).
   const settled = useDebounced(fields, 1000)
   useEffect(() => {
-    if (pendingDraft !== null) return
+    // createdPostId가 채워진 뒤에는 'new' 키에 다시 쓰지 않는다 — 그 내용은 이미 서버에 제출됐고, 이 화면이
+    // 보여주는 것은 방금 만든 별개의 글(createdPostId)을 위한 내용이라 'new' 임시본과 뒤섞이면 안 된다.
+    if (pendingDraft !== null || createdPostId !== null) return
     const currentBaseline = baselineRef.current
     if (sameFields(settled, currentBaseline.fields)) { clearDraft(draftKey); setDraftFailed(false); return }
     // 저장소 쓰기(부수 효과)의 성공 여부를 화면에 알려야 한다 — 렌더 중에 파생할 수 있는 값이 아니다.
     setDraftFailed(!saveDraft(draftKey, { ...settled, baseVersion: currentBaseline.version, savedAt: new Date().toISOString() }))
-  }, [settled, pendingDraft, draftKey])
+  }, [settled, pendingDraft, draftKey, createdPostId])
 
   // 임시본을 저장하지 못했는데(용량 초과 등) 바뀐 내용이 있으면 창을 닫기 전에 한 번 묻는다.
   useEffect(() => {
@@ -134,13 +139,22 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         }
         // 그사이 친 내용이 있으면 새 글 id 키로 임시본을 남긴다 — 이동한 편집 화면이 "임시본 복원"을 제안한다.
         // slug는 생성 뒤 바꿀 수 없으므로 서버가 확정한 값으로 고정한다. 반환값을 확인한다: 저장에 실패했는데
-        // 그대로 이동하면 이 Editor 인스턴스가 곧바로 언마운트돼 draftFailed를 화면에 보일 틈이 없다 — 그 경우는
-        // 이동하지 않고 남는다(서버에는 이미 글이 생겼으므로 postCreatedButDraftFailed로 "저장"을 막아 중복
-        // 생성을 막고, 화면의 내용은 지우지 않아 사용자가 직접 복사할 수 있게 둔다).
+        // 그대로 이동하면 이 Editor 인스턴스가 곧바로 언마운트돼 안내를 화면에 보일 틈이 없다 — 그 경우는
+        // 이동하지 않고 남는다.
         const savedToStorage = saveDraft(saved.id, { ...fieldsRef.current, slug: saved.slug, baseVersion: saved.version, savedAt: new Date().toISOString() })
-        if (!savedToStorage) { setPostCreatedButDraftFailed(true); return }
+        if (savedToStorage) {
+          clearDraft(NEW_POST_KEY)
+          void navigate(`/posts/${saved.id}`, { replace: true })
+          return
+        }
+        // 저장에 실패했다 — 서버에는 이미 글이 생겼으므로(saved.id) 'new' 임시본은 더 쓸모가 없다: 그 내용은
+        // 이미 제출됐고 그 뒤에 친 것은 지금 화면에 그대로 있다. 지금 지운다 — 남겨 두면 새로고침·"새 글"
+        // 재진입에서 그 임시본이 복원을 제안하고, 복원 후 다시 저장하면 POST /api/posts가 또 나가 slug 중복
+        // 409(또는 slug를 바꾼 중복 글)로 이어진다. clearDraft는 이미 예외를 삼킨다(lib/drafts.ts) — 이 호출
+        // 자체가 조용히 실패하면(스토리지가 완전히 막힌 극단적 경우) 'new' 임시본이 남아 그 경로가 여전히
+        // 열려 있을 수 있다(미검증 잔여 위험).
         clearDraft(NEW_POST_KEY)
-        void navigate(`/posts/${saved.id}`, { replace: true })
+        setCreatedPostId(saved.id)
         return
       }
       // 응답이 오기까지 아무것도 안 바뀌었을 때만(prev가 submitted와 같을 때만) 서버 값을 대입한다 — 업데이터
@@ -177,16 +191,18 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
     if (!hasErrors(errors)) save.mutate(fields)
   }
 
-  // uploading(state)만으로는 재진입을 막을 수 없다 — setState는 다음 렌더까지 반영이 늦어져, 업로드 도중
-  // 빠르게 또 uploadImages가 불리면(붙여넣기·드롭·파일 선택이 겹칠 때) uploading이 아직 false로 보일 수 있다.
-  // ref는 그 자리에서 바로 읽고 쓰므로 같은 창을 만들지 않는다.
+  // ref는 그 자리에서 바로 읽고 쓴다(state는 다음 렌더에 반영된다 — 추론, 이 저장소에서 직접 측정하지는 않았다).
+  // 업로드 도중 빠르게 또 uploadImages가 불리는 경우(붙여넣기·드롭·파일 선택이 겹칠 때)를 놓치지 않으려고 ref로 막는다.
   const uploadingRef = useRef(false)
   const uploadImages = async (files: File[]) => {
     if (uploadingRef.current) {
-      setUploadErrors(prev => [...prev, '이미 업로드가 진행 중입니다 — 끝난 뒤 다시 시도하세요.'])
+      setUploadBlockedNotice('이미 업로드가 진행 중입니다 — 끝난 뒤 다시 시도하세요.')
       return
     }
     uploadingRef.current = true
+    // 차단 안내는 새 업로드를 시작할 때만 지운다 — 진행 중이던 업로드가 끝나며(아래 uploadErrors 교체) 함께
+    // 지우면, 그 업로드가 끝나는 순간 이 안내가 사라져 무엇이 막혔는지 알 길이 없어진다.
+    setUploadBlockedNotice(null)
     setUploadErrors([]); setUploading(true)
     const errors: string[] = []
     for (let index = 0; index < files.length; index++) { // 순차 업로드: 서버의 업로드 동시 실행 한도는 전역 2다
@@ -220,7 +236,7 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
         {draftFailed && <span className="text-xs text-amber-700">임시본을 저장하지 못했습니다(브라우저 저장 공간).</span>}
         {/* 글에는 초안 상태가 없다 — 저장이 곧 발행이다. */}
         <span className="text-sm font-medium text-red-700">저장하면 즉시 공개됩니다</span>
-        <button type="button" onClick={submit} disabled={save.isPending || conflict !== null || postCreatedButDraftFailed || (postId !== null && !dirty)}
+        <button type="button" onClick={submit} disabled={save.isPending || conflict !== null || createdPostId !== null || (postId !== null && !dirty)}
           className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-40">{save.isPending ? '저장 중…' : '저장'}</button>
       </div>
 
@@ -244,9 +260,11 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
       )}
       {/* 재조회 실패 안내가 이미 409 실패의 원인을 설명하므로, 같은 실패에 대한 일반 안내(ErrorNotice)를 겹쳐 보여주지 않는다. */}
       {!conflict && conflictRefetchError === null && <ErrorNotice error={save.error instanceof ApiError && save.error.status === 400 ? null : save.error} />}
-      {postCreatedButDraftFailed && (
+      {createdPostId !== null && (
         <div role="alert" className="rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
-          글은 이미 만들어졌지만 그사이 입력한 내용을 임시 저장하지 못했습니다(브라우저 저장 공간). 이 화면의 내용을 복사해 둔 뒤 새로고침해서 이어서 고치세요.
+          글은 이미 만들어져 공개됐습니다. 이 화면에서 그 뒤에 고친 내용은 임시 저장하지 못했습니다(브라우저 저장
+          공간). 그 내용을 먼저 복사해 두고 <Link to={`/posts/${createdPostId}`} className="underline">방금 만든 글 열기</Link>에서
+          이어서 고치세요.
         </div>
       )}
 
@@ -290,6 +308,9 @@ function Editor({ postId, server }: { postId: string | null; server: PostDetail 
             <span className="flex-1" />
             <span className={bytes > LIMITS.contentMaxBytes ? 'text-red-700' : 'text-gray-500'}>{(bytes / 1024).toFixed(1)} / {LIMITS.contentMaxBytes / 1024}KB</span>
           </div>
+          {uploadBlockedNotice !== null && (
+            <div role="alert" className="rounded border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">{uploadBlockedNotice}</div>
+          )}
           {uploadErrors.length > 0 && (
             <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
               <ul className="list-disc pl-4">{uploadErrors.map((msg, i) => <li key={i}>{msg}</li>)}</ul>

@@ -18,7 +18,7 @@ const POST: PostDetail = {
 const COMMON = { ...LOGGED_IN, 'GET /api/series': { status: 200, body: [] }, 'GET /api/tags': { status: 200, body: [] }, 'POST /api/preview': { status: 200, body: { html: '<p>ok</p>' } } }
 
 beforeEach(() => window.localStorage.clear())
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('글 편집', () => {
   it('새 글: "저장하면 즉시 공개됩니다"를 보여 주고, 검증을 통과한 내용만 보낸다', async () => {
@@ -154,7 +154,10 @@ describe('글 편집', () => {
     await userEvent.upload(input, file2) // 그 사이 또 업로드를 건다 — 파일 선택이 겹치는 상황(붙여넣기·드롭과의 경합)을 흉내낸다
     expect(await screen.findByText(/이미 업로드가 진행 중입니다/)).toBeInTheDocument()
     resolveFirst({ status: 201, body: attachment })
-    await waitFor(() => expect(calls.filter(c => c.method === 'POST' && c.url === '/api/attachments')).toHaveLength(1)) // 두 번째 호출은 나가지 않았다
+    await waitFor(() => expect(screen.queryByText('올리는 중…')).not.toBeInTheDocument()) // 첫 업로드가 끝났다
+    // 첫 업로드가 끝나며 오류 목록(uploadErrors)을 갈아치워도, 차단 안내는 별도 상태라 사라지지 않는다.
+    expect(screen.getByText(/이미 업로드가 진행 중입니다/)).toBeInTheDocument()
+    expect(calls.filter(c => c.method === 'POST' && c.url === '/api/attachments')).toHaveLength(1) // 두 번째 호출은 나가지 않았다
   })
 
   it('저장 요청이 돌아오기 전에 친 글자는 남는다(수정 화면)', async () => {
@@ -195,28 +198,75 @@ describe('글 편집', () => {
     expect(loadDraft(POST.id)?.summary).toBe('중간에 더 씀')
   })
 
+  // 방금 만든 글(POST.id)의 저장소 키에만 쓰기가 막힌다고 흉내낸다(예: 저장 공간 부족) — 'new' 키를 포함한
+  // 다른 쓰기는 평소대로 성공해야, 그 전에 실제로 만들어 둔 'new' 임시본이 이 실패 경로에서 지워지는지·다시
+  // 쓰이지 않는지를 의미 있게 확인할 수 있다.
+  const blockNewPostDraft = () => {
+    const originalSetItem = window.localStorage.setItem.bind(window.localStorage)
+    return vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key: string, value: string) => {
+      if (key === `pb.draft.v1:${POST.id}`) throw new DOMException('quota', 'QuotaExceededError')
+      originalSetItem(key, value)
+    })
+  }
+
   it('새 글: 생성 요청이 도는 동안 친 내용을 임시본으로 남기지 못하면 이동하지 않고 저장을 막는다', async () => {
-    // 여기서 실패하면 이동 직전이라 setDraftFailed(true)를 화면에 보일 틈이 없다(새 Editor가 곧바로 마운트되며
-    // 그 상태를 버린다) — 그래서 이 경우만 이동하지 않는다. 서버에는 이미 글이 생겼으므로 "저장"을 막아
-    // 다시 눌러도 중복 글이 생기지 않게 한다.
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError') })
+    // 여기서 실패하면 이동 직전이라 안내를 화면에 보일 틈이 없다(새 Editor가 곧바로 마운트되며 그 상태를 버린다)
+    // — 그래서 이 경우만 이동하지 않는다. 서버에는 이미 글이 생겼으므로 "저장"을 막아 다시 눌러도 중복 글이
+    // 생기지 않게 한다.
     let resolvePost!: (reply: { status: number; body: PostDetail }) => void
     const postPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePost = resolve })
     stubApi({ ...COMMON, 'POST /api/posts': () => postPromise, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
     const { router } = renderApp('/posts/new')
     await userEvent.type(await screen.findByLabelText(/^제목/), '새 글 제목')
     await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    // 저장 전에 자동 저장이 실제로 한 번 성공해 'new' 임시본이 스토리지에 있게 만든다 — 그래야 아래에서 그
+    // 임시본이 실제로 지워지는지(안 지워지면 새로고침·재진입에서 복원 → 중복 제출로 이어진다) 확인할 수 있다.
+    await waitFor(() => expect(loadDraft('new')).not.toBeNull(), { timeout: 2000 })
+    const setItemSpy = blockNewPostDraft()
     await userEvent.click(screen.getByRole('button', { name: '저장' }))
     await userEvent.type(screen.getByLabelText(/^요약/), '중간에 더 씀') // 요청이 도는 동안 더 친다
     resolvePost({ status: 201, body: { ...POST, slug: 'new-post', title: '새 글 제목' } })
     await screen.findByText(/임시 저장하지 못했습니다/)
     expect(router.state.location.pathname).toBe('/posts/new') // 이동하지 않았다
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled() // 다시 눌러 중복 글을 만들 수 없다
+    // 안내는 사실이어야 한다: 새로고침하면 방금 만든 글이 아니라 새 글 화면이 뜨고, 인스턴스 상태인 이 가드가
+    // 사라져 다시 저장을 시도할 수 있다 — 그래서 "새로고침"을 권하지 않고 방금 만든 글로 가는 링크를 준다.
+    expect(screen.queryByText(/새로고침/)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '방금 만든 글 열기' })).toHaveAttribute('href', `/posts/${POST.id}`)
+    expect(loadDraft('new')).toBeNull() // 방금 서버에 제출된 'new' 임시본은 지워졌다
+    // 이 상태에서도 입력은 막지 않는다 — 화면의 내용을 복사해 갈 수 있어야 한다. 다만 'new' 키에는 다시 쓰지
+    // 않는다(그 내용은 이미 서버에 제출됐고, 다시 쓰면 새로고침·재진입에서 복원 → 재제출 → 중복 글로 이어진다).
+    await userEvent.type(screen.getByLabelText(/^요약/), '더더')
+    await new Promise(resolve => setTimeout(resolve, 1200)) // 1초 디바운스가 지나가도
+    expect(loadDraft('new')).toBeNull()
+    setItemSpy.mockRestore()
+  })
+
+  it('새 글: 임시 저장 실패 안내 상태에서 언마운트 후 새 글 화면을 다시 열어도 복원을 제안하지 않고, 중복 제출도 없다', async () => {
+    let resolvePost!: (reply: { status: number; body: PostDetail }) => void
+    const postPromise = new Promise<{ status: number; body: PostDetail }>(resolve => { resolvePost = resolve })
+    const calls = stubApi({ ...COMMON, 'POST /api/posts': () => postPromise, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
+    const first = renderApp('/posts/new')
+    await userEvent.type(await screen.findByLabelText(/^제목/), '새 글 제목')
+    await userEvent.type(screen.getByLabelText(/^slug/), 'new-post')
+    await waitFor(() => expect(loadDraft('new')).not.toBeNull(), { timeout: 2000 })
+    const setItemSpy = blockNewPostDraft()
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await userEvent.type(screen.getByLabelText(/^요약/), '중간에 더 씀') // 요청이 도는 동안 더 친다
+    resolvePost({ status: 201, body: { ...POST, slug: 'new-post', title: '새 글 제목' } })
+    await screen.findByText(/임시 저장하지 못했습니다/)
+    first.unmount() // 탭을 닫거나 다른 곳으로 갔다가 다시 "새 글"을 여는 상황을 흉내낸다
+    renderApp('/posts/new')
+    expect(await screen.findByLabelText(/^제목/)).toHaveValue('') // 새 인스턴스는 깨끗하다
+    expect(screen.queryByText(/저장된 임시본이 있습니다/)).not.toBeInTheDocument() // 복원 제안이 없다 — 'new' 임시본을 이미 지웠다
+    await userEvent.click(screen.getByRole('button', { name: '저장' }))
+    await screen.findByText('slug는 필수입니다.') // 빈 필드라 클라이언트 검증에 걸려 서버로 나가지 않는다
+    expect(calls.filter(c => c.method === 'POST' && c.url === '/api/posts')).toHaveLength(1) // 처음 1회뿐 — 중복 제출 없음
     setItemSpy.mockRestore()
   })
 
   it('새 글 생성 성공 뒤에도 저장 전 내용을 담은 낡은 임시본이 남지 않는다', async () => {
-    // 자동 저장 effect는 baseline을 의존성으로 보지 않는다(O1) — 저장 성공으로 baseline이 바뀌어도 이 effect가
+    // 자동 저장 effect는 baseline을 의존성으로 보지 않는다 — 저장 성공으로 baseline이 바뀌어도 이 effect가
     // 다시 돌아 저장 전 settled 값을 새 baseVersion과 함께 되쓰지 않는다. 타이핑 직후(1초 디바운스가 끝나기
     // 전) 곧바로 저장해 그 경로를 확인한다.
     stubApi({ ...COMMON, 'POST /api/posts': { status: 201, body: { ...POST, slug: 'new-post' } }, [`GET /api/posts/${POST.id}`]: { status: 200, body: POST } })
