@@ -102,4 +102,31 @@ describe('미리보기', () => {
     await act(() => vi.advanceTimersByTimeAsync(0))
     expect(calls.length).toBe(afterFirst) // blockedUntil 대기 중이라 버튼을 눌러도 보내지 않는다
   })
+
+  it('먼저 보낸 요청의 응답이 나중에 도착해도(그새 입력이 바뀌었으면) 화면을 덮지 않는다', async () => {
+    vi.useFakeTimers()
+    let releaseFirst: (() => void) | undefined
+    const firstGate = new Promise<void>(resolve => { releaseFirst = resolve })
+    const calls = stubApi({
+      'POST /api/preview': async call => {
+        const markdown = (call.body as { markdown: string }).markdown
+        if (markdown === 'first') await firstGate // 수동으로 풀 때까지 응답하지 않는다
+        return { status: 200, body: { html: markdown === 'first' ? '<p>stale-first</p>' : '<p>second</p>' } }
+      },
+    })
+    const view = render(pane('first'))
+    await act(() => vi.advanceTimersByTimeAsync(0)) // 첫 요청을 보낸다(응답은 firstGate에 묶여 대기 중)
+    expect(calls.length).toBe(1)
+
+    view.rerender(pane('second'))
+    await act(() => vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS)) // 두 번째 요청을 보내고 응답을 받는다(첫 요청은 여전히 대기 중)
+    expect(calls.length).toBe(2)
+    expect(frame().getAttribute('srcdoc')).toContain('<p>second</p>')
+
+    // 첫 요청의 응답을 이제 푼다 — aborted 가드가 없으면 이 결과가 두 번째 결과 위에 덮인다.
+    releaseFirst?.()
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(frame().getAttribute('srcdoc')).toContain('<p>second</p>')
+    expect(frame().getAttribute('srcdoc')).not.toContain('stale-first')
+  })
 })

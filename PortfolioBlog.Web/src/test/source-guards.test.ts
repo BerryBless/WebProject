@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { stripComments } from './stripComments'
+import { collectCommentRanges, stripComments } from './stripComments'
 
 // 소스를 정규식으로 훑는 검사다: 실수로 들어오는 금지 패턴을 잡는다. 문자열 조립(예: el['inner' + 'HTML'])이나
 // 별칭(예: const f = fetch)처럼 의도적으로 정규식을 피해 가는 코드는 잡지 못한다 — 그런 우회를 막는 일은 사람이 하는
@@ -19,11 +19,11 @@ function sources(dir: string): string[] {
 
 const FILES = sources(ROOT).map(path => {
   const raw = readFileSync(path, 'utf8')
-  return { path: relative(ROOT, path).replaceAll('\\', '/'), raw, text: stripComments(raw) }
+  const relPath = relative(ROOT, path).replaceAll('\\', '/')
+  return { path: relPath, raw, text: stripComments(raw, relPath) }
 })
 const offenders = (pattern: RegExp, allow: (path: string) => boolean = () => false) =>
   FILES.filter(f => !allow(f.path) && pattern.test(f.text)).map(f => f.path)
-const countLines = (text: string, pattern: RegExp) => (text.match(pattern) ?? []).length
 
 describe('소스 가드', () => {
   it('검사 대상이 비어 있지 않다(경로가 바뀌어 공집합으로 통과하지 않게)', () => {
@@ -31,11 +31,37 @@ describe('소스 가드', () => {
     expect(FILES.map(f => f.path)).toContain('components/PreviewPane.tsx')
   })
 
-  it('주석 제거가 export·import 줄을 지우지 않는다(줄 주석 안의 /*가 블록 주석 정규식을 잘못 열어 그 뒤 코드를 삼키는 결함 재현)', () => {
-    const broken = FILES.filter(f =>
-      countLines(f.text, /^export /gm) !== countLines(f.raw, /^export /gm) ||
-      countLines(f.text, /^import /gm) !== countLines(f.raw, /^import /gm))
-    expect(broken.map(f => f.path)).toEqual([])
+  // 정규식으로 흉내 낸 "줄 수가 같다" 자기 검사는 구조적으로 무력하다 — 가드가 쫓는 위반은 대개 블록·함수 몸통
+  // 안(들여쓴 줄)에 있고, export·import 줄 수는 블록 안에서 몇 줄이 사라지든 바뀌지 않는다(실측: 재현 가능).
+  // 그래서 문자 단위 불변식으로 바꾼다 — stripComments의 공개 계약(collectCommentRanges가 찾은 범위만 공백으로
+  // 바뀐다) 그 자체를 파일마다 직접 확인한다. stripComments 내부 구현을 신뢰하지 않고 그 출력만 본다.
+  it('주석 제거가 코드를 지우지 않는다: 길이·문자·주석 범위의 구조적 불변식', () => {
+    const violations: string[] = []
+    for (const f of FILES) {
+      if (f.text.length !== f.raw.length) {
+        violations.push(`${f.path}: 길이가 다르다(원본 ${f.raw.length}, 제거본 ${f.text.length})`)
+        continue
+      }
+      const ranges = collectCommentRanges(f.raw, f.path)
+      // (c) 각 주석 범위의 원본 텍스트가 실제로 //나 /*로 시작한다 — collectCommentRanges가 주석이 아닌 것을
+      // 주석으로 잘못 판단하지 않았는지 확인한다.
+      const blanked = new Set<number>()
+      for (const { pos, end } of ranges) {
+        const original = f.raw.slice(pos, end)
+        if (!(original.startsWith('//') || original.startsWith('/*'))) {
+          violations.push(`${f.path}:${pos} 주석이 아닌 구간을 지웠다: ${JSON.stringify(original.slice(0, 30))}`)
+        }
+        for (let i = pos; i < end; i++) if (f.raw[i] !== '\n' && f.raw[i] !== '\r') blanked.add(i)
+      }
+      // (a)(b) 바뀐 위치는 전부 공백이고, 바뀐 위치는 전부 선언된 주석 범위 안에 있다(stripComments가
+      // collectCommentRanges 밖의 문자를 지우지 않았다는 것을 출력만 보고 확인한다).
+      for (let i = 0; i < f.raw.length; i++) {
+        if (f.text[i] === f.raw[i]) continue
+        if (f.text[i] !== ' ') { violations.push(`${f.path}:${i} 공백이 아닌 다른 문자로 바뀌었다(원본 ${JSON.stringify(f.raw[i])})`); break }
+        if (!blanked.has(i)) { violations.push(`${f.path}:${i} 선언된 주석 범위 밖에서 지워졌다`); break }
+      }
+    }
+    expect(violations).toEqual([])
   })
 
   it('서버 HTML을 React DOM에 넣는 경로가 없다', () => {
@@ -50,7 +76,8 @@ describe('소스 가드', () => {
     expect(offenders(/<iframe|createElement\(\s*['"`]iframe|\.srcdoc\s*=|setAttribute\(\s*['"`]srcdoc/i)).toEqual(['components/PreviewPane.tsx'])
     const pane = FILES.find(f => f.path === 'components/PreviewPane.tsx')!.text
     expect(pane).toMatch(/<iframe[^>]*\ssandbox=""/)
-    expect(offenders(/allow-(scripts|same-origin|forms|popups|top-navigation|modals|downloads)/)).toEqual([])
+    // sandbox 토큰 이름을 낱낱이 나열하지 않는다 — 새 토큰(pointer-lock 등)이 추가돼도 놓치지 않게 접두사로 잡는다.
+    expect(offenders(/allow-[a-z-]+/)).toEqual([])
   })
 
   it('fetch는 API 클라이언트 한 곳에서만 부른다(CSRF 헤더·same-origin·redirect 거부가 빠진 호출이 생기지 않게)', () => {
@@ -58,7 +85,8 @@ describe('소스 가드', () => {
   })
 
   it('외부 출처를 가리키는 URL이 없다(CSP default-src none — 글꼴·스크립트·이미지 CDN 금지, index.html도 포함)', () => {
-    const indexHtml = { path: 'index.html', text: stripComments(readFileSync(join(ROOT, '..', 'index.html'), 'utf8')) }
+    // index.html은 JS/TS가 아니다 — stripComments(TypeScript 파서)를 돌리지 않고 원문 그대로 검사한다.
+    const indexHtml = { path: 'index.html', text: readFileSync(join(ROOT, '..', 'index.html'), 'utf8') }
     const targets = [...FILES, indexHtml]
     const found = targets.filter(f => /["'`](https?:)?\/\/[a-z0-9]/i.test(f.text)).map(f => f.path)
     expect(found).toEqual([])
