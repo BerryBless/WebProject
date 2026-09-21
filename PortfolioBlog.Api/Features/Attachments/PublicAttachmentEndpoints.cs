@@ -71,7 +71,8 @@ public static class PublicAttachmentEndpoints
     /// <item><description><b>Overload:</b> 이 조회는 <see cref="PublicDbContext"/>(공개 연결 풀)를 쓴다 — <c>Attachments</c> 테이블이 잠겨 조회가 <c>statement_timeout</c>을
     /// 넘기면 무한정 기다리지 않고 SqlState 57014로 끊겨 503 + <c>Retry-After</c>가 된다(실측: 테스트 프로젝트의
     /// <c>AttachmentEndpointsTests.PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter</c>가 <c>ACCESS EXCLUSIVE</c> 잠금으로 고정한다).
-    /// 관리 풀(<see cref="AppDbContext"/>)에는 <c>statement_timeout</c>이 없어 같은 조건에서 잠금이 풀릴 때까지 기다렸다(실측 6.6초 뒤 200).</description></item>
+    /// 관리 풀(<see cref="AppDbContext"/>)에는 <c>statement_timeout</c>이 없어 같은 조건에서 잠금이 풀릴 때까지 기다린다 —
+    /// 그 테스트의 타입을 <see cref="AppDbContext"/>로 되돌리면 5초 유계 대기가 먼저 끊긴다(실측). 실제 대기 시간은 이 저장소에서 측정하지 않았다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 존재 확인과 여는 시점을 분리하지 않고 <c>FileStream</c>을 직접 열어 실패를 잡는다(<c>File.Exists</c> 뒤에 열기가 실패하는 TOCTOU 경쟁이 없다). 삭제와 경쟁하면(<see cref="AttachmentEndpoints.DeleteAsync"/> 참조) DB 행이 먼저 지워지므로 이 조회가 404가 되거나, DB 행이 아직 남아 있는 사이 파일이 지워졌으면(관리자가 볼륨에서 직접 지운 경우 포함) <see cref="FileNotFoundException"/>을 잡아 404가 된다 — 이 핸들러가 잘못된 내용을 돌려주는 경로는 없다. <see cref="FileShare.Delete"/>로 열기 때문에 이 핸들러가 스트리밍 중인 동안 <see cref="FileSystemAttachmentStore.TryDelete"/>가 같은 파일을 지워도(Windows에서) 공유 위반 없이 성공한다 — 삭제는 즉시 디렉터리 항목을 없애고(이후 요청은 404), 이미 열려 있는 이 핸들은 응답이 끝날 때까지 데이터를 계속 읽을 수 있다. Non-blocking: DB 조회는 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>

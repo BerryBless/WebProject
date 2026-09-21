@@ -80,9 +80,10 @@ using (var scope = app.Services.CreateScope())
 // 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms — 2A 단계 실측, plan/resume_guide_0921.md)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.
 app.Services.GetRequiredService<MarkdownRenderer>().Render("```csharp\nvar warm = 1;\n```\n");
 
-// 앱 미들웨어 중 맨 앞. 프레임워크의 HostFiltering 시작 필터만 이보다 바깥이라 그 400에는 이 헤더들이 붙지 않는다(실측) —
-// 그래서 위에서 IncludeFailureMessage = false로 그 400의 본문을 없앴다(헤더 없는 응답에 본문도 없다).
-// Kestrel이 앱에 닿기 전에 직접 거부하는 요청(요청 줄 8KB 초과 414, 경로의 NUL·잘못된 Host 400)도 같은 이유로 헤더가 없고 본문도 없다(실측).
+// 앱 미들웨어 중 맨 앞. 프레임워크의 HostFiltering 시작 필터만 이보다 바깥이라 그 400에는 이 헤더들이 붙지 않는다
+// (실측: HostFilteringTests.RejectedHost_400_HasNoBody_AndNoSecurityHeaders) — 그래서 위에서 IncludeFailureMessage = false로
+// 그 400의 본문을 없앴다(헤더 없는 응답에 본문도 없다). Kestrel이 앱에 닿기 전에 스스로 거부하는 요청(요청 줄 길이 초과 등)도
+// 같은 이유로 이 헤더들이 붙지 않는다 — 그쪽은 스펙 3.6 참조(이 저장소에서 측정하지는 않았다).
 // 바로 다음 줄의 UseTrustedForwardedHeaders는 일반 앱 미들웨어라 이 줄 뒤에서 실행되고 자체적으로 400을 내지 않는다.
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseTrustedForwardedHeaders();
