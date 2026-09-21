@@ -77,7 +77,8 @@ public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture
     [InlineData("/search?q=%20a%20", 400, "a")]
     [InlineData("/search?q=ab&q=cd", 400, "")]
     [InlineData("/search?q=ab%00cd", 400, "")]
-    [InlineData("/search?q=zzqq&page=51", 404, null)]
+    [InlineData("/search?q=zzqq&page=51", 404, null)] // 형식(상한 51 초과)만 확인한다 — zzqq는 결과 0건이라 상한 검사가 사라져도 빈 쪽 폴백이 같은 404를 낸다.
+                                                        // 상한이 DB 접근 전에 강제됨은 이 케이스로 증명되지 않는다 — 증명은 Page51_IsRejectedByTheCap_NotByEmptyFallback.
     [InlineData("/search?q=zzqq&page=x", 404, null)]
     [InlineData("/search?q=zzqq&page=2", 404, null)] // 결과가 없는 쪽
     public async Task InvalidInput(string url, int status, string? echoed)
@@ -115,5 +116,45 @@ public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture
         Assert.True(third.Headers.Contains("Retry-After"));
         Assert.Equal("text/html", third.Content.Headers.ContentType?.MediaType);
         await HtmlDoc.GetAsync(client, "/"); // 페이지 한도는 남아 있다
+    }
+
+    /// <summary>쪽 번호 상한 50이 DB 접근 전에 강제됨을, 51쪽에 실제로 항목이 존재하는 상태로 증명한다(50쪽=200/20건, 51쪽=404).
+    /// 결과가 0건인 검색어로는 상한 검사가 사라져도 "결과 없는 쪽" 폴백이 같은 404를 내 구별하지 못하므로, 51쪽 × 20 + 1건 = 1,001건을 시드해
+    /// 51쪽에 정확히 1건이 남도록 만든다 — 상한이 없다면 이 요청은 404가 아니라 200(1건)이 된다.</summary>
+    [Fact]
+    public async Task Page51_IsRejectedByTheCap_NotByEmptyFallback()
+    {
+        using var isolated = new ApiFactory(pg, new Dictionary<string, string?>());
+        const string term = "zzz-bulk-term";
+        await PublicSeed.ManyPostsAsync(isolated, 1001, term);
+        using var client = isolated.CreatePublicClient();
+
+        var last = await HtmlDoc.GetAsync(client, "/search?q=" + term + "&page=50");
+        Assert.Equal(20, last.QuerySelectorAll("ul.post-list a.post-title").Length);
+
+        using var res = await client.GetAsync("/search?q=" + term + "&page=51");
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    /// <summary>쪽 링크는 검색어를 퍼센트 인코딩해 내보낸다. 위험 문자(따옴표·꺾쇠·앰퍼샌드·공백·해시)가 든 검색어도 href를 깨거나
+    /// script·img·이벤트 속성 같은 새 요소를 만들지 않는다.</summary>
+    [Fact]
+    public async Task PagerLinks_EncodeTheQueryString_AndReflectNoElements()
+    {
+        using var isolated = new ApiFactory(pg, new Dictionary<string, string?>());
+        const string term = "a\"b<c&d #e";
+        await PublicSeed.ManyPostsAsync(isolated, 21, term);
+        using var client = isolated.CreatePublicClient();
+        var encoded = Uri.EscapeDataString(term);
+
+        var first = await HtmlDoc.GetAsync(client, "/search?q=" + encoded);
+        Assert.Equal(20, first.QuerySelectorAll("ul.post-list a.post-title").Length);
+        Assert.Empty(first.QuerySelectorAll("script, img, [onerror]"));
+        Assert.Equal($"/search?q={encoded}&page=2", first.QuerySelector("nav.pager a[rel=next]")?.GetAttribute("href"));
+
+        var second = await HtmlDoc.GetAsync(client, $"/search?q={encoded}&page=2");
+        Assert.Equal(1, second.QuerySelectorAll("ul.post-list a.post-title").Length);
+        Assert.Empty(second.QuerySelectorAll("script, img, [onerror]"));
+        Assert.Equal($"/search?q={encoded}&page=1", second.QuerySelector("nav.pager a[rel=prev]")?.GetAttribute("href"));
     }
 }
