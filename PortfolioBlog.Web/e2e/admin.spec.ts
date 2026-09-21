@@ -79,7 +79,7 @@ test('로그인 뒤 ?next=의 오픈 리다이렉트 변형은 전부 SPA 안에
   }
 })
 
-test('글쓰기 전 과정: 로그인 → 시리즈 → 새 글(편집기·이미지·미리보기) → 충돌 → 삭제 → 로그아웃', async ({ page, context, browser, browserName }) => {
+test('글쓰기 전 과정: 로그인 → 첨부 → 시리즈 → 새 글(편집기·이미지·미리보기) → 충돌 → 세션 만료·복원 → 삭제 → 로그아웃', async ({ page, context, browser, browserName }) => {
   const problems = await watch(page)
   const slug = `e2e-${browserName}-${Date.now()}`
 
