@@ -191,7 +191,6 @@ public sealed class MarkdownRendererTests
     [InlineData("css-long-line")]
     [InlineData("html-attr-soup")]
     [InlineData("csharp-one-line")]
-    [InlineData("identical-headings")]
     public void Render_PathologicalCodeAndHeadings_FinishQuickly(string caseName)
     {
         var markdown = caseName switch
@@ -199,7 +198,6 @@ public sealed class MarkdownRendererTests
             "css-long-line" => "```css\n" + "a{b:\"" + new string('f', 200_000) + "\n```\n",
             "html-attr-soup" => "```html\n" + string.Concat(Enumerable.Repeat("<a a=\"a ", 25_000)) + "\n```\n",
             "csharp-one-line" => "```csharp\n" + string.Concat(Enumerable.Repeat("var a=1;", 25_000)) + "\n```\n",
-            "identical-headings" => string.Concat(Enumerable.Repeat("# heading\n\n", 18_600)),
             _ => throw new ArgumentOutOfRangeException(nameof(caseName)),
         };
         Assert.True(Encoding.UTF8.GetByteCount(markdown) <= MarkdownRenderer.MaxInputBytes,
@@ -209,6 +207,45 @@ public sealed class MarkdownRendererTests
         Renderer.Render(markdown);
         stopwatch.Stop();
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"{caseName}이(가) {stopwatch.Elapsed}만에 끝났습니다(5초 상한 초과).");
+    }
+
+    /// <summary>같은 제목이 수만 번 반복돼도 제목 id 중복 해소 비용이 제목 수에 선형인지 검증한다. 절대 시간이 아니라 <b>제목 하나당 비용의 비율</b>
+    /// (동일 제목 18,600개 대 서로 다른 제목 12,000개, 둘 다 약 200KB)로 단언한다 — 이 입력의 렌더링은 선형이어도 수백 ms가 걸리는 실제 작업이라,
+    /// 느린 CI 러너에서 다른 테스트와 병렬로 돌면 절대 상한(5초)을 넘는다(실측: 로컬 0.8초, GitHub 러너 7.2초). 비율은 기계 속도와 무관하다:
+    /// Markdig의 <c>UseAutoIdentifiers</c>를 쓰던 때는 이 비율이 약 13배(그 확장만 재면 82배)였고 선형 <c>HeadingIds</c>로는 약 1.6배다(둘 다 실측).</summary>
+    [Fact]
+    public void Render_IdenticalHeadings_CostPerHeadingStaysLinear()
+    {
+        const int identicalCount = 18_600, distinctCount = 12_000;
+        var identical = string.Concat(Enumerable.Repeat("# heading\n\n", identicalCount));
+        var distinct = string.Concat(Enumerable.Range(0, distinctCount).Select(i => $"# heading {i:D5}\n\n"));
+        Assert.True(Encoding.UTF8.GetByteCount(identical) <= MarkdownRenderer.MaxInputBytes);
+        Assert.True(Encoding.UTF8.GetByteCount(distinct) <= MarkdownRenderer.MaxInputBytes);
+
+        // 워밍업 1회 뒤 2회 중 빠른 쪽: JIT·GC·이웃 테스트의 일시적 간섭을 줄인다. 두 입력을 번갈아 재서 같은 부하 조건에 놓는다.
+        static TimeSpan Measure(string markdown)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            Renderer.Render(markdown);
+            return stopwatch.Elapsed;
+        }
+        Measure(identical);
+        Measure(distinct);
+        var identicalBest = TimeSpan.MaxValue;
+        var distinctBest = TimeSpan.MaxValue;
+        for (var i = 0; i < 2; i++)
+        {
+            var a = Measure(identical);
+            if (a < identicalBest) identicalBest = a;
+            var b = Measure(distinct);
+            if (b < distinctBest) distinctBest = b;
+        }
+
+        var perIdentical = identicalBest.TotalMilliseconds / identicalCount;
+        var perDistinct = distinctBest.TotalMilliseconds / distinctCount;
+        Assert.True(perIdentical <= perDistinct * 4,
+            $"동일 제목의 제목당 비용이 서로 다른 제목의 {perIdentical / perDistinct:F1}배다(상한 4배) — 중복 해소가 다시 초선형이 됐다. " +
+            $"identical {identicalBest.TotalMilliseconds:F0}ms/{identicalCount}, distinct {distinctBest.TotalMilliseconds:F0}ms/{distinctCount}");
     }
 
     /// <summary>예산을 넘는 줄(401자)이 있는 블록은 강조를 포기하고 이스케이프한 일반 코드블록이 되며,

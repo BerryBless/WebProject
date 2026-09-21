@@ -185,6 +185,7 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
     }
 
     /// <summary>같은 시리즈를 참조하는 글 저장 12건과 그 시리즈 삭제 1건을 동시에 실행해도 500이 전혀 나오지 않고,
+    /// 글 저장은 201(삭제보다 먼저 커밋), 409(삭제와 경합), 또는 <c>seriesId</c> 키의 400(삭제가 먼저 커밋된 뒤 검증 — 느린 러너에서 실제로 관찰됨) 중 하나이며,
     /// 삭제가 204로 성공하면 그 시리즈를 참조하는 글이 하나도 남지 않는지 검증한다(삭제 트랜잭션의 <c>FOR UPDATE</c> 선점 + FK 위반의 409 방어를 함께 증명).</summary>
     [Fact]
     public async Task Delete_ConcurrentWithPostSaves_NeverReturns500_AndLeavesNoDanglingReference()
@@ -211,8 +212,15 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
             for (var i = 0; i < responses.Length; i++)
             {
                 if (i == 6) continue; // 삭제 응답은 위에서 별도 검증
+                if (responses[i].StatusCode == HttpStatusCode.BadRequest)
+                {
+                    // 삭제가 먼저 커밋된 뒤 이 저장의 검증이 돌면 "존재하지 않는 시리즈"가 정답이다. 다른 이유의 400은 허용하지 않는다.
+                    var problem = await responses[i].Content.ReadFromJsonAsync<HttpValidationProblemDetails>(TestJson.Options);
+                    Assert.Equal(["seriesId"], problem!.Errors.Keys);
+                    continue;
+                }
                 Assert.True(responses[i].StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict,
-                    $"글 저장 응답(인덱스 {i})은 201 또는 409여야 하는데 {(int)responses[i].StatusCode}였다.");
+                    $"글 저장 응답(인덱스 {i})은 201, 409 또는 seriesId 키의 400이어야 하는데 {(int)responses[i].StatusCode}였다.");
             }
 
             if (deleteResponse.StatusCode == HttpStatusCode.NoContent)
