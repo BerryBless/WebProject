@@ -228,8 +228,9 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
         Assert.True(await ScalarAsync<bool>(holder, "SELECT pg_advisory_unlock(hashtextextended(@k, 0))", key));
     }
 
-    /// <summary>측정: <c>SET lock_timeout</c>은 세션(연결) 범위다 — Npgsql 풀에서 같은 물리 연결을 재사용해도(Task 4가 실측한, 풀 반환 시
-    /// 세션이 리셋되는 것과 같은 메커니즘) 이전 세션이 남긴 <c>lock_timeout</c> 값이 다음 사용자에게 새지 않는다. <c>Maximum Pool Size=1</c>로
+    /// <summary>측정: <c>SET lock_timeout</c>은 세션(연결) 범위다 — Npgsql 풀에서 같은 물리 연결을 재사용해도(풀 반환 시 세션이 리셋되는 것과 같은
+    /// 메커니즘, 위 <see cref="ClosingAPooledConnection_WithoutAnExplicitUnlock_DelaysReleaseUntilThePhysicalConnectionIsNextUsed"/> 참조)
+    /// 이전 세션이 남긴 <c>lock_timeout</c> 값이 다음 사용자에게 새지 않는다. <c>Maximum Pool Size=1</c>로
     /// 같은 물리 연결(같은 <c>pg_backend_pid()</c>)이 재사용됨을 먼저 확인한 뒤 값을 비교한다.</summary>
     [Fact]
     public async Task SetLockTimeout_DoesNotLeakToTheNextUserOfThePooledConnection()
@@ -264,15 +265,16 @@ public sealed class AttachmentIntegrityTests(PostgresContainerFixture pg)
         }
     }
 
-    /// <summary>측정(Fix round 1 — 이전 보고서의 결론 정정): 세션 advisory lock을 잡은 뒤 명시적으로 <c>pg_advisory_unlock</c>을 부르지 않고
-    /// 연결을 정상적으로 닫으면(Npgsql 풀로 반환, 물리 연결·백엔드 세션은 살아 있음) 잠금은 <b>반환 직후에는</b> 풀리지 않는다 — 여기까지는 이전 측정과
-    /// 같다. 하지만 "풀 반환의 리셋이 advisory lock까지는 미치지 않을 만큼 좁다"는 이전 결론은 틀렸다: 실제로는 리셋 자체가 <b>지연</b>된다 — Npgsql은
-    /// 반환 시 세션 리셋 SQL을 그 물리 연결의 쓰기 버퍼에 prepend만 해 두고, <b>다음 대여자가 그 연결로 보내는 첫 명령과 함께</b> 실제로 전송한다.
+    /// <summary>측정: 세션 advisory lock을 잡은 뒤 명시적으로 <c>pg_advisory_unlock</c>을 부르지 않고
+    /// 연결을 정상적으로 닫으면(Npgsql 풀로 반환, 물리 연결·백엔드 세션은 살아 있음) 잠금은 <b>반환 직후에는</b> 풀리지 않는다.
+    /// 그렇다고 "풀 반환의 리셋이 advisory lock까지는 미치지 않을 만큼 좁다"는 것은 아니다: 관측 결과 리셋은 <b>지연</b>될 뿐이다
+    /// (<i>추론 — Npgsql 내부는 확인하지 않았다. 관측한 것은 재사용 시점의 <c>lock_timeout</c> 복귀와 advisory lock 해제뿐이다</i>: Npgsql이
+    /// 반환 시 세션 리셋 SQL을 그 물리 연결의 쓰기 버퍼에 prepend만 해 두고 <b>다음 대여자가 그 연결로 보내는 첫 명령과 함께</b> 전송하는 것으로 설명된다).
     /// 그래서 같은 물리 연결(같은 <c>pg_backend_pid()</c>)을 다시 빌려 아무 명령이나 실행하면 — 그 시점에 리셋이 실제로 실행되어 — 그 세션이 쥔
     /// advisory lock 수가 0이 되고 다른 세션의 <c>pg_try_advisory_lock</c>도 성공한다. 이 한 가지 메커니즘(지연된 리셋)이 이 테스트의 결과와
     /// <see cref="SetLockTimeout_DoesNotLeakToTheNextUserOfThePooledConnection"/>(같은 물리 연결 재사용 시 <c>lock_timeout</c>이 기본값으로 돌아와 있음)을
-    /// 모두 설명한다 — Npgsql이 실제로 보내는 문장이 PostgreSQL의 <c>DISCARD ALL</c>(GUC 리셋 + <c>pg_advisory_unlock_all()</c> 포함)인지는 Npgsql
-    /// 내부까지 추적하지 않아 확인하지 못했다(관측 사실만 적는다: <c>lock_timeout</c> 복귀 + advisory lock 해제, 둘 다 재사용 시점에 함께 관측됨).</summary>
+    /// 모두 설명한다 — Npgsql이 실제로 보내는 문장이 PostgreSQL의 <c>DISCARD ALL</c>(GUC 리셋 + <c>pg_advisory_unlock_all()</c> 포함)인지는 확인하지 못했다
+    /// (관측 사실만 적는다: <c>lock_timeout</c> 복귀 + advisory lock 해제, 둘 다 재사용 시점에 함께 관측됨).</summary>
     [Fact]
     public async Task ClosingAPooledConnection_WithoutAnExplicitUnlock_DelaysReleaseUntilThePhysicalConnectionIsNextUsed()
     {

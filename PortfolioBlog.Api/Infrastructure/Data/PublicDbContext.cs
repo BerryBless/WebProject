@@ -19,8 +19,8 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// <c>No Reset On Close</c>를 켜지 않는 한 반납 시 세션을 리셋한다) <c>transaction_read_only</c>가 다시 <c>on</c>으로 돌아오고 같은 쓰기가
 /// 25006으로 재차 거부된다(실측: <c>PublicDbContextTests.PublicContext_SessionCanOptOutOfReadOnly_ButResetsWhenConnectionReturnsToPool</c> —
 /// <c>Maximum Pool Size=1</c>로 물리 연결을 하나로 묶어 재획득한 연결이 같은 <c>pg_backend_pid()</c>임을 함께 확인했다. 이 저장소에서 Npgsql의
-/// 풀 반납 리셋 동작을 직접 측정한 것은 이 테스트가 처음이다 — 이전까지 <c>statement_timeout</c>의 풀 반납 후 복귀는 계획 스파이크 S6이
-/// 측정했지만, <c>default_transaction_read_only</c> 쪽은 이 라운드에서 처음 확인했다).
+/// 풀 반납 리셋 동작을 직접 측정한 것은 이 테스트다 — <c>statement_timeout</c>의 풀 반납 후 복귀는 계획 스파이크 S6이 측정했고,
+/// <c>default_transaction_read_only</c> 쪽은 이 테스트가 측정한다).
 /// 이 앱은 이런 SQL을 절대 만들지 않는다 — 모든 조회는 매개변수화된 LINQ(<see cref="PublicQueries"/>)뿐이고 사용자 입력이 SQL 문자열로
 /// 조립되는 경로가 없다. 그래도 이 컨텍스트만으로는 "제3자가 이 연결로 임의 SQL을 실행하고 그 연결을 계속 붙잡고 있다면" 완전한 방어가
 /// 아니다 — 진짜 해결책은 쓰기 권한이 아예 없는 DB 롤(스펙 §7 확장 지점)이며, <c>default_transaction_read_only</c>는 그때까지, 그리고
@@ -55,7 +55,7 @@ public sealed class PublicDbContext(DbContextOptions<PublicDbContext> options) :
         }
         // 시작 매개변수로 주면 세션 기본값이 된다: 풀에서 재사용될 때의 리셋도 이 값으로 돌아온다(실측: S6 스파이크 —
         // SET statement_timeout = 0으로 바꾼 뒤 커넥션을 풀에 반납·재획득해도 SHOW statement_timeout이 이 값으로 돌아왔다.
-        // Fix round 1에서 default_transaction_read_only에 대해서도 같은 방식으로 재측정 — PublicDbContext 클래스 remarks 참조).
+        // default_transaction_read_only에 대해서도 같은 방식으로 측정했다 — PublicDbContext 클래스 remarks 참조).
         builder.Options = $"-c statement_timeout={statementTimeoutMs} -c default_transaction_read_only=on";
         builder.ApplicationName = "PortfolioBlog.Public";
         return builder.ConnectionString;

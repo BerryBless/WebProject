@@ -75,9 +75,9 @@ public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAtt
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> 배경 루프(스레드 풀) 또는 테스트 스레드에서 호출된다. 매 호출마다 <see cref="IServiceScopeFactory.CreateAsyncScope"/>로 전용 <see cref="AppDbContext"/>를 연다 — 배경 루프와 요청 파이프라인이 DbContext를 공유하지 않는다.</description></item>
     /// <item><description><b>Memory Policy:</b> 저장 파일·임시 파일 목록을 배열로 모으지 않고 스트리밍 열거한다. 고아로 확정된 파일마다 <see cref="AttachmentLock"/> 잠금 키 문자열 1개를 추가로 할당한다.</description></item>
-    /// <item><description><b>Concurrency:</b> 고아 판정을 받은 각 파일은 삭제 직전 <see cref="AttachmentLock"/> 세션 잠금 안에서 "참조 없음"을 다시 확인한다 — 열거 시점과 잠금 획득 사이에 같은 내용의 업로드가 행을 넣었을 수 있기 때문이다(그 업로드는 파일이 이미 있어 옮기지 않고 행만 넣었다). 파일 삭제(<see cref="FileSystemAttachmentStore.TryDelete"/>)는 존재하지 않는 파일에도 <see langword="true"/>를 반환하므로, 열거와 삭제 사이에 다른 요청이 같은 파일을 이미 지웠다면(그 요청도 이 파일을 삭제한 것이므로) 이 스윕의 <see cref="SweepResult.OrphanFilesDeleted"/> 카운트에 함께 잡힌다 — 파일 자체는 어느 쪽이 지웠든 이미 없으므로 수치가 중복 집계될 뿐 안전 문제는 아니다(미검증: 이 경쟁을 재현하는 테스트는 만들지 않았다).
-/// 후보 하나의 잠금 대기가 <c>lock_timeout</c>(10초)을 넘어 SqlState 55P03이 나면 그 파일만 경고 로그 후 건너뛰고 스윕은 계속된다(뒤에 오는 "파일 없는 행" 진단이 유실되지 않게) —
-/// 이 분기는 10초를 실제로 기다려야 재현되므로 테스트하지 않았다(미검증, 코드 리뷰 대상).</description></item>
+    /// <item><description><b>Concurrency:</b> 고아 판정을 받은 각 파일은 삭제 직전 <see cref="AttachmentLock"/> 세션 잠금 안에서 "참조 없음"을 다시 확인한다 — 열거 시점과 잠금 획득 사이에 같은 내용의 업로드가 행을 넣었을 수 있기 때문이다(그 업로드는 파일이 이미 있어 옮기지 않고 행만 넣었다). 파일 삭제(<see cref="FileSystemAttachmentStore.TryDelete"/>)는 존재하지 않는 파일에도 <see langword="true"/>를 반환하므로, 열거와 삭제 사이에 다른 요청이 같은 파일을 이미 지웠다면(그 요청도 이 파일을 삭제한 것이므로) 이 스윕의 <see cref="SweepResult.OrphanFilesDeleted"/> 카운트에 함께 잡힌다 — 파일 자체는 어느 쪽이 지웠든 이미 없으므로 수치가 중복 집계될 뿐 안전 문제는 아니다(미검증: 이 경쟁을 재현하는 테스트는 만들지 않았다).</description></item>
+    /// <item><description><b>잠금 대기 초과:</b> 후보 하나의 잠금 대기가 <c>lock_timeout</c>(10초)을 넘어 SqlState 55P03이 나면 그 파일만 경고 로그 후 건너뛰고
+    /// 스윕은 계속된다(뒤에 오는 "파일 없는 행" 진단이 유실되지 않게). 이 분기는 10초를 실제로 기다려야 재현되므로 테스트하지 않았다(미검증).</description></item>
     /// </list>
     /// </remarks>
     public async Task<SweepResult> SweepOnceAsync(DateTimeOffset now, CancellationToken ct)

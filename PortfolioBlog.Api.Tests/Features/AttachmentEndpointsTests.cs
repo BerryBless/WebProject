@@ -175,7 +175,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, await UploadStatusAsync(admin, Form(tooBig, "big.png")));
     }
 
-    /// <summary>양성 대조군(fix round 2, B2): 로그인한 세션으로 <c>file</c> 파트가 없는 multipart를 보내면 400이 나고, 그 본문에는
+    /// <summary>양성 대조군: 로그인한 세션으로 <c>file</c> 파트가 없는 multipart를 보내면 400이 나고, 그 본문에는
     /// 실제로 핸들러가 만드는 필드 누락 문구가 있다 — <c>AccessMatrixTests</c>의 "핸들러가 호출되지 않았다" 단언이 같은 문구의 부재를
     /// 보고 있다는 것이 의미 있는 검사임을 증명한다(그 문구가 애초에 어떤 응답에도 나타나지 않는 죽은 문자열이 아님을 확인).</summary>
     [Fact]
@@ -257,7 +257,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     }
 
     /// <summary>파일 이름 길이 제한이 서러게이트 쌍 한가운데를 자르는 위치라도 500이 아니라 201이 나오고, 반환된 파일 이름에는
-    /// 홀로 남은 서러게이트가 없으며, 반환된 URL은 <see cref="UrlPolicy.IsAllowedImage"/>를 통과한다(fix round 1, A1).</summary>
+    /// 홀로 남은 서러게이트가 없으며, 반환된 URL은 <see cref="UrlPolicy.IsAllowedImage"/>를 통과한다.</summary>
     [Fact]
     public async Task Upload_FileNameTruncationSplitsSurrogatePair_Returns201_NotServerError()
     {
@@ -343,7 +343,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         await AssertHandleReleasedAsync(await PhysicalPathAsync(factory, dto.Id));
     }
 
-    /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다(fix round 1, A2).</summary>
+    /// <summary>DB 행은 있지만 디스크 파일이 없으면(관리자가 볼륨에서 직접 지운 경우 등) 500이 아니라 404다.</summary>
     [Fact]
     public async Task PublicGet_WhenFileIsMissingOnDisk_Returns404()
     {

@@ -299,7 +299,11 @@ public sealed class FileSystemAttachmentStore
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> Thread-safe. 이 메서드는 반복자(iterator) 블록이라 <c>foreach</c>로 실제로 순회하기 전에는 어떤 디렉터리 I/O도 하지 않는다 — 순회 도중 다른 요청이 디렉터리 자체를 지우지 않는 한(그러면 <see cref="DirectoryNotFoundException"/>이 날 수 있다 — 이 코드베이스에 저장 루트나 버킷 디렉터리를 지우는 경로는 없다) 예외를 던지지 않고 그 시점의 스냅숏만큼만 본다(.NET 파일 열거의 통상 동작). 루트 밑에 심볼릭 링크·정션이 있으면 <see cref="Directory.EnumerateDirectories(string)"/>는 그것도 디렉터리로 열거하지만, <see cref="DirectoryInfo.LinkTarget"/>이 <see langword="null"/>이 아닌 항목은 건너뛰어 따라가지 않는다 — 이름이 2자 소문자 hex인지(버킷 검사)와 무관하게 링크 검사가 먼저다. 통과한 실제 디렉터리 안에서도 파일이 이름·해시 접두사 모양(<c>IsLowerHex</c>·<c>sha.StartsWith(bucket)</c>)까지 맞아야 하고 <see cref="FileInfo.LinkTarget"/>이 <see langword="null"/>이어야 하며, 호출부(<c>AttachmentJanitor</c>)가 삭제 직전 DB 재조회로 다시 걸러 삭제 폭을 좁힌다.</description></item>
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 이 메서드는 반복자(iterator) 블록이라 <c>foreach</c>로 실제로 순회하기 전에는 어떤 디렉터리 I/O도 하지 않는다 — 순회 도중 다른 요청이 디렉터리 자체를 지우지 않는 한(그러면 <see cref="DirectoryNotFoundException"/>이 날 수 있다 — 이 코드베이스에 저장 루트나 버킷 디렉터리를 지우는 경로는 없다) 예외를 던지지 않고 그 시점의 스냅숏만큼만 본다(.NET 파일 열거의 통상 동작).</description></item>
+    /// <item><description><b>검사 순서(코드 그대로):</b> ① 버킷 이름이 2자 소문자 hex인가 → ② 그 디렉터리의 <see cref="DirectoryInfo.LinkTarget"/>이 <see langword="null"/>인가 → ③ 파일 이름 모양(길이·<c>name[64] == '.'</c>·<c>IsLowerHex(sha)</c>·<c>sha.StartsWith(bucket)</c>·확장자가 영숫자) → ④ 그 파일의 <see cref="FileInfo.LinkTarget"/>이 <see langword="null"/>인가.
+    /// 즉 링크 검사가 이름 검사보다 먼저는 <b>아니다</b>: 이름이 버킷 모양이 아닌 심볼릭 링크·정션은 ②가 아니라 ①에서 걸러진다(어느 쪽이든 따라가지 않으므로 구멍은 없고, 어느 관문이 막았는지가 다르다).
+    /// <see cref="Directory.EnumerateDirectories(string)"/>는 링크도 디렉터리로 열거하므로, 이름이 버킷 모양인 링크를 막는 것은 ②다.
+    /// 여기를 통과한 뒤에도 호출부(<c>AttachmentJanitor</c>)가 삭제 직전 DB 재조회로 다시 걸러 삭제 폭을 좁힌다.</description></item>
     /// <item><description><b>Memory Allocation:</b> 디렉터리·파일 이름 문자열 몇 개와 링크 여부 확인용 <see cref="DirectoryInfo"/>/<see cref="FileInfo"/>를 반복마다 할당한다. 전체 목록을 배열로 모으지 않는다.</description></item>
     /// <item><description><b>Blocking:</b> 동기 파일 시스템 열거. 호출자가 순회하는 동안 디렉터리·파일 I/O가 일어난다(청소 잡은 백그라운드 실행이라 요청 스레드를 막지 않는다).</description></item>
     /// </list>

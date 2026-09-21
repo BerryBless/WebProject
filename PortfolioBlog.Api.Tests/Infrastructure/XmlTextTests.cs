@@ -38,7 +38,7 @@ public sealed class XmlTextTests
     }
 
     /// <summary>빈 문자열, 문자열 맨 끝의 완전한 서로게이트 쌍, 인덱스 0의 짝 없는 하위 서로게이트, 연속된 두 무효 문자가 각각 올바르게
-    /// 처리되는지 경계에서 검증한다(모두 브리프의 표본 테스트가 직접 다루지 않는 경계).</summary>
+    /// 처리되는지 경계에서 검증한다(모두 기존 표본 테스트가 직접 다루지 않는 경계).</summary>
     [Fact]
     public void BoundaryCases_EmptyString_TrailingPair_LeadingLowSurrogate_AndConsecutiveInvalid()
     {

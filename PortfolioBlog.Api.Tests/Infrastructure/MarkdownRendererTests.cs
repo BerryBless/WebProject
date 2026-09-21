@@ -439,7 +439,7 @@ public sealed class MarkdownRendererTests
     public void BoundedFormatter_MatchesDefaultFormatterOutput(string languageId)
     {
         var language = Languages.FindById(languageId);
-        if (language is null) return; // ColorCode.Core 2.0.15가 모르는 언어 id — 브리프가 건너뛰도록 명시했다
+        if (language is null) return; // ColorCode.Core 2.0.15가 모르는 언어 id — 강조 없이 넘어가는 것이 정상이라 이 케이스는 건너뛴다
 
         var code = languageId switch
         {

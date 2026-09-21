@@ -145,7 +145,7 @@ public sealed class PublicDbContextTests(PostgresContainerFixture pg)
         Assert.Equal("d", built.Database);
     }
 
-    /// <summary>입력에 이미 Options가 있으면 조용히 덮어쓰지 않고 시작 실패로 거부한다(Fix round 1 — 운영자가 넣은 시작 옵션이
+    /// <summary>입력에 이미 Options가 있으면 조용히 덮어쓰지 않고 시작 실패로 거부한다(운영자가 넣은 시작 옵션이
     /// 공개 연결에서만 경고 없이 사라지는 것을 막는다). 예외 메시지에 비밀번호 등 연결 문자열 값이 그대로 노출되지 않는지도 확인한다.</summary>
     [Fact]
     public void BuildConnectionString_ExistingOptions_Throws()

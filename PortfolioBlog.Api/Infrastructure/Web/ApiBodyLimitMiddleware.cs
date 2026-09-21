@@ -13,7 +13,7 @@ namespace PortfolioBlog.Api.Infrastructure.Web;
 /// </list>
 /// <see cref="JsonLimitBytes"/>는 직렬화 후 전송 바이트 기준이다. 비 ASCII 문자를 <c>\uXXXX</c>로 이스케이프하는 클라이언트(.NET의 기본 <c>JsonSerializerOptions</c> 인코더)는
 /// 같은 논리 내용이라도 본문이 최대 6배까지 부풀 수 있다 — 관리 SPA가 쓰는 브라우저의 <c>JSON.stringify</c>는 비 ASCII를 이스케이프하지 않으므로 운영 트래픽에서는
-/// 해당하지 않는다(이번 라운드에서 기존 테스트 2건이 이 인코더 차이로 413이 나는 것을 실측했다).
+/// 해당하지 않는다(실측: 테스트 2건이 이 인코더 차이로 413이 나는 것을 관찰했다).
 /// </remarks>
 public sealed class ApiBodyLimitMiddleware(RequestDelegate next)
 {

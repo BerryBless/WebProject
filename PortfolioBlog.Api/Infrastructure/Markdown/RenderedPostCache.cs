@@ -25,11 +25,11 @@ public sealed class RenderedPostCache : IDisposable
     private readonly RenderGate _gate;
 
     // MemoryCache(SizeLimit): 항목마다 Size를 주면 합계 기준으로 예산을 강제한다. 공용 IMemoryCache가 아닌 전용 인스턴스라 다른 용도와 예산이 섞이지 않는다.
-    // 실측(리뷰 프로브, SizeLimit=1,000,000·Size=5,000 항목 400개 연속 Set): 상한에 닿기 전까지는 Set이 전부 성공한다. 상한을 넘기는 순간부터는
+    // 실측(SizeLimit=1,000,000·Size=5,000 항목 400개 연속 Set): 상한에 닿기 전까지는 Set이 전부 성공한다. 상한을 넘기는 순간부터는
     // 우선순위·LRU로 "비우고 넣는" 것이 아니라 그 Set 자체가 조용히 거부된다(즉시 TryGetValue해도 없음, Count 불변) — 이 상태가 195회 연속 Set 동안 유지됐다.
     // 압축은 스레드풀에 큐잉되는 비동기 작업이라 지연된다: 500ms 대기 후에야 Count가 200→190(정확히 5% = 기본 CompactionPercentage)으로 줄었고,
     // 그 뒤의 Set 1회가 다시 성공했다. 즉 상한 초과 상태에서 새 요청이 몰리면(쓰기가 압축보다 빠르면) 신규 항목이 한동안 전부 유실될 수 있다 —
-    // 결론(Task 3 리뷰 라운드 1 실측 기반): 거부된 Set의 대가는 다음 요청에서 렌더 1회가 더 도는 것뿐이고 틀린 내용이 나가는 일은 없다
+    // 결론(위 실측 기반): 거부된 Set의 대가는 다음 요청에서 렌더 1회가 더 도는 것뿐이고 틀린 내용이 나가는 일은 없다
     // (TryGet 미스는 GetOrRenderAsync가 그 자리에서 다시 렌더링한다). 그 추가 렌더 비용의 상한은 RenderGate가 이미 건다(동시 렌더 수 제한).
     // 그래서 이 상태를 막는 별도 설계 변경(예: LRU 축출을 즉시 수행)은 필요 없다고 판단했다 — 상한을 넉넉히 잡는 것으로 충분하다.
     private readonly MemoryCache _cache;
@@ -115,7 +115,7 @@ public sealed class RenderedPostCache : IDisposable
     public void Store(Guid postId, uint version, RenderedMarkdown rendered) =>
         _cache.Set((postId, version), rendered, new MemoryCacheEntryOptions
         {
-            // 리뷰 프로브 실측(Task 3 리뷰 라운드 1): 문자열 페이로드(Html·FirstImageUrl)를 제외한 고정 오버헤드가 항목당 약 290바이트였다.
+            // 실측: 문자열 페이로드(Html·FirstImageUrl)를 제외한 고정 오버헤드가 항목당 약 290바이트였다.
             // 512로 넉넉히 잡아 과소평가를 피한다. FirstImageUrl도 문자열이라 Html과 같은 단위(UTF-16 2바이트/문자)로 더한다.
             Size = (long)rendered.Html.Length * sizeof(char) + (rendered.FirstImageUrl?.Length ?? 0) * sizeof(char) + 512,
             AbsoluteExpirationRelativeToNow = rendered.HighlightTimedOut ? DegradedLifetime : NormalLifetime,

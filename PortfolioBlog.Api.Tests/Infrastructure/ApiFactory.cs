@@ -46,7 +46,7 @@ public class ApiFactory : WebApplicationFactory<Program>
     private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly string? _attachmentsRootPathOverride;
 
-    /// <summary>이 팩토리가 만든 테스트 전용 DB를 가리키는 관리 연결 문자열(Task 8의 잠금 테스트가 쓴다).</summary>
+    /// <summary>이 팩토리가 만든 테스트 전용 DB를 가리키는 관리 연결 문자열(잠금·테이블 잠금 테스트가 쓴다).</summary>
     internal string ConnectionString => _connectionString;
 
     /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
@@ -240,7 +240,7 @@ public class ApiFactory : WebApplicationFactory<Program>
         // 공개 조회 풀도 닫는다(연결 문자열이 달라 풀이 따로다). 시간 제한 값이 연결 문자열의 일부라 앱과 같은 값으로 조립해야 같은 풀을 가리킨다.
         // int.TryParse: Dispose 안에서 예외를 던지면 바로 아래 첨부 임시 폴더 정리가 건너뛰어지므로, 파싱 실패를 예외 대신
         // PublicOptions 기본값으로 흡수한다(정리 자체는 최선 노력이고, 여기서 죽을 이유가 없다).
-        // try/finally: PublicDbContext.BuildConnectionString은 Fix round 1부터 Options가 이미 있으면 예외를 던질 수 있다(정상 경로에서는
+        // try/finally: PublicDbContext.BuildConnectionString은 Options가 이미 있으면 예외를 던질 수 있다(정상 경로에서는
         // _connectionString에 Options가 없어 도달하지 않지만, 그 호출이 실패하더라도 아래 첨부 임시 폴더 정리는 반드시 실행되어야 한다).
         try
         {

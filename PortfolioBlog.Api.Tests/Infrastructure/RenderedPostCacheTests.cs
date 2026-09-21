@@ -9,7 +9,7 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 시작하지만, <see cref="ConcurrentRequests_ForTheSameVersion_RenderOnce"/>는 10개 호출을 각자의
 /// <see cref="Task.Run(Func{Task})"/>로 발행해 실제 스레드 풀 병렬성을 만든다(LINQ로 한 스레드에서 순차 평가하면 <c>SemaphoreSlim</c>의 동기 완료 경로 때문에
-/// "동시 호출"이 실제로는 동시가 아니게 되는 결함이 있었다 — Task 3 리뷰에서 지적). 공유 렌더를 흉내 내는 가짜 렌더 함수는 그중 한 스레드 풀 스레드에서 동기로 블록된다.</description></item>
+/// "동시 호출"이 실제로는 동시가 아니게 되는 결함이 있었다). 공유 렌더를 흉내 내는 가짜 렌더 함수는 그중 한 스레드 풀 스레드에서 동기로 블록된다.</description></item>
 /// <item><description><b>Memory Policy:</b> 테스트마다 독립된 <see cref="RenderGate"/>·<see cref="RenderedPostCache"/> 인스턴스를 새로 만들고 <c>using</c>으로 해제한다. <see cref="Options"/> 필드만 정적으로 공유하며 불변이라 안전하다.</description></item>
 /// <item><description><b>Concurrency:</b> DB·Docker에 의존하지 않으므로 다른 컬렉션과 병렬로 실행할 수 있다.</description></item>
 /// </list>

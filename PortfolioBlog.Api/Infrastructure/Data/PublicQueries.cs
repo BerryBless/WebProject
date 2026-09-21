@@ -219,9 +219,9 @@ public static class PublicQueries
 
     /// <summary><paramref name="query"/>를 최신순으로 페이지네이션해 본문을 뺀 요약 DTO로 투영한다.</summary>
     /// <param name="query">필터가 이미 적용된 <see cref="Post"/> 쿼리(이 메서드가 정렬·페이지네이션·프로젝션을 추가한다).</param>
-    /// <param name="page">1부터 시작하는 쪽 번호. 호출부(예: Task 5의 페이지 매개변수)가 보통 상한을 이미 강제하지만, 이 메서드도 심층 방어로
+    /// <param name="page">1부터 시작하는 쪽 번호. 호출부(공개 페이지의 쪽 번호 매개변수)가 보통 상한을 이미 강제하지만, 이 메서드도 심층 방어로
     /// 범위를 직접 검사한다 — 검사가 없으면 <c>page &lt;= 0</c>은 음수 OFFSET이 되어 PostgreSQL이 SqlState 2201X("OFFSET must not be negative")로
-    /// **명시적으로 거부한다**(실측: Fix round 1의 규칙 8 사보타주에서 <c>page=0</c>이 이 오류로 실패하는 것을 관찰했다). 조용히 틀린 결과가
+    /// **명시적으로 거부한다**(실측: 이 가드를 떼고 <c>page=0</c>으로 조회해 이 오류가 나는 것을 관찰했다). 조용히 틀린 결과가
     /// 아니라 감싸이지 않은 <see cref="Npgsql.PostgresException"/>이 500으로 새는 것이 문제다 — 잘못된 입력은 400/404여야 하고 500이 되어서는
     /// 안 된다는 규칙(Global Constraints) 위반이라 이 가드가 필요하다.</param>
     /// <param name="ct">요청 취소 토큰.</param>
@@ -232,7 +232,7 @@ public static class PublicQueries
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Not Thread-safe. <paramref name="query"/>가 속한 DbContext 스코프 안에서만 호출한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> <c>COUNT</c> 결과(값 형식) + 최대 <see cref="PageSize"/>건의 프로젝션 결과(태그 배열 포함, 각 행이 자신의 태그를 서브쿼리로 내장하므로 N+1이 아니라 SELECT 1회다 — <c>ToQueryString()</c>으로 확인, 구현 보고서 참조).</description></item>
+    /// <item><description><b>Memory Allocation:</b> <c>COUNT</c> 결과(값 형식) + 최대 <see cref="PageSize"/>건의 프로젝션 결과(태그 배열 포함, 각 행이 자신의 태그를 서브쿼리로 내장하므로 N+1이 아니라 SELECT 1회다 — <c>ToQueryString()</c>으로 확인).</description></item>
     /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <c>COUNT</c> 1회 + 목록 SELECT 1회를 순차 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
@@ -240,7 +240,7 @@ public static class PublicQueries
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(page, 1);
         // (page - 1) * PageSize가 int를 오버플로하지 않는 가장 큰 page 값까지만 허용한다. 오버플로 결과는 page 값에 따라 다르다
-        // (Fix round 2 — 정수 연산 자체는 C#만으로 측정 가능, DB 응답은 별도로 측정함을 아래에 구분): page=int.MaxValue는 -40으로 감긴다
+        // (정수 연산 자체는 C#만으로 측정 가능, DB 응답은 별도로 측정함을 아래에 구분): page=int.MaxValue는 -40으로 감긴다
         // (실측, 순수 C# 산술). PostgreSQL은 OFFSET 값의 크기와 무관하게 음수이면 전부 2201X로 거부하므로("OFFSET must not be negative"),
         // -40도 위에서 실측한 -20(page=0)과 같은 2201X가 될 것이다(추론, -40 자체를 DB로 재확인하지는 않았다). 반면 page=214_748_366처럼
         // 더 감기는 값은 작은 양수(이 값은 4)로 다시 감겨 PostgreSQL이 **오류 없이** 그 OFFSET을 그대로 받아들인다

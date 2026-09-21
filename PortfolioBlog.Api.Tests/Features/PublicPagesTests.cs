@@ -60,7 +60,7 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
     public async Task Post_RendersSafeHtml_AndHeadUsesPublicOrigin()
     {
         // title: "</title><script>…"을 포함한다 — <title>은 RCDATA라 인코딩 없이 그 시퀀스가 그대로 나가면 태그가 조기 종료되고
-        // 진짜 <script> 요소가 생긴다(문자열만 비교하거나 "<" 유무만 보면 이 실패를 못 잡는다 — Task 5 리뷰 Important 1).
+        // 진짜 <script> 요소가 생긴다(문자열만 비교하거나 "<" 유무만 보면 이 실패를 못 잡는다).
         // summary: 큰따옴표를 포함한다 — content="…" 속성값 안에서 인코딩 없이 그대로 나가면 그 자리에서 속성이 끊어진다.
         // 둘 다 인코딩되면(정상 경로) HTML 텍스트로만 남아 doc.Title·meta content 비교가 원본 문자열과 정확히 일치한다.
         const string title = "<b>굵게</b> & \"따옴표\"</title><script>alert(1)</script>";
@@ -213,7 +213,7 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
         // 주석을 지운 뒤, '{' 바로 앞의 텍스트를 전부 뽑는다 — 그 텍스트는 선택자이거나 @규칙 머리(@media 등)다.
         // 중첩 깊이와 무관하게 모든 '{'를 훑으므로 @media 블록 안에 중첩된 규칙의 선택자도 놓치지 않는다.
         // (안쪽부터 {…} 블록을 반복 제거하는 이전 방식은 @media 자신의 {…}까지 다음 반복에서 지워버려, 그 안에 있던
-        //  선택자 텍스트까지 함께 사라지는 사각지대가 있었다 — @media 안에 id 선택자를 넣어도 통과했다, 아래 보고서 Fix round 1 참조.)
+        //  선택자 텍스트까지 함께 사라지는 사각지대가 있었다 — @media 안에 id 선택자를 넣어도 통과했다.)
         var css = Regex.Replace(await site.Content.ReadAsStringAsync(), @"/\*.*?\*/", string.Empty, RegexOptions.Singleline);
         foreach (Match m in Regex.Matches(css, @"([^{}]*)\{"))
         {
