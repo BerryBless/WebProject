@@ -16,7 +16,8 @@ namespace PortfolioBlog.Api.Pages;
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> Thread-safe. 무상태 정적 클래스이며 등록되는 핸들러는 요청 컨텍스트만 다룬다.</description></item>
 /// <item><description><b>Memory Allocation:</b> 등록 자체는 시작 시 1회. 핸들러 호출당 추가 할당은 <see cref="MapPublicSiteEndpoints"/> 안 각 핸들러 문서 참조.</description></item>
-/// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). I/O 없음(<see cref="HighlightCss.Value"/>는 지연 계산된 캐시 문자열을 반환할 뿐이고, 피드·sitemap의 DB 접근은 각 핸들러가 <c>await</c>한다).</description></item>
+/// <item><description><b>Blocking:</b> 강조 CSS·robots 핸들러는 즉시 반환(Non-blocking, I/O 없음 — <see cref="HighlightCss.Value"/>는 지연 계산된 캐시 문자열을 반환할 뿐이다).
+/// 피드·sitemap 핸들러는 그렇지 않다 — DB 조회를 <c>await</c>한다(<see cref="FeedAsync"/>는 SELECT 1문장, <see cref="SitemapAsync"/>는 3문장을 순차 실행, 각 핸들러 문서 참조).</description></item>
 /// </list>
 /// </remarks>
 public static class SiteEndpoints
@@ -152,8 +153,8 @@ public static class SiteEndpoints
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. <paramref name="db"/>는 요청 스코프 전용이다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 종류별 최대 <see cref="PublicQueries.SitemapMax"/>건의 리스트 3개(<see cref="PublicQueries.SitemapAsync"/> 참조) + 직렬화용 <see cref="MemoryStream"/> 버퍼 + 최종 <c>byte[]</c> 1개.</description></item>
-    /// <item><description><b>Blocking:</b> DB 조회 3회(글·태그·시리즈)를 순차 <c>await</c>한다(<see cref="PublicQueries.SitemapAsync"/> 문서 참조). XML 직렬화는 <see cref="FeedAsync"/>와 같은 이유로 동기 CPU 작업이지만 메모리 버퍼에만 쓴다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 종류별 최대 <see cref="PublicQueries.SitemapMax"/>(10,000)건의 리스트 3개(글·태그·시리즈, <see cref="PublicQueries.SitemapAsync"/> 참조) + 첫 쪽 URL 1개 = 문서에 실리는 URL은 최대 30,001개(3 × 10,000 + 1). 직렬화 중에는 이 목록들과 별개로 <see cref="MemoryStream"/> 버퍼 + <c>ToArray()</c>가 만드는 최종 <c>byte[]</c> 복사본이 동시에 메모리에 있어 문서 자체가 두 벌(스트림·배열) 존재하는 구간이 생긴다 — 이 상한 규모에서 문서 크기는 대략 수 MB로 추정된다(직접 측정하지 않음, 추정).</description></item>
+    /// <item><description><b>Blocking:</b> DB 조회 3회(글·태그·시리즈)를 순차 <c>await</c>한다(<see cref="PublicQueries.SitemapAsync"/> 문서 참조). XML 직렬화는 <see cref="FeedAsync"/>와 같은 이유로 동기 CPU 작업이지만 메모리 버퍼에만 쓴다. <see cref="GetAndHead"/>가 GET과 HEAD에 같은 델리게이트를 등록하고 이 핸들러 코드에는 GET/HEAD 분기가 없으므로(코드 확인) HEAD 요청도 이 조회 3회와 직렬화 전체를 GET과 똑같이 수행한다 — HEAD가 GET보다 싸지 않다(프레임워크가 응답 전송 단계에서 본문만 생략하는 것으로 알려져 있으나, 그 생략 자체를 이 세션에서 재현 측정하지는 않았다).</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> SitemapAsync(HttpContext http, PublicDbContext db, IOptions<SiteOptions> siteOptions, CancellationToken ct)
