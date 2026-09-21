@@ -43,6 +43,7 @@ public class ApiFactory : WebApplicationFactory<Program>
     private static readonly string PasswordHash = AdminCredential.Hash(Password);
 
     private readonly string _connectionString;
+    private readonly string _publicConnectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly string? _attachmentsRootPathOverride;
 
@@ -54,6 +55,10 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     /// <summary>이 팩토리 인스턴스 전용 첨부 저장 루트(임시 디렉터리 밑, 인스턴스마다 고유). 팩토리가 해제되면 재귀적으로 지워진다.</summary>
     public string AttachmentsRoot { get; } = Path.Combine(Path.GetTempPath(), "portfolioblog-tests", Guid.NewGuid().ToString("N"));
+
+    /// <summary>모든 팩토리가 함께 쓰는 Data Protection 키 폴더(절대 경로). 팩토리마다 따로 두면 한 팩토리가 발급한 쿠키를 다른 팩토리가
+    /// 풀지 못해, 두 호스트가 같은 키 링을 공유한다고 전제하는 세션 테스트(해시 교체 대조군)가 깨진다. 지우지 않는다(키 파일 몇 KB).</summary>
+    public static string DataProtectionKeysRoot { get; } = Path.Combine(Path.GetTempPath(), "portfolioblog-tests", "dpkeys-shared");
 
     /// <summary>xUnit이 클래스 픽스처로 주입하는 기본 생성자. 설정 오버라이드가 없다.</summary>
     /// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture.</param>
@@ -79,6 +84,7 @@ public class ApiFactory : WebApplicationFactory<Program>
             Database = "blog_test_" + Guid.NewGuid().ToString("N"),
         };
         _connectionString = csb.ToString();
+        _publicConnectionString = new NpgsqlConnectionStringBuilder(_connectionString) { Username = PostgresContainerFixture.PublicRole, Password = PostgresContainerFixture.PublicRoleSecret }.ToString();
         _settings = settings;
         _attachmentsRootPathOverride = attachmentsRootTrailingSeparator is { } separator ? AttachmentsRoot + separator : null;
     }
@@ -86,6 +92,9 @@ public class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Default", _connectionString);
+        builder.UseSetting("ConnectionStrings:Public", _publicConnectionString);
+        // Development가 아닌 환경의 시작 검증이 요구한다. 첨부 루트 안에 두지 않는다(청소 잡 테스트가 그 폴더를 훑는다). 전 팩토리 공유.
+        builder.UseSetting("DataProtection:KeysPath", DataProtectionKeysRoot);
         // 개별 테스트의 _settings가 아래에서 덮어쓸 수 있도록 기본값을 루프 앞에 먼저 넣는다.
         builder.UseSetting("Site:PublicOrigin", PublicOrigin);
         builder.UseSetting("Site:AdminOrigin", AdminOrigin);
@@ -248,7 +257,7 @@ public class ApiFactory : WebApplicationFactory<Program>
                 && int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
                 ? parsed
                 : new PublicOptions().StatementTimeoutMs;
-            foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_connectionString, timeout) })
+            foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_publicConnectionString, timeout) })
             {
                 using var connection = new NpgsqlConnection(cs);
                 NpgsqlConnection.ClearPool(connection);

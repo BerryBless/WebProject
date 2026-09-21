@@ -36,7 +36,23 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
     /// <item><description><b>Blocking:</b> 비동기 Non-blocking 대기. 최초 이미지 pull 시 수십 초가 걸릴 수 있다.</description></item>
     /// </list>
     /// </remarks>
-    public Task InitializeAsync() => _container.StartAsync();
+    /// <summary>공개 조회 전용 롤. 운영의 <c>blog_public</c>에 해당한다 — 권한은 앱이 시작할 때 부여한다(PublicRoleGrants).</summary>
+    public const string PublicRole = "blog_public_test";
+
+    /// <summary><see cref="PublicRole"/>의 비밀번호. 테스트 컨테이너 안에서만 쓰이는 dummy 값이다.</summary>
+    public const string PublicRoleSecret = "dummy-public-role";
+
+    /// <summary>컨테이너를 띄우고 공개 조회 전용 롤을 만든다.</summary>
+    /// <returns>컨테이너가 연결을 받을 수 있고 롤이 생긴 뒤 완료되는 작업.</returns>
+    public async Task InitializeAsync()
+    {
+        await _container.StartAsync();
+        // 롤은 클러스터 전역이라 컨테이너당 한 번만 만든다. 팩토리별 DB에 대한 권한은 각 앱 인스턴스가 시작하며 부여한다.
+        await using var connection = new Npgsql.NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand($"CREATE ROLE {PublicRole} LOGIN PASSWORD '{PublicRoleSecret}' NOSUPERUSER NOCREATEDB NOCREATEROLE", connection);
+        await command.ExecuteNonQueryAsync();
+    }
 
     /// <summary>컨테이너를 정지하고 제거한다.</summary>
     /// <returns>정리가 끝나면 완료되는 작업.</returns>

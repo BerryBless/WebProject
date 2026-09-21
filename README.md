@@ -304,6 +304,8 @@ dotnet test PortfolioBlog.Api.Tests -c Release --filter "FullyQualifiedName~Prev
 | `Public:SearchConcurrency` | `4` | 검색의 전역 동시 실행 한도 |
 | `Public:StatementTimeoutMs` | `3000` | 공개 조회 연결의 `statement_timeout`(밀리초). 100~60000 밖이면 시작 실패 |
 | `ConnectionStrings:Default` | (빈 값 — 없으면 시작 실패) | 관리 연결 문자열. **`Options`를 넣을 수 없다**(공개 조회 연결이 `statement_timeout`·`default_transaction_read_only`를 시작 옵션으로 붙이므로 합칠 수 없어 시작 실패). `Command Timeout`(초)을 지정하면 ×1000이 `Public:StatementTimeoutMs`보다 **커야** 한다 — 어기면 시작 실패(클라이언트 취소가 DB의 `statement_timeout`보다 먼저 나면 503 매핑이 깨진다). `Command Timeout=0`(무한)은 이 검사에서 제외 |
+| `ConnectionStrings:Public` | (빈 값 — Development가 아니면 시작 실패) | 공개 페이지 조회 전용 연결. **테이블 소유자가 아닌 별도 롤**이어야 한다(`Username`은 소문자·숫자·밑줄, 관리 연결과 같으면 시작 실패). 앱이 시작할 때마다 이 롤의 권한을 `Posts`·`Series`·`Tags`·`PostTags`·`Attachments`의 `SELECT`로 다시 맞춘다. `Options`·`Command Timeout` 규칙은 `Default`와 같다. 비어 있으면(개발) 관리 연결로 조회한다 |
+| `DataProtection:KeysPath` | (빈 값 — Development가 아니면 시작 실패) | 세션 쿠키 암호화 키를 둘 **절대 경로**. 컨테이너에서는 `dpkeys` 볼륨(`/data/dpkeys`). 비어 있으면(개발) 프레임워크 기본 위치 |
 | `Rendering:Concurrency` | `2` | 프로세스 전체 동시 렌더 수(미리보기·저장·공개 페이지 합산) |
 | `Rendering:QueueTimeoutMs` | `5000` | 렌더 슬롯 대기 상한(밀리초). 넘으면 503 |
 | `Rendering:CacheMegabytes` | `64` | 렌더 결과 캐시의 메모리 상한(MB) |
