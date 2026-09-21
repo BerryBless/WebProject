@@ -2,7 +2,7 @@
 
 단일 작성자용 기술 블로그입니다. 방문자에게는 **스크립트 없는 서버 렌더링 HTML**만 내보내고, 글쓰기는 **별도 서브도메인 + IP 화이트리스트 + 비밀번호 세션** 뒤에 둡니다.
 
-> **현재 상태: 1단계(관리 API·접근 제어)·2A단계(마크다운 파이프라인·미리보기·이미지 첨부) 완료, 공개 페이지·에디터는 구현 전.** 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API, 마크다운 렌더링·미리보기·이미지 첨부가 구현·테스트되었습니다. 방문자용 공개 페이지, 관리 에디터 SPA, 배포 구성은 아직 없습니다. 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
+> **현재 상태: 1단계(관리 API·접근 제어)·2A단계(마크다운 파이프라인·미리보기·이미지 첨부) 완료, 공개 페이지·에디터는 구현 전.** 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API, 마크다운 렌더링·미리보기·이미지 첨부가 구현·테스트되었습니다. 방문자용 공개 페이지, 관리 에디터 SPA, 배포 구성은 아직 없습니다. 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md), 2A단계 실행 결과는 [`plan/tech_blog_2a_report_0921.md`](plan/tech_blog_2a_report_0921.md), **이어서 작업하는 방법은 [`plan/resume_guide_0921.md`](plan/resume_guide_0921.md)**에 있습니다.
 
 ## 무엇을 만드나
 
@@ -140,7 +140,7 @@ sequenceDiagram
 
 ### 마크다운 파이프라인
 
-공개 페이지와 에디터 미리보기가 같은 파이프라인을 씁니다. 전체가 DB 의존 없는 순수 함수라 XSS 공격 코퍼스를 단위 테스트로 돌립니다.
+공개 페이지와 에디터 미리보기가 같은 파이프라인을 씁니다(구현 완료: `Infrastructure/Markdown`, `POST /api/preview`). 전체가 DB 의존 없는 순수 함수라 XSS 공격 코퍼스를 단위 테스트로 돌립니다.
 
 ```mermaid
 flowchart LR
@@ -151,6 +151,8 @@ flowchart LR
     SAN --> PAGE["공개 페이지<br/>CSP default-src 'none'"]
     SAN --> PRE["미리보기<br/>sandbox iframe"]
 ```
+
+렌더 비용은 입력 크기가 아니라 **시간**으로 제한합니다. 코드 강조는 줄 400자·문서 60,000자 예산 안에서만 시도하고, 정규식 매치 타임아웃 250ms와 렌더당 강조 시간 2,000ms를 넘긴 블록은 이스케이프한 일반 코드블록으로 떨어집니다(닫히지 않은 `/*` 뒤의 코드처럼 1KB 남짓한 입력으로 강조기가 수십 초 걸리는 경우를 막습니다). 128단계를 넘는 중첩은 필드 키가 있는 400으로 거부하고, 글은 저장 전에 한 번 렌더링해 "저장은 됐는데 공개 페이지가 열리지 않는" 상태를 막습니다. Markdig 파서 자체의 비용(적대적 200KB 입력에서 수 초)은 남아 있어 2B단계에서 렌더 결과 캐시로 덮습니다.
 
 ### 데이터 모델
 
@@ -194,7 +196,7 @@ erDiagram
     }
 ```
 
-첨부는 파일 시그니처로 PNG/JPEG/GIF/WebP만 허용하고(SVG 불가), EXIF·GPS 메타데이터를 제거한 뒤 저장합니다. 동시 수정은 PostgreSQL `xmin` 동시성 토큰으로 감지합니다(409).
+첨부는 파일 시그니처로 PNG/JPEG/GIF/WebP만 허용하고(SVG 불가, 클라이언트가 보낸 파일 이름·Content-Type은 믿지 않음), 디코딩 없이 컨테이너 구조만 읽어 EXIF·GPS·XMP·IPTC·주석·썸네일을 제거한 뒤 내용 주소(SHA-256)로 저장합니다. 제거기는 네 형식 모두 **기본 거부**입니다 — 허용한 블록만 남기고 그 모양(크기·서브블록 구조)까지 검사하며, 파일 끝에 덧붙인 데이터는 버립니다. 디코더 없이는 닫을 수 없는 표면(ICC 프로파일 본문, GIF 픽셀 데이터 체인 등)은 스펙 3.8절에 잔여 표면으로 적어 두었고 10MB 상한·시그니처 기반 Content-Type·`nosniff`·`Content-Security-Policy: default-src 'none'; sandbox`로 완화합니다. 공개 `GET/HEAD /attachments/{id}/{fileName}`은 강한 ETag(SHA-256)와 `immutable` 캐시로 응답합니다. 동시 수정은 PostgreSQL `xmin` 동시성 토큰으로 감지합니다(409).
 
 ## 저장소 구조
 
@@ -229,7 +231,7 @@ dotnet build PortfolioBlog.slnx
 dotnet test  PortfolioBlog.slnx
 ```
 
-.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다.
+.NET 10 SDK가 필요합니다. 1단계부터는 통합 테스트가 Testcontainers로 실제 PostgreSQL을 띄우므로 Docker도 필요합니다. 현재 테스트는 412개이며 Release 빌드는 경고 0입니다. Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패할 수 있습니다 — 다시 실행하면 통과합니다([재개 가이드](plan/resume_guide_0921.md) 5절).
 
 ### 로컬 실행 (API)
 
@@ -248,6 +250,8 @@ dotnet test  PortfolioBlog.slnx
 | [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md) | 전체 설계 스펙: 설계 결정과 대안 비교, 접근 계약, 응답 헤더·CSP, 자원 제한, 배포, 필수 테스트, Codex 검토 반영표 |
 | [`docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md`](docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md) | 1단계 구현 계획: TDD 단계별 작업 7개(도메인·접근 제어·로그인·관리 API) |
 | [`docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md`](docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md) | 2A단계 구현 계획: 마크다운 파이프라인·미리보기·이미지 첨부 |
+| [`plan/tech_blog_2a_report_0921.md`](plan/tech_blog_2a_report_0921.md) | 2A단계 실행 보고서: 검증 근거, 계획 결함 16건과 교훈, 내린 판정 12건, 수용한 잔여 위험, 알려진 문제 |
+| [`plan/resume_guide_0921.md`](plan/resume_guide_0921.md) | **작업 재개 가이드**: 현재 상태, 5분 점검, 다음 작업(Plan 2B)과 입력 자료, 실행이 끊겼을 때 복구, 자주 밟는 함정, 문서·코드 지도 |
 | [`plan/para_notes_0917.md`](plan/para_notes_0917.md) | 폐기된 이전 설계(PARA 노트앱). 결정 이력 보존용 |
 | [`plan/harness_changelog.md`](plan/harness_changelog.md) | 개발 하네스 변경 이력 |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | 프로젝트 규칙 (Claude Code / Codex) |
