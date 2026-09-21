@@ -20,6 +20,7 @@ public sealed class PageNumberTests
             ? new Dictionary<string, StringValues>()
             : new Dictionary<string, StringValues> { ["page"] = new StringValues(values) });
 
+    /// <summary><c>page</c> 쿼리 값이 아예 없으면 1쪽으로 간주해 <c>true</c>를 반환하는지 검증한다(목록의 기본 진입 상태).</summary>
     [Fact]
     public void Absent_IsPageOne()
     {
@@ -27,6 +28,9 @@ public sealed class PageNumberTests
         Assert.Equal(1, page);
     }
 
+    /// <summary>ASCII 숫자 1~4자리이고 1..max 범위인 값이 그 정수로 정확히 파싱되는지 검증한다. <c>"007"</c>은 앞자리 0이 있어도 정수로 읽히는지 확인한다.</summary>
+    /// <param name="raw">쿼리 문자열에 실릴 원본 값.</param>
+    /// <param name="expected">파싱되어야 하는 쪽 번호.</param>
     [Theory]
     [InlineData("1", 1)]
     [InlineData("500", 500)]
@@ -37,6 +41,8 @@ public sealed class PageNumberTests
         Assert.Equal(expected, page);
     }
 
+    /// <summary>기본 거부 규칙을 어기는 값은 전부 거부되는지 검증한다: 빈 문자열, 0, 상한 밖(501), 부호(-1·+1), 소수점(1.0), 앞뒤 공백, 전각 숫자(<c>char.IsDigit</c>는 참이지만 ASCII가 아니므로 거부), 자릿수 초과(5자리).</summary>
+    /// <param name="raw">거부되어야 하는 원본 값.</param>
     [Theory]
     [InlineData("")]
     [InlineData("0")]
@@ -49,6 +55,7 @@ public sealed class PageNumberTests
     [InlineData("99999")]
     public void Invalid(string raw) => Assert.False(PageNumber.TryRead(Query(raw), 500, out _));
 
+    /// <summary>같은 이름의 쿼리 값이 두 번 오면(<c>?page=1&amp;page=2</c>) 값 하나만 허용하는 규칙을 어겨 거부되는지 검증한다.</summary>
     [Fact]
     public void RepeatedParameter_IsInvalid() => Assert.False(PageNumber.TryRead(Query("1", "2"), 500, out _));
 }

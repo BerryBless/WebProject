@@ -24,7 +24,8 @@ public sealed class PostModel(PublicDbContext db, RenderedPostCache cache, IOpti
     /// <summary>이번 요청의 글 메타데이터(본문 제외).</summary>
     public PublicPostMeta Meta { get; private set; } = null!;
 
-    /// <summary>정제된 본문 HTML. 렌더러가 거부한 글(중첩 한도 초과 — 렌더러 규칙이 저장 이후에 엄격해진 경우)이면 <c>null</c>.</summary>
+    /// <summary>정제된 본문 HTML. 두 경우에 <c>null</c>: (1) 렌더러가 거부한 글(중첩 한도 초과 — 렌더러 규칙이 저장 이후에 엄격해진 경우),
+    /// (2) 메타데이터를 읽은 직후 다른 요청이 이 글을 삭제해 본문 조회가 빈 결과를 돌려준 경우(다음 요청은 메타데이터 조회부터 404가 된다).</summary>
     public string? BodyHtml { get; private set; }
 
     /// <summary>slug로 글을 찾아 메타데이터를 채우고, 본문을 캐시에서 찾거나(미스면) 렌더링한다.</summary>

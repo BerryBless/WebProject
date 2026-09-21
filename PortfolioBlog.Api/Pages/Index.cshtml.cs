@@ -25,6 +25,14 @@ public sealed class IndexModel(PublicDbContext db, IOptions<SiteOptions> site) :
     public PublicPage<PublicPostSummary> Posts { get; private set; } = null!;
 
     /// <summary>목록 하단 이전/다음 링크 모델.</summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Not Thread-safe. 이 요청 인스턴스 전용 <see cref="Posts"/>만 읽는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 접근할 때마다 새 <see cref="PagerModel"/> 인스턴스 1개를 할당한다(캐시하지 않음). 뷰가 한 요청에서 한 번만 읽는다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). I/O 없음.</description></item>
+    /// </list>
+    /// </remarks>
     public PagerModel Pager => new("/", null, Posts.Page, Math.Min(Posts.LastPage, MaxPage));
 
     /// <summary>쪽 번호를 읽어 그 쪽의 최신 글 목록을 채운다.</summary>
@@ -35,7 +43,7 @@ public sealed class IndexModel(PublicDbContext db, IOptions<SiteOptions> site) :
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Not Thread-safe. 이 요청 인스턴스 안에서만 호출된다.</description></item>
     /// <item><description><b>Memory Allocation:</b> <see cref="PublicQueries.LatestAsync"/> 문서 참조(최대 <see cref="PublicQueries.PageSize"/>건).</description></item>
-    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. DB 조회 1회(<c>COUNT</c>+목록 SELECT)를 <c>await</c>한다.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <see cref="PublicQueries.LatestAsync"/>가 <c>COUNT</c> 1회 + 목록 SELECT 1회, 총 2회를 순차 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     public async Task<IActionResult> OnGetAsync(CancellationToken ct)

@@ -13,6 +13,7 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// </remarks>
 public sealed class HighlightCssTests
 {
+    /// <summary>생성된 CSS에 클래스 선택자 규칙만 있고, 라이브러리의 <c>body</c> 규칙·버그가 있는 <c>.plainText</c> 규칙·위험한 토큰(<c>&lt;</c>·<c>url(</c>·<c>@import</c>·<c>expression</c>·<c>javascript:</c>)이 없는지, 밝은/어두운 테마 규칙이 모두 있고 중괄호 쌍이 맞는지 검증한다.</summary>
     [Fact]
     public void Css_ContainsOnlyClassRules_InLightAndDark()
     {

@@ -13,6 +13,9 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// </remarks>
 public sealed class PublicUrlsTests
 {
+    /// <summary>태그의 정규화 이름이 URL 경로 세그먼트 하나로 퍼센트 인코딩되는지 검증한다. 각 입력은 경로 구분자로 오인될 수 있는 문자(<c>#</c>·공백·<c>%</c>·<c>?</c>·<c>&amp;</c>·<c>=</c>·<c>\</c>)와 비 ASCII(한글)를 대표한다.</summary>
+    /// <param name="normalized">인코딩할 태그 정규화 이름.</param>
+    /// <param name="expected">기대하는 인코딩된 경로.</param>
     [Theory]
     [InlineData("c#", "/tags/c%23")]
     [InlineData(".net", "/tags/.net")]

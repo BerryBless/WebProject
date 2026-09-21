@@ -26,8 +26,20 @@ public sealed class TagPageModel(PublicDbContext db, IOptions<SiteOptions> site)
     /// <summary>이 태그가 붙은 글의 한 쪽.</summary>
     public PublicPage<PublicPostSummary> Posts { get; private set; } = null!;
 
+    // OnGetAsync가 이미 계산한(그리고 null이 아님을 확인한) 태그 경로를 그대로 재사용한다. Pager에서 PublicUrls.Tag(...)를
+    // 다시 호출하면 "."·".."이 아님을 보장하는 널 억제(!)가 멀리 떨어진 그 가드에 의존하게 되므로, 계산 시점의 값을 직접 들고 있는다.
+    private string _path = null!;
+
     /// <summary>목록 하단 이전/다음 링크 모델.</summary>
-    public PagerModel Pager => new(PublicUrls.Tag(Tag.NormalizedName)!, null, Posts.Page, Math.Min(Posts.LastPage, IndexModel.MaxPage));
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Not Thread-safe. 이 요청 인스턴스 전용 필드만 읽는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 접근할 때마다 새 <see cref="PagerModel"/> 인스턴스 1개를 할당한다(캐시하지 않음). 뷰가 한 요청에서 한 번만 읽는다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). I/O 없음.</description></item>
+    /// </list>
+    /// </remarks>
+    public PagerModel Pager => new(_path, null, Posts.Page, Math.Min(Posts.LastPage, IndexModel.MaxPage));
 
     /// <summary>경로의 태그 이름을 정규화해 그 태그가 붙은 글 목록을 채운다.</summary>
     /// <param name="tag">요청 경로의 태그 이름(URL 디코딩된 원문).</param>
@@ -38,7 +50,7 @@ public sealed class TagPageModel(PublicDbContext db, IOptions<SiteOptions> site)
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Not Thread-safe. 이 요청 인스턴스 안에서만 호출된다.</description></item>
     /// <item><description><b>Memory Allocation:</b> <see cref="TagResolver.Normalize"/>의 정규화 문자열 1개 + <see cref="PublicQueries.ByTagAsync"/>의 결과.</description></item>
-    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 태그+목록 조회(총 2회)를 <c>await</c>한다.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking. <see cref="PublicQueries.ByTagAsync"/>가 태그 조회 1회 + <c>COUNT</c> 1회 + 목록 SELECT 1회, 총 3회를 순차 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     public async Task<IActionResult> OnGetAsync(string tag, CancellationToken ct)
@@ -52,6 +64,7 @@ public sealed class TagPageModel(PublicDbContext db, IOptions<SiteOptions> site)
         var found = await PublicQueries.ByTagAsync(db, key, page, ct);
         if (found is null || (page > 1 && found.Value.Posts.Items.Count == 0)) return NotFound();
         (Tag, Posts) = found.Value;
+        _path = path;
         SetHead($"태그: {Tag.Name}", null, page == 1 ? path : $"{path}?page={page}");
         return Page();
     }

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using PortfolioBlog.Api.Infrastructure.Access;
+using PortfolioBlog.Api.Infrastructure.Web;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
@@ -302,7 +303,10 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         Assert.NotEmpty(outside); // 최소한 /health는 있어야 한다(열거가 비어 통과하는 일을 막는다)
         foreach (var endpoint in outside)
         {
-            var raw = endpoint.RoutePattern.RawText ?? string.Empty;
+            // null을 ""로 뭉개면 Index 페이지(RawText == "")의 허용 목록 항목과 구분할 수 없어져, RawText가 null인 엔드포인트가
+            // 조용히 통과할 수 있다 — null은 그 자체로 실패 처리한다(빈 문자열과 다른 값으로 취급).
+            var raw = endpoint.RoutePattern.RawText;
+            Assert.True(raw is not null, "RawText가 null인 라우트가 있다(허용 목록의 빈 문자열과 구분되지 않아 오탐할 위험).");
             Assert.True(PublicAllowlist.Contains(raw, StringComparer.Ordinal), $"허용 목록에 없는 공개 라우트: {raw}");
             var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
             Assert.True(methods.Count > 0 && methods.All(m => m is "GET" or "HEAD"), $"{raw}: 공개 라우트는 GET/HEAD 전용이어야 한다(실제: {string.Join(",", methods)})");
@@ -312,7 +316,9 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
     /// <summary>양쪽 호스트에서 열려도 되는 <c>/api</c> 밖 라우트. 여기에 없는 공개 라우트는 전부 공개 호스트에만 매칭되어야 한다.</summary>
     private static readonly string[] SharedBetweenHosts = ["/health", "/openapi/{documentName}.json", "/attachments/{id:guid}/{fileName}"];
 
-    /// <summary>공개 페이지·피드 라우트에 공개 호스트 제한을 빠뜨리면(그러면 관리 origin에서도 렌더링된다) 여기서 잡힌다.</summary>
+    /// <summary>공개 페이지·피드 라우트에 공개 호스트 제한을 빠뜨리면(그러면 관리 origin에서도 렌더링된다) 여기서 잡힌다.
+    /// 속도 제한 메타데이터(<see cref="RateLimitMetadata"/>)를 빠뜨리면(그러면 무제한 요청을 받는다) 이 테스트도 함께 잡는다 —
+    /// <see cref="PortfolioBlog.Api.Pages.PublicPageConvention"/>이 두 메타데이터를 같은 곳에서 걸기 때문이다.</summary>
     [Fact]
     public void EveryPublicRoute_ExceptTheSharedOnes_IsBoundToThePublicHost()
     {
@@ -321,10 +327,12 @@ public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixtur
         var bound = 0;
         foreach (var endpoint in factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>())
         {
-            var raw = endpoint.RoutePattern.RawText ?? string.Empty;
+            var raw = endpoint.RoutePattern.RawText;
+            Assert.True(raw is not null, "RawText가 null인 라우트가 있다(공유 목록의 빈 문자열과 구분되지 않아 오탐할 위험).");
             if (IsUnderApi(raw) || SharedBetweenHosts.Contains(raw, StringComparer.Ordinal)) continue;
             var hosts = endpoint.Metadata.GetMetadata<IHostMetadata>()?.Hosts ?? [];
             Assert.True(hosts.SequenceEqual([publicHost]), $"'{raw}': 공개 호스트 제한이 없다(실제: {string.Join(",", hosts)})");
+            Assert.NotNull(endpoint.Metadata.GetMetadata<RateLimitMetadata>());
             bound++;
         }
         Assert.True(bound >= 5, $"검사된 공개 라우트가 너무 적다: {bound}");

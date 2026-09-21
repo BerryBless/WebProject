@@ -99,6 +99,12 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     public void AnyEnvironment_OriginWithPath_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["Site:AdminOrigin"] = "https://admin.test/" }, "Site:AdminOrigin");
 
+    /// <summary>환경에 상관없이 <c>Site:Title</c>이 공백뿐이면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다.
+    /// 비어 있으면 <c>&lt;title&gt;</c>·머리글·Atom 피드 제목이 " · Blog" 꼴로 깨지므로 첫 요청이 아니라 시작 시점에 막는다.</summary>
+    [Fact]
+    public void AnyEnvironment_BlankSiteTitle_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["Site:Title"] = "   " }, "Site:Title");
+
     /// <summary><c>Staging</c>처럼 <c>Production</c>이 아닌(그러나 <c>Development</c>도 아닌) 환경에서도 필수 설정 누락으로 시작이 실패하는지 검증한다.
     /// <c>environment.IsProduction()</c> 판정만으로는 이런 환경 이름을 걸러내지 못해 필수 검사를 조용히 건너뛰던 결함의 회귀 테스트다.</summary>
     [Fact]

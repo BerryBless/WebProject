@@ -54,12 +54,18 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
         }
     }
 
-    /// <summary>글 쪽: 본문은 정제된 HTML, 제목·요약은 인코딩, 머리 정보의 절대 URL은 PUBLIC_ORIGIN, 실행 가능한 것은 0개.</summary>
+    /// <summary>글 쪽: 본문은 정제된 HTML, 제목·요약은 속성 컨텍스트(따옴표)·RCDATA 컨텍스트(<c>&lt;/title&gt;</c>) 양쪽에서 실제로 인코딩되는지,
+    /// 머리 정보의 절대 URL은 PUBLIC_ORIGIN인지, 실행 가능한 것은 0개인지 검증한다.</summary>
     [Fact]
     public async Task Post_RendersSafeHtml_AndHeadUsesPublicOrigin()
     {
-        const string title = "<b>굵게</b> & \"따옴표\"";
-        await PublicSeed.PostAsync(factory, "safe-post", title, summary: "요약 <i>x</i>",
+        // title: "</title><script>…"을 포함한다 — <title>은 RCDATA라 인코딩 없이 그 시퀀스가 그대로 나가면 태그가 조기 종료되고
+        // 진짜 <script> 요소가 생긴다(문자열만 비교하거나 "<" 유무만 보면 이 실패를 못 잡는다 — Task 5 리뷰 Important 1).
+        // summary: 큰따옴표를 포함한다 — content="…" 속성값 안에서 인코딩 없이 그대로 나가면 그 자리에서 속성이 끊어진다.
+        // 둘 다 인코딩되면(정상 경로) HTML 텍스트로만 남아 doc.Title·meta content 비교가 원본 문자열과 정확히 일치한다.
+        const string title = "<b>굵게</b> & \"따옴표\"</title><script>alert(1)</script>";
+        const string summary = "요약 <i>x</i> & \"인용\"";
+        await PublicSeed.PostAsync(factory, "safe-post", title, summary: summary,
             markdown: $"<script>alert(1)</script>\n\n![그림]({Attachment})\n\n```csharp\nvar a = 1;\n```\n\n[나쁜 링크](javascript:alert(1))", tags: ["C#"]);
         using var client = factory.CreatePublicClient();
 
@@ -74,7 +80,9 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
         Assert.Equal("/tags/c%23", doc.QuerySelector("ul.tag-list a")?.GetAttribute("href"));
 
         Assert.Equal($"{title} · Blog", doc.Title);
-        Assert.Equal("요약 <i>x</i>", doc.QuerySelector("meta[name=description]")?.GetAttribute("content"));
+        Assert.Equal($"{title} · Blog", doc.QuerySelector("meta[property='og:title']")?.GetAttribute("content"));
+        Assert.Equal(summary, doc.QuerySelector("meta[name=description]")?.GetAttribute("content"));
+        Assert.Equal(summary, doc.QuerySelector("meta[property='og:description']")?.GetAttribute("content"));
         Assert.Equal(ApiFactory.PublicOrigin + "/posts/safe-post", doc.QuerySelector("link[rel=canonical]")?.GetAttribute("href"));
         Assert.Equal(ApiFactory.PublicOrigin + "/posts/safe-post", doc.QuerySelector("meta[property='og:url']")?.GetAttribute("content"));
         Assert.Equal("article", doc.QuerySelector("meta[property='og:type']")?.GetAttribute("content"));
@@ -193,10 +201,16 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
             .Select(f => Path.GetRelativePath(webRoot, f).Replace('\\', '/')).Order().ToArray();
         Assert.Equal(new[] { "css/site.css" }, files);
 
-        // 주석과 선언 블록({…}, 안쪽부터 반복 제거)을 지우면 선택자와 @규칙 머리만 남는다. 거기에 '#'이 있으면 id 선택자다.
+        // 주석을 지운 뒤, '{' 바로 앞의 텍스트를 전부 뽑는다 — 그 텍스트는 선택자이거나 @규칙 머리(@media 등)다.
+        // 중첩 깊이와 무관하게 모든 '{'를 훑으므로 @media 블록 안에 중첩된 규칙의 선택자도 놓치지 않는다.
+        // (안쪽부터 {…} 블록을 반복 제거하는 이전 방식은 @media 자신의 {…}까지 다음 반복에서 지워버려, 그 안에 있던
+        //  선택자 텍스트까지 함께 사라지는 사각지대가 있었다 — @media 안에 id 선택자를 넣어도 통과했다, 아래 보고서 Fix round 1 참조.)
         var css = Regex.Replace(await site.Content.ReadAsStringAsync(), @"/\*.*?\*/", string.Empty, RegexOptions.Singleline);
-        string previous;
-        do { previous = css; css = Regex.Replace(css, @"\{[^{}]*\}", string.Empty); } while (css != previous);
-        Assert.DoesNotContain('#', css);
+        foreach (Match m in Regex.Matches(css, @"([^{}]*)\{"))
+        {
+            var header = m.Groups[1].Value.Trim();
+            if (header.StartsWith('@')) continue; // @media 등 at-규칙 머리는 선택자가 아니다
+            Assert.DoesNotContain('#', header);
+        }
     }
 }
