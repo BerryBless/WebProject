@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Access;
+using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
@@ -43,6 +44,9 @@ public class ApiFactory : WebApplicationFactory<Program>
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly string? _attachmentsRootPathOverride;
+
+    /// <summary>이 팩토리가 만든 테스트 전용 DB를 가리키는 관리 연결 문자열(Task 8의 잠금 테스트가 쓴다).</summary>
+    internal string ConnectionString => _connectionString;
 
     /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
     public MutableTimeProvider Clock { get; } = new();
@@ -212,13 +216,13 @@ public class ApiFactory : WebApplicationFactory<Program>
         return setCookie.Split(';', 2)[0];
     }
 
-    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.</summary>
-    /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·임시 폴더)까지 해제한다.</param>
+    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.</summary>
+    /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·연결 풀·임시 폴더)까지 해제한다.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> xUnit이 픽스처 해제 시 1회만 호출한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 추가 할당 없음.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 공개 연결 문자열을 다시 조립하는 문자열 1개(<see cref="PublicDbContext.BuildConnectionString"/>) + 반복용 배열 1개.</description></item>
     /// <item><description><b>Blocking:</b> 동기 파일 시스템 I/O(디렉터리 재귀 삭제). <c>base.Dispose</c>가 먼저 호스트를 내려 파일 핸들을 놓아야 삭제가 실패하지 않으므로 반드시 그 다음에 호출한다.</description></item>
     /// </list>
     /// </remarks>
@@ -227,8 +231,14 @@ public class ApiFactory : WebApplicationFactory<Program>
         base.Dispose(disposing);
         if (!disposing) return;
         // NpgsqlConnection.ClearPool: 풀은 연결 문자열별 프로세스 전역 상태라 호스트를 내려도 유휴 연결이 Connection Idle Lifetime(기본 300초) 동안
-        // 서버에 남는다. 이 팩토리 전용 DB의 풀을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
-        using (var connection = new NpgsqlConnection(_connectionString)) NpgsqlConnection.ClearPool(connection);
+        // 서버에 남는다. 이 팩토리가 연 두 풀(관리·공개)을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
+        // 공개 조회 풀도 닫는다(연결 문자열이 달라 풀이 따로다). 시간 제한 값이 연결 문자열의 일부라 앱과 같은 값으로 조립해야 같은 풀을 가리킨다.
+        var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null ? int.Parse(raw, System.Globalization.CultureInfo.InvariantCulture) : 3000;
+        foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_connectionString, timeout) })
+        {
+            using var connection = new NpgsqlConnection(cs);
+            NpgsqlConnection.ClearPool(connection);
+        }
         if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
     }
 }

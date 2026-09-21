@@ -35,23 +35,12 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 // 바인딩 실패(JSON 파싱 오류·잘못된 쿼리 값)를 예외(Development 기본값)가 아니라 항상 400으로 응답한다.
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = false);
-// 연결 문자열은 람다 안에서(=Build 이후 첫 해석 시점에) 읽는다. Global Constraints의 "설정은 Build 이후에만" 규칙.
-builder.Services.AddDbContext<AppDbContext>((sp, o) =>
-{
-    // appsettings.json의 기본값은 빈 문자열("")이라 null 병합(??)만으로는 걸러지지 않는다.
-    // IsNullOrWhiteSpace로 null·빈 문자열·공백만 있는 값을 모두 막아 Npgsql의 불명확한 소켓 오류 대신
-    // 설정 누락임을 바로 알 수 있는 예외로 빠르게 실패시킨다.
-    var connectionString = sp.GetRequiredService<IConfiguration>().GetConnectionString("Default");
-    if (string.IsNullOrWhiteSpace(connectionString))
-    {
-        throw new InvalidOperationException("ConnectionStrings:Default 설정이 없습니다.");
-    }
-
-    o.UseNpgsql(connectionString);
-});
 builder.Services.AddAdminAccess(builder.Configuration);
 builder.Services.AddAdminAuth();
 builder.Services.Configure<PublicOptions>(builder.Configuration.GetSection(PublicOptions.SectionName));
+// 관리(AppDbContext) + 공개 조회 전용(PublicDbContext) 두 컨텍스트를 등록한다. PublicOptions 등록보다 뒤에 있어도
+// 문제 없다 — AddBlogData 내부 람다는 각 컨텍스트가 스코프에서 처음 해석될 때 실행되므로 지연 바인딩이다.
+builder.Services.AddBlogData();
 builder.Services.AddAppRateLimiting();
 // 시스템 시계를 명시한다: 통합 테스트는 DI의 TimeProvider를 세션 만료용 가짜 시계로 바꾸는데, 렌더 시간 예산은 그 영향을 받으면 안 된다.
 builder.Services.AddSingleton(_ => new MarkdownRenderer(TimeProvider.System));
