@@ -1,4 +1,5 @@
 import { ApiError, toApiError } from './errors'
+import { hasControlChar } from '../lib/safeNext'
 
 type Query = Record<string, string | number | null | undefined>
 
@@ -7,6 +8,7 @@ export interface RequestOptions {
   json?: unknown
   /** multipart 본문. Content-Type(boundary 포함)은 브라우저가 붙이므로 직접 지정하지 않는다. */
   form?: FormData
+  /** 쿼리는 반드시 이 옵션으로 넘긴다 — 경로에 ?를 직접 붙이면 값 안의 //가 경로 검사에 걸린다. */
   query?: Query
   signal?: AbortSignal
 }
@@ -16,8 +18,16 @@ export const CSRF_HEADER = 'X-Requested-With'
 export const CSRF_VALUE = 'XMLHttpRequest'
 
 function buildUrl(path: string, query?: Query): string {
-  // 같은 출처의 /api 경로만 허용한다: 절대 URL·프로토콜 상대 URL(//host)로 쿠키 없는 교차 출처 호출이 섞여 들어오는 실수를 막는다.
-  if (!path.startsWith('/api/') || path.includes('//') || path.includes('\\')) throw new Error(`API 경로가 아닙니다: ${path}`)
+  // 같은 출처의 /api 경로만, 그리고 그 안에서 벗어나지 않는 경로만 허용한다. 쿠키가 붙는 호출은 이 함수 하나뿐이라
+  // 경로가 의도한 엔드포인트를 벗어나면 안 된다. 막는 것: (1) 교차 출처로 해석되는 모양 — 절대 URL, 프로토콜 상대
+  // //host, 역슬래시(브라우저가 호스트 구분자로 취급할 수 있음). (2) /api 밖으로 나가는 상대 경로 — 리터럴 ..과
+  // 대소문자 무관 %2e(퍼센트 인코딩된 점, URL 정규화 이후 ..으로 풀릴 수 있음). (3) URL 파서가 말없이 제거하는
+  // 제어 문자(탭·개행 등) — 검사를 통과한 문자열과 fetch가 실제로 보내는 경로가 달라질 수 있다.
+  const lower = path.toLowerCase()
+  if (!path.startsWith('/api/') || path.includes('//') || path.includes('\\') ||
+      path.includes('..') || lower.includes('%2e') || hasControlChar(path)) {
+    throw new Error(`API 경로가 아닙니다: ${path}`)
+  }
   if (!query) return path
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(query)) {
@@ -57,5 +67,10 @@ export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path
   }
   if (!res.ok) throw await toApiError(res)
   if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  try {
+    return (await res.json()) as T
+  } catch {
+    // 성공 상태(2xx)인데 본문이 JSON이 아닌 경우다(예: dev 서버에서 프록시 밖 경로가 index.html 200으로 돌아옴).
+    throw new ApiError(res.status, '응답을 해석할 수 없습니다')
+  }
 }

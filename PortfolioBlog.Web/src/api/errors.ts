@@ -28,14 +28,20 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 
 /** Retry-After 헤더(초 단위 정수만 — 서버는 HTTP-date 형식을 쓰지 않는다)를 1~3600초로 읽는다. */
 export function parseRetryAfter(value: string | null): number | null {
-  if (value === null || !/^\d{1,6}$/.test(value.trim())) return null
+  if (value === null || !/^\d{1,9}$/.test(value.trim())) return null
   return Math.min(3600, Math.max(1, Number(value.trim())))
 }
+
+// 프로토타입 오염 방지: out[field] = ...는 field가 정확히 '__proto__'일 때 일반 객체의 [[Set]]이
+// Object.prototype의 __proto__ 접근자를 거쳐 out의 프로토타입 자체를 바꿔버릴 수 있다(서버 JSON을 그대로 키로 쓰므로
+// 공격자가 통제하는 문자열이다). constructor·prototype도 같은 부류의 위험한 키라 함께 건너뛴다.
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
 function parseFieldErrors(raw: unknown): FieldErrors {
   if (!isRecord(raw)) return {}
   const out: FieldErrors = {}
   for (const [field, messages] of Object.entries(raw)) {
+    if (DANGEROUS_KEYS.has(field)) continue
     if (Array.isArray(messages)) out[field] = messages.filter((m): m is string => typeof m === 'string')
   }
   return out

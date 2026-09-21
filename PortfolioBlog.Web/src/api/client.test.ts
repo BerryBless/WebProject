@@ -50,9 +50,31 @@ describe('request', () => {
     expect((init.body as FormData).get('file')).toBeInstanceOf(Blob)
   })
 
-  it.each(['https://evil.test/api/x', '//evil.test/api/x', '/apix', '/api//x', '/api/\\x'])('API 경로가 아니면 호출하지 않는다: %s', async (path) => {
+  it.each([
+    'https://evil.test/api/x', '//evil.test/api/x', '/apix', '/api//x', '/api/\\x',
+    '/api/../x', '/api/%2e%2e/x', '/api/%2E%2E/x',
+    `/api/x${String.fromCharCode(9)}y`, `/api/x${String.fromCharCode(10)}y`,
+  ])('API 경로가 아니면 호출하지 않는다: %s', async (path) => {
     const spy = mockFetch(json(200, {}))
     await expect(request('GET', path)).rejects.toThrow('API 경로가 아닙니다')
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('id는 encodeURIComponent를 거쳐 경로 세그먼트로 조립된다(경로 주입 방지)', async () => {
+    const spy = mockFetch(json(200, { id: 'a', slug: 'a', title: 'a', summary: '', contentMarkdown: '', tags: [], seriesId: null, seriesOrder: null, createdAt: '', updatedAt: '', version: 1 }))
+    await posts.get('a/b?x=1')
+    expect(spy.mock.calls[0][0]).toBe('/api/posts/a%2Fb%3Fx%3D1')
+  })
+
+  it('remove의 id도 encodeURIComponent를 거친다', async () => {
+    const spy = mockFetch(new Response(null, { status: 204 }))
+    await posts.remove('a/b', 7)
+    expect(spy.mock.calls[0][0]).toBe('/api/posts/a%2Fb?version=7')
+  })
+
+  it('인코딩된 id에 ..가 남으면(예: ../x → ..%2Fx) 경로 검사가 막는다(서버 id는 Guid뿐이라 정상 흐름엔 영향 없음)', async () => {
+    const spy = mockFetch(json(200, {}))
+    await expect(attachments.remove('../x')).rejects.toThrow('API 경로가 아닙니다')
     expect(spy).not.toHaveBeenCalled()
   })
 
@@ -77,6 +99,22 @@ describe('request', () => {
     expect(error.fieldErrors).toEqual({ slug: ['slug는 필수입니다.'] })
   })
 
+  it('성공 상태(2xx)인데 본문이 JSON이 아니면 해석 오류로 던진다(dev 서버가 index.html 200을 돌려주는 경우 등)', async () => {
+    mockFetch(new Response('<html>nope</html>', { status: 200, headers: { 'Content-Type': 'text/html' } }))
+    const error = await caught(request('GET', '/api/posts'))
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(200)
+  })
+
+  it('필드 오류의 __proto__ 키는 건너뛴다(프로토타입 오염 방지)', async () => {
+    // JSON.stringify({ __proto__: [...] })는 객체 리터럴의 __proto__를 프로토타입 설정으로 취급해 출력에서 빠진다.
+    // 실제 공격 표면을 재현하려면 본문 문자열을 직접 만들어야 한다.
+    mockFetch(new Response('{"title":"오류","errors":{"__proto__":["x"],"slug":["y"]}}', { status: 400, headers: { 'Content-Type': 'application/problem+json' } }))
+    const error = await caught(request('POST', '/api/posts', { json: {} }))
+    expect(error.fieldErrors).toEqual({ slug: ['y'] })
+    expect(Object.getPrototypeOf(error.fieldErrors)).toBe(Object.prototype)
+  })
+
   it('ProblemDetails가 아닌 실패 본문(HTML·빈 본문)에서도 던지지 않고 상태 코드만으로 만든다', async () => {
     mockFetch(new Response('<html>nope</html>', { status: 404, statusText: 'Not Found' }))
     const a = await caught(request('GET', '/api/posts/x'))
@@ -97,7 +135,7 @@ describe('request', () => {
 })
 
 describe('errors', () => {
-  it.each([['5', 5], ['60', 60], ['0', 1], ['999999', 3600], [' 7 ', 7]])('Retry-After %s → %s', (raw, expected) => {
+  it.each([['5', 5], ['60', 60], ['0', 1], ['999999', 3600], [' 7 ', 7], ['1000000', 3600]])('Retry-After %s → %s', (raw, expected) => {
     expect(parseRetryAfter(raw)).toBe(expected)
   })
   it.each([null, '', '-1', '1.5', 'Wed, 21 Oct 2026 07:28:00 GMT', '1e3'])('해석할 수 없는 Retry-After %s → null', (raw) => {
