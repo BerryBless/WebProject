@@ -4,7 +4,7 @@
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 두 .NET 프로젝트와 SPA 디렉터리가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다.
+**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 두 .NET 프로젝트와 SPA 디렉터리가 있다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다. 패키지 버전은 `Directory.Packages.props`(중앙 패키지 관리, 전이 의존성까지 고정)가 일괄 관리한다 — 새 패키지는 거기에 추가한다.
 - `PortfolioBlog.Api` — ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링)(`Microsoft.NET.Sdk.Web`). 통합 테스트 접근용으로 `Program`을 `public partial`로 노출한다.
 - `PortfolioBlog.Api.Tests` — xUnit + `Microsoft.AspNetCore.Mvc.Testing`. CI의 `dotnet test` 게이트가 실제로 검사하는 대상이다.
 - `PortfolioBlog.Web` — 관리 에디터 전용 React 19 + TypeScript + Vite SPA(예정, 3단계). `admin.<도메인>`에서만 서빙되며 `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다.
@@ -84,6 +84,7 @@ plan/<기능명>_<MMDD>.md
 | plan/harness_changelog.md | 2026-09-14 | 하네스별 변경 이력 표(CLAUDE.md에서 분리), 토큰 절감 조치 기록 |
 | plan/para_notes_0917.md | 2026-09-17 | **(폐기됨 → tech_blog_0920.md)** PARA 노트앱 홈페이지 설계. 결정 이력 보존용 |
 | plan/tech_blog_0920.md | 2026-09-20 | 기술 블로그 설계(PARA 대체, 보안 최우선): 공개 페이지 서버 렌더링(Razor+Markdig)·관리 SPA 서브도메인 분리, IP AND 비밀번호 세션, 마크다운 정제 파이프라인·CSP, 시리즈·검색·Atom·SEO, Codex 교차 검토 반영표, Mermaid 흐름도·시퀀스, 4단계 구현 계획 |
+| plan/tech_blog_2a_report_0921.md | 2026-09-21 | 기술 블로그 2A단계 실행 보고서: 만든 것(마크다운 파이프라인·미리보기·이미지 첨부), 공격·측정 기반 검증 결과, 계획 결함 16건과 교훈, 질문 없이 내린 판정 12건, 수용한 잔여 위험, 알려진 문제(로컬 간헐 테스트), Plan 2B·3·4 인계 |
 
 ---
 

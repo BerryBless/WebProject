@@ -6,6 +6,7 @@ using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Features.Auth;
 
@@ -36,10 +37,15 @@ public static class AuthEndpoints
     public static void MapAuthEndpoints(this RouteGroupBuilder api)
     {
         var auth = api.MapGroup("/auth");
-        auth.MapGet("/me", (HttpContext ctx) => TypedResults.Ok(new AuthStatusDto(ctx.User.Identity?.IsAuthenticated ?? false)))
-            .AllowAnonymous().WithName("GetAuthStatus");
-        // WithMetadata: 속도 제한기가 요청 경로 문자열이 아니라 실제로 선택된 엔드포인트로 로그인 요청을 식별하게 한다(LoginRateLimitMetadata 참고).
-        auth.MapPost("/login", LoginAsync).AllowAnonymous().WithName("Login").WithMetadata(new LoginRateLimitMetadata());
+        auth.MapGet("/me", async (HttpContext ctx) =>
+        {
+            // 이 핸들러는 스킴을 직접 명시해 인증한다 — 어떤 스킴이 기본값인지와 무관하게 결과가 항상 AdminCookie 스킴 기준이 되게 한다
+            // (기본 스킴이 바뀌거나 추가되어도 이 엔드포인트의 의미가 조용히 달라지지 않는다). SessionValidator도 이 경로로 실행된다.
+            var result = await ctx.AuthenticateAsync(AuthServiceCollectionExtensions.Scheme);
+            return TypedResults.Ok(new AuthStatusDto(result.Succeeded));
+        }).AllowAnonymous().WithName("GetAuthStatus");
+        // WithMetadata: 속도 제한기가 요청 경로 문자열이 아니라 실제로 선택된 엔드포인트로 로그인 요청을 식별하게 한다(RateLimitMetadata 참고). 로그인은 POST 전용 라우트라 메서드 검사는 필요 없다.
+        auth.MapPost("/login", LoginAsync).AllowAnonymous().WithName("Login").WithMetadata(new RateLimitMetadata(RateLimitPolicy.Login));
         auth.MapPost("/logout", LogoutAsync).WithName("Logout");
     }
 

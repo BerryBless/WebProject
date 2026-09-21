@@ -32,18 +32,18 @@ public static class PostValidation
 
         // NUL(U+0000)은 PostgreSQL text 컬럼에 저장할 수 없다(JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 여기서 걸러야 DB에서 500이 되지 않는다).
         if (string.IsNullOrEmpty(req.Slug)) errors.Add("slug", "slug는 필수입니다.");
-        else if (req.Slug.Contains('\0')) errors.Add("slug", "제어 문자(NUL)를 포함할 수 없습니다.");
+        else if (TextRules.ContainsNul(req.Slug)) errors.Add("slug", TextRules.NulMessage);
         else if (!SlugRules.IsValid(req.Slug)) errors.Add("slug", $"slug는 소문자·숫자·하이픈만 쓰고 {AppDbContext.SlugMax}자 이하여야 합니다(예: my-first-post).");
 
         if (string.IsNullOrWhiteSpace(req.Title)) errors.Add("title", "제목은 비울 수 없습니다.");
-        else if (req.Title.Contains('\0')) errors.Add("title", "제어 문자(NUL)를 포함할 수 없습니다.");
+        else if (TextRules.ContainsNul(req.Title)) errors.Add("title", TextRules.NulMessage);
         else if (req.Title.Trim().Length > AppDbContext.TitleMax) errors.Add("title", $"제목은 {AppDbContext.TitleMax}자 이하여야 합니다.");
 
-        if (req.Summary?.Contains('\0') == true) errors.Add("summary", "제어 문자(NUL)를 포함할 수 없습니다.");
+        if (TextRules.ContainsNul(req.Summary)) errors.Add("summary", TextRules.NulMessage);
         else if ((req.Summary?.Trim().Length ?? 0) > AppDbContext.SummaryMax) errors.Add("summary", $"요약은 {AppDbContext.SummaryMax}자 이하여야 합니다.");
 
         if (req.ContentMarkdown is null) errors.Add("contentMarkdown", "본문은 필수입니다(빈 문자열은 허용).");
-        else if (req.ContentMarkdown.Contains('\0')) errors.Add("contentMarkdown", "제어 문자(NUL)를 포함할 수 없습니다.");
+        else if (TextRules.ContainsNul(req.ContentMarkdown)) errors.Add("contentMarkdown", TextRules.NulMessage);
         else if (Encoding.UTF8.GetByteCount(req.ContentMarkdown) > AppDbContext.ContentMaxBytes)
             errors.Add("contentMarkdown", $"본문은 UTF-8 기준 {AppDbContext.ContentMaxBytes / 1024}KB 이하여야 합니다.");
 

@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Options;
+using PortfolioBlog.Api.Infrastructure.Storage;
 
 namespace PortfolioBlog.Api.Infrastructure.Access;
 
@@ -34,6 +35,7 @@ public static class StartupValidation
         var site = services.GetRequiredService<IOptions<SiteOptions>>().Value;
         var admin = services.GetRequiredService<IOptions<AdminOptions>>().Value;
         var proxy = services.GetRequiredService<IOptions<ProxyOptions>>().Value;
+        var attachments = services.GetRequiredService<IOptions<AttachmentOptions>>().Value;
 
         Check("Site:PublicOrigin", () => SiteOptions.HostOf(site.PublicOrigin));
         Check("Site:AdminOrigin", () => SiteOptions.HostOf(site.AdminOrigin));
@@ -52,6 +54,17 @@ public static class StartupValidation
         {
             throw new InvalidOperationException("Admin:LoginPerIpPerMinute·LoginGlobalPerMinute·LoginConcurrency·SessionHours 는 1 이상이어야 합니다.");
         }
+        if (admin.PreviewPerMinute < 1 || admin.PreviewConcurrency < 1)
+        {
+            throw new InvalidOperationException("Admin:PreviewPerMinute·PreviewConcurrency 는 1 이상이어야 합니다.");
+        }
+        // 모든 환경에서 필수: 첨부 저장 경로가 없으면 업로드마다 예외가 나므로, 그 실패를 첫 업로드가 아니라 시작 시점에 드러낸다.
+        if (string.IsNullOrWhiteSpace(attachments.RootPath))
+        {
+            throw new InvalidOperationException("설정 Attachments:RootPath 이(가) 필수입니다. 예: .data/attachments(개발) 또는 절대 경로(운영).");
+        }
+        // 저장소 생성자가 경로를 계산하며 하는 검증(루트 계산 오류 등)도 시작 시점에 드러낸다.
+        services.GetRequiredService<FileSystemAttachmentStore>();
 
         if (!environment.IsDevelopment())
         {
@@ -65,6 +78,9 @@ public static class StartupValidation
             // HostOf가 이미 절대 URI 형식을 검증했으므로 여기서는 예외 없이 재구성할 수 있다. 세션 쿠키가 Secure라 http origin은 애초에 쿠키를 주고받지 못한다.
             Require(string.Equals(new Uri(site.PublicOrigin).Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal), "Site:PublicOrigin");
             Require(string.Equals(new Uri(site.AdminOrigin).Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal), "Site:AdminOrigin");
+            // 상대 경로는 콘텐츠 루트(배포 시 작업 디렉터리)에 따라 달라져 운영에서는 의도치 않은 위치를 가리키기 쉽다.
+            // appsettings.Development.json은 로컬 상대 경로(.data/attachments)를 그대로 쓰므로 Development만 예외로 허용한다.
+            Require(Path.IsPathFullyQualified(attachments.RootPath), "Attachments:RootPath");
         }
     }
 

@@ -16,7 +16,12 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
     // PostgreSqlContainer: Docker API로 컨테이너를 기동하고 컨테이너 안에서 pg_isready를 반복 실행하는 대기 전략으로
     // 준비 완료를 판정하므로 sleep 기반 폴링 없이 연결 가능한 시점을 정확히 얻는다.
     // 4.15.0에서 매개변수 없는 PostgreSqlBuilder()는 obsolete이므로 이미지를 생성자 인수로 준다(경고 0 유지).
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine").Build();
+    // max_connections=300: 테스트는 팩토리마다 DB를 새로 만들고 Npgsql은 연결 문자열(=DB)마다 풀을 따로 두므로, 팩토리 수십 개가
+    // 남긴 유휴 연결이 기본 상한 100(예약 3 제외 97)에 닿으면 "too many clients"로 연결 열기가 간헐 실패한다(실측: 실행 중 최대 61개,
+    // 412개 테스트 시점에 RelationalConnection.Open 간헐 실패 3회 관찰). 상한을 올리고, 팩토리 해제 시 풀도 비운다(ApiFactory.Dispose).
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine")
+        .WithCommand("-c", "max_connections=300")
+        .Build();
 
     /// <summary>기동된 컨테이너의 Npgsql 연결 문자열.</summary>
     public string ConnectionString => _container.GetConnectionString();

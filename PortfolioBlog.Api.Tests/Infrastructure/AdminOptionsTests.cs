@@ -37,5 +37,7 @@ public sealed class AdminOptionsTests
         Assert.Equal(20, options.LoginGlobalPerMinute);
         Assert.Equal(2, options.LoginConcurrency);
         Assert.Equal(12, options.SessionHours);
+        Assert.Equal(60, options.PreviewPerMinute);
+        Assert.Equal(2, options.PreviewConcurrency);
     }
 }

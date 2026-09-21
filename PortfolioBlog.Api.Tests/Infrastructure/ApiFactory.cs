@@ -42,9 +42,13 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     private readonly string _connectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
+    private readonly string? _attachmentsRootPathOverride;
 
     /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
     public MutableTimeProvider Clock { get; } = new();
+
+    /// <summary>이 팩토리 인스턴스 전용 첨부 저장 루트(임시 디렉터리 밑, 인스턴스마다 고유). 팩토리가 해제되면 재귀적으로 지워진다.</summary>
+    public string AttachmentsRoot { get; } = Path.Combine(Path.GetTempPath(), "portfolioblog-tests", Guid.NewGuid().ToString("N"));
 
     /// <summary>xUnit이 클래스 픽스처로 주입하는 기본 생성자. 설정 오버라이드가 없다.</summary>
     /// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture.</param>
@@ -59,7 +63,10 @@ public class ApiFactory : WebApplicationFactory<Program>
     public ApiFactory(PostgresContainerFixture pg) : this(pg, new Dictionary<string, string?>()) { }
 
     // xUnit 2.x는 클래스 픽스처에 public 인스턴스 생성자가 정확히 하나여야 한다. 설정 오버라이드용은 internal로 둔다.
-    internal ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings)
+    // attachmentsRootTrailingSeparator: 지정하면 AttachmentsRoot 뒤에 이 구분자 하나를 붙인 값을 Attachments:RootPath로
+    // 앱에 넘긴다(트레일링 구분자가 있는 운영 설정값 재현용, F1 회귀 테스트 전용 훅). AttachmentsRoot 프로퍼티 자체(정리용 경로)는
+    // 구분자 없이 그대로 둔다 — 같은 파일 시스템 위치를 가리키므로 정리에는 영향이 없다.
+    internal ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings, char? attachmentsRootTrailingSeparator = null)
     {
         // 클래스마다 새 DB 이름을 써서 테스트 간 데이터 간섭을 없앤다. Migrate()가 DB를 생성한다.
         var csb = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
@@ -68,6 +75,7 @@ public class ApiFactory : WebApplicationFactory<Program>
         };
         _connectionString = csb.ToString();
         _settings = settings;
+        _attachmentsRootPathOverride = attachmentsRootTrailingSeparator is { } separator ? AttachmentsRoot + separator : null;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -82,6 +90,9 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Admin:LoginPerIpPerMinute", "1000");
         builder.UseSetting("Admin:LoginGlobalPerMinute", "1000");
         builder.UseSetting("Admin:LoginConcurrency", "64");
+        builder.UseSetting("Admin:PreviewPerMinute", "1000");
+        builder.UseSetting("Admin:PreviewConcurrency", "64");
+        builder.UseSetting("Attachments:RootPath", _attachmentsRootPathOverride ?? AttachmentsRoot);
         foreach (var (key, value) in _settings)
         {
             builder.UseSetting(key, value);
@@ -193,5 +204,25 @@ public class ApiFactory : WebApplicationFactory<Program>
         using var res = await client.PostAsJsonAsync("/api/auth/login", new { password = Password });
         var setCookie = res.Headers.GetValues("Set-Cookie").Single(v => v.StartsWith(AuthServiceCollectionExtensions.CookieName + "=", StringComparison.Ordinal));
         return setCookie.Split(';', 2)[0];
+    }
+
+    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.</summary>
+    /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·임시 폴더)까지 해제한다.</param>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> xUnit이 픽스처 해제 시 1회만 호출한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 추가 할당 없음.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 파일 시스템 I/O(디렉터리 재귀 삭제). <c>base.Dispose</c>가 먼저 호스트를 내려 파일 핸들을 놓아야 삭제가 실패하지 않으므로 반드시 그 다음에 호출한다.</description></item>
+    /// </list>
+    /// </remarks>
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (!disposing) return;
+        // NpgsqlConnection.ClearPool: 풀은 연결 문자열별 프로세스 전역 상태라 호스트를 내려도 유휴 연결이 Connection Idle Lifetime(기본 300초) 동안
+        // 서버에 남는다. 이 팩토리 전용 DB의 풀을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
+        using (var connection = new NpgsqlConnection(_connectionString)) NpgsqlConnection.ClearPool(connection);
+        if (Directory.Exists(AttachmentsRoot)) Directory.Delete(AttachmentsRoot, recursive: true);
     }
 }

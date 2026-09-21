@@ -1,7 +1,12 @@
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using PortfolioBlog.Api.Features;
+using PortfolioBlog.Api.Features.Attachments;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
+using PortfolioBlog.Api.Infrastructure.Markdown;
+using PortfolioBlog.Api.Infrastructure.Storage;
+using PortfolioBlog.Api.Infrastructure.Web;
 
 // CLI 경로: 웹 호스트를 만들지 않고 해시만 출력하고 끝낸다.
 if (args is [HashPasswordCommand.Name])
@@ -32,11 +37,20 @@ builder.Services.AddDbContext<AppDbContext>((sp, o) =>
 });
 builder.Services.AddAdminAccess(builder.Configuration);
 builder.Services.AddAdminAuth();
+builder.Services.AddAppRateLimiting();
+builder.Services.AddSingleton<MarkdownRenderer>();
+builder.Services.Configure<AttachmentOptions>(builder.Configuration.GetSection(AttachmentOptions.SectionName));
+builder.Services.AddSingleton<FileSystemAttachmentStore>();
+// multipart 한도를 첨부 한도보다 1MB 크게: 10MB를 조금 넘는 업로드는 앱이 413으로 답하고, 그보다 훨씬 큰 본문은 프레임워크가 읽다가 끊는다.
+builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = AttachmentOptions.MaxBytes + 1_048_576);
 
 var app = builder.Build();
 
 // 설정 오류가 DB 접속 오류에 가려지지 않도록 마이그레이션보다 먼저 검증한다.
 StartupValidation.Validate(app.Services, app.Environment);
+// 첨부 저장 루트가 실제로 쓸 수 있는지 시작 시점에 확인한다(첫 업로드가 아니라). StartupValidation은 I/O가 없다는 계약을 지키므로
+// 이 파일 시스템 검사는 별도 단계로 둔다.
+app.Services.GetRequiredService<FileSystemAttachmentStore>().EnsureRootIsWritable();
 
 // 단일 인스턴스 배포이므로 시작 시 마이그레이션을 적용한다(스펙 3.10).
 using (var scope = app.Services.CreateScope())
@@ -63,6 +77,7 @@ app.MapGet("/health", static () =>
     new HealthResponse("Healthy", DateTimeOffset.UtcNow))
     .WithName("GetHealth");
 app.MapApiEndpoints();
+app.MapPublicAttachmentEndpoints();
 
 app.Run();
 return 0;

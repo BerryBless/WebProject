@@ -68,7 +68,7 @@ public static class TagResolver
             if (string.IsNullOrWhiteSpace(raw)) continue;
             var display = Display(raw);
             // NUL(U+0000)은 PostgreSQL text 컬럼에 저장할 수 없다(JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 여기서 걸러야 DB에서 500이 되지 않는다).
-            if (display.Contains('\0')) errors.Add(field, "태그는 제어 문자(NUL)를 포함할 수 없습니다.");
+            if (TextRules.ContainsNul(display)) errors.Add(field, "태그는 제어 문자(NUL)를 포함할 수 없습니다.");
             else if (display.Length > AppDbContext.TagMax) errors.Add(field, $"태그는 {AppDbContext.TagMax}자 이하여야 합니다: {display[..20]}…");
             else if (display.Contains('/')) errors.Add(field, $"태그에 '/'를 쓸 수 없습니다: {display}");
             else distinct.Add(display.ToLowerInvariant());

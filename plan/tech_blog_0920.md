@@ -324,7 +324,7 @@ sequenceDiagram
 - Data Protection 키는 `dpkeys` 볼륨에 영속화, `SetApplicationName("PortfolioBlog.Api")`, 디렉터리 `0700`·API 비루트 사용자 소유, 백업 대상에서 제외.
 - 비밀번호·쿠키·요청 본문은 로그에 남기지 않는다.
 - CORS는 등록하지 않는다. `/api` 응답은 `Cache-Control: no-store`.
-- 로그인 속도 제한기는 파티션을 원시 요청 경로 문자열이 아니라 엔드포인트 메타데이터(`LoginRateLimitMetadata`)로 고른다. 경로 문자열 비교는 끝 슬래시(`/api/auth/login/`)로 우회됐다(Plan 1 구현 중 발견).
+- 로그인 속도 제한기는 파티션을 원시 요청 경로 문자열이 아니라 엔드포인트 메타데이터(`RateLimitMetadata(RateLimitPolicy.Login)`)로 고른다. 경로 문자열 비교는 끝 슬래시(`/api/auth/login/`)로 우회됐다(Plan 1 구현 중 발견).
 
 ### 3.4 API 표면
 
@@ -371,8 +371,8 @@ flowchart LR
 ```
 
 - **확장 허용 목록:** 파이프 테이블, 자동 식별자(제목 앵커), 작업 목록, 각주, 취소선, 자동 링크. 임의 속성(`{#id .class}`)·미디어 임베드·raw HTML은 제외.
-- **UrlPolicy:** 링크는 `http`·`https`·`mailto`·같은 사이트 상대경로만. 이미지는 **자체 `/attachments/` 경로만**(외부 핫링크 금지, CSP `img-src 'self'`와 이중). 위반 URL은 링크를 제거하고 텍스트만 남긴다. 스킴 판정은 제어문자·공백 제거와 소문자화 뒤에 한다.
-- **하이라이팅:** 서버 측에서 CSS 클래스 방식으로 출력(인라인 `style` 금지 — `style-src 'self'`와 충돌). 라이브러리 선정은 구현 계획의 스파이크에서 확정한다(후보: ColorCode 계열의 클래스 출력 모드). 지원하지 않는 언어는 일반 코드블록으로 떨어진다.
+- **UrlPolicy:** 링크는 `http`·`https`·`mailto`·같은 사이트 상대경로만. 이미지는 **자체 `/attachments/` 경로만**(외부 핫링크 금지, CSP `img-src 'self'`와 이중). 위반 URL은 링크를 제거하고 텍스트만 남긴다. URL에 공백·제어문자·백슬래시가 하나라도 있으면 제거·정규화를 시도하지 않고 그 자리에서 거부한다(`UrlPolicy.IsClean`) — 통과한 뒤에야 스킴을 본다(엔티티로 난독화한 스킴도 Markdig가 파싱 단계에서 이미 복원하므로 이 시점엔 원래 문자로 보인다).
+- **하이라이팅:** 서버 측에서 CSS 클래스 방식으로 출력(인라인 `style` 금지 — `style-src 'self'`와 충돌). 라이브러리는 `ColorCode.HTML`(`HtmlClassFormatter.GetHtmlString`)로 확정했다 — `<div class="csharp"><pre><span class="keyword">…` 형태로 클래스만 낸다. 지원하지 않는 언어(bash·yaml·go·rust 등)는 일반 `<pre><code>` 코드블록으로 떨어진다. 렌더 비용은 입력 크기에 상관없이 상한을 둔다: 코드 라인은 400자, 문서 전체 강조 대상은 60,000자를 넘으면 그 이후는 하이라이팅 없이 일반 코드블록으로 처리하고, 정규식 매칭 자체에 250ms 타임아웃을 걸며, 렌더 1회의 강조 누적 시간이 2,000ms를 넘으면 남은 블록은 강조를 포기한다(TimeBoundedLanguageCompiler). Markdig 자체의 중첩 한도(대괄호·인용·강조 등 128단계)를 넘는 입력은 `MarkdownTooComplexException`으로 필드 키가 있는 400이 된다(500이 아니다).
 - **HtmlAllowlist:** 최종 HTML을 허용 목록으로 한 번 더 정제한다. 하이라이터나 확장의 버그에 대한 3차 방어다.
 - 제목·요약·태그는 Razor 자동 인코딩을 그대로 쓰고 `Html.Raw`는 위 파이프라인 출력에만 쓴다.
 - 전체가 DB 의존 없는 순수 함수라 공격 코퍼스를 단위 테스트로 돌린다.
@@ -414,13 +414,13 @@ sequenceDiagram
 
 | 대상 | 제한 |
 |---|---|
-| 공개 페이지 전역 | IP별 120회/분 |
-| `/search` | IP별 20회/분, 동시 실행 4, `q` 2~100자, `page` 상한 50 |
+| 공개 페이지 전역(Plan 2B 예정) | IP별 120회/분 |
+| `/search`(Plan 2B 예정) | IP별 20회/분, 동시 실행 4, `q` 2~100자, `page` 상한 50 |
 | `/api/preview` | 전역 60회/분, 동시 실행 2, 본문 200KB |
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 실행 2. 영구 잠금 없음(작성자 서비스 거부 방지) |
-| 업로드 | 10MB. Caddy `request_body`·Kestrel `MaxRequestBodySize`·multipart 한도를 같은 값으로. 접근 검사는 본문을 읽기 전에 끝난다 |
-| DB | 공개 조회 커넥션에 `statement_timeout` 3초 |
-| JSON 본문 | 관리 API 256KB |
+| 업로드 | 앱 10MB(`AttachmentOptions.MaxBytes`, 넘으면 앱의 413 ProblemDetails) · 프레임워크 11MB(`RequestSizeLimit` 메타데이터 + `FormOptions.MultipartBodyLengthLimit`, 넘으면 프레임워크 413) — 1MB 여유는 multipart 프레이밍(경계·헤더) 몫이다(실측, Kestrel). Caddy `request_body`는 Plan 4에서 앱 값이 아니라 이 프레임워크 값(11MB)에 맞춘다 — 그보다 작으면 Caddy가 정상 업로드를 앱보다 먼저 끊는다. 접근 검사는 본문을 읽기 전에 끝난다 |
+| DB(Plan 2B 예정) | 공개 조회 커넥션에 `statement_timeout` 3초 |
+| JSON 본문(Plan 2B 예정) | 관리 API 256KB |
 
 ### 3.8 첨부
 
@@ -456,9 +456,10 @@ sequenceDiagram
 ```
 
 - 확장자·Content-Type은 업로드된 파일명이 아니라 시그니처에서 유도한다. SVG는 허용하지 않는다.
-- 메타데이터 제거는 서버가 이미지를 디코딩하지 않는 방식을 우선한다(JPEG APP1, PNG `eXIf`·`tEXt` 계열, WebP `EXIF`·`XMP` 청크 제거). 구현 방식은 구현 계획에서 확정한다. SHA-256은 **제거 후** 바이트 기준이다.
+- 메타데이터 제거는 서버가 이미지를 **디코딩하지 않는다**: 스트림을 처음부터 끝까지 한 번만 읽으며 컨테이너 구조(세그먼트·청크)만 따라가는 허용 목록 기반(allow-by-default-DENY) 파서로 확정했다. 형식마다: JPEG는 구조 마커(SOFn·DQT·DHT·DRI·SOS)를 그대로 두고 APPn·COM은 원칙적으로 전부 버리되 APP0(`JFIF`)·APP2(`ICC_PROFILE`)·APP14(`Adobe`)만 식별자 확인 뒤 남기며, 엔트로피 부호화 구간은 마커 단위로 따라가 EOI 뒤의 바이트를 버린다. PNG는 청크 허용 목록 + 고정/상한 크기표로 규격 밖 길이를 거부하고 IHDR이 처음이자 한 번뿐이며 IDAT이 최소 1개 있어야 통과한다(IEND 뒤는 버림). WebP는 청크 허용 목록에 더해 VP8X를 정확히 10바이트일 때만 받아 EXIF·XMP 플래그를 지우고, ANIM은 정확히 6바이트만 받으며, RIFF 크기 필드를 다시 쓴다. GIF는 그래픽 제어 확장(모양을 검증한 뒤 재구성)과 NETSCAPE2.0/ANIMEXTS1.0의 반복 횟수 서브블록(맨 처음 것 하나)만 남기고 나머지 확장·트레일러 뒤 바이트는 버린다. 이 파서가 디코딩하지 않아서 못 막는 잔여 표면(ICC 프로파일 바이트, WebP ANMF 프레임 페이로드, JPEG DQT/DHT/SOF 페이로드, PNG CRC 미검증, GIF LZW 서브블록 체인)은 업로드 크기 상한·시그니처 기반 Content-Type·`X-Content-Type-Options: nosniff`로 막는다(브라우저에서 실행될 수 없다). SHA-256은 **제거 후** 바이트 기준이다.
 - 저장 루트는 정적 파일 루트 밖(`/data/attachments`)이며, 경로는 서버 생성 값만 쓴다.
 - 업로드된 첨부는 글에 연결되지 않아도 URL을 알면 읽힌다(Guid v7의 무작위 74비트에 의존). 필요 없는 첨부는 목록·삭제 API로 지운다. DB 삭제 후 파일 삭제가 실패하면 로그에 남기고 고아 파일 정리는 확장 포인트로 둔다.
+- 공개 GET 응답은 `max-age=31536000, immutable`이라, 첨부를 삭제해도 이미 그 응답을 받은 브라우저 캐시나(Plan 4에서 앞단에 놓일) Caddy 등 공유 캐시·CDN이 들고 있는 사본까지 회수하지는 못한다. 삭제가 보장하는 것은 오리진이 더 이상 그 파일을 내주지 않는다는 것뿐이다.
 
 ### 3.9 관리 SPA
 
@@ -618,6 +619,7 @@ cd deploy; docker compose up --build -d; curl -f http://localhost/health
 | 계획 | 파일 | 범위 |
 |---|---|---|
 | Plan 1 | `docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md` · 완료 | 1단계: 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API. 0단계(정리·개명)는 완료. `Attachment` 테이블은 Plan 2의 마이그레이션으로 미룸 |
-| Plan 2 | (Plan 1 완료 후) | 2단계: 마크다운 파이프라인·첨부·공개 페이지·피드·보안 헤더 |
+| Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
+| Plan 2B | (2A 완료 후 작성) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·공개 속도 제한 |
 | Plan 3 | (Plan 2 완료 후) | 3단계: 관리 SPA |
 | Plan 4 | (Plan 3 완료 후) | 4단계: Docker·Caddy·CI·운영 절차 |

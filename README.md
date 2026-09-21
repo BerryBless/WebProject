@@ -2,7 +2,7 @@
 
 단일 작성자용 기술 블로그입니다. 방문자에게는 **스크립트 없는 서버 렌더링 HTML**만 내보내고, 글쓰기는 **별도 서브도메인 + IP 화이트리스트 + 비밀번호 세션** 뒤에 둡니다.
 
-> **현재 상태: 1단계(관리 API·접근 제어) 완료, 공개 페이지·에디터는 구현 전.** 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API가 구현·테스트되었습니다. 방문자용 공개 페이지, 마크다운 파이프라인, 관리 에디터 SPA, 배포 구성은 아직 없습니다. 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
+> **현재 상태: 1단계(관리 API·접근 제어)·2A단계(마크다운 파이프라인·미리보기·이미지 첨부) 완료, 공개 페이지·에디터는 구현 전.** 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션, 글·시리즈·태그 관리 API, 마크다운 렌더링·미리보기·이미지 첨부가 구현·테스트되었습니다. 방문자용 공개 페이지, 관리 에디터 SPA, 배포 구성은 아직 없습니다. 전체 스펙은 [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md)에 있습니다.
 
 ## 무엇을 만드나
 
@@ -11,7 +11,7 @@
 | 기능 | 글 CRUD, 태그, 시리즈(연재 묶음), 이미지 첨부, 마크다운 에디터, 코드 하이라이팅, 검색, Atom 피드, SEO(Open Graph·sitemap) |
 | 발행 모델 | 초안 상태 없음. **명시적 저장 = 즉시 공개** |
 | 사용자 | 작성자 1명. 회원·댓글 없음 |
-| 스택 | ASP.NET Core 10(최소 API + Razor Pages), EF Core 10 + PostgreSQL, Markdig, React 19 + Vite + CodeMirror 6(관리 에디터 전용), Caddy, Docker Compose |
+| 스택 | ASP.NET Core 10(최소 API + Razor Pages), EF Core 10 + PostgreSQL, Markdig, ColorCode.HTML(코드 하이라이팅), HtmlSanitizer, React 19 + Vite + CodeMirror 6(관리 에디터 전용), Caddy, Docker Compose |
 
 ## 보안 설계 요약
 
@@ -73,7 +73,7 @@ flowchart TB
 
 | | 공개 표면 (`<도메인>`) | 관리 표면 (`admin.<도메인>`) |
 |---|---|---|
-| 경로 | `/`, `/posts/{slug}`, `/tags/{tag}`, `/series/{slug}`, `/search`, `/feed.xml`, `/sitemap.xml`, `/attachments/…` | `/`(에디터 SPA), `/api/*` |
+| 경로 | `/`, `/posts/{slug}`, `/tags/{tag}`, `/series/{slug}`, `/search`, `/feed.xml`, `/sitemap.xml`, `/attachments/…` | `/`(에디터 SPA), `/api/*`, `/attachments/…`(GET/HEAD, 읽기 전용) |
 | 누가 | 누구나, GET만 | 화이트리스트 IP AND 로그인 세션 |
 | JS | 없음 | `script-src 'self'` |
 | 상태 변경 | 불가능(엔드포인트가 이 호스트에 없음) | 전부 여기에만 |
@@ -215,7 +215,7 @@ PortfolioBlog.slnx
 | 설계 | 스펙 작성, Codex 교차 검토 반영 | 완료 |
 | 0 | 솔루션 정리(`PortfolioBlog`로 개명, `.slnx` 전환, 템플릿 잔재·샘플 프로젝트 제거) | 완료 |
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 비밀번호 로그인·세션 폐기, 글·시리즈·태그 관리 API | 완료 |
-| 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 예정 |
+| 2 | 마크다운 파이프라인, 첨부, 공개 Razor 페이지, 검색, Atom, sitemap, 보안 헤더, 속도 제한 | 2A 완료(마크다운 파이프라인·미리보기·첨부) / 2B 예정(공개 페이지·검색·피드·보안 헤더) |
 | 3 | 관리 에디터 SPA | 예정 |
 | 4 | Docker Compose · Caddy · CI · 백업/복원 절차 | 예정 |
 
@@ -239,7 +239,7 @@ dotnet test  PortfolioBlog.slnx
 2. 관리자 비밀번호 해시를 user-secrets에 저장합니다(저장소에는 남지 않습니다): `dotnet user-secrets init --project PortfolioBlog.Api` 후 `dotnet run --project PortfolioBlog.Api -- hash-password`로 해시를 뽑아 `dotnet user-secrets set "Admin:PasswordHash" "<해시>" --project PortfolioBlog.Api`.
 3. `dotnet dev-certs https --trust`로 개발 인증서를 신뢰한 뒤 `dotnet run --project PortfolioBlog.Api --launch-profile https`로 실행합니다(세션 쿠키가 Secure라 https 프로필이 필요합니다).
 
-`PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록 예시 요청이 있습니다.
+`PortfolioBlog.Api/PortfolioBlog.Api.http`에 상태 확인·로그인·글 생성·글 목록·미리보기·첨부 업로드 예시 요청이 있습니다.
 
 ## 문서
 
@@ -247,6 +247,7 @@ dotnet test  PortfolioBlog.slnx
 |---|---|
 | [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md) | 전체 설계 스펙: 설계 결정과 대안 비교, 접근 계약, 응답 헤더·CSP, 자원 제한, 배포, 필수 테스트, Codex 검토 반영표 |
 | [`docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md`](docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md) | 1단계 구현 계획: TDD 단계별 작업 7개(도메인·접근 제어·로그인·관리 API) |
+| [`docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md`](docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md) | 2A단계 구현 계획: 마크다운 파이프라인·미리보기·이미지 첨부 |
 | [`plan/para_notes_0917.md`](plan/para_notes_0917.md) | 폐기된 이전 설계(PARA 노트앱). 결정 이력 보존용 |
 | [`plan/harness_changelog.md`](plan/harness_changelog.md) | 개발 하네스 변경 이력 |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | 프로젝트 규칙 (Claude Code / Codex) |
