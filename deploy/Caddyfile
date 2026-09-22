@@ -1,0 +1,94 @@
+# 기술 블로그의 앞단. 사이트 2개: 공개 도메인과 관리 서브도메인(스펙 3.1·3.10).
+# 값은 전부 환경변수로 받는다(deploy/.env). 이 파일은 caddy 이미지에 구워지므로 고치면 이미지를 다시 빌드한다.
+{
+	# 관리 API(기본 localhost:2019)를 끈다. 설정 변경은 컨테이너 재시작으로만 한다.
+	admin off
+	email {$ACME_EMAIL}
+	servers {
+		# compose가 TCP 80·443만 공개한다. h3(UDP)를 광고하지 않는다.
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			# 11MiB 업로드가 느린 회선에서도 끝나도록(약 92KB/s 이상).
+			read_body 120s
+			idle 2m
+		}
+	}
+}
+
+# 공개 사이트: 누구나, 읽기 전용. /api는 이 호스트에 존재하지 않는다.
+{$DOMAIN} {
+	log
+	route {
+		# defer: reverse_proxy가 응답에 더하는 Via와 오류 경로의 Server까지, 응답을 쓰기 직전에 지운다.
+		header {
+			-Server
+			-Via
+			defer
+		}
+		@api path /api /api/*
+		respond @api 404
+		# 공개 표면은 GET·HEAD뿐이다. 본문은 받을 이유가 없다.
+		request_body {
+			max_size 64KB
+		}
+		encode zstd gzip
+		reverse_proxy api:8080
+	}
+}
+
+# 관리 사이트: 허용 IP에서만 보인다. 허용 목록 밖에서는 모든 경로가 404다.
+{$ADMIN_DOMAIN} {
+	log
+	route {
+		header {
+			-Server
+			-Via
+			defer
+		}
+		@denied not remote_ip {$ADMIN_ALLOWED_CIDRS}
+		respond @denied 404
+
+		# 백엔드로 가는 것은 이 둘뿐이다. 접두사(/attachments*)로 가르면 SPA 화면 주소 /attachments가 백엔드로 끌려간다.
+		# 이 응답들의 보안 헤더는 백엔드가 붙인다(첨부의 sandbox CSP를 덮어쓰면 안 된다) — 아래 header 블록보다 앞이어야 한다.
+		@backend path /api/* /attachments/*
+		handle @backend {
+			# 프레임워크의 multipart 상한(첨부 10MiB + 프레이밍 1MiB)과 같은 값.
+			request_body {
+				max_size 11MiB
+			}
+			reverse_proxy api:8080
+		}
+
+		# 여기부터는 정적 SPA. 앞의 다섯 값의 정본은 PortfolioBlog.Web/admin-headers.ts다(caddyfile.test.ts가 글자 그대로 비교한다).
+		# HSTS는 그 파일에 의도적으로 없다 — 여기서 더한다. 값은 백엔드의 HSTS와 같다.
+		header {
+			Content-Security-Policy "default-src 'none'; script-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self'; connect-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			X-Content-Type-Options "nosniff"
+			X-Frame-Options "DENY"
+			Referrer-Policy "strict-origin-when-cross-origin"
+			Permissions-Policy "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), usb=(), xr-spatial-tracking=()"
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			Cross-Origin-Opener-Policy "same-origin"
+		}
+		root * /srv
+		encode zstd gzip
+
+		# 해시가 붙은 빌드 산출물: 있으면 영구 캐시, 없으면 404(index.html로 돌리지 않는다 — 배포 뒤 옛 청크 요청의 증상이 분명해진다).
+		@asset_hit {
+			path /assets/*
+			file
+		}
+		handle @asset_hit {
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+		@asset_miss path /assets/*
+		respond @asset_miss 404
+
+		# 그 밖의 경로는 SPA 라우트다. index.html은 매번 재검증한다.
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
