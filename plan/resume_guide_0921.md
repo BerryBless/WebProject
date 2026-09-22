@@ -78,6 +78,8 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 4. 첨부 재업로드는 내용 주소라 200이다 → 스모크의 `201` 단언을 `[200, 201]`로.
 5. 수용한 것(보고서 잔여 위험에 적는다): `blog_public`이 `postgres`·`template1`에서 임시 테이블 생성 가능, 서브넷·TrustedIp가 4파일에 중복, Windows에서 `.env.smoke` 644, `tools`만 로그 회전 없음, 공개 `request_body`가 GET에 무동작.
 
+README는 이제 랜딩 페이지 + `docs/` 서브페이지 8개 구조다(2026-09-22) — **Task 6의 배포 문서는 `docs/deployment.md`를 as-built로 채우고 README·`docs/testing.md`의 숫자와 상태만 갱신한다**(README에 배포 절을 새로 만들지 않는다).
+
 그 뒤: 두 Task의 범위 재리뷰 → **Task 4**(`deploy/backup.sh`·`restore.sh`·`OPERATIONS.md` + 복원 리허설을 `run.sh`에) → **Task 5**(스택 대상 Playwright E2E + CI `deploy-smoke` 잡) → **Task 6**(스펙·README·CLAUDE.md/AGENTS.md as-built) → 최종 리뷰(실제 스택 공격) → PR → CI → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`(내린 판정 표).
 
 ### 3.4 실행하며 확인된 사실(계획에 없던 것)
