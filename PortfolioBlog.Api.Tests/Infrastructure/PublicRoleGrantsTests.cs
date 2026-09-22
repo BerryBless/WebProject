@@ -82,7 +82,9 @@ public sealed class PublicRoleGrantsTests(PostgresContainerFixture pg)
         Assert.Equal("42501", await SqlStateOfAsync(connection, $"SELECT * FROM \"{table}\""));
     }
 
-    /// <summary>손으로 넓혀 둔 권한은 다음 시작에서 회수된다(전부 회수 → 허용 목록만 부여).</summary>
+    /// <summary>손으로 넓혀 둔 권한은 다음 시작에서 회수된다(소유 테이블 전부 회수 → 허용 목록만 부여). <c>PUBLIC</c> 의사 롤에
+    /// 준 권한도 함께 회수되는지 검증한다 — <c>REVOKE … FROM {role}</c>만으로는 공개 롤이 <c>PUBLIC</c>의 일원으로서 그 권한을
+    /// 그대로 물려받는다(F1 회귀 테스트).</summary>
     [Fact]
     public async Task Apply_RevokesGrantsOutsideTheAllowlist()
     {
@@ -94,6 +96,7 @@ public sealed class PublicRoleGrantsTests(PostgresContainerFixture pg)
         {
             await owner.OpenAsync();
             Assert.Null(await SqlStateOfAsync(owner, $"GRANT SELECT, DELETE ON \"AdminState\" TO {PostgresContainerFixture.PublicRole}"));
+            Assert.Null(await SqlStateOfAsync(owner, "GRANT SELECT, UPDATE ON \"AdminState\" TO PUBLIC"));
         }
 
         PublicRoleGrants.Apply(db, AsPublicRole(factory));
@@ -101,18 +104,62 @@ public sealed class PublicRoleGrantsTests(PostgresContainerFixture pg)
         await using var connection = new NpgsqlConnection(AsPublicRole(factory));
         await connection.OpenAsync();
         Assert.Equal("42501", await SqlStateOfAsync(connection, "SELECT * FROM \"AdminState\""));
+        Assert.Equal("42501", await SqlStateOfAsync(connection, "UPDATE \"AdminState\" SET \"SessionEpoch\" = \"SessionEpoch\""));
         Assert.Null(await SqlStateOfAsync(connection, "SELECT count(*) FROM \"Posts\""));
     }
 
-    /// <summary>문장은 검증된 롤 이름과 상수 테이블 목록으로만 조립된다. 첫 문장이 회수여야 옛 권한이 남지 않는다.</summary>
+    /// <summary>관리 롤이 소유하지 않은 테이블(예: 점검용 계정이 만든 테이블)이 스키마에 있어도 <see cref="PublicRoleGrants.Apply"/>는
+    /// 예외 없이 끝나고, 허용 테이블은 여전히 읽을 수 있다(F2 회귀 테스트). <c>REVOKE</c>를 관리 롤이 소유한 테이블로 좁히지 않으면
+    /// (<c>ON ALL TABLES IN SCHEMA public</c>) 비 superuser 관리 롤에서는 이 테이블에 대한 권한 없음(42501)으로 트랜잭션 전체가
+    /// 실패해 앱이 기동하지 못한다(운영의 <c>blog_app</c>은 superuser가 아니다).</summary>
+    [Fact]
+    public async Task Apply_SucceedsWithAllowedTableSelect_EvenWhenAForeignOwnedTableExists()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var _ = factory.CreateClient(); // 호스트 기동 → Migrate → 첫 Apply
+        await using (var owner = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(factory.ConnectionString) { Pooling = false }.ToString()))
+        {
+            await owner.OpenAsync();
+            Assert.Null(await SqlStateOfAsync(owner, "CREATE TABLE \"OtherOwned\" (i int)"));
+            Assert.Null(await SqlStateOfAsync(owner, $"ALTER TABLE \"OtherOwned\" OWNER TO {PostgresContainerFixture.PublicRole}"));
+        }
+
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        PublicRoleGrants.Apply(db, AsPublicRole(factory)); // 예외 없이 끝나야 한다
+
+        await using var connection = new NpgsqlConnection(AsPublicRole(factory));
+        await connection.OpenAsync();
+        Assert.Null(await SqlStateOfAsync(connection, "SELECT count(*) FROM \"Posts\""));
+    }
+
+    /// <summary>문장은 소유 테이블마다 <c>PUBLIC</c>·롤 권한을 먼저 회수한 뒤 스키마 사용을 주고, 소유 목록에 있는 허용 테이블에만
+    /// <c>SELECT</c>를 준다. 소유 목록에만 있고 허용 목록엔 없는 테이블(<c>AdminState</c>)은 회수 대상일 뿐 부여 대상이 아니다.</summary>
     [Fact]
     public void BuildStatements_RevokesFirst_ThenGrantsSelectPerAllowedTable()
     {
-        var statements = PublicRoleGrants.BuildStatements("blog_public");
-        Assert.Equal("REVOKE ALL ON ALL TABLES IN SCHEMA public FROM blog_public", statements[0]);
-        Assert.Equal("GRANT USAGE ON SCHEMA public TO blog_public", statements[1]);
-        Assert.Equal(PublicRoleGrants.ReadableTables.Select(t => $"GRANT SELECT ON \"{t}\" TO blog_public"), statements.Skip(2));
-        Assert.DoesNotContain(statements, s => s.Contains("AdminState", StringComparison.Ordinal));
+        var owned = PublicRoleGrants.ReadableTables.Append("AdminState").ToArray();
+        var statements = PublicRoleGrants.BuildStatements("blog_public", owned);
+
+        var expectedRevokes = owned.SelectMany(t => new[]
+        {
+            $"REVOKE ALL ON \"{t}\" FROM PUBLIC",
+            $"REVOKE ALL ON \"{t}\" FROM blog_public",
+        });
+        Assert.Equal(expectedRevokes, statements.Take(owned.Length * 2));
+        Assert.Equal("GRANT USAGE ON SCHEMA public TO blog_public", statements[owned.Length * 2]);
+        Assert.Equal(PublicRoleGrants.ReadableTables.Select(t => $"GRANT SELECT ON \"{t}\" TO blog_public"), statements.Skip(owned.Length * 2 + 1));
+        Assert.DoesNotContain(statements, s => s.Contains("GRANT SELECT ON \"AdminState\"", StringComparison.Ordinal));
+    }
+
+    /// <summary>허용 테이블이 아직 소유 목록에 없으면(마이그레이션 전) 그 테이블에는 <c>SELECT</c>를 부여하지 않는다 — 존재하지 않는
+    /// 테이블에 대한 <c>GRANT</c>는 42P01로 기동을 막기 때문이다.</summary>
+    [Fact]
+    public void BuildStatements_SkipsGrantForAllowedTableNotYetOwned()
+    {
+        var statements = PublicRoleGrants.BuildStatements("blog_public", ["Posts"]);
+        Assert.DoesNotContain(statements, s => s.Contains("GRANT SELECT ON \"Series\"", StringComparison.Ordinal));
+        Assert.Contains("GRANT SELECT ON \"Posts\" TO blog_public", statements);
     }
 
     /// <summary>롤 이름은 SQL 매개변수가 될 수 없어 문장에 직접 들어간다 — 따옴표·공백·대문자·세미콜론이 든 이름은 DB에 닿기 전에 거부한다.</summary>
@@ -127,6 +174,6 @@ public sealed class PublicRoleGrantsTests(PostgresContainerFixture pg)
     {
         var connectionString = new NpgsqlConnectionStringBuilder { Host = "db.example", Database = "blog", Username = username }.ToString();
         Assert.Throws<InvalidOperationException>(() => PublicRoleGrants.RoleOf(connectionString));
-        Assert.Throws<ArgumentException>(() => PublicRoleGrants.BuildStatements(username));
+        Assert.Throws<ArgumentException>(() => PublicRoleGrants.BuildStatements(username, []));
     }
 }

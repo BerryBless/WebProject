@@ -14,14 +14,20 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// </remarks>
 public sealed class HealthCheckCommandTests
 {
-    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond, bool hangForever = false) : HttpMessageHandler
     {
         public HttpRequestMessage? Seen { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Seen = request;
-            return Task.FromResult(respond(request));
+            if (hangForever)
+            {
+                // 취소 토큰을 존중하며 무한 대기한다. Task.FromResult로 즉시 반환하는 기본 경로로는 HttpClient.Timeout이
+                // 취소 토큰으로만 동작한다는 사실 때문에 시간 초과 자체를 재현할 수 없다.
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            return respond(request);
         }
     }
 
@@ -73,11 +79,24 @@ public sealed class HealthCheckCommandTests
         Assert.Equal(1, await HealthCheckCommand.RunAsync(Env(("Site__PublicOrigin", "https://blog.example.test")), handler, new StringWriter()));
     }
 
-    /// <summary>공개 origin 설정이 없거나 절대 URI가 아니면 요청을 보내지 않고 1이다.</summary>
+    /// <summary>서버가 <see cref="HealthCheckCommand.TimeoutSeconds"/> 안에 응답하지 않으면 예외 없이 종료 코드 1이다.
+    /// 기존 스텁(즉시 반환)으로는 <c>HttpClient.Timeout</c>이 취소 토큰으로만 작동한다는 점 때문에 이 경로가 전혀 실행되지 않았다 —
+    /// 무한 대기하는 스텁으로 실제 시간 초과를 재현한다(경과 시간은 느린 CI를 고려해 단언하지 않는다).</summary>
+    [Fact]
+    public async Task Timeout_ReturnsOne_WithoutThrowing()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK), hangForever: true);
+        var error = new StringWriter();
+        Assert.Equal(1, await HealthCheckCommand.RunAsync(Env(("Site__PublicOrigin", "https://blog.example.test")), handler, error));
+    }
+
+    /// <summary>공개 origin 설정이 없거나 절대 URI가 아니거나, 절대 URI라도 스킴이 http/https가 아니어서 Host가 비게 되면 요청을 보내지 않고 1이다.
+    /// <c>urn:example:blog</c>는 절대 URI이지만 호스트가 없어, 스킴·호스트를 함께 확인하지 않으면 빈 Host 헤더로 요청이 나가 버린다.</summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("blog.example.test")]
+    [InlineData("urn:example:blog")]
     public async Task MissingOrRelativeOrigin_ReturnsOne_WithoutSending(string? origin)
     {
         var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));

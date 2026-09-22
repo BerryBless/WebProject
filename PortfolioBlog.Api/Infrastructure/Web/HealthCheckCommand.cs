@@ -37,9 +37,13 @@ public static class HealthCheckCommand
         using var http = new HttpClient(handler, disposeHandler: true) { Timeout = TimeSpan.FromSeconds(TimeoutSeconds) };
         try
         {
-            if (!Uri.TryCreate(env("Site__PublicOrigin"), UriKind.Absolute, out var origin))
+            // 스킴·호스트까지 확인하는 이유: 절대 URI이기만 하면(예: urn:example:blog) Host가 빈 문자열로 나가 헬스체크가
+            // "설정 오류를 즉시 1로 보고한다"는 계약을 못 지키고 요청을 보내 버린다(호스트 필터의 400에 기대는 우회 경로가 된다).
+            if (!Uri.TryCreate(env("Site__PublicOrigin"), UriKind.Absolute, out var origin)
+                || origin.Scheme is not ("http" or "https")
+                || origin.Host.Length == 0)
             {
-                error.WriteLine("healthcheck: Site__PublicOrigin 이 없거나 절대 URI가 아닙니다.");
+                error.WriteLine("healthcheck: Site__PublicOrigin 이 없거나 http(s) 절대 URI가 아닙니다.");
                 return 1;
             }
             // ASPNETCORE_HTTP_PORTS는 "8080;8081"처럼 여러 개일 수 있다. 첫 번째만 쓴다.

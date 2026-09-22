@@ -26,24 +26,22 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
     /// <summary>기동된 컨테이너의 Npgsql 연결 문자열.</summary>
     public string ConnectionString => _container.GetConnectionString();
 
-    /// <summary>컨테이너 이미지를 내려받고 기동하여 <c>pg_isready</c>가 성공할 때까지 대기한다.</summary>
-    /// <returns>컨테이너가 연결 가능한 상태가 되면 완료되는 작업.</returns>
-    /// <remarks>
-    /// <b>[성능 및 동시성 제약 조건]</b>
-    /// <list type="bullet">
-    /// <item><description><b>Thread Safety:</b> xUnit이 컬렉션당 1회만 호출하므로 동시 호출을 가정하지 않는다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> Docker 클라이언트·컨테이너 핸들에 대한 관리형 할당만 발생한다.</description></item>
-    /// <item><description><b>Blocking:</b> 비동기 Non-blocking 대기. 최초 이미지 pull 시 수십 초가 걸릴 수 있다.</description></item>
-    /// </list>
-    /// </remarks>
     /// <summary>공개 조회 전용 롤. 운영의 <c>blog_public</c>에 해당한다 — 권한은 앱이 시작할 때 부여한다(PublicRoleGrants).</summary>
     public const string PublicRole = "blog_public_test";
 
     /// <summary><see cref="PublicRole"/>의 비밀번호. 테스트 컨테이너 안에서만 쓰이는 dummy 값이다.</summary>
     public const string PublicRoleSecret = "dummy-public-role";
 
-    /// <summary>컨테이너를 띄우고 공개 조회 전용 롤을 만든다.</summary>
+    /// <summary>컨테이너 이미지를 내려받고 기동하여 <c>pg_isready</c>가 성공할 때까지 대기한 뒤 공개 조회 전용 롤을 만든다.</summary>
     /// <returns>컨테이너가 연결을 받을 수 있고 롤이 생긴 뒤 완료되는 작업.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> xUnit이 컬렉션당 1회만 호출하므로 동시 호출을 가정하지 않는다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Docker 클라이언트·컨테이너 핸들과 롤 생성용 Npgsql 연결·명령 객체에 대한 관리형 할당만 발생한다.</description></item>
+    /// <item><description><b>Blocking:</b> 비동기 Non-blocking 대기. 최초 이미지 pull 시 수십 초가 걸릴 수 있고, 그 뒤 <c>CREATE ROLE</c> 한 번의 추가 DB 왕복이 붙는다(롤은 클러스터 전역이라 컨테이너당 1회).</description></item>
+    /// </list>
+    /// </remarks>
     public async Task InitializeAsync()
     {
         await _container.StartAsync();

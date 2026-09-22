@@ -150,7 +150,8 @@ public static class StartupValidation
     /// </remarks>
     private static void CheckConnectionString(string key, string connectionString, int statementTimeoutMs)
     {
-        var parsed = new NpgsqlConnectionStringBuilder(connectionString);
+        // Npgsql은 알 수 없는 키워드·형식 오류를 FormatException이 아니라 ArgumentException으로 던진다(실측) — Check가 둘 다 잡는다.
+        var parsed = Check(key, () => new NpgsqlConnectionStringBuilder(connectionString));
         // Options가 이미 있으면 공개 연결의 시작 옵션(statement_timeout·default_transaction_read_only)과 합칠 수 없다.
         // 첫 공개 요청이 아니라 시작 시점에 드러낸다.
         if (!string.IsNullOrEmpty(parsed.Options))
@@ -167,12 +168,12 @@ public static class StartupValidation
         }
     }
 
-    /// <summary>설정 값을 파싱하고, 형식 오류(<see cref="FormatException"/>)를 설정 키를 포함한 <see cref="InvalidOperationException"/>으로 바꾼다.</summary>
+    /// <summary>설정 값을 파싱하고, 형식 오류(<see cref="FormatException"/>·<see cref="ArgumentException"/>)를 설정 키를 포함한 <see cref="InvalidOperationException"/>으로 바꾼다.</summary>
     /// <typeparam name="T">파싱 결과 타입.</typeparam>
     /// <param name="key"><see cref="InvalidOperationException"/> 메시지에 포함할 설정 키 이름.</param>
     /// <param name="parse">실제 파싱을 수행하는 델리게이트.</param>
     /// <returns>파싱에 성공한 값.</returns>
-    /// <exception cref="InvalidOperationException"><paramref name="parse"/>가 <see cref="FormatException"/>을 던졌을 때.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="parse"/>가 <see cref="FormatException"/> 또는 <see cref="ArgumentException"/>을 던졌을 때.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -184,7 +185,7 @@ public static class StartupValidation
     private static T Check<T>(string key, Func<T> parse)
     {
         try { return parse(); }
-        catch (FormatException ex) { throw new InvalidOperationException($"설정 {key} 이(가) 잘못되었습니다: {ex.Message}", ex); }
+        catch (Exception ex) when (ex is FormatException or ArgumentException) { throw new InvalidOperationException($"설정 {key} 이(가) 잘못되었습니다: {ex.Message}", ex); }
     }
 
     /// <summary><c>Development</c>가 아닌 환경에서 요구되는 조건이 충족되지 않으면 설정 키를 포함한 <see cref="InvalidOperationException"/>을 던진다.</summary>

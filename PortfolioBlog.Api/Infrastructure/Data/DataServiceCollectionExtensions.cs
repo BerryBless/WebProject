@@ -37,11 +37,6 @@ public static class DataServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>설정에서 관리 연결 문자열을 읽고, 비어 있으면 명확한 설정 오류로 즉시 실패한다.</summary>
-    /// <param name="sp">연결 문자열을 읽을 서비스 프로바이더.</param>
-    /// <returns><c>ConnectionStrings:Default</c> 값.</returns>
-    /// <exception cref="InvalidOperationException"><c>ConnectionStrings:Default</c>가 없거나 공백뿐이다.</exception>
-    // appsettings.json의 기본값이 빈 문자열이라 ??로는 걸러지지 않는다(Plan 1 정오표). 메시지는 ConnectionStringGuardTests가 고정한다.
     /// <summary>공개 조회 컨텍스트가 쓸 연결 문자열. <c>ConnectionStrings:Public</c>(읽기 전용 롤)이 있으면 그것을, 없으면 관리 연결을 쓴다.</summary>
     /// <param name="sp">연결 문자열을 읽을 서비스 프로바이더.</param>
     /// <returns>공개 연결의 바탕이 되는 연결 문자열(시작 옵션은 <see cref="PublicDbContext.BuildConnectionString"/>이 붙인다).</returns>
@@ -53,6 +48,11 @@ public static class DataServiceCollectionExtensions
         return string.IsNullOrWhiteSpace(publicConnectionString) ? RequireConnectionString(sp) : publicConnectionString;
     }
 
+    /// <summary>설정에서 관리 연결 문자열을 읽고, 비어 있으면 명확한 설정 오류로 즉시 실패한다.</summary>
+    /// <param name="sp">연결 문자열을 읽을 서비스 프로바이더.</param>
+    /// <returns><c>ConnectionStrings:Default</c> 값.</returns>
+    /// <exception cref="InvalidOperationException"><c>ConnectionStrings:Default</c>가 없거나 공백뿐이다.</exception>
+    // appsettings.json의 기본값이 빈 문자열이라 ??로는 걸러지지 않는다(Plan 1 정오표). 메시지는 ConnectionStringGuardTests가 고정한다.
     private static string RequireConnectionString(IServiceProvider sp)
     {
         var connectionString = sp.GetRequiredService<IConfiguration>().GetConnectionString("Default");
