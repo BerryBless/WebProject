@@ -1,0 +1,132 @@
+name: portfolioblog
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  caddy:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: PortfolioBlog.Web/Dockerfile
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    ports:
+      - "${HTTP_BIND:-0.0.0.0:80}:80"
+      - "${HTTPS_BIND:-0.0.0.0:443}:443"
+    environment:
+      DOMAIN: ${DOMAIN:?}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+      ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:?}
+      ACME_EMAIL: ${ACME_EMAIL:?}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        ipv4_address: 172.30.0.2
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: PortfolioBlog.Api/Dockerfile
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=blog;Username=blog_app;Password=${BLOG_APP_PASSWORD:?};Command Timeout=30"
+      ConnectionStrings__Public: "Host=postgres;Database=blog;Username=blog_public;Password=${BLOG_PUBLIC_PASSWORD:?};Command Timeout=30"
+      Site__PublicOrigin: ${PUBLIC_ORIGIN:?}
+      Site__AdminOrigin: ${ADMIN_ORIGIN:?}
+      Site__Title: ${SITE_TITLE:-Blog}
+      Site__Description: ${SITE_DESCRIPTION:-}
+      Site__Author: ${SITE_AUTHOR:-}
+      Admin__AllowedCidrs: ${ADMIN_ALLOWED_CIDRS:?}
+      Admin__PasswordHash: ${ADMIN_PASSWORD_HASH:?}
+      Proxy__TrustedIp: 172.30.0.2
+    volumes:
+      - attachments:/data/attachments
+      - dpkeys:/data/dpkeys
+    networks:
+      - edge
+      - db
+    healthcheck:
+      test: ["CMD", "dotnet", "PortfolioBlog.Api.dll", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+      start_interval: 2s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    <<: *hardening
+    image: postgres:17.11-alpine
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      BLOG_APP_PASSWORD: ${BLOG_APP_PASSWORD:?}
+      BLOG_PUBLIC_PASSWORD: ${BLOG_PUBLIC_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog_app -d blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # 백업·복원 전용(backup.sh·restore.sh가 `docker compose run`으로만 띄운다). 평소에는 뜨지 않는다.
+  tools:
+    profiles: ["tools"]
+    image: postgres:17.11-alpine
+    user: "1654:1654"
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    entrypoint: ["/bin/sh", "-c"]
+    volumes:
+      - attachments:/data/attachments
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+          ip_range: 172.30.0.128/25
+  db:
+    internal: true
+
+volumes:
+  pgdata:
+  attachments:
+  dpkeys:
+  caddy_data:
+  caddy_config:

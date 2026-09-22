@@ -510,6 +510,8 @@ secrets.json
 # 기술 블로그: 관리 SPA 빌드 산출물과 배포 비밀값 (plan/tech_blog_0920.md)
 PortfolioBlog.Web/dist/
 deploy/.env
+deploy/backups/
+deploy/smoke/backups/
 
 # 로컬 개발 데이터(첨부 등)
 .data/

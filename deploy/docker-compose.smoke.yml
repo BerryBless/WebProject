@@ -1,0 +1,52 @@
+# 스모크 테스트 전용 덮어쓰기. 운영에 쓰지 않는다. deploy/smoke/run.sh가 기본 파일과 함께 읽는다.
+services:
+  api:
+    environment:
+      # Playwright E2E는 브라우저 둘이 같은 IP에서 여러 번 로그인한다. 운영 기본값(IP당 5회/분)은 그대로 두고 여기서만 올린다.
+      Admin__LoginPerIpPerMinute: "40"
+      Admin__LoginGlobalPerMinute: "80"
+
+  # 허용 목록 안의 클라이언트(172.30.0.10)와 밖의 클라이언트(172.30.0.11). 호스트의 NAT 동작에 기대지 않으려고 컨테이너에서 찌른다.
+  smoke-allowed: &smoke
+    profiles: ["smoke"]
+    image: node:24.21.0-alpine
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    working_dir: /smoke
+    command: ["node", "--test", "--test-reporter=spec", "/smoke/smoke.test.mjs"]
+    environment:
+      ROLE: ${SMOKE_ROLE:-allowed}
+      DOMAIN: ${DOMAIN:?}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:?}
+      SMOKE_ADMIN_PASSWORD: ${SMOKE_ADMIN_PASSWORD:?}
+      # Caddy가 *.localhost에 내부 CA로 발급한 인증서를 검증한다(-k로 건너뛰지 않는다).
+      NODE_EXTRA_CA_CERTS: /caddy-data/caddy/pki/authorities/local/root.crt
+    extra_hosts:
+      - "${DOMAIN}:172.30.0.2"
+      - "${ADMIN_DOMAIN}:172.30.0.2"
+    volumes:
+      - ./smoke:/smoke:ro
+      - ../PortfolioBlog.Web/admin-headers.ts:/web/admin-headers.ts:ro
+      - caddy_data:/caddy-data:ro
+    networks:
+      edge:
+        ipv4_address: 172.30.0.10
+
+  smoke-denied:
+    <<: *smoke
+    environment:
+      ROLE: denied
+      DOMAIN: ${DOMAIN:?}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:?}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:?}
+      SMOKE_ADMIN_PASSWORD: ${SMOKE_ADMIN_PASSWORD:?}
+      NODE_EXTRA_CA_CERTS: /caddy-data/caddy/pki/authorities/local/root.crt
+    networks:
+      edge:
+        ipv4_address: 172.30.0.11
