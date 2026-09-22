@@ -42,6 +42,9 @@ describe('deploy/Caddyfile의 관리 사이트 헤더', () => {
     const csp = admin.indexOf('Content-Security-Policy "')
     expect(proxy).toBeGreaterThan(-1)
     expect(csp).toBeGreaterThan(proxy)
+    // 위치(순서) 단언만으로는 헤더 블록이 handle @backend 안(프록시 뒤, 탭 한 단계 더 깊이)으로 옮겨져도 통과해 버린다(csp > proxy는 여전히 참).
+    // 중첩 깊이(caddy fmt 기준 route 레벨 = 탭 3개)까지 봐야 그 사보타주를 잡는다.
+    expect(caddyfile).toMatch(/^\t\t\tContent-Security-Policy "/m)
   })
 
   it('허용 IP 검사는 관리 사이트의 다른 어떤 처리보다 앞이고, 전부 route 블록 안에 있다', () => {

@@ -101,19 +101,32 @@ if (ROLE === 'allowed') {
         assertNoProductHeaders(response, `${method} ${path}`)
       }
     }
-    assertEmpty404(await pub('/api/posts', { headers: XRW }), '/api/posts')
+    const notFound = await pub('/api/posts', { headers: XRW })
+    assertEmpty404(notFound, '/api/posts')
+    // Caddy가 직접 만드는 404에도 공개 route의 header 블록이 적용된다(백엔드가 관여하지 않는 경로에서도 HSTS·nosniff가 나가야 한다).
+    assert.equal(notFound.headers['strict-transport-security'], HSTS, '공개 /api 404: HSTS')
+    assert.equal(notFound.headers['x-content-type-options'], 'nosniff', '공개 /api 404: nosniff')
     assertEmpty404(await pub('/API/posts', { headers: XRW }), '/API/posts')
   })
 
-  test('공개 사이트: 평문 HTTP는 HTTPS로 넘긴다', async () => {
-    const response = await pub('/', { tls: false })
-    assert.equal(response.status, 308)
-    assert.match(response.headers.location, new RegExp(`^https://${DOMAIN.replaceAll('.', '\\.')}/`))
+  test('공개·관리 사이트: 허용 IP에서 평문 HTTP는 HTTPS로 넘긴다(Server 없음)', async () => {
+    for (const [label, host, send1] of [['공개', DOMAIN, pub], ['관리', ADMIN_DOMAIN, adm]]) {
+      const response = await send1('/', { tls: false })
+      assert.equal(response.status, 308, label)
+      assert.match(response.headers.location, new RegExp(`^https://${host.replaceAll('.', '\\.')}/`), label)
+      assertNoProductHeaders(response, `${label} HTTP`)
+    }
   })
 
-  test('공개 사이트: 본문이 큰 요청과 긴 요청 줄은 5xx 없이 거부된다', async () => {
+  test('공개 사이트: GET·HEAD 외 메서드와 긴 요청 줄은 5xx 없이 거부된다', async () => {
+    // 100KB는 request_body 상한(64KB)보다 크지만, 메서드 매처가 본문을 보기 전에 먼저 405로 끊는다(413이 아니다).
     const big = await pub('/', { method: 'POST', body: Buffer.alloc(100 * 1024, 0x61), headers: { 'Content-Type': 'text/plain' } })
-    assert.equal(big.status, 413)
+    assert.equal(big.status, 405, 'GET·HEAD 외 메서드는 본문 크기와 무관하게 405')
+    assertNoProductHeaders(big, '공개 POST /')
+    for (const method of ['OPTIONS', 'TRACE']) {
+      const response = await pub('/', { method })
+      assert.equal(response.status, 405, method)
+    }
     const long = await pub(`/search?q=${'a'.repeat(9000)}`)
     assert.ok([414, 431].includes(long.status), `긴 요청 줄: ${long.status}`)
   })
@@ -129,6 +142,13 @@ if (ROLE === 'allowed') {
     assert.equal(home.headers['cross-origin-opener-policy'], 'same-origin')
     assert.equal(home.headers['cache-control'], 'no-cache')
     assertNoProductHeaders(home, '관리 /')
+  })
+
+  test('관리 사이트: file_server가 거부하는 메서드도 Server 헤더 없이 405를 낸다', async () => {
+    // OPTIONS는 file_server가 직접 거부하는 실제 오류 응답이라(respond가 아니라), route의 defer가 아니라 handle_errors가 Server를 지운다.
+    const response = await adm('/', { method: 'OPTIONS' })
+    assert.equal(response.status, 405)
+    assertNoProductHeaders(response, '관리 OPTIONS /')
   })
 
   test('관리 사이트: SPA 화면 주소는 index.html, /assets의 없는 파일은 404', async () => {
@@ -241,6 +261,14 @@ if (ROLE === 'denied') {
     }
     const login = await adm('/api/auth/login', { method: 'POST', headers: { ...forged, Origin: ADMIN_ORIGIN, 'Content-Type': 'application/json' }, body: JSON.stringify({ password: SMOKE_ADMIN_PASSWORD }) })
     assertEmpty404(login, 'POST /api/auth/login')
+  })
+
+  test('관리 사이트: 허용 목록 밖에서는 평문 HTTP도 본문 없는 404다(Server 없음, 308로 새지 않는다)', async () => {
+    for (const path of ['/', '/login', '/api/auth/me']) {
+      const response = await adm(path, { tls: false })
+      assertEmpty404(response, `HTTP ${path}`)
+      assertNoProductHeaders(response, `HTTP ${path}`)
+    }
   })
 
   test('관리 사이트: 공개 도메인의 TLS 이름(SNI)으로 들어와 Host만 관리 호스트로 바꿔도 404다', async () => {

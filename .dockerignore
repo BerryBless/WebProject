@@ -10,6 +10,7 @@ PortfolioBlog.Api/.data/
 PortfolioBlog.Api/appsettings.Development.json
 PortfolioBlog.Api/Properties/
 PortfolioBlog.Api/*.http
+PortfolioBlog.Api/*.user
 PortfolioBlog.Web/node_modules/
 PortfolioBlog.Web/dist/
 PortfolioBlog.Web/.certs/

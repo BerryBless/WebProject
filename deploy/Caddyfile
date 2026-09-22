@@ -20,24 +20,56 @@
 {$DOMAIN} {
 	log
 	route {
-		# defer: reverse_proxy가 응답에 더하는 Via와 오류 경로의 Server까지, 응답을 쓰기 직전에 지운다.
+		# defer: reverse_proxy가 응답에 더하는 Via와, 이 route가 직접 만드는 정상 응답(404·405)의 Server를 응답을 쓰기 직전에 지운다.
+		# request_body 초과·백엔드 다운 같은 실제 오류 응답은 이 route를 거치지 않고 Caddy의 오류 처리 경로로 빠지므로
+		# 아래 handle_errors에서 따로 지운다(defer만으로는 그 경로의 Server가 지워지지 않는다 — 실측).
 		header {
 			-Server
 			-Via
+			# 백엔드가 붙이는 값과 같다. 캐디가 직접 만드는 응답(아래 404·405)에도 같은 값을 붙인다.
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			X-Content-Type-Options "nosniff"
+			X-Frame-Options "DENY"
+			Referrer-Policy "strict-origin-when-cross-origin"
 			defer
 		}
 		@api path /api /api/*
 		respond @api 404
-		# 공개 표면은 GET·HEAD뿐이다. 본문은 받을 이유가 없다.
+		# 공개 표면은 GET·HEAD뿐이다: 그 외 메서드는 본문을 보기도 전에 여기서 405로 끊는다.
+		@nonread not method GET HEAD
+		respond @nonread 405
+		# 본문 상한(GET·HEAD로 좁힌 뒤에도 남겨 두는 방어적 이중 장치).
 		request_body {
 			max_size 64KB
 		}
 		encode zstd gzip
 		reverse_proxy api:8080
 	}
+	# route 오류 경로(413·502 등) 전용. defer된 header 블록이 닿지 않는 응답에서 Server·Via를 지운다.
+	handle_errors {
+		header {
+			-Server
+			-Via
+		}
+		respond "" {err.status_code}
+	}
 }
 
-# 관리 사이트: 허용 IP에서만 보인다. 허용 목록 밖에서는 모든 경로가 404다.
+# 공개 사이트의 평문 HTTP: 명시 블록으로 가져와야 -Server가 리다이렉트 응답에도 적용된다
+# (Caddy의 자동 HTTPS 리다이렉트는 이 사이트 블록 밖에서 만들어져 지울 수 없다 — 실측).
+# ACME HTTP-01 챌린지는 Caddy가 포트 80 서버 앞단에 자체 핸들러를 끼워 처리하므로 이 명시 블록과 공존한다
+# (Caddy 문서 "Automatic HTTPS": the HTTP challenge ... still works even if you define an http:// site).
+http://{$DOMAIN} {
+	route {
+		header {
+			-Server
+			defer
+		}
+		redir https://{host}{uri} 308
+	}
+}
+
+# 관리 사이트: 허용 IP에서만 보인다. 허용 목록 밖에서는 모든 경로가 404다(평문 HTTP 포함 — 아래 http 블록).
 {$ADMIN_DOMAIN} {
 	log
 	route {
@@ -86,9 +118,34 @@
 		@asset_miss path /assets/*
 		respond @asset_miss 404
 
+		# 점으로 시작하는 파일·디렉터리(.env·.vite 등 빌드 메타)는 file_server가 그대로 서빙하므로 여기서 먼저 막는다.
+		@dot path */.*
+		respond @dot 404
+
 		# 그 밖의 경로는 SPA 라우트다. index.html은 매번 재검증한다.
 		header Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
+	}
+	# route 오류 경로(file_server의 405 등) 전용. defer된 header 블록이 닿지 않는 응답에서 Server·Via를 지운다.
+	handle_errors {
+		header {
+			-Server
+			-Via
+		}
+		respond "" {err.status_code}
+	}
+}
+
+# 관리 사이트의 평문 HTTP: IP 게이트와 -Server를 여기서도 태운다(공개 사이트 http 블록과 같은 이유).
+http://{$ADMIN_DOMAIN} {
+	route {
+		header {
+			-Server
+			defer
+		}
+		@denied not remote_ip {$ADMIN_ALLOWED_CIDRS}
+		respond @denied 404
+		redir https://{host}{uri} 308
 	}
 }
