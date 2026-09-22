@@ -2309,3 +2309,31 @@ pwsh scripts/harness-audit.ps1                                                  
 ```
 
 최종 리뷰(가장 유능한 모델)는 `SMOKE_KEEP=1`로 남긴 스택을 **직접 공격**한다: 관리 사이트 우회(Host·SNI·경로 표기·메서드·HTTP/1.0·절대 URI 요청 줄), 공개 사이트에서 상태 변경 시도, 컨테이너 탈출 관점의 compose 설정(쓰기 가능한 경로, 권한, 네트워크 도달성), 백업 산출물의 권한과 내용, 로그에 남는 값, `.env.example`·문서의 실제 비밀값 유무.
+
+---
+
+## 구현 중 발견해 고친 계획 결함 (2026-09-22, Task 1~3 실행·리뷰에서)
+
+이 계획의 코드 블록은 저장소 밖 복사본에서 실제로 빌드·기동해 본 것이지만, **리뷰가 그 위에서 더 찾아냈다.** 아래 항목의 코드 블록을 그대로 다시 쓰지 말 것 — 브랜치 `feature/blog-deploy`의 커밋에 이미 반영됐거나(Task 1), 재개하면 바로 고칠 목록에 있다(Task 2·3). 재개 절차와 각 항목의 판정은 **`plan/resume_guide_0921.md` 3절**에 있다.
+
+**Task 1(반영 완료 — `7efab39`·`88310ee`)**
+- `BuildStatements`의 `REVOKE ALL … FROM {role}`은 **`PUBLIC` 의사 롤에 준 권한을 회수하지 못한다**(실측: `GRANT … TO PUBLIC` 뒤 공개 롤이 `AdminState`를 읽고 썼다). → `FROM PUBLIC`도 회수한다.
+- `REVOKE … ON ALL TABLES IN SCHEMA public`은 **관리 롤이 비 superuser인 운영 형태에서 남의 소유 테이블이 하나만 있어도 42501로 기동을 막는다**(운영의 `blog_app`이 정확히 그 형태다). → 회수 대상을 `pg_tables`에서 얻은 **자기 소유 테이블**로 한정한다(`BuildStatements(role, ownedTables)`).
+- 테스트 하네스가 superuser 연결을 쓰기 때문에 위 두 결함이 초록으로 지나간다 → 픽스처에 비 superuser 소유자 롤을 두고 그 롤로 `Apply`하는 통합 테스트가 있어야 진짜 회귀 가드가 된다.
+- `PostgresContainerFixture`·`DataServiceCollectionExtensions`의 diff 삽입 위치가 남의 XML 문서 블록 안쪽이라 문서가 어긋난다. 롤 이름 정규식은 `$`가 아니라 `\z`. 헬스체크는 스킴이 `http`/`https`이고 호스트가 있을 때만 보낸다.
+
+**Task 2(재개하면 고칠 것)**
+- `caddyfile.test.ts`의 위치 단언(인덱스·탭 깊이)은 **보안 헤더 블록을 관리 `route` 끝으로 옮기는 변경을 잡지 못한다** — 5/5 통과하면서 실제 응답의 헤더 7개가 사라진다(실측).
+- 폴백 없는 사이트 구성이라 **두 도메인 밖 Host에 `Server: Caddy`가 남는다**(:443 유효 SNI + 미매칭 Host → 200 빈 응답).
+- `handle_errors`가 만드는 502·413에는 보안 헤더가 붙지 않는다. `@dot`(점 파일 404)이 `/.well-known/*`까지 막는다.
+- 판정 유지(조치 없음): `caddyfile.test.ts`는 `.gitattributes`의 `eol=lf` 밖이다(TS 파일이라 줄 끝과 무관 — 다시 제기하지 말 것). 스모크 클라이언트의 keep-alive 에이전트가 간헐적으로 이상 응답을 보이지만 서버 측 desync는 없음을 생소켓으로 확인했다.
+
+**Task 3(재개하면 고칠 것)**
+- `edge` 네트워크가 `internal`이 아니라 **api 컨테이너가 인터넷으로 나갈 수 있다**(실측). → caddy만 외부에 두는 3망 구성.
+- `run.sh`의 DB 롤 검사가 `psql -h 127.0.0.1`이라 **pg_hba의 `trust` 줄을 타 비밀번호를 검증하지 않는다**(틀린 비밀번호로 superuser 접속 성공). 부정 검사도 "0 아닌 종료 코드 = 통과"라 오타·연결 실패까지 통과한다. → `-h postgres` + SQLSTATE·메시지 판정.
+- caddy 컨테이너가 root로 돈다. 첨부는 내용 주소라 재업로드가 200이므로 스모크의 `201` 단언은 비멱등이다.
+
+**계획이 맞았던 것(실측으로 확인, 되돌리지 말 것)**
+- `ip_range: 172.30.0.128/25`가 caddy의 고정 IP를 지킨다(없으면 동적 컨테이너가 `.2`를 가져간다).
+- **ACME HTTP-01은 명시 `http://` 사이트 블록·IP 허용 목록과 공존한다** — 로컬 ACME CA를 허용 목록 밖에 두고 실제 발급까지 확인했다.
+- `db` 네트워크 `internal`, api의 호스트 포트 없음, `read_only`·`cap_drop: ALL`·`no-new-privileges`, 로그 회전, `trap EXIT`의 비밀 파일 삭제, `:'var'` 인용의 안전성, publish 출력에 EF 디자인 타임 어셈블리 없음.
