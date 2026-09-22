@@ -242,4 +242,38 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     [Fact]
     public void PublicConnectionString_WithUnsafeRoleName_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username='blog public'" }, "ConnectionStrings:Public 의 Username");
+
+    /// <summary>환경에 상관없이 <c>ConnectionStrings:Public</c>이 Npgsql이 모르는 키워드를 담고 있으면(연결 문자열 자체를 파싱하지 못한다)
+    /// 시작이 실패하고, 예외 텍스트에 설정 키(<c>ConnectionStrings:Public</c>)는 있지만 연결 문자열 값(호스트 <c>db.example</c>)은 없는지
+    /// 검증한다. Npgsql은 이런 파싱 실패를 <see cref="FormatException"/>이 아니라 <see cref="ArgumentException"/>으로 던지므로(실측:
+    /// <c>"Couldn't set bogus keyword"</c>), <c>StartupValidation.CheckConnectionString</c>이 파서 호출 자체를 <c>Check</c>로 감싸는지가
+    /// 이 테스트의 핵심이다.</summary>
+    [Fact]
+    public void PublicConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=blog_public_test;Bogus Keyword=1",
+        });
+        var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        var text = ex.ToString();
+        Assert.Contains("ConnectionStrings:Public", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("db.example", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>같은 파싱 실패가 <c>ConnectionStrings:Default</c>에서도 그 키로 보고되고 값(호스트)은 새지 않는지 검증한다.
+    /// 사용자 이름 <c>postgres</c>는 테스트 컨테이너의 실제 관리 롤 이름을 흉내만 낸 값이며, 연결 문자열 파싱 자체가 이 지점에서
+    /// 이미 실패하므로 실제 DB에 연결을 시도하지 않는다.</summary>
+    [Fact]
+    public void DefaultConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=db.example;Database=blog;Username=postgres;Bogus Keyword=1",
+        });
+        var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        var text = ex.ToString();
+        Assert.Contains("ConnectionStrings:Default", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("db.example", text, StringComparison.Ordinal);
+    }
 }

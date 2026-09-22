@@ -108,29 +108,76 @@ public sealed class PublicRoleGrantsTests(PostgresContainerFixture pg)
         Assert.Null(await SqlStateOfAsync(connection, "SELECT count(*) FROM \"Posts\""));
     }
 
-    /// <summary>관리 롤이 소유하지 않은 테이블(예: 점검용 계정이 만든 테이블)이 스키마에 있어도 <see cref="PublicRoleGrants.Apply"/>는
-    /// 예외 없이 끝나고, 허용 테이블은 여전히 읽을 수 있다(F2 회귀 테스트). <c>REVOKE</c>를 관리 롤이 소유한 테이블로 좁히지 않으면
-    /// (<c>ON ALL TABLES IN SCHEMA public</c>) 비 superuser 관리 롤에서는 이 테이블에 대한 권한 없음(42501)으로 트랜잭션 전체가
-    /// 실패해 앱이 기동하지 못한다(운영의 <c>blog_app</c>은 superuser가 아니다).</summary>
+    /// <summary>운영을 흉내 낸 <b>비 superuser</b> 관리 롤(<c>owner_app_test</c>, 운영의 <c>blog_app</c>에 해당)에서, 관리 롤이
+    /// 소유하지 않은 테이블(<c>ForeignOwned</c>, superuser가 만듦)과 superuser가 직접 준 <c>PUBLIC</c> 권한(<c>AdminState</c>)이
+    /// 스키마에 있어도 <see cref="PublicRoleGrants.Apply"/>는 예외 없이 끝나고, 허용 테이블은 읽히고 그 외에는 여전히 막히는지 검증한다
+    /// (F2의 진짜 회귀 가드). 이 테스트의 관리 연결이 <b>superuser가 아니어야</b> 의미가 있다 — PostgreSQL은 superuser의 REVOKE/GRANT를
+    /// 객체 소유권과 무관하게 항상 통과시키므로, 관리 연결이 superuser인 <see cref="ApiFactory"/> 기반 테스트로는
+    /// <c>REVOKE ... ON ALL TABLES IN SCHEMA public</c>(스키마 전체, 옛 코드)으로 되돌려도 이 회귀를 잡지 못한다(실측).</summary>
     [Fact]
-    public async Task Apply_SucceedsWithAllowedTableSelect_EvenWhenAForeignOwnedTableExists()
+    public async Task Apply_SucceedsWithAllowedTableSelect_WhenAdminRoleIsNotSuperuser_AndAForeignOwnedTableExists()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
-        using var _ = factory.CreateClient(); // 호스트 기동 → Migrate → 첫 Apply
-        await using (var owner = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(factory.ConnectionString) { Pooling = false }.ToString()))
+        var dbName = "blog_owner_test_" + Guid.NewGuid().ToString("N");
+        var superuserClusterConnectionString = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { Pooling = false }.ToString();
+        await using (var superuser = new NpgsqlConnection(superuserClusterConnectionString))
         {
-            await owner.OpenAsync();
-            Assert.Null(await SqlStateOfAsync(owner, "CREATE TABLE \"OtherOwned\" (i int)"));
-            Assert.Null(await SqlStateOfAsync(owner, $"ALTER TABLE \"OtherOwned\" OWNER TO {PostgresContainerFixture.PublicRole}"));
+            await superuser.OpenAsync();
+            // 비 superuser 관리 롤이 DB를 소유하게 만든다 — PG15+에서는 DB 소유자가 pg_database_owner를 통해 그 안의
+            // public 스키마도 자동으로 소유한다(운영의 init 스크립트가 하는 ALTER SCHEMA public OWNER TO blog_app과 동등).
+            Assert.Null(await SqlStateOfAsync(superuser, $"CREATE DATABASE \"{dbName}\" OWNER {PostgresContainerFixture.OwnerRole}"));
         }
+        try
+        {
+            var ownerConnectionString = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
+            {
+                Database = dbName,
+                Username = PostgresContainerFixture.OwnerRole,
+                Password = PostgresContainerFixture.OwnerRoleSecret,
+            }.ToString();
+            var publicConnectionString = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
+            {
+                Database = dbName,
+                Username = PostgresContainerFixture.PublicRole,
+                Password = PostgresContainerFixture.PublicRoleSecret,
+                Pooling = false,
+            }.ToString();
+            var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ownerConnectionString).Options;
 
-        await using var scope = factory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        PublicRoleGrants.Apply(db, AsPublicRole(factory)); // 예외 없이 끝나야 한다
+            // 마이그레이션을 비 superuser 관리 롤로 실행한다 — Posts 등 앱 테이블은 이 롤이 소유하게 된다.
+            await using (var ownerDb = new AppDbContext(options))
+            {
+                ownerDb.Database.Migrate();
+            }
+            await using (var superuserInDb = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(pg.ConnectionString) { Database = dbName, Pooling = false }.ToString()))
+            {
+                await superuserInDb.OpenAsync();
+                // 관리 롤이 소유하지 않은 테이블. Apply가 회수 대상을 소유 테이블로 좁히지 않으면(F2 이전 코드) 이 테이블에서
+                // 권한 없음(42501)으로 트랜잭션 전체가 실패한다 — 그러나 이 연결은 superuser이므로 이 테이블 자체는 superuser가 만든다.
+                Assert.Null(await SqlStateOfAsync(superuserInDb, "CREATE TABLE \"ForeignOwned\" (i int)"));
+                // superuser가 관리 롤 소유 테이블에 직접 준 PUBLIC 권한(F1의 같은 뿌리) — 비 superuser 관리 롤도 자기 소유
+                // 객체의 ACL이므로 회수할 수 있어야 한다(REVOKE는 부여자가 아니라 객체 소유자 권한으로 동작한다).
+                Assert.Null(await SqlStateOfAsync(superuserInDb, "GRANT SELECT ON \"AdminState\" TO PUBLIC"));
+            }
 
-        await using var connection = new NpgsqlConnection(AsPublicRole(factory));
-        await connection.OpenAsync();
-        Assert.Null(await SqlStateOfAsync(connection, "SELECT count(*) FROM \"Posts\""));
+            // 예외 없이 끝나야 한다 — 비 superuser 관리 롤 기준의 진짜 F2 회귀 가드.
+            await using (var ownerDb = new AppDbContext(options))
+            {
+                PublicRoleGrants.Apply(ownerDb, publicConnectionString);
+            }
+
+            await using var publicConn = new NpgsqlConnection(publicConnectionString);
+            await publicConn.OpenAsync();
+            Assert.Null(await SqlStateOfAsync(publicConn, "SELECT count(*) FROM \"Posts\""));
+            Assert.Equal("42501", await SqlStateOfAsync(publicConn, "SELECT * FROM \"AdminState\""));
+            Assert.Equal("42501", await SqlStateOfAsync(publicConn, "SELECT * FROM \"ForeignOwned\""));
+        }
+        finally
+        {
+            await using var superuser = new NpgsqlConnection(superuserClusterConnectionString);
+            await superuser.OpenAsync();
+            await using var dropDb = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{dbName}\" WITH (FORCE)", superuser);
+            await dropDb.ExecuteNonQueryAsync();
+        }
     }
 
     /// <summary>문장은 소유 테이블마다 <c>PUBLIC</c>·롤 권한을 먼저 회수한 뒤 스키마 사용을 주고, 소유 목록에 있는 허용 테이블에만
@@ -176,4 +223,12 @@ public sealed class PublicRoleGrantsTests(PostgresContainerFixture pg)
         Assert.Throws<InvalidOperationException>(() => PublicRoleGrants.RoleOf(connectionString));
         Assert.Throws<ArgumentException>(() => PublicRoleGrants.BuildStatements(username, []));
     }
+
+    /// <summary>롤 이름 끝의 개행은 거부된다. .NET 정규식의 <c>$</c>는 문자열 끝의 개행 <b>앞</b>에서도 매치하므로 <c>\z</c>로 고정했다(F5) —
+    /// <see cref="PublicRoleGrants.BuildStatements"/>를 직접 호출해 값이 트림되지 않는 경로로 검증한다.
+    /// <see cref="PublicRoleGrants.RoleOf"/> 경로는 이 케이스를 재현하지 못한다: Npgsql이 연결 문자열을 재구성하며 끝의 공백을
+    /// 먼저 잘라내므로(실측: <c>Username=blog_public\n</c>가 <c>"blog_public"</c>으로 트림된 뒤 통과한다) 같은 Theory에 넣을 수 없다.</summary>
+    [Fact]
+    public void BuildStatements_RejectsRoleNameWithTrailingNewline() =>
+        Assert.Throws<ArgumentException>(() => PublicRoleGrants.BuildStatements("blog_public\n", []));
 }
