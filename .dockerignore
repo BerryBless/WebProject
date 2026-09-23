@@ -1,0 +1,21 @@
+# 허용 목록 방식: 전부 제외하고 이미지 빌드에 필요한 것만 되살린다.
+**
+!Directory.Packages.props
+!PortfolioBlog.Api/**
+!PortfolioBlog.Web/**
+!deploy/Caddyfile
+PortfolioBlog.Api/bin/
+PortfolioBlog.Api/obj/
+PortfolioBlog.Api/.data/
+PortfolioBlog.Api/appsettings.Development.json
+PortfolioBlog.Api/Properties/
+PortfolioBlog.Api/*.http
+PortfolioBlog.Api/*.user
+PortfolioBlog.Web/node_modules/
+PortfolioBlog.Web/dist/
+PortfolioBlog.Web/.certs/
+PortfolioBlog.Web/.e2e/
+PortfolioBlog.Web/test-results/
+PortfolioBlog.Web/playwright-report/
+**/.env
+**/.env.*

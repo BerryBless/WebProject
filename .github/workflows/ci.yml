@@ -98,3 +98,35 @@ jobs:
           name: playwright-traces
           path: PortfolioBlog.Web/test-results
           retention-days: 7
+
+  deploy-smoke:
+    runs-on: ubuntu-latest
+    needs: [test, web]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: PortfolioBlog.Web/package-lock.json
+      - name: Install web dependencies (Playwright)
+        working-directory: PortfolioBlog.Web
+        run: npm ci
+      - name: Install browsers
+        working-directory: PortfolioBlog.Web
+        run: npx playwright install --with-deps chromium firefox
+      # 운영과 같은 이미지·Caddyfile·compose를 띄워: 접근 통제(허용·비허용 IP), 헤더, 한도, DB 롤, 백업→삭제→복원, 브라우저 E2E.
+      - name: Deployment stack smoke
+        run: SMOKE_E2E=1 bash deploy/smoke/run.sh
+      # trace의 비밀번호·쿠키는 이 실행을 위해 run.sh가 새로 만든 버려질 값이고, 스택은 러너의 루프백에만 바인딩된다.
+      # caddy.log(run.sh의 cleanup 트랩이 남김)는 접근 로그라 remote_ip·상태 코드·경로만 있고 비밀값이 없다 —
+      # 허용 IP가 러너에서 다르게 나오면(지시서가 예상한 "첫 Linux 실행" 실패 모드) 이 파일로 원인을 읽는다.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: deploy-smoke-traces
+          path: |
+            PortfolioBlog.Web/test-results
+            deploy/smoke/caddy.log
+          retention-days: 7

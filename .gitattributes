@@ -1,0 +1,6 @@
+# 컨테이너 안에서 실행·해석되는 파일은 체크아웃 설정(autocrlf)과 무관하게 LF여야 한다.
+# CRLF가 섞이면 바인드 마운트된 셸 스크립트의 셔뱅이 깨지고 psql heredoc이 틀어진다.
+*.sh            text eol=lf
+deploy/**       text eol=lf
+**/Dockerfile   text eol=lf
+.dockerignore   text eol=lf

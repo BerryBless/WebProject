@@ -12,7 +12,7 @@
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
-| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **실행 중단(재개 대기) — 브랜치 `feature/blog-deploy`에 Task 1~3 구현 + 수정 3라운드**(3절) | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 진행 기록 `.superpowers/sdd/2026-09-22-tech-blog-deploy/progress.md` |
+| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **Task 1~6 구현 완료 — 최종 리뷰·PR 대기**(3절) | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 진행 기록 `.superpowers/sdd/2026-09-22-tech-blog-deploy/progress.md` |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
 - 기준 커밋: master `3a98985`(Plan 4 계획 문서까지). 작업 브랜치 `feature/blog-deploy`는 그 위에 커밋 6개(3절), origin에 push됨. 작업 트리 깨끗함, 열린 PR 없음.
@@ -38,13 +38,13 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 
 ## 3. 다음 작업: Plan 4(배포) 실행 재개
 
-계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행 중이었고, 2026-09-22에 사용자 요청으로 정지했다.
+계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행했다. 2026-09-22에 사용자 요청으로 한 차례 정지했다가 09-23에 재개해 **Task 1~6을 전부 마쳤다**(3.2 커밋 표). 남은 것은 최종 리뷰(실제 스택 공격) → PR → CI 게이트 → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`뿐이다.
 
 ### 3.1 재개 절차
 
 ```powershell
 git switch feature/blog-deploy; git pull --ff-only      # origin에 push돼 있다
-git log --oneline master..HEAD                          # 아래 6개가 보여야 한다
+git log --oneline master..HEAD                          # 3.2 표의 커밋들이 보여야 한다(개수는 라운드가 늘수록 늘어난다 — 최신 개수는 이 출력으로 확인)
 New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 잠금(끝나거나 중단하면 삭제)
 ```
 
@@ -57,30 +57,29 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 | `4ffb9fa` | Task 1: 공개 조회 전용 DB 롤(`PublicRoleGrants`)·시작 검증 강화·헬스체크 CLI | |
 | `b5c686f` | Task 2: `.gitattributes`·`.dockerignore`·`deploy/Caddyfile`·이미지 2개·`caddyfile.test.ts` | |
 | `17f4ed3` | Task 3: `deploy/docker-compose.yml`·DB 롤 init·`.env.example`·스모크(`smoke.test.mjs`·`run.sh`) | |
-| `7efab39` | Task 1 수정 r1(리뷰 F1~F9) | |
-| `140624c` | Task 2 수정 r1(리뷰 F1~F8) | |
-| `88310ee` | Task 1 수정 r2(테스트: 비 superuser 소유자 회귀 가드) | **Task 1 완료**(재리뷰 APPROVE) |
+| `7efab39` | Task 1 수정 r1(리뷰 F1~F9: PUBLIC·소유 테이블로 회수 범위 한정) | |
+| `140624c` | Task 2 수정 r1(리뷰 F1~F8: 캐디 오류 경로·평문 HTTP·메서드 게이트) | |
+| `88310ee` | Task 1 수정 r2(비 superuser 소유자 회귀 가드 테스트) | **Task 1 완료**(재리뷰 APPROVE) |
+| `17063f3` | 문서: master의 문서 재구성·계획서 결함 표시를 배포 브랜치에 병합 | |
+| `1452204` | Task 2 수정 r2(관리 헤더 위치 가드 강화, Caddy 폴백·오류 응답 빈틈) | **Task 2 완료** |
+| `d14c101` | 문서: 단계별 고민과 판정을 작업일지로 남김 | |
+| `8522c03` | Task 3 수정 r1(api 아웃바운드 차단, DB 롤 검사 trust 우회 수정) | |
+| `3f20cc1` | Task 3 수정 r2(보안 경계 주석을 실측대로 정정, 폴백 접근 로그) | **Task 3 완료** |
+| `36e8394` | Task 4: 백업·복원 리허설, 운영 절차 문서화(`deploy/OPERATIONS.md`) | |
+| `dc4a207` | Task 4 수정 r1(복원 실패 안내, 비밀번호 로그 유출 등 리뷰 결함) | **Task 4 완료** |
+| `76e076a` | Task 5: 배포 스택 전체를 브라우저 E2E로 매 PR마다 검증, CI `deploy-smoke` | |
+| `10324b0` | 문서: 허용 IP 주석의 원인을 실측 네트워크 구조로 정정 | |
+| `b72bbf6` | Task 5 수정 r1(허용 IP를 고정하고 실패 시 접근 로그로 진단 가능하게 함) | |
+| `b8265a0` | Task 5 수정 r2(첨부 이미지 로드를 기다려 새로고침 레이스를 없앰) | **Task 5 완료** |
+| `002a01d` | Task 6: 스펙·README·`docs/`·CLAUDE.md/AGENTS.md를 as-built로 반영 | **Task 6 완료** |
+| `e5a8bcb` | 문서: 상태 헤딩과 어긋난 본문·라벨·커밋 표를 실제와 맞춤(리뷰 F1~F3) | |
+| `53adc6d` | 최종 리뷰 Minor 1·2 수정: handle_errors 헤더 미러 테스트 분리, 계획 문서 dotnet test 주석 갱신 | **최종 리뷰 반영 완료** |
 
-검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 9·비허용 IP 6, 컨트롤러와 리뷰어가 각각 커밋본 그대로 재현). 브라우저 E2E·복원 리허설은 아직 Task 4·5에서 붙는다.
+검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 10·비허용 IP 6·오류 응답 1, 복원 리허설 포함), `SMOKE_E2E=1`의 스택 E2E **8개**(Chromium·Firefox). Task 1~6 전부 완료(위 표).
 
 ### 3.3 재개하면 바로 할 일 (리뷰가 남긴 결함과 내린 판정)
 
-**Task 2 수정 r2** (`deploy/Caddyfile`, `PortfolioBlog.Web/src/test/caddyfile.test.ts`):
-1. (Important) `caddyfile.test.ts`의 가드가 허술하다 — 보안 헤더 블록을 관리 `route` **끝**(`file_server` 뒤)으로 옮기면 5/5 통과하면서 실제 응답의 관리 보안 헤더 7개가 전부 사라진다(리뷰어 실측). → `expect(csp).toBeLessThan(admin.indexOf('root * /srv'))` 한 줄 추가(검증된 안).
-2. (Important) 두 도메인 밖 Host에 `Server: Caddy`가 남는다(:80 알 수 없는 Host → 308+Server, :443 유효 SNI+미매칭 Host → 200 빈 응답+Server). → 폴백 사이트 블록(`:80`·`:443`)에서 `-Server` + 본문 없는 404.
-3. `handle_errors`가 만드는 502·413에는 보안 헤더가 없다 → 그 블록에도 같은 헤더를 붙인다.
-4. `@dot`(점 파일 404)에서 `/.well-known/`을 제외한다.
-
-**Task 3 수정 r1** (`deploy/docker-compose.yml`, `deploy/smoke/run.sh`, `deploy/smoke/smoke.test.mjs`):
-1. (Important) `edge` 네트워크가 internal이 아니라 **api가 인터넷으로 나갈 수 있다**. → 3망으로: `public`(caddy만, 포트 게시·아웃바운드) + `edge`(caddy↔api, internal, 172.30.0.0/24·고정 IP·`Proxy__TrustedIp` 유지) + `db`(internal).
-2. (Important) `run.sh`의 DB 롤 검사가 `-h 127.0.0.1`이라 pg_hba의 **trust 줄**을 타 비밀번호를 검증하지 않고, 부정 검사는 "0 아닌 종료 코드=통과"라 오타·연결 실패도 통과한다. → `-h postgres` + SQLSTATE/메시지 판정.
-3. caddy 컨테이너가 root(uid 0) → 비루트 + `NET_BIND_SERVICE`로 가능한지 확인(안 되면 수용).
-4. 첨부 재업로드는 내용 주소라 200이다 → 스모크의 `201` 단언을 `[200, 201]`로.
-5. 수용한 것(보고서 잔여 위험에 적는다): `blog_public`이 `postgres`·`template1`에서 임시 테이블 생성 가능, 서브넷·TrustedIp가 4파일에 중복, Windows에서 `.env.smoke` 644, `tools`만 로그 회전 없음, 공개 `request_body`가 GET에 무동작.
-
-README는 이제 랜딩 페이지 + `docs/` 서브페이지 8개 구조다(2026-09-22) — **Task 6의 배포 문서는 `docs/deployment.md`를 as-built로 채우고 README·`docs/testing.md`의 숫자와 상태만 갱신한다**(README에 배포 절을 새로 만들지 않는다).
-
-그 뒤: 두 Task의 범위 재리뷰 → **Task 4**(`deploy/backup.sh`·`restore.sh`·`OPERATIONS.md` + 복원 리허설을 `run.sh`에) → **Task 5**(스택 대상 Playwright E2E + CI `deploy-smoke` 잡) → **Task 6**(스펙·README·CLAUDE.md/AGENTS.md as-built) → 최종 리뷰(실제 스택 공격) → PR → CI → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`(내린 판정 표).
+**완료 — 최종 리뷰·PR 대기.** Task 1~6(DB 롤·이미지·Caddyfile·compose·스모크·백업/복원·스택 E2E·CI `deploy-smoke`·as-built 문서)을 전부 구현·커밋했다. 상세 결함표와 수정 라운드별 근거는 `plan/tech_blog_4_report_<MMDD>.md`(컨트롤러가 최종 리뷰·PR 뒤 작성)에 남긴다. 다음 단계는 최종 리뷰(실제 스택 공격) → PR → CI → squash 병합 → 보고서.
 
 ### 3.4 실행하며 확인된 사실(계획에 없던 것)
 

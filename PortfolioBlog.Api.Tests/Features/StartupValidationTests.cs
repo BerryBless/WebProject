@@ -213,4 +213,67 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
         var shortCommandTimeout = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { CommandTimeout = 1 }.ConnectionString;
         AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = shortCommandTimeout }, "ConnectionStrings:Default");
     }
+
+    /// <summary><c>Development</c>가 아닌 환경에서 공개 조회 전용 연결(<c>ConnectionStrings:Public</c>)이 없으면 시작이 실패한다.
+    /// 없으면 공개 페이지가 테이블 소유자 롤로 돌고, 남는 방어는 세션이 스스로 끌 수 있는 <c>default_transaction_read_only</c>뿐이다.</summary>
+    [Fact]
+    public void Production_MissingPublicConnectionString_Fails() =>
+        AssertStartupFails(Production(s => s["ConnectionStrings:Public"] = ""), "ConnectionStrings:Public");
+
+    /// <summary><c>Development</c>가 아닌 환경에서 Data Protection 키 경로가 없거나 상대 경로면 시작이 실패한다.
+    /// 상대 경로("keys")를 따로 보는 이유: 컨테이너의 작업 디렉터리(읽기 전용 루트 FS) 아래를 가리키게 된다.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("keys")]
+    public void Production_MissingOrRelativeDataProtectionKeysPath_Fails(string path) =>
+        AssertStartupFails(Production(s => s["DataProtection:KeysPath"] = path), "DataProtection:KeysPath");
+
+    /// <summary>공개 연결 문자열에 <c>Options</c>가 있으면 환경과 무관하게 시작이 실패하고, 메시지는 그 키를 가리킨다(값은 넣지 않는다).</summary>
+    [Fact]
+    public void PublicConnectionString_WithOptions_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=blog_public_test;Options=-c work_mem=1MB" }, "ConnectionStrings:Public 에 Options");
+
+    /// <summary>공개 연결의 사용자가 관리 연결과 같으면 시작이 실패한다. "postgres"인 이유: 테스트 컨테이너의 관리 연결 사용자가 그 이름이다.</summary>
+    [Fact]
+    public void PublicConnectionString_SameUserAsDefault_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=postgres" }, "별도의 읽기 전용 롤");
+
+    /// <summary>공개 연결의 사용자 이름이 평범한 소문자 식별자가 아니면 DB에 닿기 전에 시작이 실패한다(GRANT 문장에 직접 들어가는 값이다).</summary>
+    [Fact]
+    public void PublicConnectionString_WithUnsafeRoleName_Fails() =>
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username='blog public'" }, "ConnectionStrings:Public 의 Username");
+
+    /// <summary>환경에 상관없이 <c>ConnectionStrings:Public</c>이 Npgsql이 모르는 키워드를 담고 있으면(연결 문자열 자체를 파싱하지 못한다)
+    /// 시작이 실패하고, 예외 텍스트에 설정 키(<c>ConnectionStrings:Public</c>)는 있지만 연결 문자열 값(호스트 <c>db.example</c>)은 없는지
+    /// 검증한다. Npgsql은 이런 파싱 실패를 <see cref="FormatException"/>이 아니라 <see cref="ArgumentException"/>으로 던지므로(실측:
+    /// <c>"Couldn't set bogus keyword"</c>), <c>StartupValidation.CheckConnectionString</c>이 파서 호출 자체를 <c>Check</c>로 감싸는지가
+    /// 이 테스트의 핵심이다.</summary>
+    [Fact]
+    public void PublicConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=blog_public_test;Bogus Keyword=1",
+        });
+        var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        var text = ex.ToString();
+        Assert.Contains("ConnectionStrings:Public", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("db.example", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>같은 파싱 실패가 <c>ConnectionStrings:Default</c>에서도 그 키로 보고되고 값(호스트)은 새지 않는지 검증한다.
+    /// 사용자 이름 <c>postgres</c>는 테스트 컨테이너의 실제 관리 롤 이름을 흉내만 낸 값이며, 연결 문자열 파싱 자체가 이 지점에서
+    /// 이미 실패하므로 실제 DB에 연결을 시도하지 않는다.</summary>
+    [Fact]
+    public void DefaultConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue()
+    {
+        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Default"] = "Host=db.example;Database=blog;Username=postgres;Bogus Keyword=1",
+        });
+        var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        var text = ex.ToString();
+        Assert.Contains("ConnectionStrings:Default", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("db.example", text, StringComparison.Ordinal);
+    }
 }

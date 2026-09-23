@@ -18,6 +18,13 @@ if (args is [HashPasswordCommand.Name])
     return HashPasswordCommand.Run(Console.In, Console.Out, Console.Error, interactive: !Console.IsInputRedirected);
 }
 
+// 컨테이너 헬스체크 경로: 웹 호스트를 만들지 않고 같은 컨테이너의 /health를 한 번 부른 뒤 종료 코드로 답한다.
+if (args is [HealthCheckCommand.Name])
+{
+    // SocketsHttpHandler: 프로세스가 요청 하나로 끝나므로 연결 풀 수명을 관리할 필요가 없다. RunAsync가 해제한다.
+    return await HealthCheckCommand.RunAsync(Environment.GetEnvironmentVariable, new SocketsHttpHandler(), Console.Error);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Kestrel: 서버 제품명 헤더를 내지 않는다.
@@ -74,7 +81,10 @@ app.Services.GetRequiredService<FileSystemAttachmentStore>().EnsureRootIsWritabl
 // 단일 인스턴스 배포이므로 시작 시 마이그레이션을 적용한다(스펙 3.10).
 using (var scope = app.Services.CreateScope())
 {
-    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+    var adminDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    adminDb.Database.Migrate();
+    var publicConnection = app.Configuration.GetConnectionString("Public");
+    if (!string.IsNullOrWhiteSpace(publicConnection)) PublicRoleGrants.Apply(adminDb, publicConnection);
 }
 
 // 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms — 2A 단계 실측, plan/resume_guide_0921.md)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.
