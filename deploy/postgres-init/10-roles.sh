@@ -5,18 +5,15 @@
 #   blog_public — 공개 페이지 조회 전용. 여기서는 접속 권한만 준다. 테이블별 SELECT는 앱이 시작할 때마다 다시 맞춘다
 #                 (PortfolioBlog.Api의 PublicRoleGrants — 허용 테이블 목록이 코드와 함께 버전 관리된다).
 #
-# 두 불변식(Task 1 리뷰 F2·F10이 문 것 — 어기면 앱이 기동 실패한다):
-#   1) public 스키마의 모든 객체는 blog_app이 소유해야 한다. PublicRoleGrants.Apply()는 REVOKE로 "허용 목록 밖의
-#      부여"를 지우는데, REVOKE는 현재 롤이 부여자인 권한만 지운다 — public 스키마에 blog_app이 아닌 소유자의
-#      테이블이 하나라도 있으면(superuser가 만든 것 포함) 그 REVOKE가 42501로 실패해 트랜잭션이 롤백되고 앱이
-#      시작하지 못한다. 아래 `ALTER SCHEMA public OWNER TO blog_app`은 스키마 자체의 소유자만 바꾼다 —
-#      이후 이 DB에 만드는 모든 테이블(EF 마이그레이션 포함)이 실제로 blog_app 소유로 생성되는지는 마이그레이션
-#      코드 쪽 책임이다. 이 스크립트는 그 전제(스키마 소유자)만 마련한다.
-#   2) 실행 순서: 이 스크립트는 compose가 postgres를 healthy로 올리기 전, api 컨테이너가 뜨기 전에 끝나야 한다
-#      (docker-compose.yml의 `api: depends_on: postgres: condition: service_healthy`가 이를 강제한다 —
-#      공식 이미지는 /docker-entrypoint-initdb.d의 모든 스크립트를 healthcheck가 통과하기 전에 실행한다).
-#      blog_public 롤이 아직 없는 채로 앱이 먼저 뜨면 Apply()가 42704(role does not exist)로 기동을 거부한다
-#      (fail-closed로 옳은 동작이지만, 이 순서 의존이 지켜지지 않으면 그 형태로 드러난다).
+# 두 불변식(Task 1 리뷰 F2·F10이 문 것 — 어기면 권한 경계가 조용히 새거나 기동 순서가 어긋난다):
+#   1) public 스키마의 모든 객체는 blog_app이 소유해야 한다. PublicRoleGrants.Apply()는 tableowner = current_user인
+#      테이블만 회수한다(PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs:128-130). 남의 소유 테이블이
+#      public 스키마에 생기면 앱은 정상 기동하고, 그 테이블에 붙은 blog_public 권한은 회수되지 않고 남는다
+#      — 그래서 public 스키마의 객체는 전부 blog_app 소유여야 한다(fail-open이지, 기동 실패가 아니다).
+#   2) 실행 순서: 공식 이미지의 initdb.d는 임시 서버에서 돌고 그 동안에도 pg_isready가 통과하므로,
+#      compose의 `api: depends_on: postgres: condition: service_healthy`(healthcheck)는 이 순서를 보장하지
+#      않는다. 실제로는 이 스크립트가 1초 미만에 끝나고 첫 healthcheck가 10초 뒤라 어긋나지 않을 뿐이다 —
+#      init에 오래 걸리는 작업을 추가하면 healthcheck의 start_period나 별도 센티널로 순서를 직접 보장해야 한다.
 # 비밀번호는 psql 변수로 넘겨 SQL 문자열 리터럴로 안전하게 인용한다(:'name'). heredoc이 따옴표('SQL')라 셸은 아래 본문을 건드리지 않는다
 # — 줄 끝 주석의 ${…}는 어느 환경변수의 값인지 적은 표기일 뿐이다(저장소의 비밀값 스캐너가 자리표시자로 인식한다).
 set -eu
