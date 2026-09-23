@@ -10,6 +10,9 @@ services:
   smoke-allowed: &smoke
     profiles: ["smoke"]
     image: node:24.21.0-alpine
+    # caddy가 T3-6로 비루트(1654)가 되면서 caddy_data 안의 CA 개인키·인증서가 0600(uid 1654 전용)으로 저장된다.
+    # 이 컨테이너가 root(uid 0)라도 cap_drop: ALL이 DAC_OVERRIDE까지 빼앗아 그 파일을 못 읽는다(실측) — 같은 uid로 맞춘다.
+    user: "1654:1654"
     read_only: true
     cap_drop:
       - ALL

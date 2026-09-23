@@ -249,7 +249,8 @@ if (ROLE === 'allowed') {
     // 업로드 크기 경계: Caddy의 상한(11MiB)이 앱의 상한(10MiB)보다 먼저 정상 업로드를 끊지 않는다.
     const nearLimit = multipart('near.png', makePng(10 * MIB - 64 * 1024, 2))
     const accepted = await adm('/api/attachments', { method: 'POST', headers: { ...authed, 'Content-Type': nearLimit.contentType }, body: nearLimit.body })
-    assert.equal(accepted.status, 201, '10MiB 바로 아래는 통과해야 한다')
+    // 첨부는 sha256 기반 중복 제거라 같은 바이트를 다시 올리면(예: 이전 실행이 삭제 전에 죽었을 때) 200(기존 것 반환)이 나올 수 있다 — 201만 강요하지 않는다(T3-5).
+    assert.ok([200, 201].includes(accepted.status), `10MiB 바로 아래는 통과해야 한다: ${accepted.status}`)
     assert.equal((await adm(`/api/attachments/${JSON.parse(accepted.body.toString('utf8')).id}`, { method: 'DELETE', headers: authed })).status, 204)
     const overApp = multipart('over.png', makePng(10 * MIB + 256 * 1024, 3))
     const rejected = await adm('/api/attachments', { method: 'POST', headers: { ...authed, 'Content-Type': overApp.contentType }, body: overApp.body })

@@ -78,12 +78,19 @@ docker compose start api > /dev/null
 docker compose up -d --wait
 
 step "DB 롤: 앱은 슈퍼유저가 아니고, 공개 롤은 읽기만 한다"
-psql_as() { docker compose exec -T -e PGPASSWORD="$2" postgres psql -h 127.0.0.1 -U "$1" -d blog -v ON_ERROR_STOP=1 -tA -c "$3"; }
+# postgres 컨테이너 안에서도 -h 127.0.0.1은 pg_hba.conf의 trust 규칙을 타 비밀번호를 검증하지 않는다(T3-2, 실측).
+# -h postgres(컨테이너 자신의 네트워크 주소)로 붙어야 scram-sha-256이 강제된다.
+psql_as() { docker compose exec -T -e PGPASSWORD="$2" postgres psql -h postgres -U "$1" -d blog -v ON_ERROR_STOP=1 -tA -c "$3"; }
+# 부정 검사는 종료 코드가 아니라 메시지로 판정한다: "0이 아닌 종료 코드"에는 연결 실패·SQL 오타도 섞여 들어와 거짓 통과를 만든다(T3-2).
+deny() { # $1 롤 $2 비밀번호 $3 SQL
+  out="$(psql_as "$1" "$2" "$3" 2>&1)" && { echo "허용돼서는 안 되는 문장이 성공했다: $3" >&2; exit 1; }
+  case "$out" in *"permission denied"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
+}
 test "$(psql_as postgres "$pg_password" "select count(*) from pg_roles where rolname in ('blog_app','blog_public') and not rolsuper and not rolcreaterole and not rolcreatedb")" = "2"
 psql_as blog_public "$public_password" 'select count(*) from "Posts"' > /dev/null
 for sql in 'delete from "Posts"' 'set default_transaction_read_only = off; delete from "Posts"' 'create table smoke_t(i int)' 'select * from "AdminState"' 'select * from "__EFMigrationsHistory"'; do
-  if psql_as blog_public "$public_password" "$sql" > /dev/null 2>&1; then echo "blog_public이 해서는 안 되는 일을 했다: $sql" >&2; exit 1; fi
+  deny blog_public "$public_password" "$sql"
 done
-if psql_as blog_app "$app_password" "copy (select 1) to program 'true'" > /dev/null 2>&1; then echo "blog_app이 서버 프로그램을 실행했다" >&2; exit 1; fi
+deny blog_app "$app_password" "copy (select 1) to program 'true'"
 
 step "통과"

@@ -18,6 +18,10 @@ services:
     build:
       context: ..
       dockerfile: PortfolioBlog.Web/Dockerfile
+    # 비루트(임의 uid, 이미지에 고정 계정이 없다). cap_drop: ALL 아래에서는 root도 80·443을 못 열므로
+    # NET_BIND_SERVICE가 필수다(T3-6, 실측: CapEff에 그 비트만 켜진 채로 두 포트 바인드 성공).
+    # /data/caddy·/config/caddy는 이미지가 이미 1777(모두 쓰기 가능한 sticky)로 만들어 둬 별도 chown 없이도 쓸 수 있다(실측).
+    user: "1654:1654"
     cap_add:
       - NET_BIND_SERVICE
     read_only: true
@@ -33,6 +37,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     networks:
+      # public: 포트 게시(80·443)와 ACME 아웃바운드가 실제로 오가는 유일한 통로. caddy만 여기 있다(T3-1).
+      public: {}
+      # edge: caddy↔api 전용, internal이라 인터넷으로 나가지 못한다. caddy는 두 망에 동시에 붙어(멀티홈)
+      # 포트 게시는 public으로, api와의 통신은 이 고정 IP로 한다 — Proxy__TrustedIp가 이 값을 신뢰한다.
       edge:
         ipv4_address: 172.30.0.2
     depends_on:
@@ -45,6 +53,8 @@ services:
       context: ..
       dockerfile: PortfolioBlog.Api/Dockerfile
     read_only: true
+    # 11MiB(관리 업로드 상한) × 업로드 동시 실행 상한 2(Admin__UploadConcurrency, 스펙 3.7) ≈ 22MiB. 64m은 그 3배 여유다.
+    # 동시 실행 상한을 올리면 이 값도 같이 올린다 — 안 그러면 셋째 업로드부터 tmpfs 고갈로 400이 난다(T3-4, 실측).
     tmpfs:
       - /tmp:mode=1777,size=64m
     environment:
@@ -115,7 +125,12 @@ services:
       - attachments:/data/attachments
 
 networks:
+  # ipam 없음: Docker가 알아서 서브넷을 고른다. caddy만 여기 붙는다(포트 게시·아웃바운드 전용, T3-1).
+  public: {}
+  # api는 여기로만 인터넷 유무와 무관하게 caddy와 통신한다 — internal이라 그 자체로는 밖으로 못 나간다.
+  # 서브넷·ip_range·caddy 고정 IP(172.30.0.2)는 스모크 클라이언트(172.30.0.10·.11)의 IP 기반 검사가 그대로 쓴다.
   edge:
+    internal: true
     ipam:
       config:
         - subnet: 172.30.0.0/24
