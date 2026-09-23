@@ -4,7 +4,7 @@
 
 **목표:** (작성 예정) — 이 저장소는 `ClaudeCodeStudy`의 하네스 구성(에이전트·스킬·훅·CI·Codex 협업)을 그대로 이식해 시작한 새 솔루션이다. 솔루션 이름은 언제든 바뀔 수 있으므로 하네스 스크립트는 저장소 루트를 자동 인식한다(`CLAUDE_PROJECT_DIR` → 스크립트 위치 순).
 
-**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 `PortfolioBlog.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`. 공개 페이지는 `Pages/`(GET/HEAD·공개 호스트 전용 규약), 정적 파일은 `wwwroot/css/site.css` 하나)와 `PortfolioBlog.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `PortfolioBlog.Web`(React 19 + TypeScript + Vite, `admin.<도메인>`에서만 서빙, 3단계 구현 완료 — 보안 헤더(CSP 포함)의 정본은 `admin-headers.ts`(**HSTS는 의도적으로 없다** — 루프백 미리보기 서버에서도 쓰이기 때문이며, Caddy가 관리 사이트 블록에 따로 더한다), `npm run certs`·`npm run dev`·`npm test`·`npm run e2e:prepare && npm run e2e`(Playwright, 실제 백엔드 + PostgreSQL + production 빌드, Chromium·Firefox)로 검증, CI는 `web`·`web-e2e` 잡)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다. 패키지 버전은 `Directory.Packages.props`(중앙 패키지 관리, 전이 의존성까지 고정)가 일괄 관리한다 — 새 패키지는 거기에 추가한다.
+**구성(2026-09-20):** `PortfolioBlog.slnx`(.NET 10) 아래 `PortfolioBlog.Api`(ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링), `Microsoft.NET.Sdk.Web`. 공개 페이지는 `Pages/`(GET/HEAD·공개 호스트 전용 규약), 정적 파일은 `wwwroot/css/site.css` 하나)와 `PortfolioBlog.Api.Tests`(xUnit + `Microsoft.AspNetCore.Mvc.Testing`)가 있고, 관리 에디터 전용 SPA `PortfolioBlog.Web`(React 19 + TypeScript + Vite, `admin.<도메인>`에서만 서빙, 3단계 구현 완료 — 보안 헤더(CSP 포함)의 정본은 `admin-headers.ts`(**HSTS는 의도적으로 없다** — 루프백 미리보기 서버에서도 쓰이기 때문이며, Caddy가 관리 사이트 블록에 따로 더한다), `npm run certs`·`npm run dev`·`npm test`·`npm run e2e:prepare && npm run e2e`(Playwright, 실제 백엔드 + PostgreSQL + production 빌드, Chromium·Firefox)로 검증, CI는 `web`·`web-e2e` 잡)과 배포 `deploy/`(caddy·api·postgres compose, 공개·관리 사이트 2개)가 추가된다. 프로젝트를 추가하면 이 절과 CI(`.github/workflows/ci.yml`)를 함께 갱신할 것. 제품 설계는 `plan/tech_blog_0920.md`(기술 블로그, **보안 최우선**) 참조. 사람이 읽는 문서는 `README.md`(랜딩)와 `docs/` 서브페이지 8개(architecture·security·development·testing·configuration·deployment·history·harness)로 나뉜다 — 코드·구성이 바뀌면 해당 서브페이지를 함께 갱신한다. 이전 PARA 노트앱 설계(`plan/para_notes_0917.md`)는 폐기됐다. 패키지 버전은 `Directory.Packages.props`(중앙 패키지 관리, 전이 의존성까지 고정)가 일괄 관리한다 — 새 패키지는 거기에 추가한다.
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(쓰기 범위 훅 포함). 하네스 파일을 고치면 실행해 PASS를 확인할 것.
 
@@ -74,7 +74,7 @@ plan/<기능명>_<MMDD>.md
 | plan/tech_blog_2a_report_0921.md | 2026-09-21 | 기술 블로그 2A단계 실행 보고서: 만든 것(마크다운 파이프라인·미리보기·이미지 첨부), 공격·측정 기반 검증 결과, 계획 결함 16건과 교훈, 질문 없이 내린 판정 12건, 수용한 잔여 위험, 알려진 문제(로컬 간헐 테스트), Plan 2B·3·4 인계 |
 | plan/tech_blog_2b_report_0921.md | 2026-09-21 | 기술 블로그 2B단계 실행 보고서: 만든 것(공개 Razor 페이지·검색·피드·보안 헤더·속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성), 실제 Production 호스트 HTTPS 공격 결과와 거기서 찾은 결함 3건, 계획 결함 23건과 교훈, 질문 없이 내린 판정 28건, 수용한 잔여 위험, 알려진 문제, Plan 3·4 인계 |
 | plan/tech_blog_3_report_0922.md | 2026-09-22 | 기술 블로그 3단계(관리 에디터 SPA) 실행 보고서: 만든 것, 실제 호스트 공격 결과와 거기서 찾은 결함 5건, 검증하고 쓴 계획에서도 나온 계획 코드의 결함 약 20건과 교훈(보안 통제 자체의 결함·틀린 판정 R5), 질문 없이 내린 판정 16건, 수용한 잔여 위험, Plan 4 인계 |
-| plan/resume_guide_0921.md | 2026-09-21 | 작업 재개 가이드(갱신형): 단계별 진행 상태와 기준 커밋, 재시작 5분 점검, 다음 작업 Plan 4와 이어받는 사실, SDD 실행이 끊겼을 때 복구(ledger·센티널), 자주 밟는 함정, 문서·코드 지도, 사용자가 정해 둔 결정 |
+| plan/resume_guide_0921.md | 2026-09-21 | 작업 재개 가이드(갱신형): 단계별 진행 상태와 기준 커밋, 재시작 5분 점검, **Plan 4 실행 재개 지점**(브랜치·커밋 표·재개하면 바로 할 일·실행하며 확인된 사실), SDD 실행이 끊겼을 때 복구(ledger·센티널), 자주 밟는 함정, 문서·코드 지도, 사용자가 정해 둔 결정 |
 
 ---
 

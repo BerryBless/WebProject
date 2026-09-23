@@ -1,4 +1,4 @@
-# 작업 재개 가이드 (2026-09-22 기준, 3단계 완료 후 갱신)
+# 작업 재개 가이드 (2026-09-22 기준, Plan 4 실행 중단 지점까지 갱신)
 
 > 이 문서 하나만 읽으면 어느 세션에서든 이어서 작업할 수 있도록 쓴 인계 기록이다. 상태가 바뀌면 **이 문서를 갱신**하고 날짜를 고친다(새 파일을 만들지 않는다).
 
@@ -12,10 +12,10 @@
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
-| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **계획 작성됨, 실행 중**(브랜치 `feature/blog-deploy`) | `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(스파이크 S1~S16·결정 D1~D15), 진행 기록 `.superpowers/sdd/2026-09-22-tech-blog-deploy/progress.md` |
+| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **실행 중단(재개 대기) — 브랜치 `feature/blog-deploy`에 Task 1~3 구현 + 수정 3라운드**(3절) | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 진행 기록 `.superpowers/sdd/2026-09-22-tech-blog-deploy/progress.md` |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
-- 기준 커밋: master `16a3d25`(이 문서의 해시를 채운 문서 커밋이 그 위에 하나 더 있다). 작업 트리 깨끗함, 열린 PR 없음.
+- 기준 커밋: master `3a98985`(Plan 4 계획 문서까지). 작업 브랜치 `feature/blog-deploy`는 그 위에 커밋 6개(3절), origin에 push됨. 작업 트리 깨끗함, 열린 PR 없음.
 - 검증 상태: .NET Release 빌드 경고 0 / 오류 0, 테스트 **591개 통과**. 웹: 타입 오류 0·린트 경고 0·Vitest **188개**·Playwright E2E **8개**(Chromium+Firefox). 하네스 감사 8/8, CI(ubuntu-latest: `test`·`web`·`web-e2e`) 통과.
 - 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`, `origin/feature/blog-admin-spa`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
 
@@ -36,21 +36,70 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 
 필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만). Node.js 24(react-router 8이 22.22 이상 요구), Playwright 브라우저(`npx playwright install chromium firefox`).
 
-## 3. 다음 작업: Plan 4(배포) 계획 작성
+## 3. 다음 작업: Plan 4(배포) 실행 재개
 
-**흐름(저장소 규칙):** `superpowers:writing-plans` → (사용자 승인) → `superpowers:subagent-driven-development` → 최종 리뷰(실제 호스트 공격 포함) → PR → CI → squash 병합 → 보고서.
+계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행 중이었고, 2026-09-22에 사용자 요청으로 정지했다.
 
-입력 자료: 스펙 `plan/tech_blog_0920.md` 3.10(배포)·3.6(응답 헤더)·8절의 Plan 4 행, 3단계 보고서 `plan/tech_blog_3_report_0922.md` 8절, 2B 보고서 8절, 2A 보고서 8절.
+### 3.1 재개 절차
 
-**Plan 4가 이어받는 사실(1~3단계에서 확정된 것):**
+```powershell
+git switch feature/blog-deploy; git pull --ff-only      # origin에 push돼 있다
+git log --oneline master..HEAD                          # 아래 6개가 보여야 한다
+New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 잠금(끝나거나 중단하면 삭제)
+```
 
-1. **관리 사이트 헤더:** Caddyfile의 관리 사이트 블록은 `PortfolioBlog.Web/admin-headers.ts`의 다섯 헤더(CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`)를 옮기고 **HSTS를 따로 더한다**(그 파일에는 의도적으로 없다 — 루프백 미리보기 서버에서도 쓰인다). 일치 + HSTS 존재를 검사한다. CSP에 `blob:`은 없다.
-2. **관리 사이트 라우팅:** `/api/*`·`/attachments/*`만 백엔드로, 나머지는 SPA 정적 파일 + `index.html` fallback. SPA 라우트 `/attachments`(슬래시 없는 화면 주소)가 백엔드로 가면 안 된다(3단계에서 개발 프록시의 접두사 매칭이 이 결함을 만들었다). `/assets/없는파일`은 404로 주는 편이 낫다(청크 해시가 바뀐 뒤의 증상이 분명해진다). COOP 헤더 검토.
-3. **SPA 빌드:** `PortfolioBlog.Web/Dockerfile`(node 24 빌드 → caddy 이미지에 `dist/` 복사). `npm ci` + `npm audit --omit=dev --audit-level=high`. `.certs/`·`.e2e/`가 이미지에 들어가지 않게 `.dockerignore`.
-4. **공개 origin:** SPA는 공개 사이트의 주소를 모른다(글 목록에는 경로만 보인다). 필요하면 빌드 시점 환경변수(`VITE_PUBLIC_ORIGIN`)로 넣는다.
-5. **백엔드(2B에서):** 컨테이너 헬스체크·`curl`은 `Host: <공개 호스트>` 헤더 필요(`localhost`는 본문 없는 400). `ConnectionStrings:Default`에 `Options` 금지, `Command Timeout`(초)×1000 > `Public:StatementTimeoutMs`. Caddy `request_body`는 프레임워크 상한 **11MB**. 저장 볼륨은 앱 시작 전에 마운트. multipart 버퍼링이 프로세스 임시 폴더에 쓴다(읽기 전용 루트 FS 불가). Release 출력의 EF 디자인 타임 어셈블리 제거. 이미지의 `wwwroot`가 `css/site.css` 하나인지 검증(`CompressionEnabled=false`가 지워지면 `.gz`·`.br`가 돌아온다). 쓰기 권한 없는 DB 롤. 503 1건당 로그 약 50줄. 첨부 GET이 공개 풀을 공유한다(부하 검증). 실제 Kestrel 고유 동작(요청 줄 8KB 초과 414, `Expect: 100-continue`의 413)의 스모크 테스트.
-6. **브라우저:** WebKit(Safari) 미검증 — 작성자의 브라우저에 따라 Playwright 프로젝트를 더한다. 파일 입력의 `sr-only` 포커스 가능성은 실제 브라우저에서 미확인.
-7. 공개 사이트 CSS(`wwwroot/css/site.css`나 강조 CSS)를 바꾸면 `PortfolioBlog.Web/public/preview/*.css` 스냅숏을 갱신해야 한다(README의 PowerShell 명령 — 갱신 실행은 의도적으로 실패로 끝난다). 안 하면 `dotnet test`의 `PreviewCssSnapshotTests`가 실패한다.
+진행 기록(ledger)·지시서·리뷰 파일은 `.superpowers/sdd/2026-09-22-tech-blog-deploy/`에 있다(**git 무시 대상 — `git clean -fdx`로 사라진다**). 없어졌다면 계획 문서에서 `scripts/task-brief`로 지시서를 다시 뽑고, 아래 3.3의 남은 결함 목록으로 이어가면 된다. 컨트롤러 검증은 `bash .superpowers/sdd/2026-09-22-tech-blog-deploy/verify.sh <BASE> [dotnet|web|none]`(커밋 트레일러·접두사·NUL·줄 끝·비밀값·빌드·테스트).
+
+### 3.2 어디까지 했나
+
+| 커밋 | 내용 | 상태 |
+|---|---|---|
+| `4ffb9fa` | Task 1: 공개 조회 전용 DB 롤(`PublicRoleGrants`)·시작 검증 강화·헬스체크 CLI | |
+| `b5c686f` | Task 2: `.gitattributes`·`.dockerignore`·`deploy/Caddyfile`·이미지 2개·`caddyfile.test.ts` | |
+| `17f4ed3` | Task 3: `deploy/docker-compose.yml`·DB 롤 init·`.env.example`·스모크(`smoke.test.mjs`·`run.sh`) | |
+| `7efab39` | Task 1 수정 r1(리뷰 F1~F9) | |
+| `140624c` | Task 2 수정 r1(리뷰 F1~F8) | |
+| `88310ee` | Task 1 수정 r2(테스트: 비 superuser 소유자 회귀 가드) | **Task 1 완료**(재리뷰 APPROVE) |
+
+검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 9·비허용 IP 6, 컨트롤러와 리뷰어가 각각 커밋본 그대로 재현). 브라우저 E2E·복원 리허설은 아직 Task 4·5에서 붙는다.
+
+### 3.3 재개하면 바로 할 일 (리뷰가 남긴 결함과 내린 판정)
+
+**Task 2 수정 r2** (`deploy/Caddyfile`, `PortfolioBlog.Web/src/test/caddyfile.test.ts`):
+1. (Important) `caddyfile.test.ts`의 가드가 허술하다 — 보안 헤더 블록을 관리 `route` **끝**(`file_server` 뒤)으로 옮기면 5/5 통과하면서 실제 응답의 관리 보안 헤더 7개가 전부 사라진다(리뷰어 실측). → `expect(csp).toBeLessThan(admin.indexOf('root * /srv'))` 한 줄 추가(검증된 안).
+2. (Important) 두 도메인 밖 Host에 `Server: Caddy`가 남는다(:80 알 수 없는 Host → 308+Server, :443 유효 SNI+미매칭 Host → 200 빈 응답+Server). → 폴백 사이트 블록(`:80`·`:443`)에서 `-Server` + 본문 없는 404.
+3. `handle_errors`가 만드는 502·413에는 보안 헤더가 없다 → 그 블록에도 같은 헤더를 붙인다.
+4. `@dot`(점 파일 404)에서 `/.well-known/`을 제외한다.
+
+**Task 3 수정 r1** (`deploy/docker-compose.yml`, `deploy/smoke/run.sh`, `deploy/smoke/smoke.test.mjs`):
+1. (Important) `edge` 네트워크가 internal이 아니라 **api가 인터넷으로 나갈 수 있다**. → 3망으로: `public`(caddy만, 포트 게시·아웃바운드) + `edge`(caddy↔api, internal, 172.30.0.0/24·고정 IP·`Proxy__TrustedIp` 유지) + `db`(internal).
+2. (Important) `run.sh`의 DB 롤 검사가 `-h 127.0.0.1`이라 pg_hba의 **trust 줄**을 타 비밀번호를 검증하지 않고, 부정 검사는 "0 아닌 종료 코드=통과"라 오타·연결 실패도 통과한다. → `-h postgres` + SQLSTATE/메시지 판정.
+3. caddy 컨테이너가 root(uid 0) → 비루트 + `NET_BIND_SERVICE`로 가능한지 확인(안 되면 수용).
+4. 첨부 재업로드는 내용 주소라 200이다 → 스모크의 `201` 단언을 `[200, 201]`로.
+5. 수용한 것(보고서 잔여 위험에 적는다): `blog_public`이 `postgres`·`template1`에서 임시 테이블 생성 가능, 서브넷·TrustedIp가 4파일에 중복, Windows에서 `.env.smoke` 644, `tools`만 로그 회전 없음, 공개 `request_body`가 GET에 무동작.
+
+README는 이제 랜딩 페이지 + `docs/` 서브페이지 8개 구조다(2026-09-22) — **Task 6의 배포 문서는 `docs/deployment.md`를 as-built로 채우고 README·`docs/testing.md`의 숫자와 상태만 갱신한다**(README에 배포 절을 새로 만들지 않는다).
+
+그 뒤: 두 Task의 범위 재리뷰 → **Task 4**(`deploy/backup.sh`·`restore.sh`·`OPERATIONS.md` + 복원 리허설을 `run.sh`에) → **Task 5**(스택 대상 Playwright E2E + CI `deploy-smoke` 잡) → **Task 6**(스펙·README·CLAUDE.md/AGENTS.md as-built) → 최종 리뷰(실제 스택 공격) → PR → CI → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`(내린 판정 표).
+
+### 3.4 실행하며 확인된 사실(계획에 없던 것)
+
+- **ACME HTTP-01은 명시 `http://` 사이트 블록·IP 게이트와 공존한다** — 리뷰어가 로컬 ACME CA를 허용 목록 밖에 두고 **실제 발급**으로 증명했다(챌린지 핸들러가 `@denied respond 404`보다 앞선다). 챌린지 비진행 시 `/.well-known/acme-challenge/*`는 308.
+- `ip_range: 172.30.0.128/25`가 caddy의 고정 IP 172.30.0.2를 실제로 지킨다(없으면 동적 컨테이너가 가져간다 — 대조 실측).
+- 비 superuser `blog_app`으로 `PublicRoleGrants.Apply`가 성공하고 `\dp`에 허용 5테이블만 `blog_public=r`로 남는다(운영 형태 검증).
+- 서브에이전트의 커밋 트레일러가 세 번 모두 세션 모델 이름으로 들어갔다 → 컨트롤러가 push 전에 `git commit --amend`로 정정했다. 지시에 트레일러 원문을 넣어도 반복되니 **매 커밋 뒤 `verify.sh`로 확인**한다.
+- 리뷰어·구현자가 같은 기계의 Docker를 공유한다 — 스모크는 172.30.0.0/24·포트 8081·8443·프로젝트 `pb-smoke`를 쓰므로, 동시에 두 개를 돌리지 않고 리뷰어에게는 Testcontainers(무작위 포트)만 쓰게 한다.
+
+### 3.5 Plan 4가 이어받은 사실(1~3단계에서 확정된 것)
+
+1. **관리 사이트 헤더:** Caddyfile의 관리 사이트 블록은 `PortfolioBlog.Web/admin-headers.ts`의 다섯 헤더를 옮기고 **HSTS를 따로 더한다**(그 파일에는 의도적으로 없다). 구현 완료 — 일치는 `caddyfile.test.ts`(정적)와 `deploy/smoke`(실제 응답)가 본다.
+2. **관리 사이트 라우팅:** `/api/*`·`/attachments/*`만 백엔드로. SPA 라우트 `/attachments`가 백엔드로 가면 안 된다. `/assets/없는파일`은 404. COOP 추가됨.
+3. **SPA 빌드:** `PortfolioBlog.Web/Dockerfile`(node 24 빌드 → caddy 이미지). `npm ci` + `npm audit --omit=dev --audit-level=high`(`NPM_AUDIT=off`로만 끈다).
+4. **공개 origin:** SPA는 공개 사이트 주소를 모른다. 필요하면 `VITE_PUBLIC_ORIGIN`.
+5. **백엔드(2B에서):** 헬스체크는 `Host: <공개 호스트>` 필요(앱의 `healthcheck` CLI가 처리). `ConnectionStrings:Default`에 `Options` 금지, `Command Timeout`×1000 > `Public:StatementTimeoutMs`. Caddy `request_body`는 **11MiB**. 저장 볼륨은 앱 시작 전 마운트. multipart 버퍼가 임시 폴더에 쓴다(`tmpfs /tmp`). publish 출력에 EF 디자인 타임 어셈블리는 없다(스파이크 S2). 이미지의 `wwwroot`는 `css/site.css` 하나(빌드 단계에서 검사).
+6. **브라우저:** WebKit(Safari) 미검증. 파일 입력의 `sr-only` 포커스 가능성 미확인.
+7. 공개 사이트 CSS를 바꾸면 `PortfolioBlog.Web/public/preview/*.css` 스냅숏을 갱신해야 한다(안 하면 `PreviewCssSnapshotTests` 실패).
+
 ## 4. 계획 실행 중에 끊겼다면 (Subagent-Driven Development)
 
 - 진행 기록은 `.superpowers/sdd/<계획 파일 이름>/progress.md`에 있다(git 무시 대상). 첫 줄이 그 계획 파일을 가리키면 `Task N: complete`가 찍힌 작업은 **끝난 것**이다 — 다시 맡기지 않는다. 마지막 줄이 수정 라운드면 그 라운드부터 잇는다. 기록이 없으면 `git log`로 복구한다.
