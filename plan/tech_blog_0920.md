@@ -407,7 +407,7 @@ sequenceDiagram
 | 대상 | CSP | 그 외 |
 |---|---|---|
 | 공개 HTML | `default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` | HSTS, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`(전부 비활성) |
-| 관리 SPA (Caddy) | `default-src 'none'; script-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self'; connect-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` | 정본은 `PortfolioBlog.Web/admin-headers.ts` — `vite preview`(E2E)가 이미 이 값을 쓴다. CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`는 Plan 4의 Caddyfile이 이 파일의 값을 관리 사이트 블록에 옮기지만, **HSTS는 Caddy가 따로 더한다**(이 파일에는 의도적으로 없다 — 같은 값이 루프백의 `vite preview`에서도 나가는데, `localhost`에 HSTS를 걸면 그 헤더를 받은 개발자 브라우저 프로필의 루프백 전체가 이후 HTTPS로 고정되기 때문이다). `style-src`를 요소/속성으로 나눠 CodeMirror가 주입하는 `<style>` 요소에만 `'unsafe-inline'`을 준다(속성 스타일은 막는다). E2E가 Chromium·Firefox 양쪽에서 CSP 위반 0건과 배포될 CSP 값 자체(`admin.spec.ts`가 `admin-headers.ts`의 `ADMIN_CSP`와 문자열 동일성까지)를 검사한다 |
+| 관리 SPA (Caddy) | `default-src 'none'; script-src 'self'; style-src-elem 'self' 'unsafe-inline'; style-src-attr 'none'; img-src 'self'; connect-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` | 정본은 `PortfolioBlog.Web/admin-headers.ts` — `vite preview`(E2E)가 이미 이 값을 쓴다. CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`는 Plan 4의 Caddyfile이 이 파일의 값을 관리 사이트 블록에 옮기지만, **HSTS는 Caddy가 따로 더한다**(이 파일에는 의도적으로 없다 — 같은 값이 루프백의 `vite preview`에서도 나가는데, `localhost`에 HSTS를 걸면 그 헤더를 받은 개발자 브라우저 프로필의 루프백 전체가 이후 HTTPS로 고정되기 때문이다). `style-src`를 요소/속성으로 나눠 CodeMirror가 주입하는 `<style>` 요소에만 `'unsafe-inline'`을 준다(속성 스타일은 막는다). E2E가 Chromium·Firefox 양쪽에서 CSP 위반 0건과 배포될 CSP 값 자체(`admin.spec.ts`가 `admin-headers.ts`의 `ADMIN_CSP`와 문자열 동일성까지)를 검사한다. **구현됨(4단계):** Caddy가 HSTS(`max-age=31536000; includeSubDomains`)와 `Cross-Origin-Opener-Policy: same-origin`을 더한다. 일치는 `caddyfile.test.ts`(정적)와 `deploy/smoke`(실제 응답)가 본다 |
 | 관리 API | 공개 HTML과 같은 값(2B 구현: `SecurityHeadersMiddleware`가 첨부 응답의 sandbox CSP만 예외로 유지하고 그 밖은 전부 이 값으로 덮어쓴다 — 관리 API도 예외가 아니다) | 위 + `Cache-Control: no-store` |
 | 첨부 | `default-src 'none'; sandbox` | `nosniff`, Content-Type은 시그니처 판정값, `Cache-Control: public, max-age=31536000, immutable`(내용 주소) |
 | 미리보기 iframe | `sandbox=""`(토큰 없음) + `srcdoc` 안 `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src <관리 origin>; style-src <관리 origin>; base-uri 'none'; form-action 'none'">` | `'self'`는 쓰지 않는다 — Firefox는 `about:srcdoc` 문서의 `'self'`를 부모 출처로 보지 않아 스타일시트·이미지를 전부 막는다(실측). 출처를 명시하면 Chromium·Firefox 둘 다 스타일시트·이미지를 로드한다는 것은 `PortfolioBlog.Web/e2e/admin.spec.ts`가 매번 확인하는 긍정 명제다. `'self'`로 되돌리면 Firefox에서 그 확인이 깨진다는 것은 한 번 관측한 사실이며, 상시 확인 대상은 아니다 |
@@ -425,7 +425,7 @@ sequenceDiagram
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 실행 2. 영구 잠금 없음(작성자 서비스 거부 방지) |
 | 업로드 | 속도: 전역 30회/분 + 동시 실행 2. 크기: 앱 10MB(`AttachmentOptions.MaxBytes`, 넘으면 앱의 413 ProblemDetails) · 프레임워크 11MB(`RequestSizeLimit` 메타데이터 + `FormOptions.MultipartBodyLengthLimit`, 넘으면 프레임워크 413) — 1MB 여유는 multipart 프레이밍(경계·헤더) 몫이다(실측, Kestrel). Caddy `request_body`는 Plan 4에서 앱 값이 아니라 이 프레임워크 값(11MB)에 맞춘다 — 그보다 작으면 Caddy가 정상 업로드를 앱보다 먼저 끊는다. 접근 검사는 본문을 읽기 전에 끝난다 |
 | 렌더링 | 프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503. 공개 글은 `(PostId, xmin)` 메모리 캐시(64MB, 정상 24시간·시간 예산 초과 렌더 2분) + 단일 비행 |
-| DB | 공개 조회는 별도 연결(`statement_timeout` 3초 + `default_transaction_read_only=on`). read-only는 세션에서 끌 수 있는(`SET default_transaction_read_only = off`) 심층 방어일 뿐이다 — 진짜 경계는 쓰기 권한이 없는 DB 롤(7절)이다 |
+| DB | 공개 조회는 별도 연결(`statement_timeout` 3초 + `default_transaction_read_only=on`). read-only는 세션에서 끌 수 있는(`SET default_transaction_read_only = off`) 심층 방어일 뿐이다 — 진짜 경계는 쓰기 권한이 없는 DB 롤이다. **구현됨(4단계):** `blog_public` 롤이 `SELECT`만 가지며, 앱이 시작할 때마다 자기 소유 테이블에서 `PUBLIC`·`blog_public` 양쪽의 권한을 회수한 뒤 허용 테이블 5개에만 다시 부여한다(3.10절, `PublicRoleGrants`) |
 | JSON 본문 | 관리 API 256KB. 직렬화 후 바이트 기준. 이스케이프가 많은 본문은 200KB 미만에서도 413이 될 수 있다 |
 | 과부하 응답 | `statement_timeout`·잠금 대기·렌더 슬롯 대기 초과는 503 + `Retry-After: 5` |
 
@@ -484,43 +484,40 @@ sequenceDiagram
 ### 3.10 배포
 
 ```
-deploy/docker-compose.yml   # caddy(고정 IP) · api(포트 미공개) · postgres(포트 미공개)
-                            # volumes: pgdata, attachments, caddy_data, dpkeys
-deploy/Caddyfile            # 사이트 2개
-deploy/.env.example         # DOMAIN, ADMIN_DOMAIN, POSTGRES_PASSWORD, ADMIN_ALLOWED_CIDRS, ADMIN_PASSWORD_HASH
-deploy/OPERATIONS.md        # 백업·복원, 비밀번호 변경, 세션 긴급 폐기, 원본 IP 확인 절차
-PortfolioBlog.Api/Dockerfile   # sdk:10.0 → aspnet:10.0, 비루트, /data/attachments, /data/dpkeys
-PortfolioBlog.Web/Dockerfile   # node:22 빌드 → caddy:2 이미지에 dist 복사(/srv)
+deploy/docker-compose.yml       # caddy(고정 IP) · api(포트 미공개) · postgres(포트 미공개) · tools(백업/복원 전용, profile)
+                                 # volumes: pgdata, attachments, dpkeys, caddy_data, caddy_config
+                                 # networks: public(포트 게시·아웃바운드, caddy만) · edge(internal, caddy↔api) · db(internal, api↔postgres)
+deploy/docker-compose.smoke.yml # 스모크 전용 덮어쓰기(로그인 속도 제한 상향, public 서브넷 고정). 운영에는 쓰지 않는다
+deploy/Caddyfile                # 사이트 2개. 구조는 아래, 전문은 이 파일이 정본
+deploy/.env.example             # DOMAIN, ADMIN_DOMAIN, PUBLIC_ORIGIN, ADMIN_ORIGIN, ADMIN_ALLOWED_CIDRS, ACME_EMAIL,
+                                 # SITE_TITLE/DESCRIPTION/AUTHOR, POSTGRES_PASSWORD, BLOG_APP_PASSWORD, BLOG_PUBLIC_PASSWORD,
+                                 # ADMIN_PASSWORD_HASH, HTTP_BIND/HTTPS_BIND(선택)
+deploy/postgres-init/10-roles.sh # 빈 볼륨 최초 기동에만: blog_app(소유자)·blog_public(조회 전용) 롤과 DB 생성
+deploy/backup.sh · restore.sh   # 무중단 백업(DB 덤프 → 첨부 tar, 자체 검증 + SHA256SUMS)과 복원(무결성 확인 → 정지 → 복원 → 재기동)
+deploy/OPERATIONS.md            # 최초 배포·직후 확인·원본 IP 문제·업데이트·백업 복원·비밀번호 변경·세션 긴급 폐기·허용 IP 변경·DB 비밀번호 변경·이미지 버전 올리기·로그·문제 해결
+deploy/smoke/                   # run.sh(빌드→기동→접근·헤더·한도→DB 롤→복원 리허설→(SMOKE_E2E=1) 브라우저 E2E) · smoke.test.mjs
+PortfolioBlog.Api/Dockerfile    # sdk:10.0.401 → aspnet:10.0.12-noble-chiseled-extra(셸 없음, 비루트 1654), /data/attachments, /data/dpkeys
+PortfolioBlog.Web/Dockerfile    # node:24.21.0-alpine 빌드 → caddy:2.11.4-alpine 이미지에 dist 복사(/srv)
 ```
 
-```
-{$DOMAIN} {
-    route {
-        @api path /api /api/*
-        respond @api 404
-        reverse_proxy api:8080
-    }
-}
-{$ADMIN_DOMAIN} {
-    route {
-        @denied not remote_ip {$ADMIN_ALLOWED_CIDRS}
-        respond @denied 404
-        @backend path /api/* /attachments/*
-        reverse_proxy @backend api:8080
-        root * /srv
-        try_files {path} /index.html
-        file_server
-    }
-}
-```
+Caddyfile 구조(전문은 `deploy/Caddyfile`이 정본이다 — 아래는 발췌가 아니라 개요):
 
-- **`route` 블록은 필수다.** Caddy는 지시문을 자체 우선순위로 재정렬하므로, `route` 없이 `handle`과 `respond`를 섞으면 IP 거부(`respond @denied`)보다 `handle`이 먼저 평가될 수 있다. `route` 안에서는 적힌 순서대로 실행된다. 4단계에서 비허용 IP로 관리 호스트의 모든 경로가 404인지 실제 요청으로 검증한다.
-- 3.6절의 관리 SPA 보안 헤더는 관리 사이트 블록의 `header` 지시문으로 붙인다. 4단계 검증 항목: 관리 사이트 블록의 헤더가 `admin-headers.ts`와 같은 값이면서 **거기에 HSTS(`Strict-Transport-Security`)가 더해져 있는지** 확인한다(그 파일에는 의도적으로 빠져 있다 — 3.6절 참고).
+- 전역 옵션: `admin off`(설정 변경은 재시작으로만), `email {$ACME_EMAIL}`, h1·h2만(h3 미광고), 헤더 타임아웃.
+- 공개 사이트(`{$DOMAIN}`): `route` 안에서 `-Server -Via`를 `defer`로 응답 직전에 지우고 HSTS·`nosniff`·`X-Frame-Options`·`Referrer-Policy`를 붙인 뒤 `/api`·`/api/*` 404, GET/HEAD 아닌 메서드 405, `request_body 64KB`, `reverse_proxy api:8080`. `handle_errors`가 `defer`로 닿지 않는 오류 응답(413·502 등)에 같은 헤더를 다시 붙인다.
+- 공개 사이트 평문 HTTP(`http://{$DOMAIN}`): 명시 블록에서 `-Server` 제거 후 308 리다이렉트. ACME HTTP-01 챌린지는 이 블록과 공존한다(Caddy가 앞단에서 처리한다).
+- 관리 사이트(`{$ADMIN_DOMAIN}`): `route` 안에서 IP 허용 목록 검사(`remote_ip`)가 **모든 처리보다 앞**이라 불허 시 즉시 404. 통과하면 `/api/*`·`/attachments/*`만 `request_body 11MiB`로 백엔드에 프록시(응답 헤더는 백엔드가 붙인다 — 첨부의 sandbox CSP를 덮지 않기 위해 이 핸들러가 SPA 헤더 블록보다 **앞**에 있다). 그 뒤 SPA 정적 파일: `/assets/*`는 있으면 영구 캐시, 없으면 404(index.html로 폴백하지 않는다), 점 파일·`/.well-known/*`는 404, 그 밖은 `try_files`로 SPA 폴백. `handle_errors`가 같은 일곱 헤더를 오류 응답에도 붙인다.
+- 관리 사이트 평문 HTTP: IP 게이트 + `-Server` + 308.
+- 두 도메인 밖 Host로 오는 요청(:80·:443 폴백): `-Server` + 본문 없는 404.
+
+스파이크에서 확정된 사실: `defer`로 `Server`·`Via`를 응답 직전에 지우지만 Caddy가 직접 만드는 오류 응답(`handle_errors` 밖)에는 닿지 않아 따로 처리해야 한다. 헤더 블록은 반드시 백엔드 프록시 **뒤**에 둔다. `/assets`의 없는 파일은 404다(SPA 폴백으로 새면 배포 뒤 옛 청크 요청의 증상이 흐려진다). `request_body`는 공개 사이트 64KB·관리 사이트 11MiB(=11,534,336 — 프레임워크의 멀티파트 상한과 맞춘 값이지 앱의 10MB 상한이 아니다). `ip_range: 172.30.0.128/25`가 caddy의 고정 IP(172.30.0.2)를 동적 할당 경쟁에서 지킨다(없으면 먼저 뜬 다른 컨테이너가 가져간다). 네트워크는 **셋**(계획 단계의 둘에서 리뷰로 늘었다 — `public` caddy만, `edge` internal, `db` internal; `edge`가 internal이 아니면 api가 인터넷으로 나갈 수 있다는 것을 실측으로 확인했다). 헬스체크는 `dotnet PortfolioBlog.Api.dll healthcheck`다(chiseled 이미지에 curl이 없다). api 컨테이너의 환경변수에 `ConnectionStrings__Public`(공개 조회 전용 연결 문자열)이 추가됐다.
+
+- **`route` 블록은 필수다.** Caddy는 지시문을 자체 우선순위로 재정렬하므로, `route` 없이 `handle`과 `respond`를 섞으면 IP 거부(`respond @denied`)보다 `handle`이 먼저 평가될 수 있다. `route` 안에서는 적힌 순서대로 실행된다. 4단계에서 비허용 IP로 관리 호스트의 모든 경로가 404인지 실제 요청으로 검증했다(스모크 `SMOKE_ROLE=denied`).
+- 3.6절의 관리 SPA 보안 헤더는 관리 사이트 블록의 `header` 지시문으로 붙인다. 관리 사이트 블록의 헤더가 `admin-headers.ts`와 같은 값이면서 **거기에 HSTS·COOP이 더해져 있는지**는 `caddyfile.test.ts`(정적)와 `deploy/smoke`(실제 응답)가 함께 확인한다.
 
 - 1차 배포 토폴로지는 **인터넷 → Caddy → api**로 고정한다. 앞단에 CDN·로드밸런서를 두면 `remote_ip`가 프록시 주소를 보게 되므로, 그때는 `trusted_proxies` + `client_ip`로 재설계한다.
 - 배포 직후 검증: 허용 IP 밖에서 `admin.<도메인>` 전 경로 404, Caddy 액세스 로그의 원본 IP가 실제 클라이언트 IP인지 확인(Docker 네트워크 모드에 따라 게이트웨이 주소로 보일 수 있음).
-- API 시작 시 `Database.Migrate()`(단일 인스턴스). 설정은 환경변수(`ConnectionStrings__Default`, `Site__PublicOrigin`, `Site__AdminOrigin`, `Admin__AllowedCidrs`, `Admin__PasswordHash`, `Proxy__TrustedIp`, `Attachments__RootPath`, `DataProtection__KeysPath`).
-- 헬스체크: postgres `pg_isready`, api `/health`, `depends_on: condition: service_healthy`. **api 헬스체크 요청에는 `Host: <공개 호스트>` 헤더가 필요하다** — 호스트 필터가 설정된 두 origin의 호스트만 받으므로 컨테이너 이름·`localhost`로 부르면 본문 없는 400이 온다(Plan 4에서 compose의 healthcheck 명령에 반영).
+- API 시작 시 `Database.Migrate()`(단일 인스턴스) → 공개 롤 권한 재조정(`PublicRoleGrants.Apply`). 설정은 환경변수(`ConnectionStrings__Default`, `ConnectionStrings__Public`, `Site__PublicOrigin`, `Site__AdminOrigin`, `Admin__AllowedCidrs`, `Admin__PasswordHash`, `Proxy__TrustedIp`, `Attachments__RootPath`, `DataProtection__KeysPath`).
+- 헬스체크: postgres `pg_isready -U blog_app -d blog`, api는 `dotnet PortfolioBlog.Api.dll healthcheck`(chiseled 이미지에 curl이 없어 앱 자신의 CLI가 `Host: <공개 호스트>`를 붙여 `/health`를 호출한다), `depends_on: condition: service_healthy`. **호스트 필터가 설정된 두 origin의 호스트만 받으므로** 컨테이너 이름·`localhost`로 부르면 본문 없는 400이 온다.
 - 백업 = `pgdata` 덤프 + `attachments`를 같은 시점에. `dpkeys`·`caddy_data`는 제외. 복원 리허설 절차를 `OPERATIONS.md`에 둔다.
 
 ## 4. 핵심 API
@@ -592,7 +589,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 | 1 | `PortfolioBlog.Api.Tests/PostgresFixture.cs`, `AccessMatrixTests.cs`, `SessionTests.cs`, `CidrListTests.cs`, `Posts*Tests.cs`, `Series*Tests.cs`, csproj(Testcontainers) | 실제 Postgres 통합 테스트 |
 | 2 | `Infrastructure/Markdown/*`, `Infrastructure/Storage/*`, `Features/{Attachments,Preview}/*`, `Pages/*`, 피드·sitemap, 보안 헤더·속도 제한 + 테스트 | 공개 표면 전체 |
 | 3 | `PortfolioBlog.Web/**`, `.github/workflows/ci.yml`(`web`·`web-e2e` 잡), `README.md` | 관리 SPA + Playwright E2E(실제 백엔드 + PostgreSQL + production 빌드) — CI의 `web` 잡은 Task 1에서, `web-e2e` 잡은 Task 8에서 추가됐다(계획 작성 시점 예상과 달리 4단계가 아니라 3단계에서 붙었다) |
-| 4 | `deploy/*`, `PortfolioBlog.Api/Dockerfile`, `PortfolioBlog.Web/Dockerfile` | 배포·운영 절차 |
+| 4 | `deploy/*`(compose·smoke compose·Caddyfile·`.env.example`·`postgres-init`·`backup.sh`·`restore.sh`·`OPERATIONS.md`·`smoke/`), `PortfolioBlog.Api/{Dockerfile,Infrastructure/Data/PublicRoleGrants.cs,healthcheck CLI}`, `PortfolioBlog.Web/Dockerfile`, `PortfolioBlog.Web/{e2e/admin.spec.ts,playwright.stack.config.ts,src/test/caddyfile.test.ts}`, `.github/workflows/ci.yml`(`deploy-smoke` 잡) | 배포·운영 절차, 공개 조회 전용 DB 롤, 스택 대상 스모크·브라우저 E2E |
 
 ## 6. 빌드 검증
 
@@ -602,7 +599,9 @@ dotnet test  PortfolioBlog.slnx -c Release            # Docker Desktop 필요(Te
 cd PortfolioBlog.Web
 npm ci; npm run lint; npm run typecheck; npm test; npm run build
 npm run e2e:prepare; npm run e2e                      # Docker Desktop 필요 — 실제 백엔드 + PostgreSQL + production 빌드로 Chromium·Firefox를 돌린다
-cd ..\deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>" http://localhost/health   # 호스트 필터 때문에 Host 헤더가 필요하다
+cd ..
+bash deploy/smoke/run.sh                               # Docker 필요 — 운영과 같은 이미지·Caddyfile·compose로 접근·헤더·한도·DB 롤·복원 리허설까지 검증
+SMOKE_E2E=1 bash deploy/smoke/run.sh                   # 위 + 브라우저 E2E(Chromium·Firefox)
 ```
 
 필수 통과 테스트:
@@ -623,7 +622,7 @@ cd ..\deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>
 - **표 정렬**(지금은 sanitizer가 `style`을 지운다 — 허용 클래스로 바꾸는 렌더러 수정 필요).
 - **렌더 캐시의 다중 인스턴스 공유**(지금은 프로세스 메모리).
 - 글↔첨부 참조 추적.
-- **마이그레이션 전용 DB 역할 분리**, **공개 연결 전용 쓰기 권한 없는 DB 역할**(지금은 `default_transaction_read_only`가 최종 방어선이며, 세션이 스스로 켤 수 있는 이스케이프가 있다 — `PublicDbContext` 참조), DB readiness 헬스체크 분리.
+- **마이그레이션 전용 DB 역할 분리**, DB readiness 헬스체크 분리.
 - **앞단 CDN:** `trusted_proxies` + `client_ip` 재설계와 함께.
 - **[TODO — 사용자 요청 2026-09-22, Plan 4 다음] 글쓰기와 보기를 노션처럼.** 로컬 데모를 본 뒤의 요청이다. 아직 설계하지 않았다 — 시작할 때 브레인스토밍으로 방향부터 정한다(제품 결정이라 사용자에게 묻는다). 정해야 할 것: (1) 편집기 — 블록 기반 WYSIWYG(슬래시 명령·블록 끌어 옮기기·인라인 서식 도구)로 갈지, 지금의 마크다운 원문 + 미리보기를 다듬을지. 후보는 ProseMirror 계열(TipTap·BlockNote·Milkdown). 관리 SPA의 CSP(`script-src 'self'`, `style-src-attr 'none'`)와 고정 버전·공급망 원칙 아래에서 도는지 먼저 스파이크한다. (2) 저장 형식 — 마크다운을 유지하면(권장 후보) 서버의 정제 파이프라인·공개 렌더러·검색·피드가 그대로다. 블록 JSON으로 바꾸면 렌더러·검증·DB 제약·마이그레이션이 전부 새로 필요하다. (3) 보기 — 공개 페이지는 **스크립트 없는 서버 렌더링을 유지**한다(보안 최우선). 노션 느낌은 타이포그래피·여백·콜아웃·토글(`<details>`)·목차·커버 이미지처럼 CSS와 허용 목록 확장으로 낸다. 콜아웃·토글은 마크다운 확장 문법과 sanitizer 허용 목록 변경이 필요하다. (4) 미리보기 — WYSIWYG이면 `sandbox` iframe 미리보기의 역할이 바뀐다(편집 화면 자체가 곧 결과). 서버 HTML을 React DOM에 넣지 않는다는 원칙은 유지한다.
 - 댓글(외부 서비스 임베드는 공개 CSP를 깨므로 별도 설계), 다크 모드 토글(현재는 `prefers-color-scheme` CSS만), 마크다운 파일 가져오기.
@@ -636,4 +635,4 @@ cd ..\deploy; docker compose up --build -d; curl -f -H "Host: <공개 호스트>
 | Plan 2A | `docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md` · 완료 | 마크다운 파이프라인(Markdig·UrlPolicy·서버 측 하이라이팅·HtmlAllowlist)·`/api/preview`·이미지 첨부(시그니처 판정·메타데이터 제거·내용 주소 저장·관리 API·공개 GET) |
 | Plan 2B | `docs/superpowers/plans/2026-09-21-tech-blog-public-site.md` · 완료(PR #3, 보고서 `plan/tech_blog_2b_report_0921.md`) | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 제한·공개/업로드 속도 제한과 체인 순서·`statement_timeout`(읽기 전용 연결)·렌더 게이트/캐시·관리 JSON 256KB·첨부 정합성(잠금·고아 청소)·앱 검증⊆DB 제약 테스트 |
 | Plan 3 | `docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md` · 완료(PR #4, 보고서 `plan/tech_blog_3_report_0922.md`) | 3단계: 관리 SPA(React 19 + Vite) — API 클라이언트·인증 흐름·글 편집(CodeMirror·409 비교·임시본)·sandbox 미리보기·시리즈·태그·첨부·소스 가드·Playwright E2E(실제 백엔드 + 배포용 CSP)·CI `web`·`web-e2e` |
-| Plan 4 | `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md` · 실행 중단(재개 대기 — `plan/resume_guide_0921.md` 3절) | 4단계: 이미지 둘(비루트·무셸 API, SPA를 품은 Caddy)·compose·Caddyfile·DB 롤 셋(공개 조회는 `SELECT` 전용 롤)·백업/복원·운영 문서·운영과 같은 이미지로 띄워 찌르는 스택 스모크(CI `deploy-smoke`). 실제 서버 배포는 범위 밖(`deploy/OPERATIONS.md`가 절차) |
+| Plan 4 | `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md` · 진행 중(브랜치, PR 대기) | 4단계: 이미지 둘(비루트·무셸 API, SPA를 품은 Caddy)·compose(3망)·Caddyfile·DB 롤 셋(공개 조회는 `SELECT` 전용 롤)·백업/복원·운영 문서·운영과 같은 이미지로 띄워 찌르는 스택 스모크(허용/비허용 IP·DB 롤·복원 리허설·브라우저 E2E, CI `deploy-smoke`). 실제 서버 배포는 범위 밖(`deploy/OPERATIONS.md`가 절차) |

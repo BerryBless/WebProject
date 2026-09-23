@@ -8,7 +8,7 @@
 - `PortfolioBlog.Api` — ASP.NET Core 최소 API(관리 `/api`) + Razor Pages(공개 페이지 서버 렌더링)(`Microsoft.NET.Sdk.Web`). 통합 테스트 접근용으로 `Program`을 `public partial`로 노출한다. 공개 페이지는 `Pages/`(GET/HEAD·공개 호스트 전용 규약), 정적 파일은 `wwwroot/css/site.css` 하나.
 - `PortfolioBlog.Api.Tests` — xUnit + `Microsoft.AspNetCore.Mvc.Testing`. CI의 `dotnet test` 게이트가 실제로 검사하는 대상이다.
 - `PortfolioBlog.Web` — 관리 에디터 전용 React 19 + TypeScript + Vite SPA(3단계 구현 완료). `admin.<도메인>`에서만 서빙되며 `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다. 보안 헤더(CSP 포함)의 정본은 `admin-headers.ts` — `vite preview`가 이미 쓰고 Plan 4의 Caddyfile이 CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`를 그대로 옮긴다. **HSTS는 Caddy가 따로 더한다**(이 파일에는 의도적으로 없다 — 루프백 미리보기 서버에서도 쓰이기 때문). `npm run certs`(개발 인증서 내보내기)·`npm run dev`(HTTPS 개발 서버)·`npm test`(Vitest)·`npm run e2e:prepare && npm run e2e`(Playwright, 실제 백엔드 + PostgreSQL + production 빌드, Chromium·Firefox, Docker Desktop 필요)로 검증한다. CI는 `web` 잡(lint·typecheck·test·build)과 `web-e2e` 잡(서비스 컨테이너 PostgreSQL + Playwright)을 돈다.
-- `deploy/` — docker-compose(caddy·api·postgres)·Caddyfile(공개·관리 사이트 2개)·`.env.example`·`OPERATIONS.md`(예정, 4단계).
+- `deploy/` — compose(caddy·api·postgres + 백업/복원 전용 `tools`, 네트워크 셋 `public`/`edge`/`db`)·Caddyfile(공개·관리 사이트 2개)·`.env.example`·`postgres-init`(DB 롤 셋 `blog_app`/`blog_public`)·`backup.sh`/`restore.sh`(무중단 백업과 복원)·`smoke/`(운영과 같은 이미지로 띄워 찌르는 스모크, CI `deploy-smoke` 잡)·`OPERATIONS.md`. 새 이미지 태그·Caddyfile·compose를 고치면 `bash deploy/smoke/run.sh`를 통과시킬 것.
 
 **하네스 검증:** `pwsh scripts/harness-audit.ps1` 이 에이전트·스킬·미러 구조를 8개 항목으로 검사한다(프론트매터, 참조 실존, 절대경로, 팀 도구, 미러 동기화·Codex 에이전트 재귀, 서명, 쓰기 범위 훅). 하네스 파일을 고치면 실행해 PASS를 확인할 것. 감사 결과와 수정 이력은 `plan/harness_audit_0911.md` 참조.
 

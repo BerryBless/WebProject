@@ -14,7 +14,7 @@
 | 2A | 마크다운 파이프라인, 미리보기, 이미지 첨부 | PR #2 → `898b839` | [`tech_blog_2a_report_0921.md`](../plan/tech_blog_2a_report_0921.md) |
 | 2B | 공개 페이지·검색·Atom·sitemap·보안 헤더·속도 제한·읽기 전용 연결·렌더 게이트 | PR #3 → `80c8dc4` | [`tech_blog_2b_report_0921.md`](../plan/tech_blog_2b_report_0921.md) |
 | 3 | 관리 에디터 SPA + 실제 백엔드 E2E + CI 확장 | PR #4 → `16a3d25` | [`tech_blog_3_report_0922.md`](../plan/tech_blog_3_report_0922.md) |
-| 4 | 배포 구성(Docker·Caddy·DB 롤·백업/복원·스모크) | **진행 중** — 브랜치 `feature/blog-deploy` | [재개 가이드 3절](../plan/resume_guide_0921.md) |
+| 4 | 배포 구성(Docker·Caddy·DB 롤·백업/복원·스모크) | **브랜치 완료, PR 대기** — `feature/blog-deploy` | [재개 가이드 3절](../plan/resume_guide_0921.md) |
 
 ## 설계 (2026-09-20)
 
@@ -61,7 +61,7 @@ React 19 + Vite + CodeMirror 6로 글·시리즈·태그·첨부 관리 화면, 
 - 최종 리뷰가 실제 호스트에서 5건을 더 찾았습니다: 디바운스 창 안의 입력이 세션 만료·화면 이탈 때 사라짐, 비밀번호가 mutation 변수로 캐시에 남음, SPA 라우트 `/attachments`가 개발 프록시의 접두사 매칭 때문에 백엔드로 끌려감, 보통 속도의 글쓰기로도 미리보기가 429에 닿음, 라우트 오류 경계 없음.
 - 브라우저 차이도 실측으로 확정했습니다: Firefox는 `about:srcdoc` 문서의 CSP `'self'`를 부모 출처로 보지 않아 미리보기의 CSS·이미지가 전부 차단됩니다 → 출처를 명시합니다.
 
-## 4단계 — 배포 (진행 중)
+## 4단계 — 배포 (브랜치 완료, PR 대기)
 
 브랜치 `feature/blog-deploy`. 계획을 쓰기 전에 저장소 밖 복사본에서 이미지·compose·Caddyfile·백업 복원·스택 E2E를 **실제로 띄워 16가지를 측정**하고(S1~S16), 그 결과로 계획을 썼습니다. 그럼에도 리뷰가 그 위에서 더 찾아냈습니다.
 

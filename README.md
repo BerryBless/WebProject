@@ -2,8 +2,8 @@
 
 단일 작성자용 기술 블로그입니다. 방문자에게는 **스크립트 없는 서버 렌더링 HTML**만 내보내고, 글쓰기는 **별도 서브도메인 + IP 허용 목록 + 비밀번호 세션** 뒤에 둡니다.
 
-> **현재 상태 (2026-09-22):** 공개 사이트와 관리 에디터가 **동작합니다** — 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션, 관리 API, 마크다운 파이프라인·미리보기·이미지 첨부, 공개 페이지·검색·Atom·sitemap·보안 헤더, 관리 에디터 SPA까지 master에 병합됐습니다(.NET 테스트 591개 · Vitest 188개 · 브라우저 E2E 8개, Release 빌드 경고 0).
-> **배포 구성(4단계)은 브랜치 `feature/blog-deploy`에서 작업 중**이며 아직 병합되지 않았습니다 → [배포 구성](docs/deployment.md) · [재개 가이드](plan/resume_guide_0921.md).
+> **현재 상태 (2026-09-23):** 공개 사이트와 관리 에디터가 **동작합니다** — 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션, 관리 API, 마크다운 파이프라인·미리보기·이미지 첨부, 공개 페이지·검색·Atom·sitemap·보안 헤더, 관리 에디터 SPA까지 master에 병합됐습니다(.NET 테스트 591개 · Vitest 188개 · 브라우저 E2E 8개, Release 빌드 경고 0).
+> **배포 구성(4단계)은 브랜치 `feature/blog-deploy`에서 구현 완료, PR 대기**입니다(.NET 625개 · Vitest 193개 · 배포 스모크·스택 E2E 통과) → [배포 구성](docs/deployment.md) · [재개 가이드](plan/resume_guide_0921.md).
 
 ## 무엇을 만드나
 
@@ -15,7 +15,7 @@
 | 공개 표면 | ASP.NET Core 10 Razor Pages(서버 렌더링, JS 없음) + Markdig · ColorCode.HTML · HtmlSanitizer |
 | 관리 표면 | 최소 API + React 19 · Vite · CodeMirror 6 SPA (`admin.<도메인>` 전용) |
 | 데이터 | EF Core 10 + PostgreSQL 17, 첨부는 내용 주소(SHA-256) 파일 저장 |
-| 배포 | Caddy + Docker Compose (4단계, 작업 중) |
+| 배포 | Caddy + Docker Compose (4단계, 브랜치에서 완료·PR 대기) |
 
 ## 왜 이렇게 만들었나
 
@@ -38,7 +38,7 @@
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션 폐기, 글·시리즈·태그 관리 API | 완료 |
 | 2 | 마크다운 파이프라인·첨부(2A), 공개 페이지·검색·Atom·sitemap·보안 헤더·속도 제한(2B) | 완료 |
 | 3 | 관리 에디터 SPA(글·시리즈·태그·첨부, sandbox 미리보기, 실제 백엔드 E2E) | 완료 |
-| 4 | Docker Compose · Caddy · DB 롤 분리 · 백업/복원 · 배포 스모크 | **작업 중**(브랜치) |
+| 4 | Docker Compose · Caddy · DB 롤 분리 · 백업/복원 · 배포 스모크 | **브랜치에서 완료**, PR 대기 |
 | 이후 | 글쓰기·읽기 경험 개선(노션식 편집·보기) | 설계 전 |
 
 단계별로 무엇을 만들고 어떤 결함을 어디서 잡았는지: [진행 기록](docs/history.md).
@@ -50,7 +50,7 @@ git clone https://github.com/BerryBless/WebProject.git
 cd WebProject
 Copy-Item scripts/git-hooks/commit-msg .git/hooks/
 dotnet build PortfolioBlog.slnx -c Release   # 경고 0 / 오류 0
-dotnet test  PortfolioBlog.slnx -c Release   # 591개 — Docker 필요(Testcontainers)
+dotnet test  PortfolioBlog.slnx -c Release   # 625개(이 브랜치 기준, master는 591개) — Docker 필요(Testcontainers)
 ```
 
 .NET 10 SDK와 Docker가 필요하고, 관리 SPA를 띄우려면 Node 24가 필요합니다. 실제로 띄워 보는 절차(개발용 PostgreSQL, 비밀번호 해시, HTTPS 프로필, SPA 개발 서버)는 [개발 환경](docs/development.md)에 있습니다.
@@ -66,7 +66,7 @@ dotnet test  PortfolioBlog.slnx -c Release   # 591개 — Docker 필요(Testcont
 | [개발 환경](docs/development.md) | 준비물, 로컬 실행(API·SPA), 마이그레이션, 미리보기 스냅숏 갱신, 코드 규칙, 자주 밟는 함정 |
 | [테스트](docs/testing.md) | 테스트 지형과 실행, 이 저장소의 테스트 규칙(사보타주), 필수 통과 항목, CI, 알려진 문제 |
 | [설정 키](docs/configuration.md) | 전체 설정 키와 기본값, 시작 시 검증되는 조건 |
-| [배포 구성](docs/deployment.md) | 목표 토폴로지, 이미지·compose·Caddy, DB 롤 분리, 스모크, 운영 확인 항목 *(작업 중)* |
+| [배포 구성](docs/deployment.md) | 목표 토폴로지, 이미지·compose·Caddy, DB 롤 분리, 스모크, 운영 확인 항목 |
 | [진행 기록](docs/history.md) | 단계별로 만든 것과 발견한 결함, 이 저장소가 일하는 방식 |
 | [작업일지](docs/worklog.md) | 단계별 고민과 판정, 틀렸던 것, 사용자 흐름·시퀀스·처리 흐름 다이어그램(Mermaid) |
 | [개발 하네스](docs/harness.md) | AI 협업 구성(에이전트·스킬·훅·CI·Codex 교차 검증) |
