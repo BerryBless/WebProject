@@ -71,6 +71,12 @@ SMOKE_ROLE=allowed docker compose run --rm -T smoke-allowed
 step "스모크: 비허용 IP"
 docker compose run --rm -T smoke-denied
 
+step "스모크: 오류 응답(api 중단 중에도 502에 보안 헤더가 붙는다, N-C)"
+docker compose stop api > /dev/null
+SMOKE_ROLE=errors docker compose run --rm -T --no-deps smoke-allowed
+docker compose start api > /dev/null
+docker compose up -d --wait
+
 step "DB 롤: 앱은 슈퍼유저가 아니고, 공개 롤은 읽기만 한다"
 psql_as() { docker compose exec -T -e PGPASSWORD="$2" postgres psql -h 127.0.0.1 -U "$1" -d blog -v ON_ERROR_STOP=1 -tA -c "$3"; }
 test "$(psql_as postgres "$pg_password" "select count(*) from pg_roles where rolname in ('blog_app','blog_public') and not rolsuper and not rolcreaterole and not rolcreatedb")" = "2"

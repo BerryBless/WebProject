@@ -109,6 +109,17 @@ if (ROLE === 'allowed') {
     assertEmpty404(await pub('/API/posts', { headers: XRW }), '/API/posts')
   })
 
+  test('설정에 없는 Host로 오면 평문·TLS 모두 Caddy의 사이트 밖 폴백에서 Server 없이 404다(N-B)', async () => {
+    // host는 실제 접속 대상(extra_hosts로 172.30.0.2에 매핑된 DOMAIN)이고, Host 헤더만 두 사이트 중 어느 쪽도 아닌 값으로 바꾼다.
+    const plain = await send({ host: DOMAIN, path: '/', tls: false, headers: { Host: 'nope.example.test' } })
+    assertEmpty404(plain, 'HTTP 낯선 Host')
+    assertNoProductHeaders(plain, 'HTTP 낯선 Host')
+    // servername(SNI)은 DOMAIN이라 유효한 인증서로 TLS 핸드셰이크는 성공하고, 그 뒤 Host 매칭만 빗나간다.
+    const secure = await send({ host: DOMAIN, servername: DOMAIN, path: '/', headers: { Host: 'nope.example.test' } })
+    assertEmpty404(secure, 'HTTPS 낯선 Host(유효 SNI)')
+    assertNoProductHeaders(secure, 'HTTPS 낯선 Host(유효 SNI)')
+  })
+
   test('공개·관리 사이트: 허용 IP에서 평문 HTTP는 HTTPS로 넘긴다(Server 없음)', async () => {
     for (const [label, host, send1] of [['공개', DOMAIN, pub], ['관리', ADMIN_DOMAIN, adm]]) {
       const response = await send1('/', { tls: false })
@@ -247,6 +258,13 @@ if (ROLE === 'allowed') {
     const huge = multipart('huge.png', makePng(12 * MIB, 4))
     const cut = await adm('/api/attachments', { method: 'POST', headers: { ...authed, 'Content-Type': huge.contentType }, chunks: [huge.body.subarray(0, MIB), huge.body.subarray(MIB)] })
     assert.equal(cut.status, 413, '길이를 알리지 않은(chunked) 12MiB도 5xx 없이 413')
+    // 이 413은 앱이 아니라 Caddy의 request_body 상한이 만든다 → handle_errors 경로. route의 정적 SPA 헤더와 완전히 같은 값이 붙어야 한다(N-C).
+    for (const [name, value] of Object.entries(ADMIN_SECURITY_HEADERS)) {
+      assert.equal(cut.headers[name.toLowerCase()], value, `관리 413(Caddy): ${name}`)
+    }
+    assert.equal(cut.headers['strict-transport-security'], HSTS, '관리 413(Caddy): HSTS')
+    assert.equal(cut.headers['cross-origin-opener-policy'], 'same-origin', '관리 413(Caddy): COOP')
+    assertNoProductHeaders(cut, '관리 413(Caddy)')
 
     assert.equal((await adm('/api/auth/logout', { method: 'POST', headers: authed })).status, 204)
     assert.equal((await adm('/api/posts', { headers: authed })).status, 401, '로그아웃 뒤에는 복사해 둔 쿠키가 통하지 않는다')
@@ -296,6 +314,31 @@ if (ROLE === 'denied') {
       socket.on('error', error => resolve(error.code))
     })
     assert.notEqual(outcome, 'connected')
+  })
+}
+
+// run.sh가 api 컨테이너를 잠깐 멈추고 이 ROLE로 돌린다(허용 IP 컨테이너 재사용) — Caddy가 직접 만드는 502에도
+// 그 사이트의 보안 헤더가 붙는지 본다(N-C). 앱이 만드는 응답이 아니므로 본문은 없어야 한다.
+if (ROLE === 'errors') {
+  test('api 중단: 공개·관리 사이트의 502에도 Server 없이 그 사이트의 보안 헤더가 붙는다', async () => {
+    const health = await pub('/health')
+    assert.equal(health.status, 502)
+    assert.equal(health.body.length, 0, '공개 502: 본문 없음(앱이 만든 응답이 아니다)')
+    assert.equal(health.headers['strict-transport-security'], HSTS, '공개 502: HSTS')
+    assert.equal(health.headers['x-content-type-options'], 'nosniff', '공개 502: nosniff')
+    assert.equal(health.headers['x-frame-options'], 'DENY', '공개 502: XFO')
+    assert.equal(health.headers['referrer-policy'], 'strict-origin-when-cross-origin', '공개 502: Referrer-Policy')
+    assertNoProductHeaders(health, '공개 502')
+
+    const me = await adm('/api/auth/me', { headers: XRW })
+    assert.equal(me.status, 502)
+    assert.equal(me.body.length, 0, '관리 502: 본문 없음(앱이 만든 응답이 아니다)')
+    for (const [name, value] of Object.entries(ADMIN_SECURITY_HEADERS)) {
+      assert.equal(me.headers[name.toLowerCase()], value, `관리 502: ${name}`)
+    }
+    assert.equal(me.headers['strict-transport-security'], HSTS, '관리 502: HSTS')
+    assert.equal(me.headers['cross-origin-opener-policy'], 'same-origin', '관리 502: COOP')
+    assertNoProductHeaders(me, '관리 502')
   })
 }
 
