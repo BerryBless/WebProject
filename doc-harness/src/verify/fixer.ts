@@ -32,7 +32,7 @@ export function makeFixer(ctx: PhaseContext, deps: FixerDeps) {
       const summary = fid ? ws.features.features.find((f) => f.id === fid) : undefined;
       if (fid && summary) {
         ctx.log(`수정 ${iteration}: ${fid} 재분석 (${list.length}건)`);
-        const fa = await analyzeFeature(ctx, summary, ws.architecture, ws.featureAnalyses.get(fid) ?? null, deps.changes, { issues: list, attempt: iteration });
+        const fa = await analyzeFeature(ctx, summary, ws.architecture, ws.featureAnalyses.get(fid) ?? null, deps.changes, { issues: list, attempt: iteration }, ws.features.features);
         ws.featureAnalyses.set(fid, fa);
         only.add(featureDocName(fid, fa.feature.slug));
         only.add('09_FEATURES.md');

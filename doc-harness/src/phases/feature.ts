@@ -55,12 +55,13 @@ export function fixTail(fix?: FixHint): { tail?: string; suffix: string } {
   };
 }
 
-export async function analyzeFeature(ctx: PhaseContext, summary: FeatureSummary, architecture: Architecture, previous: FeatureAnalysis | null, changes: ChangeSet | null, fix?: FixHint): Promise<FeatureAnalysis> {
+export async function analyzeFeature(ctx: PhaseContext, summary: FeatureSummary, architecture: Architecture, previous: FeatureAnalysis | null, changes: ChangeSet | null, fix?: FixHint, featureIndex: FeatureSummary[] = [summary]): Promise<FeatureAnalysis> {
   const { tail, suffix } = fixTail(fix);
   const prompt = buildPrompt('04_feature_analysis', {
     featureId: summary.id,
     featureName: summary.name,
     today: today(),
+    featureIndex: featureIndex.filter((f) => f.status !== 'REMOVED').map((f) => `- ${f.id} ${f.name} (${f.slug})`).join('\n') || '(없음)',
     feature: JSON.stringify(summary, null, 1),
     relatedFiles: pathList(summary.relatedFiles, ctx.cfg) || '(없음 — Glob/Grep으로 찾는다)',
     components: JSON.stringify(architecture.components.map((c) => ({ id: c.id, name: c.name, path: c.path })), null, 1),
@@ -80,7 +81,7 @@ export async function analyzeFeature(ctx: PhaseContext, summary: FeatureSummary,
 }
 
 /** 기능 목록을 워커 풀로 분석한다. 하나가 실패해도 나머지는 계속하고, 끝에 실패 목록을 던진다. */
-export async function runFeatures(ctx: PhaseContext, features: FeatureSummary[], architecture: Architecture, previous: Map<string, FeatureAnalysis>, changes: ChangeSet | null): Promise<{ analyses: Map<string, FeatureAnalysis>; failed: { id: string; error: string }[] }> {
+export async function runFeatures(ctx: PhaseContext, features: FeatureSummary[], architecture: Architecture, previous: Map<string, FeatureAnalysis>, changes: ChangeSet | null, featureIndex: FeatureSummary[] = features): Promise<{ analyses: Map<string, FeatureAnalysis>; failed: { id: string; error: string }[] }> {
   const analyses = new Map<string, FeatureAnalysis>();
   const failed: { id: string; error: string }[] = [];
   const queue = [...features];
@@ -90,7 +91,7 @@ export async function runFeatures(ctx: PhaseContext, features: FeatureSummary[],
       const f = queue.shift();
       if (!f) return;
       try {
-        analyses.set(f.id, await analyzeFeature(ctx, f, architecture, previous.get(f.id) ?? null, changes));
+        analyses.set(f.id, await analyzeFeature(ctx, f, architecture, previous.get(f.id) ?? null, changes, undefined, featureIndex));
       } catch (e) {
         failed.push({ id: f.id, error: (e as Error).message });
       }

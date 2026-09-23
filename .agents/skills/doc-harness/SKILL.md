@@ -23,7 +23,12 @@ description: "프로젝트 기술 문서를 다단계 Claude 파이프라인으�
 1. **사전 점검** — `doc-harness/node_modules`가 없으면 `cd doc-harness && npm ci`. `claude --version`이 동작하는지 확인(하네스는 `claude -p`를 자식 프로세스로 띄운다).
 2. **세션 맥락 작성(있을 때만)** — 이 세션에서 직전에 기능을 구현하거나 버그를 고쳤다면 Git만으로 알기 어려운 정보를 `doc-harness/workspace/inbox/session_context.md`에 쓴다: 왜 구현했는지, 사용자가 요구한 동작, 처음 시도한 방식과 실패 증상·오류 메시지, 왜 다른 방식으로 바꿨는지, 사용자가 거부한 방법, 임시 workaround. 비밀값·키·연결 문자열은 절대 넣지 않는다. 직전 작업이 없으면 파일을 만들지 않는다. 하네스는 이 파일을 **최하위 근거**로만 쓰고, 소비 후 Run 디렉터리로 옮긴다.
 3. **센티널** — `.git/harness_commit_in_progress`를 만들어(내용: 현재 시각) 실행 중 Stop 훅이 중간 상태를 커밋하지 못하게 한다.
-4. **실행** — Bash 도구로 `cd doc-harness && npm run harness -- run --auto`(전체는 `--full`)를 **`run_in_background: true`** 로 띄운다(INITIAL은 1~2시간, Bash 상한 10분을 넘긴다). 완료 알림이 올 때까지 다른 작업을 하지 않는다. 진행은 `doc-harness/workspace/runs/<최신>/state.json`·`logs/`로 확인할 수 있다.
+4. **실행(분리 프로세스)** — Bash/PowerShell 도구는 명령 하나에 10분 상한이 있고 INITIAL은 1~3시간 걸리므로, 하네스를 **도구와 분리된 프로세스**로 띄운다. PowerShell 도구에서:
+   ```powershell
+   $log = "doc-harness/workspace/harness-run.log"
+   Start-Process -FilePath "npm" -ArgumentList "run","harness","--","run","--auto" -WorkingDirectory "doc-harness" -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+   ```
+   (전체는 `--auto` 대신 `--full`.) 그다음 Monitor 도구로 `doc-harness/workspace/harness-run.log`를 `tail -f`해 `✓`·`검증`·`문서화 완료`·`문서화 실패`·`Error` 줄을 이벤트로 받는다(모니터는 30분마다 만료되므로 재무장). 그 사이 다른 작업을 하지 않는다. 증분(INCREMENTAL)은 보통 10~20분이다.
 5. **보고** — 완료되면 `doc-harness/workspace/runs/<최신 run>/report.txt`를 읽어 **그대로** 출력한다(요약·재작성 금지). `status`가 FAILED면 리포트의 "남은 문제"를 보여 주고 baseline·기존 문서는 유지되었음을 알린다. 실패 원인이 일시적(타임아웃·한도)이면 `npm run harness -- resume`으로 이어갈 수 있다고 안내한다.
 6. **정리** — 센티널을 지운다. 변경된 파일(`docs/generated/**`, `doc-harness/workspace/baseline.json`·`current/`·`depgraph.json`·`runs/*/run.json`)은 이 저장소의 커밋 규칙대로 커밋한다(메시지 접두사 `문서:`, 제목은 모드와 요지 — 예: `문서: 문서화 INCREMENTAL — 기능 3개 갱신, 신규 1개`).
 

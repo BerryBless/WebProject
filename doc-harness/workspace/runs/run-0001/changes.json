@@ -1,7 +1,7 @@
 {
   "fingerprint": "5fd09a465adb73effb41e3c3b2640c1a4404841ca312ec118fabb703425ecd6b",
   "baselineCommit": null,
-  "headCommit": "2a67f8ffd5ab3d13aa71c434bbf1283eb92a8b1b",
+  "headCommit": "1553dcf3a9fcb69f94e777b2a7533dba43e1da83",
   "files": [
     {
       "file": ".agents/skills/allocation-peer-review/SKILL.md",

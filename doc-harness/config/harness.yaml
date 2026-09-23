@@ -25,7 +25,9 @@ project:
   secret_globs: ["**/appsettings*.json", "**/.env*", "**/secrets.json", "**/*.pfx", "**/*.pem", "**/*.key"]
 
 analysis:
-  feature_parallelism: 1
+  # 기능 분석 워커 수. 실측(2026-09-23) 기능당 4~6분·$1.5~2.3(opus)이라 29개를 순차로 돌리면 2.5시간 — 3으로 올린다.
+  # 동시 쓰기 경합은 상태 저장 직렬화·tmp 고유명·rename 재시도로 해결돼 있다(run.ts·fsx.ts).
+  feature_parallelism: 3
   max_features: 30
 
 retry:
@@ -61,6 +63,6 @@ claude:
   phases:
     architecture: { model: "opus", budget_usd: 4.0, effort: "high" }
     discovery: { model: "opus", budget_usd: 4.0, effort: "high" }
-    feature: { model: "opus", budget_usd: 3.0, effort: "high" }
+    feature: { model: "opus", budget_usd: 5.0, effort: "high" }   # 실측 최대 $2.3 — 복잡한 기능 여유분
     feature_delta: { model: "opus", budget_usd: 3.0, effort: "high" }
-    verification: { model: "opus", budget_usd: 4.0, effort: "high" }
+    verification: { model: "opus", budget_usd: 6.0, effort: "high" }   # 기능 문서군은 14만 자 조각 단위

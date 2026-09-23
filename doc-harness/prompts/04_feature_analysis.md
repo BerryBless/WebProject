@@ -23,6 +23,11 @@
 - 노드 25·간선 40 초과 금지. 복잡하면 `{{featureId}}_FLOW_ERROR`처럼 Level을 나눈다.
 - `summary`(결론 1~2문장)·`details`(상세) 필수. style/classDef/linkStyle 금지.
 
+## 이력·의존에 관한 안내
+
+- Git 이력은 별도 단계(Failure History)가 다룬다. 이 세션에서는 git 명령을 쓸 수 없고 쓸 필요도 없다. **최초 분석이면 `history`는 빈 배열**이며 이는 정상이다(unknowns에 적지 않는다).
+- `feature.dependencies`는 아래 "기능 id 색인"의 id로 채운다. 코드로 확인한 의존만 넣고, 입력에 있던 id가 코드로 확인되지 않으면 뺀다.
+
 ## 재분석 규칙(이전 분석이 있을 때)
 
 - 이전 분석은 **검증 대상이지 사실이 아니다.** 현재 코드가 Source of Truth다. 틀린 부분은 고친다.
@@ -44,6 +49,10 @@
 ```json
 {{components}}
 ```
+
+## 입력: 기능 id 색인(dependencies 매핑용)
+
+{{featureIndex}}
 
 ## 입력: 이전 분석(재검증 대상)
 

@@ -261,7 +261,7 @@ async function runInitial(ctx: PhaseContext, changes: ChangeSet, record: RunReco
   if (!reached('features')) return PARTIAL;
   const targets = onlyFeature ? features.features.filter((f) => f.id === onlyFeature) : features.features;
   if (onlyFeature && !targets.length) throw new Error(`기능 ${onlyFeature}이(가) features.json에 없다`);
-  const { analyses, failed } = await runFeatures(ctx, targets, architecture, new Map(), null);
+  const { analyses, failed } = await runFeatures(ctx, targets, architecture, new Map(), null, features.features);
   if (failed.length) throw new Error(`기능 분석 실패 ${failed.length}건: ${failed.map((f) => `${f.id}(${f.error.slice(0, 80)})`).join('; ')}`);
   for (const f of features.features) if (analyses.has(f.id)) f.analysisStatus = 'SUCCESS';
   await writeStaging(ctx, 'features.json', features);
@@ -326,7 +326,7 @@ async function runIncremental(ctx: PhaseContext, baseline: Baseline, changes: Ch
   const targetIds = new Set([...delta.changedFeatureIds, ...delta.newFeatures.map((f) => f.id)]);
   if (onlyFeature) { targetIds.clear(); targetIds.add(onlyFeature); }
   const targets = features.features.filter((f) => targetIds.has(f.id) && f.status !== 'REMOVED');
-  const { analyses, failed } = await runFeatures(ctx, targets, architecture, prevWs.featureAnalyses, changes);
+  const { analyses, failed } = await runFeatures(ctx, targets, architecture, prevWs.featureAnalyses, changes, features.features);
   if (failed.length) throw new Error(`기능 재분석 실패 ${failed.length}건: ${failed.map((f) => `${f.id}(${f.error.slice(0, 80)})`).join('; ')}`);
   for (const f of features.features) if (analyses.has(f.id)) f.analysisStatus = 'SUCCESS';
   await writeStaging(ctx, 'features.json', features);
