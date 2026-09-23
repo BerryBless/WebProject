@@ -123,10 +123,10 @@
       "inputHash": "858dc55323696a39c287fec10bc2a6239d4a7f66fd1a5292ec0def2ec9545a6f"
     },
     "feature:F014": {
-      "status": "RUNNING",
-      "attempts": 0,
-      "costUsd": 0,
-      "updatedAt": "2026-09-23T13:53:45.924Z",
+      "status": "SUCCESS",
+      "attempts": 1,
+      "costUsd": 2.0280426,
+      "updatedAt": "2026-09-23T13:59:40.615Z",
       "inputHash": "51b83655a02dde91556d39a4e8915c33c68e6c3ab037706ae6fb2df592256ec7"
     },
     "feature:F015": {
@@ -142,6 +142,13 @@
       "costUsd": 0,
       "updatedAt": "2026-09-23T13:58:15.048Z",
       "inputHash": "9e5c403eac23ffc5073934f372337dba66ef43beabd5ee02b81bd8be2c6f59d0"
+    },
+    "feature:F017": {
+      "status": "RUNNING",
+      "attempts": 0,
+      "costUsd": 0,
+      "updatedAt": "2026-09-23T13:59:40.616Z",
+      "inputHash": "1229dff959ec1e8817a67325652cae6f9cc9df4f655a3c5afa66a4100942313d"
     }
   },
   "status": "RUNNING"
