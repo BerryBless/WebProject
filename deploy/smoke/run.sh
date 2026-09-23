@@ -79,7 +79,17 @@ SMOKE_ROLE=errors docker compose run --rm -T --no-deps smoke-allowed
 docker compose start api > /dev/null
 docker compose up -d --wait
 
+step "복원 리허설: 글·첨부 생성 → 백업 → 볼륨 삭제 → 복원 → 확인"
+SMOKE_ROLE=seed docker compose run --rm -T smoke-allowed
+backup_dir="$(./backup.sh smoke/backups | tail -n 1)"
+docker compose down -v --remove-orphans
+./restore.sh --yes "$backup_dir"
+SMOKE_ROLE=verify-restore docker compose run --rm -T smoke-allowed
+SMOKE_ROLE=allowed docker compose run --rm -T smoke-allowed # 복원된 스택에서도 전 과정이 돈다(새 dpkeys·권한 재부여 포함)
+
 step "DB 롤: 앱은 슈퍼유저가 아니고, 공개 롤은 읽기만 한다"
+# 복원 리허설 뒤에 돈다: pg_restore --clean은 테이블을 드롭·재생성하며 ACL을 덤프의 것으로 되돌리므로,
+# 권한 경계가 조용히 열릴 수 있는 지점은 정확히 복원 직후다(복원 전에만 검사하면 이 지점을 놓친다).
 # postgres 컨테이너 안에서도 -h 127.0.0.1은 pg_hba.conf의 trust 규칙을 타 비밀번호를 검증하지 않는다(T3-2, 실측).
 # -h postgres(컨테이너 자신의 네트워크 주소)로 붙어야 scram-sha-256이 강제된다.
 psql_as() { docker compose exec -T -e PGPASSWORD="$2" postgres psql -h postgres -U "$1" -d blog -v ON_ERROR_STOP=1 -tA -c "$3"; }
@@ -94,13 +104,5 @@ for sql in 'delete from "Posts"' 'set default_transaction_read_only = off; delet
   deny blog_public "$public_password" "$sql"
 done
 deny blog_app "$app_password" "copy (select 1) to program 'true'"
-
-step "복원 리허설: 글·첨부 생성 → 백업 → 볼륨 삭제 → 복원 → 확인"
-SMOKE_ROLE=seed docker compose run --rm -T smoke-allowed
-backup_dir="$(./backup.sh smoke/backups | tail -n 1)"
-docker compose down -v --remove-orphans
-./restore.sh --yes "$backup_dir"
-SMOKE_ROLE=verify-restore docker compose run --rm -T smoke-allowed
-SMOKE_ROLE=allowed docker compose run --rm -T smoke-allowed # 복원된 스택에서도 전 과정이 돈다(새 dpkeys·권한 재부여 포함)
 
 step "통과"

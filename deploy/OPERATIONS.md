@@ -1,14 +1,24 @@
 # 운영 절차 (PortfolioBlog)
 
-이 문서의 명령은 전부 서버의 `deploy/` 디렉터리에서 실행한다. 구조와 그 이유는 `plan/tech_blog_0920.md` 3.10절, 이 구성을 만든 과정과 측정 결과는 `plan/tech_blog_4_report_*.md`에 있다.
+이 문서의 명령은 전부 서버의 `deploy/` 디렉터리에서 실행한다. 구조와 그 이유는 `plan/tech_blog_0920.md` 3.10절 참조(4단계 보고서는 병합 시 추가).
 
 ```
-인터넷 ──[public]──▶ caddy (80·443, TLS 종단)
-                         │ edge(internal, 172.30.0.0/24, caddy 고정 IP 172.30.0.2)
-              ├─ 공개 도메인      ──▶ api:8080   (/api* 는 Caddy가 404)
-              └─ 관리 서브도메인  ──▶ 허용 IP만: /api/*·/attachments/* → api:8080, 그 밖은 SPA 정적 파일
-           api (포트 미공개, 비루트·읽기 전용 루트 FS) ──[db, internal]──▶ postgres (포트 미공개)
-네트워크: public(caddy만, 포트 게시·아웃바운드) · edge(internal, caddy↔api) · db(internal, api↔postgres)
+인터넷
+  │  public (포트 게시·아웃바운드)
+  ▼
+caddy (80·443, TLS 종단, 비루트 1654, cap_drop ALL + NET_BIND_SERVICE만, 읽기 전용 루트 FS — api와 동일)
+  │
+  │  edge (internal, 172.30.0.0/24, caddy 고정 IP 172.30.0.2)
+  ├──▶ 공개 도메인     → api:8080   (/api* 는 Caddy가 404)
+  └──▶ 관리 서브도메인 → 허용 IP만: /api/*·/attachments/* → api:8080, 그 밖은 SPA 정적 파일
+        │
+        ▼
+       api (포트 미공개, 비루트·읽기 전용 루트 FS)
+        │  db (internal)
+        ▼
+       postgres (포트 미공개)
+
+네트워크: public(caddy만) · edge(internal, caddy↔api) · db(internal, api↔postgres)
 볼륨: pgdata · attachments · dpkeys · caddy_data · caddy_config
 ```
 
@@ -77,6 +87,7 @@ Caddyfile과 관리 SPA는 caddy 이미지에 구워져 있다 — 고치면 위
 - 매일 새벽 백업 예: `crontab -e` → `17 3 * * * cd /srv/blog/deploy && ./backup.sh /srv/blog-backups >> /var/log/blog-backup.log 2>&1` (오래된 백업 정리는 `find /srv/blog-backups -maxdepth 1 -mtime +30 -exec rm -rf {} +`).
 - 새 서버로 옮길 때: 1절대로 `.env`까지 준비하고(같은 DB 비밀번호 셋) `docker compose build` 뒤, `up` 대신 `./restore.sh --yes <백업>`을 실행한다. 빈 볼륨에서 postgres가 롤과 빈 DB를 만들고 스크립트가 내용을 채운 뒤 전체를 띄운다.
 - **복원 리허설:** `deploy/smoke/run.sh`가 매번 한다(글·첨부 생성 → 백업 → 볼륨 삭제 → 복원 → 바이트 단위 확인). 운영 백업 파일로 직접 해 보려면 다른 기계에서 위 "새 서버" 절차를 따른다.
+- **복원이 중간에 멈추면:** 서비스는 멈춰 있고 첨부는 비어 있을 수 있다. 같은 백업으로 `./restore.sh`를 다시 실행하면 처음부터 다시 한다(몇 번을 해도 같다). 계속 실패하면 `docker compose up -d`로 서비스만 올려 이전 상태로 돌아간다(스크립트 자신도 실패 시 같은 안내를 출력한다).
 
 ## 6. 관리자 비밀번호 변경
 
@@ -105,10 +116,16 @@ docker compose up -d api
 postgres는 빈 데이터 볼륨에서 처음 뜰 때만 `.env`의 값으로 롤을 만든다. 나중에 바꾸려면 DB 안에서 먼저 바꾼다.
 
 ```bash
-docker compose exec -T postgres psql -U postgres -c "ALTER ROLE blog_app PASSWORD '<새 값>'"   # blog_public·postgres도 같은 방식
-$EDITOR .env                       # 같은 값으로
+docker compose exec -it postgres psql -U postgres   # 대화형 프롬프트가 뜬다
+\password blog_app                                   # 새 값을 두 번 입력한다(화면에 보이지 않는다)
+\password blog_public                                # 이어서 blog_public도
+\password postgres                                   # 마지막으로 postgres도
+\q
+$EDITOR .env                       # 세 값 모두 같은 값으로
 docker compose up -d api
 ```
+
+인라인 `-c "ALTER ROLE … PASSWORD '…'"` 형태는 쓰지 않는다 — 문장이 실패하면(롤 이름 오타 등) PostgreSQL이 그 문장을 로그에 평문 그대로 남긴다(`docker compose logs postgres`로 누구나 볼 수 있고, 로그는 11절이 시키는 대로 문제 보고 때 그대로 첨부되기도 한다). `\password`는 psql이 클라이언트에서 SCRAM 검증자를 계산해 보내므로 서버 로그·`ps`·셸 히스토리 어디에도 평문이 남지 않는다.
 
 ## 10. 이미지 버전 올리기
 
