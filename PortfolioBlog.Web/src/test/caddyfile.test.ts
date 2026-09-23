@@ -9,16 +9,37 @@ import { ADMIN_SECURITY_HEADERS } from '../../admin-headers.ts'
 // 실제 응답의 헤더는 deploy/smoke(컨테이너 스택)가 본다 — 여기는 Docker 없이 매 커밋 도는 빠른 검사다.
 const caddyfile = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'deploy', 'Caddyfile'), 'utf8')
 
-/** 관리 사이트 블록에서 `이름 "값"` 꼴의 헤더 줄을 모은다. 값에 큰따옴표가 들어가는 헤더는 없다(있으면 아래 개수 단언이 깨진다). */
-function adminSiteHeaders(): Map<string, string> {
-  const start = caddyfile.indexOf('{$ADMIN_DOMAIN} {')
-  expect(start, '관리 사이트 블록').toBeGreaterThan(-1)
+/** `이름 "값"` 꼴의 헤더 줄을 모은다. 값에 큰따옴표가 들어가는 헤더는 없다(있으면 아래 개수 단언이 깨진다). */
+function collectHeaders(text: string): Map<string, string> {
   const headers = new Map<string, string>()
-  for (const line of caddyfile.slice(start).split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     const match = /^\s*([A-Za-z][A-Za-z-]+) "([^"]*)"\s*$/.exec(line)
     if (match) headers.set(match[1]!, match[2]!)
   }
   return headers
+}
+
+function adminBlock(): string {
+  const start = caddyfile.indexOf('{$ADMIN_DOMAIN} {')
+  expect(start, '관리 사이트 블록').toBeGreaterThan(-1)
+  return caddyfile.slice(start)
+}
+
+/** 관리 사이트의 정적 SPA header{} 블록(root * /srv 이전)만 모은다 — handle_errors 블록의 사본과 섞이면
+ * 정적 블록에서 헤더 하나를 지워도 handle_errors 쪽 값이 Map을 채워 미검출된다(실측 사보타주로 확인됨). */
+function adminSiteHeaders(): Map<string, string> {
+  const admin = adminBlock()
+  const end = admin.indexOf('root * /srv')
+  expect(end, '정적 SPA 블록 경계(root * /srv)').toBeGreaterThan(-1)
+  return collectHeaders(admin.slice(0, end))
+}
+
+/** 관리 사이트의 handle_errors{} 블록 헤더만 모은다. 오류 응답(file_server의 405 등)도 정적 블록과 같은 값을 붙이는지 검사한다. */
+function adminErrorHeaders(): Map<string, string> {
+  const admin = adminBlock()
+  const start = admin.indexOf('handle_errors {')
+  expect(start, 'handle_errors 블록').toBeGreaterThan(-1)
+  return collectHeaders(admin.slice(start))
 }
 
 describe('deploy/Caddyfile의 관리 사이트 헤더', () => {
@@ -34,6 +55,16 @@ describe('deploy/Caddyfile의 관리 사이트 헤더', () => {
     expect(ADMIN_SECURITY_HEADERS['Strict-Transport-Security']).toBeUndefined()
     expect(headers.get('Strict-Transport-Security')).toBe('max-age=31536000; includeSubDomains')
     expect(headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin')
+  })
+
+  it('handle_errors 블록도 정적 블록과 같은 보안 헤더를 같은 값으로 붙인다(오류 응답도 미러 유지)', () => {
+    const staticHeaders = adminSiteHeaders()
+    const errorHeaders = adminErrorHeaders()
+    for (const [name, value] of Object.entries(ADMIN_SECURITY_HEADERS)) {
+      expect(errorHeaders.get(name), name).toBe(value)
+    }
+    expect(errorHeaders.get('Strict-Transport-Security')).toBe(staticHeaders.get('Strict-Transport-Security'))
+    expect(errorHeaders.get('Cross-Origin-Opener-Policy')).toBe(staticHeaders.get('Cross-Origin-Opener-Policy'))
   })
 
   it('보안 헤더 블록은 백엔드 프록시보다 뒤에 있다(첨부의 sandbox CSP를 덮어쓰지 않는다)', () => {

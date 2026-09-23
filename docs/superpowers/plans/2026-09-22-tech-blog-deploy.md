@@ -2301,7 +2301,7 @@ git commit -F <메시지 파일>   # 제목 예: "테스트: Caddy가 서빙하�
 ## 최종 검증(전 Task 완료 후, 컨트롤러)
 
 ```bash
-dotnet build PortfolioBlog.slnx -c Release && dotnet test PortfolioBlog.slnx -c Release --no-build   # 618
+dotnet build PortfolioBlog.slnx -c Release && dotnet test PortfolioBlog.slnx -c Release --no-build   # 625
 (cd PortfolioBlog.Web && npm run lint && npm run typecheck && npm test && npm run build)             # Vitest 193
 (cd PortfolioBlog.Web && npm run e2e:prepare && npm run e2e; docker rm -f pb-e2e-pg)                 # E2E 8
 SMOKE_E2E=1 bash deploy/smoke/run.sh                                                                 # === 통과
