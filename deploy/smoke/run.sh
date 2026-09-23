@@ -23,9 +23,11 @@ DOMAIN=blog.localhost
 ADMIN_DOMAIN=admin.blog.localhost
 PUBLIC_ORIGIN=https://blog.localhost:8443
 ADMIN_ORIGIN=https://admin.blog.localhost:8443
-# 172.30.0.10: smoke-allowed 컨테이너 고정 IP. 172.30.0.1·172.19.0.1: 호스트 브라우저 → 게시 포트(8443) 요청이
-# Caddy에 도착할 때의 remote_ip. Docker Desktop(Windows)의 내부 프록시가 붙이는 주소라 실행 환경마다 달라질 수 있다
-# (Task 4 S6 측정은 172.30.0.1, 이번 Task 5 브라우저 E2E 실측은 172.19.0.1 — 둘 다 남겨 둔다). 운영 Caddyfile은 별개.
+# 172.30.0.10: smoke-allowed 컨테이너 고정 IP(edge 네트워크). 172.30.0.1은 edge의 고정 게이트웨이(이 파일 아래
+# docker-compose.yml의 networks.edge.ipam) — Task 4 S6 측정과 일치. 172.19.0.1은 호스트 브라우저가 게시 포트(8443,
+# public 네트워크)로 붙을 때의 remote_ip(Task 5 실측, docker compose logs caddy로 확인) — public은 ipam을 명시하지
+# 않아 Docker가 기동마다 서브넷을 자동 할당하므로 이 게이트웨이 주소는 다른 실행·다른 기계에서 또 바뀔 수 있다(구조적으로
+# 불안정한 값 — CI에서 이 목록이 또 안 맞으면 같은 방식으로 caddy 로그를 읽어 더한다). 운영 Caddyfile은 별개, 건드리지 않는다.
 ADMIN_ALLOWED_CIDRS=172.30.0.10/32 172.30.0.1/32 172.19.0.1/32
 ACME_EMAIL=smoke@example.test
 # 이 PC의 호스트 포트 8081은 Hyper-V 배타 예약 범위(8073-8272) 안이라 바인드가 거부될 수 있다 —
