@@ -25,7 +25,9 @@ PUBLIC_ORIGIN=https://blog.localhost:8443
 ADMIN_ORIGIN=https://admin.blog.localhost:8443
 ADMIN_ALLOWED_CIDRS=172.30.0.10/32 172.30.0.1/32
 ACME_EMAIL=smoke@example.test
-HTTP_BIND=127.0.0.1:8081
+# 이 PC의 호스트 포트 8081은 Hyper-V 배타 예약 범위(8073-8272) 안이라 바인드가 거부될 수 있다 —
+# 그럴 때만 SMOKE_HTTP_BIND로 덮어쓴다(기본값·CI는 8081 그대로).
+HTTP_BIND=${SMOKE_HTTP_BIND:-127.0.0.1:8081}
 HTTPS_BIND=127.0.0.1:8443
 POSTGRES_PASSWORD=${pg_password}
 BLOG_APP_PASSWORD=${app_password}
@@ -92,5 +94,13 @@ for sql in 'delete from "Posts"' 'set default_transaction_read_only = off; delet
   deny blog_public "$public_password" "$sql"
 done
 deny blog_app "$app_password" "copy (select 1) to program 'true'"
+
+step "복원 리허설: 글·첨부 생성 → 백업 → 볼륨 삭제 → 복원 → 확인"
+SMOKE_ROLE=seed docker compose run --rm -T smoke-allowed
+backup_dir="$(./backup.sh smoke/backups | tail -n 1)"
+docker compose down -v --remove-orphans
+./restore.sh --yes "$backup_dir"
+SMOKE_ROLE=verify-restore docker compose run --rm -T smoke-allowed
+SMOKE_ROLE=allowed docker compose run --rm -T smoke-allowed # 복원된 스택에서도 전 과정이 돈다(새 dpkeys·권한 재부여 포함)
 
 step "통과"
