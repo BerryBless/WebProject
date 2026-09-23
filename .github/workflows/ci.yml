@@ -98,3 +98,30 @@ jobs:
           name: playwright-traces
           path: PortfolioBlog.Web/test-results
           retention-days: 7
+
+  deploy-smoke:
+    runs-on: ubuntu-latest
+    needs: [test, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: PortfolioBlog.Web/package-lock.json
+      - name: Install web dependencies (Playwright)
+        working-directory: PortfolioBlog.Web
+        run: npm ci
+      - name: Install browsers
+        working-directory: PortfolioBlog.Web
+        run: npx playwright install --with-deps chromium firefox
+      # 운영과 같은 이미지·Caddyfile·compose를 띄워: 접근 통제(허용·비허용 IP), 헤더, 한도, DB 롤, 백업→삭제→복원, 브라우저 E2E.
+      - name: Deployment stack smoke
+        run: SMOKE_E2E=1 bash deploy/smoke/run.sh
+      # trace의 비밀번호·쿠키는 이 실행을 위해 run.sh가 새로 만든 버려질 값이고, 스택은 러너의 루프백에만 바인딩된다.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: deploy-smoke-traces
+          path: PortfolioBlog.Web/test-results
+          retention-days: 7

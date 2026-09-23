@@ -23,7 +23,10 @@ DOMAIN=blog.localhost
 ADMIN_DOMAIN=admin.blog.localhost
 PUBLIC_ORIGIN=https://blog.localhost:8443
 ADMIN_ORIGIN=https://admin.blog.localhost:8443
-ADMIN_ALLOWED_CIDRS=172.30.0.10/32 172.30.0.1/32
+# 172.30.0.10: smoke-allowed 컨테이너 고정 IP. 172.30.0.1·172.19.0.1: 호스트 브라우저 → 게시 포트(8443) 요청이
+# Caddy에 도착할 때의 remote_ip. Docker Desktop(Windows)의 내부 프록시가 붙이는 주소라 실행 환경마다 달라질 수 있다
+# (Task 4 S6 측정은 172.30.0.1, 이번 Task 5 브라우저 E2E 실측은 172.19.0.1 — 둘 다 남겨 둔다). 운영 Caddyfile은 별개.
+ADMIN_ALLOWED_CIDRS=172.30.0.10/32 172.30.0.1/32 172.19.0.1/32
 ACME_EMAIL=smoke@example.test
 # 이 PC의 호스트 포트 8081은 Hyper-V 배타 예약 범위(8073-8272) 안이라 바인드가 거부될 수 있다 —
 # 그럴 때만 SMOKE_HTTP_BIND로 덮어쓴다(기본값·CI는 8081 그대로).
@@ -104,5 +107,10 @@ for sql in 'delete from "Posts"' 'set default_transaction_read_only = off; delet
   deny blog_public "$public_password" "$sql"
 done
 deny blog_app "$app_password" "copy (select 1) to program 'true'"
+
+if [ "${SMOKE_E2E:-0}" = "1" ]; then
+  step "브라우저 E2E(Chromium·Firefox): Caddy가 주는 실제 헤더 아래에서 SPA 전 과정"
+  (cd "$deploy/../PortfolioBlog.Web" && E2E_SPA_ORIGIN=https://admin.blog.localhost:8443 E2E_ADMIN_PASSWORD="$admin_password" npx playwright test -c playwright.stack.config.ts)
+fi
 
 step "통과"

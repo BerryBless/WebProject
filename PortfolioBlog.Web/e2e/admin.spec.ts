@@ -4,9 +4,10 @@ import { ADMIN_CSP } from '../admin-headers.ts'
 // production 빌드 + 실제 보안 헤더 + 실제 백엔드. 단위 테스트가 볼 수 없는 것만 본다:
 // 진짜 CodeMirror, 진짜 CSP, 진짜 쿠키·Origin 검사, 진짜 sandbox iframe.
 const PASSWORD = process.env.E2E_ADMIN_PASSWORD!
-// playwright.config.ts의 SPA_ORIGIN과 같은 값. 여기서 다시 import하지 않는 이유: 그 모듈은 로드 시 .e2e/env.json을
+// 기본값은 playwright.config.ts의 SPA_ORIGIN과 같은 값. 여기서 다시 import하지 않는 이유: 그 모듈은 로드 시 .e2e/env.json을
 // 요구하고 부수효과(스크래치 첨부 디렉터리 생성)가 있다 — 이 스펙 파일은 config의 부수효과에 기대지 않는다.
-const SPA_ORIGIN = 'https://localhost:4173'
+// E2E_SPA_ORIGIN: 컨테이너 스택을 대상으로 돌 때(playwright.stack.config.ts) deploy/smoke/run.sh가 넣는다.
+const SPA_ORIGIN = process.env.E2E_SPA_ORIGIN ?? 'https://localhost:4173'
 // 1x1 PNG
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
@@ -36,22 +37,30 @@ async function login(page: Page) {
   await page.getByRole('button', { name: '로그인' }).click()
 }
 
-test('문서 응답에 배포될 보안 헤더가 붙는다', async ({ request }) => {
-  const response = await request.get('/')
-  const csp = response.headers()['content-security-policy']
+// 아래 두 테스트는 Playwright의 Node 쪽 요청(request 픽스처)이 아니라 브라우저를 쓴다: 컨테이너 스택을 대상으로 돌 때
+// (playwright.stack.config.ts) 주소가 *.localhost인데, 그 이름은 브라우저만 루프백으로 풀고 Node(getaddrinfo)는 OS에 따라 풀지 못한다.
+test('문서 응답에 배포될 보안 헤더가 붙는다', async ({ page }) => {
+  const response = (await page.goto('/'))!
+  const headers = response.headers()
+  const csp = headers['content-security-policy']
   expect(csp).toContain("default-src 'none'")
   expect(csp).toContain("script-src 'self'")
   expect(csp).not.toContain("script-src 'self' 'unsafe")
   expect(csp).toContain("style-src-attr 'none'")
-  expect(response.headers()['x-content-type-options']).toBe('nosniff')
+  expect(headers['x-content-type-options']).toBe('nosniff')
   // 위 4개는 정본의 성질(뭐가 있고 뭐가 없어야 하는지)을 검사한다. 이 단언은 배포되는 값 자체가
   // admin-headers.ts의 ADMIN_CSP와 글자 그대로 같은지 본다 — 정본과 실제 응답이 갈라지면 여기서 걸린다.
   expect(csp).toBe(ADMIN_CSP)
 })
 
-test('세션이 없으면 API는 401이고, CSRF 헤더가 없으면 403이다(화면을 우회해도 서버가 막는다)', async ({ request }) => {
-  expect((await request.get('/api/posts', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })).status()).toBe(401)
-  expect((await request.get('/api/posts')).status()).toBe(403)
+test('세션이 없으면 API는 401이고, CSRF 헤더가 없으면 403이다(화면을 우회해도 서버가 막는다)', async ({ page }) => {
+  await page.goto('/login')
+  const statuses = await page.evaluate(async () => {
+    const withHeader = await fetch('/api/posts', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    const withoutHeader = await fetch('/api/posts')
+    return [withHeader.status, withoutHeader.status]
+  })
+  expect(statuses).toEqual([401, 403])
 })
 
 // 오픈 리다이렉트 방지(src/lib/safeNext.ts)를 실제 브라우저 내비게이션으로 증명한다. 단위 테스트는 메모리 라우터(jsdom)로
