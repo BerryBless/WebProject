@@ -68,6 +68,7 @@ dotnet test  PortfolioBlog.slnx -c Release   # 591개 — Docker 필요(Testcont
 | [설정 키](docs/configuration.md) | 전체 설정 키와 기본값, 시작 시 검증되는 조건 |
 | [배포 구성](docs/deployment.md) | 목표 토폴로지, 이미지·compose·Caddy, DB 롤 분리, 스모크, 운영 확인 항목 *(작업 중)* |
 | [진행 기록](docs/history.md) | 단계별로 만든 것과 발견한 결함, 이 저장소가 일하는 방식 |
+| [작업일지](docs/worklog.md) | 단계별 고민과 판정, 틀렸던 것, 사용자 흐름·시퀀스·처리 흐름 다이어그램(Mermaid) |
 | [개발 하네스](docs/harness.md) | AI 협업 구성(에이전트·스킬·훅·CI·Codex 교차 검증) |
 
 설계·계획 원본:

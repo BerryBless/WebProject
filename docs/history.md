@@ -2,7 +2,7 @@
 
 단계마다 **무엇을 만들었고, 무엇이 틀렸었고, 그것을 어디서 잡았는지**를 남깁니다. 각 단계의 상세 보고서(검증 근거, 내린 판정 표, 수용한 잔여 위험)는 `plan/`에 있습니다.
 
-관련 문서: [README](../README.md) · [테스트](testing.md) · [재개 가이드](../plan/resume_guide_0921.md)
+관련 문서: [README](../README.md) · [작업일지](worklog.md) · [테스트](testing.md) · [재개 가이드](../plan/resume_guide_0921.md)
 
 ## 한눈에
 
