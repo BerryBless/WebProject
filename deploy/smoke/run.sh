@@ -15,6 +15,8 @@ export COMPOSE_ENV_FILES=smoke/.env.smoke
 
 random() { head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20; }
 admin_password="smoke-$(random)"
+# write_env(관리 사이트 ORIGIN)와 아래 브라우저 E2E 블록이 같은 값을 두 번 따로 적지 않도록 한 곳에서 만든다(리뷰 M4).
+admin_origin="https://admin.blog.localhost:8443"
 
 write_env() { # $1 = 관리자 비밀번호 해시
   umask 077
@@ -22,13 +24,12 @@ write_env() { # $1 = 관리자 비밀번호 해시
 DOMAIN=blog.localhost
 ADMIN_DOMAIN=admin.blog.localhost
 PUBLIC_ORIGIN=https://blog.localhost:8443
-ADMIN_ORIGIN=https://admin.blog.localhost:8443
-# 172.30.0.10: smoke-allowed 컨테이너 고정 IP(edge 네트워크). 172.30.0.1은 edge의 고정 게이트웨이(이 파일 아래
-# docker-compose.yml의 networks.edge.ipam) — Task 4 S6 측정과 일치. 172.19.0.1은 호스트 브라우저가 게시 포트(8443,
-# public 네트워크)로 붙을 때의 remote_ip(Task 5 실측, docker compose logs caddy로 확인) — public은 ipam을 명시하지
-# 않아 Docker가 기동마다 서브넷을 자동 할당하므로 이 게이트웨이 주소는 다른 실행·다른 기계에서 또 바뀔 수 있다(구조적으로
-# 불안정한 값 — CI에서 이 목록이 또 안 맞으면 같은 방식으로 caddy 로그를 읽어 더한다). 운영 Caddyfile은 별개, 건드리지 않는다.
-ADMIN_ALLOWED_CIDRS=172.30.0.10/32 172.30.0.1/32 172.19.0.1/32
+ADMIN_ORIGIN=${admin_origin}
+# 172.30.0.10: smoke-allowed 컨테이너 고정 IP(edge 네트워크). 172.30.1.1: 호스트 브라우저(Playwright)가 게시 포트
+# (8443, public 네트워크)로 붙을 때의 remote_ip — docker-compose.smoke.yml이 public의 ipam을 고정해서 이 값이
+# 결정적이다(리뷰 I1: 운영처럼 ipam을 안 정하면 Docker 데몬의 기본 주소 풀 상태에 따라 매번 바뀐다). edge의 게이트웨이
+# 172.30.0.1은 호스트 브라우저가 아니라 컨테이너 간 통신에만 쓰여 아무도 이 목록을 거치지 않는다(리뷰 M3) — 뺐다.
+ADMIN_ALLOWED_CIDRS=172.30.0.10/32 172.30.1.1/32
 ACME_EMAIL=smoke@example.test
 # 이 PC의 호스트 포트 8081은 Hyper-V 배타 예약 범위(8073-8272) 안이라 바인드가 거부될 수 있다 —
 # 그럴 때만 SMOKE_HTTP_BIND로 덮어쓴다(기본값·CI는 8081 그대로).
@@ -45,9 +46,13 @@ pg_password="$(random)"; app_password="$(random)"; public_password="$(random)"
 
 cleanup() {
   status=$?
+  # 실패 진단용(리뷰 M1): teardown 전에 Caddy 액세스 로그를 남긴다. 액세스 로그는 remote_ip·상태 코드·경로만 찍고
+  # 요청 헤더·쿠키·본문 값은 찍지 않으므로 비밀값이 섞이지 않는다 — CI는 실패했을 때만 이 파일을 아티팩트로 올린다.
+  docker compose logs caddy > smoke/caddy.log 2>&1 || true
   if [ "${SMOKE_KEEP:-0}" != "1" ]; then
     docker compose down -v --remove-orphans > /dev/null 2>&1 || true
     rm -rf smoke/.env.smoke smoke/backups
+    [ "$status" -eq 0 ] && rm -f smoke/caddy.log # 성공하면 진단용 로그도 남기지 않는다
   fi
   exit $status
 }
@@ -112,7 +117,7 @@ deny blog_app "$app_password" "copy (select 1) to program 'true'"
 
 if [ "${SMOKE_E2E:-0}" = "1" ]; then
   step "브라우저 E2E(Chromium·Firefox): Caddy가 주는 실제 헤더 아래에서 SPA 전 과정"
-  (cd "$deploy/../PortfolioBlog.Web" && E2E_SPA_ORIGIN=https://admin.blog.localhost:8443 E2E_ADMIN_PASSWORD="$admin_password" npx playwright test -c playwright.stack.config.ts)
+  (cd "$deploy/../PortfolioBlog.Web" && E2E_SPA_ORIGIN="$admin_origin" E2E_ADMIN_PASSWORD="$admin_password" npx playwright test -c playwright.stack.config.ts)
 fi
 
 step "통과"
