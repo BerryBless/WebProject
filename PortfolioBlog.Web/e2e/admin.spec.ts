@@ -99,6 +99,13 @@ test('글쓰기 전 과정: 로그인 → 첨부 → 시리즈 → 새 글(편�
   await expect(page.getByRole('heading', { name: '관리자 로그인' })).toBeVisible()
   await login(page)
   await expect(page.getByRole('heading', { name: '첨부' })).toBeVisible()
+  // 헤딩이 보인다는 것은 그리드가 DOM에 붙었다는 뜻일 뿐, 각 항목의 <img loading="lazy"> fetch가 끝났다는 뜻은 아니다.
+  // 첨부 응답은 Cache-Control: immutable이라, 진행 중인 요청을 바로 아래 reload()가 끊으면 불완전한 바이트가 그대로
+  // 캐시에 남아 다음 로드에서 디코드 오류를 콘솔에 찍는다(Firefox에서 실측, task-5-rereview.md §3). 첨부가 아직 하나도
+  // 없는 구성(이 테스트를 처음 도는 로컬 e2e)에서는 목록이 빈 배열이라 every()가 그대로 참이라 기다리지 않고 통과한다.
+  await expect.poll(() => page.locator('img').evaluateAll(
+    imgs => imgs.every(img => (img as HTMLImageElement).complete && (img as HTMLImageElement).naturalWidth > 0),
+  )).toBe(true)
   await page.reload() // 새로고침도 같은 경로를 처음부터 다시 밟는다
   await expect(page.getByRole('heading', { name: '첨부' })).toBeVisible()
   const session = (await context.cookies()).find(c => c.name === '__Host-AdminSession')
