@@ -38,13 +38,13 @@ pwsh scripts/harness-audit.ps1             # PASS 8/8
 
 ## 3. 다음 작업: Plan 4(배포) 실행 재개
 
-계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행 중이었고, 2026-09-22에 사용자 요청으로 정지했다.
+계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행했다. 2026-09-22에 사용자 요청으로 한 차례 정지했다가 09-23에 재개해 **Task 1~6을 전부 마쳤다**(3.2 커밋 표). 남은 것은 최종 리뷰(실제 스택 공격) → PR → CI 게이트 → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`뿐이다.
 
 ### 3.1 재개 절차
 
 ```powershell
 git switch feature/blog-deploy; git pull --ff-only      # origin에 push돼 있다
-git log --oneline master..HEAD                          # 아래 6개가 보여야 한다
+git log --oneline master..HEAD                          # 3.2 표의 커밋들이 보여야 한다(개수는 라운드가 늘수록 늘어난다 — 최신 개수는 이 출력으로 확인)
 New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 잠금(끝나거나 중단하면 삭제)
 ```
 
@@ -57,11 +57,23 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 | `4ffb9fa` | Task 1: 공개 조회 전용 DB 롤(`PublicRoleGrants`)·시작 검증 강화·헬스체크 CLI | |
 | `b5c686f` | Task 2: `.gitattributes`·`.dockerignore`·`deploy/Caddyfile`·이미지 2개·`caddyfile.test.ts` | |
 | `17f4ed3` | Task 3: `deploy/docker-compose.yml`·DB 롤 init·`.env.example`·스모크(`smoke.test.mjs`·`run.sh`) | |
-| `7efab39` | Task 1 수정 r1(리뷰 F1~F9) | |
-| `140624c` | Task 2 수정 r1(리뷰 F1~F8) | |
-| `88310ee` | Task 1 수정 r2(테스트: 비 superuser 소유자 회귀 가드) | **Task 1 완료**(재리뷰 APPROVE) |
+| `7efab39` | Task 1 수정 r1(리뷰 F1~F9: PUBLIC·소유 테이블로 회수 범위 한정) | |
+| `140624c` | Task 2 수정 r1(리뷰 F1~F8: 캐디 오류 경로·평문 HTTP·메서드 게이트) | |
+| `88310ee` | Task 1 수정 r2(비 superuser 소유자 회귀 가드 테스트) | **Task 1 완료**(재리뷰 APPROVE) |
+| `17063f3` | 문서: master의 문서 재구성·계획서 결함 표시를 배포 브랜치에 병합 | |
+| `1452204` | Task 2 수정 r2(관리 헤더 위치 가드 강화, Caddy 폴백·오류 응답 빈틈) | **Task 2 완료** |
+| `d14c101` | 문서: 단계별 고민과 판정을 작업일지로 남김 | |
+| `8522c03` | Task 3 수정 r1(api 아웃바운드 차단, DB 롤 검사 trust 우회 수정) | |
+| `3f20cc1` | Task 3 수정 r2(보안 경계 주석을 실측대로 정정, 폴백 접근 로그) | **Task 3 완료** |
+| `36e8394` | Task 4: 백업·복원 리허설, 운영 절차 문서화(`deploy/OPERATIONS.md`) | |
+| `dc4a207` | Task 4 수정 r1(복원 실패 안내, 비밀번호 로그 유출 등 리뷰 결함) | **Task 4 완료** |
+| `76e076a` | Task 5: 배포 스택 전체를 브라우저 E2E로 매 PR마다 검증, CI `deploy-smoke` | |
+| `10324b0` | 문서: 허용 IP 주석의 원인을 실측 네트워크 구조로 정정 | |
+| `b72bbf6` | Task 5 수정 r1(허용 IP를 고정하고 실패 시 접근 로그로 진단 가능하게 함) | |
+| `b8265a0` | Task 5 수정 r2(첨부 이미지 로드를 기다려 새로고침 레이스를 없앰) | **Task 5 완료** |
+| `002a01d` | Task 6: 스펙·README·`docs/`·CLAUDE.md/AGENTS.md를 as-built로 반영 | **Task 6 완료** |
 
-검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 9·비허용 IP 6, 컨트롤러와 리뷰어가 각각 커밋본 그대로 재현). 브라우저 E2E·복원 리허설은 아직 Task 4·5에서 붙는다.
+검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 10·비허용 IP 6·오류 응답 1, 복원 리허설 포함), `SMOKE_E2E=1`의 스택 E2E **8개**(Chromium·Firefox). Task 1~6 전부 완료(위 표).
 
 ### 3.3 재개하면 바로 할 일 (리뷰가 남긴 결함과 내린 판정)
 
