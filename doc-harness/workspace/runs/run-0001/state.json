@@ -53,11 +53,18 @@
       "inputHash": "840d6ceca49596a9a606c40fe60c33b3e71ea1b1ea2f209052f821317a5c236c"
     },
     "feature:F002": {
+      "status": "SUCCESS",
+      "attempts": 1,
+      "costUsd": 1.7194824,
+      "updatedAt": "2026-09-23T13:40:59.811Z",
+      "inputHash": "50bd9f385e4da9545578722815c86ad5de3bf0f992683e05097b576590a82961"
+    },
+    "feature:F004": {
       "status": "RUNNING",
       "attempts": 0,
       "costUsd": 0,
-      "updatedAt": "2026-09-23T13:36:33.049Z",
-      "inputHash": "50bd9f385e4da9545578722815c86ad5de3bf0f992683e05097b576590a82961"
+      "updatedAt": "2026-09-23T13:40:59.814Z",
+      "inputHash": "b320d84c492999d8b97d0e59fedc97688f54043bc71dbe2653a1fb13bb10331f"
     }
   },
   "status": "RUNNING"
