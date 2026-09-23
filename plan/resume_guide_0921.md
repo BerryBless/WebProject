@@ -72,6 +72,8 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 | `b72bbf6` | Task 5 수정 r1(허용 IP를 고정하고 실패 시 접근 로그로 진단 가능하게 함) | |
 | `b8265a0` | Task 5 수정 r2(첨부 이미지 로드를 기다려 새로고침 레이스를 없앰) | **Task 5 완료** |
 | `002a01d` | Task 6: 스펙·README·`docs/`·CLAUDE.md/AGENTS.md를 as-built로 반영 | **Task 6 완료** |
+| `e5a8bcb` | 문서: 상태 헤딩과 어긋난 본문·라벨·커밋 표를 실제와 맞춤(리뷰 F1~F3) | |
+| `53adc6d` | 최종 리뷰 Minor 1·2 수정: handle_errors 헤더 미러 테스트 분리, 계획 문서 dotnet test 주석 갱신 | **최종 리뷰 반영 완료** |
 
 검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 10·비허용 IP 6·오류 응답 1, 복원 리허설 포함), `SMOKE_E2E=1`의 스택 E2E **8개**(Chromium·Firefox). Task 1~6 전부 완료(위 표).
 

@@ -123,6 +123,7 @@ Caddy 액세스 로그에 쿠키·비밀번호가 남지 않는 것도 확인합
 ## 수용한 잔여 위험
 
 - **`public` 네트워크에 고정 서브넷이 없다(운영 compose).** 스모크에서만 고쳤다(위 "실행하며 측정한 사실"). 실제 배포 시 `remote_ip`가 예상과 다르면 `ADMIN_ALLOWED_CIDRS`가 무의미해지거나 작성자가 잠길 수 있다 — 1차 배포는 Docker 게이트웨이가 아니라 Caddy 앞에 아무것도 없는 구성이므로 영향이 없지만, Docker 데몬 설정에 따라 게시 포트의 `remote_ip`가 게이트웨이 주소로 보일 가능성은 `OPERATIONS.md` §3이 별도로 다룬다.
+- **`blog_public`이 `postgres`·`template1` 데이터베이스에 CONNECT하고 임시 테이블을 만들 수 있다.** init 스크립트는 `blog` DB에서만 `REVOKE ALL ON DATABASE … FROM PUBLIC`을 하므로 다른 두 시스템 DB의 기본 PUBLIC 권한이 남는다. 그 DB에는 읽을 데이터가 없고 쓸 수 있는 것은 임시 테이블뿐이라(디스크 점유 정도) 수용했다 — 공개 롤 비밀번호가 새면 어차피 `blog`의 5테이블이 먼저 읽힌다.
 - **caddy 컨테이너에 헬스체크가 없다.** `docker compose ps`가 caddy를 `running`까지만 보여 준다 — 프로세스가 떠 있지만 TLS 종단이 응답하지 않는 상태(예: 설정 리로드 실패)를 compose 헬스 상태만으로는 구분하지 못한다. 배포 직후 확인(위 표)이 이를 보완한다.
 - **ACME HTTP-01이 실제 공개 CA(Let's Encrypt 등)를 통과하는지는 이 스택에서 검증되지 않았다.** 스모크·개발은 Caddy 내부 CA(`issuer: local`)를 쓴다 — 허용 IP 밖에 있는 CA가 HTTP-01 챌린지를 통과한다는 것은 로컬 ACME CA로 실제 발급까지 확인했지만(위 "실행하며 측정한 사실"), 진짜 공개 CA·진짜 DNS·진짜 방화벽 조합은 **첫 실제 배포에서 반드시 확인**해야 한다(`OPERATIONS.md` §2의 인증서 발급 확인 행).
 - **스모크 클라이언트 컨테이너(uid 1654)가 caddy의 ACME CA 개인키를 읽을 수 있다.** `smoke-allowed`/`smoke-denied`가 `caddy_data`를 읽기 전용으로 마운트해 `NODE_EXTRA_CA_CERTS`로 내부 CA 루트 인증서를 신뢰하는데, caddy도 같은 uid(1654)로 돌기 때문에 그 볼륨 안의 파일 권한(0600, uid 1654 전용)이 스모크 클라이언트도 함께 통과시킨다. 스모크 전용 구성(`docker-compose.smoke.yml`)에만 있는 설계이고 운영 compose에는 이 마운트가 없어 운영에는 영향이 없다.
