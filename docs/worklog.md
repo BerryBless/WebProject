@@ -1,9 +1,9 @@
 # 📝 PortfolioBlog(보안 최우선 기술 블로그) 작업일지
 
 - 작성일자: 2026-09-23
-- 상태: **In Progress** — 설계·0~3단계 완료(master 병합), 4단계(배포)는 브랜치 `feature/blog-deploy`에서 진행 중
-- 기간: 2026-09-11 ~ 2026-09-23 (커밋 151개, PR 4개)
-- 출처: `git log`, [설계 스펙](../plan/tech_blog_0920.md), 단계별 보고서([2A](../plan/tech_blog_2a_report_0921.md)·[2B](../plan/tech_blog_2b_report_0921.md)·[3](../plan/tech_blog_3_report_0922.md)), 구현 계획서 끝의 정오표(`docs/superpowers/plans/`), [재개 가이드](../plan/resume_guide_0921.md), [하네스 감사](../plan/harness_audit_0911.md)·[교차 점검](../plan/harness_cross_check_0913.md)
+- 상태: **Completed**(1차 범위) — 설계·0~4단계 전부 master 병합(마지막 PR #5 → `531f207`, 2026-09-23). 다음 사이클(노션식 편집·보기)은 설계 전
+- 기간: 2026-09-11 ~ 2026-09-23 (브랜치 포함 커밋 약 150개, PR 5개)
+- 출처: `git log`, [설계 스펙](../plan/tech_blog_0920.md), 단계별 보고서([2A](../plan/tech_blog_2a_report_0921.md)·[2B](../plan/tech_blog_2b_report_0921.md)·[3](../plan/tech_blog_3_report_0922.md)·[4](../plan/tech_blog_4_report_0923.md)), 구현 계획서 끝의 정오표(`docs/superpowers/plans/`), [재개 가이드](../plan/resume_guide_0921.md), [하네스 감사](../plan/harness_audit_0911.md)·[교차 점검](../plan/harness_cross_check_0913.md)
 
 이 문서는 **무엇을 만들었는가**보다 **어느 갈림길에서 무엇을 두고 고민했고, 왜 그쪽을 골랐으며, 나중에 무엇이 틀렸다고 드러났는가**를 단계별로 남긴다. 각 단계는 사용자 흐름도·시퀀스 다이어그램·처리 흐름도를 포함한다. 코드 지도와 설정 키 같은 현재 상태는 [아키텍처](architecture.md)·[보안 설계](security.md)·[설정 키](configuration.md)를 본다.
 
@@ -27,8 +27,8 @@ flowchart LR
     S3 --> S4["Step 4<br/>2B단계<br/>공개 사이트"]
     S4 --> S5["Step 5<br/>3단계<br/>관리 SPA"]
     S5 --> S6["Step 6<br/>4단계<br/>배포 구성"]
-    S6 -.-> NEXT["다음<br/>백업·복원, 스택 E2E,<br/>노션식 편집·보기"]
-    style S6 stroke-dasharray: 5 5
+    S6 -.-> NEXT["다음 사이클<br/>노션식 편집·보기<br/>(브레인스토밍부터)"]
+    style NEXT stroke-dasharray: 5 5
 ```
 
 ---
@@ -753,6 +753,8 @@ flowchart TD
 
 **만든 것(Task 1~6).** 공개 조회 전용 DB 롤(`PublicRoleGrants`)·시작 검증 강화·헬스체크 CLI → `.gitattributes`·`.dockerignore`·`deploy/Caddyfile`·이미지 둘(비루트·무셸 API, SPA를 품은 Caddy)·`caddyfile.test.ts` → `deploy/docker-compose.yml`·DB 롤 init·`.env.example`·스택 스모크(`smoke.test.mjs`·`run.sh`, 허용 IP 컨테이너와 비허용 IP 컨테이너 둘에서 찌른다). Task 1은 수정 2라운드 뒤 재리뷰 APPROVE. 사용자 요청으로 09-22에 정지했고, 그 뒤 README를 랜딩으로 바꾸고 `docs/` 서브페이지로 나누는 문서 재구성을 병행했다(09-22 ~ 23). 09-23에 실행을 재개해 master의 문서 재구성을 병합(`17063f3`)하고 Task 2 수정 r2(`1452204`)·Task 3 수정 r1을 커밋한 뒤, Task 4(백업/복원·`OPERATIONS.md`·복원 리허설)·Task 5(스택 대상 Playwright E2E·CI `deploy-smoke`)·Task 6(스펙·문서 as-built)까지 마치고 최종 리뷰 뒤 **PR #5로 master(`531f207`)에 병합됐다**.
 
+**Task 4~6에서 더 만든 것.** `backup.sh`(DB 덤프 → 첨부 tar → `SHA256SUMS`, 그 자리에서 읽기 검증)·`restore.sh --yes`(체크섬 검증 → 쓰기 서비스 정지 → 볼륨 초기화 → 복원 → 기동, 중단 시 다음 행동 안내)·`OPERATIONS.md`(최초 배포·배포 직후 확인·원본 IP·업데이트·백업/복원·비밀번호·세션 폐기·허용 IP·DB 비밀번호·이미지 버전·로그·문제 해결), 복원 리허설을 스모크에 편입(seed → backup → 볼륨 삭제 → restore → 바이트 일치 → 허용 IP 검사 재실행), 같은 `admin.spec.ts`를 스모크 스택에 대해 돌리는 `playwright.stack.config.ts`와 CI 잡 `deploy-smoke`, 스펙·`docs/deployment.md`·README·재개 가이드 as-built.
+
 **계획 전 스파이크 S1~S16**은 저장소 밖 복사본에서 이미지·compose·Caddyfile·백업 복원·스택 E2E를 **실제로 띄워** 쟀다(기준 이미지 버전, publish 출력 모양, chiseled + `read_only` + `tmpfs`에서 10MiB 업로드, Caddy 고정 IP 경쟁, `*.localhost` 내부 CA, 공개 `/api` 차단의 표기 변형 우회, `Server` 헤더 제거 위치, 업로드 경계, 액세스 로그의 `REDACTED`, DB 롤, 백업→`down -v`→복원, 전체 완주). 그럼에도 리뷰가 그 위에서 더 찾아냈다.
 
 #### 🤔 고민과 판정(설계 결정 D1~D15 중 핵심)
@@ -768,8 +770,17 @@ flowchart TD
 | 백업 | api 정지 후 / **무중단, DB 먼저 → 첨부 나중** | **무중단** | 내용 주소 파일은 덮어써지지 않는다. 어긋남은 "행 없는 파일"(청소 잡이 지움) 쪽으로만 |
 | 스모크 러너 | curl + bash / fetch / **`node --test` + `node:http(s)`** | **Node** | 경로를 정규화하지 않고 보내야 한다(표기 변형 우회 검사). Node 24는 `admin-headers.ts`를 그대로 import |
 | 실제 서버 배포 | 이 단계에서 / **범위 밖** | **범위 밖** | 대외 작업. 절차는 `OPERATIONS.md`, 검증은 스모크가 대신 |
+| 평문 HTTP의 관리 호스트 | 자동 리다이렉트만 / **허용 목록 밖은 평문에서도 404** | **명시 `http://` 블록에서 404** | "허용 밖 전 경로 404" 보증을 평문에도. ACME HTTP-01과의 공존은 리뷰어가 로컬 CA 실발급으로 증명 |
+| 공개 사이트의 GET/HEAD 외 메서드 | 백엔드에 넘김 / **Caddy가 405** | **405** | 더 엄격한 쪽. 스모크의 413 기대를 405로 바꿈 |
+| caddy 비루트 | root 유지(수용) / **비루트 시도** | **비루트 1654 + `NET_BIND_SERVICE`** | 됐다. 대가: 스모크 클라이언트도 1654로 맞춰야 했고 스모크 전용 CA의 개인키까지 읽힌다(잔여 위험) |
+| Task 2 r2 + Task 3 r1 배치 | 구현자 둘 / **한 구현자·커밋 2개** | **한 구현자** | 같은 스모크 스택(172.30·8081·8443)을 두 번 띄우는 비용 절감. 대가: 한쪽 실패가 다른 쪽 커밋을 지연 |
+| 이 PC의 Hyper-V 포트 예약(8073–8272)이 스모크 8081을 막는다 | 커밋 값 변경 / **환경변수 탈출구** | **`SMOKE_HTTP_BIND`로 로컬만 치환**, 커밋 값 8081 유지 | CI(Linux)·계획과 일치, 비관리자라 winnat 재시작 불가 |
+| 스모크 허용 IP의 결정성 | 운영 compose까지 서브넷 고정 / **스모크 오버레이에서만 고정** | **오버레이에서만** `public` 172.30.1.0/24 | 운영은 호스트 게이트웨이를 허용할 필요가 없다. 대가: 운영 `public` 서브넷은 여전히 자동(호스트 LAN과 겹치면 기동 실패 — 운영 문서에 기재) |
+| Task 6 README 배포 절 | 계획대로 README에 새 절 / **`docs/deployment.md` as-built** | **docs/** | master가 문서를 `docs/`로 나눴다 |
+| 최종 리뷰 Minor와 문서 잔여 | 두 번째 fix wave / **fix wave 1회 + 컨트롤러 문서 커밋** | **1회 + 문서 커밋**(`66329e8`) | 전부 문서·가드 강도. 대가: 문서 오탈자가 리뷰 없이 들어갈 수 있음 |
+| PR·CI·squash 병합 | 사용자 확인 / **묻지 않고 진행** | **진행** | 사용자가 정해 둔 실행 방식(추천안으로 끝까지). 되돌리려면 revert 커밋 |
 
-#### ❌ 틀렸던 것(Task 1~3 리뷰가 잡은 것)
+#### ❌ 틀렸던 것(Task 1~6 리뷰와 최종 리뷰가 잡은 것)
 
 | 결함 | 어떻게 드러났나 | 조치 |
 |---|---|---|
@@ -778,9 +789,16 @@ flowchart TD
 | Caddy 오류 응답 경로는 라우트의 지연 응답 래퍼를 거치지 않아 `Server` 헤더 삭제가 무효(405·413·502에서 노출) | 실측 | `handle_errors`로 처리(반영 완료) |
 | `caddyfile.test.ts`의 가드가 **위치 단언**이라, 헤더 블록을 관리 `route` 끝으로 옮기면 5/5 통과하면서 실제 응답의 보안 헤더 7개가 전부 사라진다 | 리뷰어 실측 | Task 2 수정 r2 `1452204`(09-23)에서 가드 강화 |
 | 두 도메인 밖 Host에 `Server: Caddy`가 남는다 / `handle_errors`의 502·413에 보안 헤더 없음 / 점 파일 차단이 `/.well-known/`까지 막음 | 실측 | 같은 커밋에서 폴백 사이트 블록 + 오류 응답 헤더 |
-| `edge` 네트워크가 internal이 아니라 **api가 인터넷으로 나갈 수 있다** | 실측 | Task 3 수정 r1(09-23 진행 중): `public`(caddy만)·`edge`(internal)·`db`(internal) 3망 |
-| 스모크의 DB 롤 검사가 `127.0.0.1`로 붙어 pg_hba의 `trust` 줄을 타 **비밀번호를 전혀 검증하지 않았다**(틀린 비밀번호로 슈퍼유저 접속 성공). 부정 검사도 "0 아닌 종료 코드 = 통과" | 실측 | Task 3 수정 r1: 컨테이너 네트워크 주소로 접속(scram 강제) + 메시지 판정 |
+| `edge` 네트워크가 internal이 아니라 **api가 인터넷으로 나갈 수 있다** | 실측 | Task 3 수정 r1(`8522c03`): `public`(caddy만)·`edge`(internal)·`db`(internal) 3망 — api에는 default route 자체가 없다 |
+| 스모크의 DB 롤 검사가 `127.0.0.1`로 붙어 pg_hba의 `trust` 줄을 타 **비밀번호를 전혀 검증하지 않았다**(틀린 비밀번호로 슈퍼유저 접속 성공). 부정 검사도 "0 아닌 종료 코드 = 통과" | 실측 | Task 3 수정 r1: 컨테이너 네트워크 주소로 접속(scram 강제) + SQLSTATE·메시지 판정 |
 | caddy 컨테이너가 root / 첨부 재업로드는 내용 주소라 200인데 스모크가 201만 단언 / tmpfs 64m이 동시 업로드 상한과 맞물림 | 리뷰·실측 | Task 3 수정 r1: 비루트 + `NET_BIND_SERVICE`, `[200, 201]` 허용, tmpfs 근거 주석 |
+| DB 롤 init 스크립트의 "불변식" 주석 두 개가 실측과 **정반대**(fail-open을 fail-closed로 서술). 그것을 지시한 컨트롤러 판정 문장도 부정확했다 | 리뷰어가 살아 있는 스택에서 재현 | 주석 재작성(`3f20cc1`) — 보안 통제의 주석도 검증 대상 |
+| 운영 문서의 DB 비밀번호 변경 절차(인라인 `ALTER ROLE … PASSWORD`)는 오타 한 번이면 **postgres 로그에 새 비밀번호를 평문으로** 남겼다 | 실행해 보고 로그 확인 | 클라이언트가 SCRAM 검증자를 계산해 보내는 psql `\password` 대화형 절차로 교체, 인라인 금지 |
+| 복원 스크립트가 중간에 실패하면 다음 행동을 알려 주지 않았다 | 리뷰 | `trap ERR`로 실제 상태에 따라 안내 문구 분기(재실행으로 완전 회복됨은 확인) |
+| 스모크의 허용 IP 목록이 Docker의 **동적 게이트웨이 주소**에 의존해 기동마다 값이 달라질 수 있었다(계획 S6에서 "검증"한 172.30.0.1은 3망 분리 뒤 172.19 → 172.20으로 바뀜) | 실측 | 스모크 전용 compose 오버레이에서 `public` 서브넷을 172.30.1.0/24로 **고정**한 뒤 허용 목록에 |
+| Firefox에서 첨부 이미지가 로드되기 전에 새로고침해 이미지가 깨지는 **레이스**(8개 중 1개, 한 번). 구현자는 "기존 간헐 실패와 같은 부류"로 오분류했다 | 재리뷰어가 코드로 원인 추적 | 이미지 로드를 기다린 뒤 새로고침(Task 5 r2) |
+| "상태 한 줄만 갱신"이라는 컨트롤러 지시 때문에 `history.md`의 헤딩과 본문이 모순됐다 | Task 6 리뷰 | 절 단위로 정합성 확인 |
+| 최종 리뷰 Minor: 정적 가드가 헤더 블록을 분리해 보지 않음, 계획서 숫자 불일치, 공개 `/health`가 200(상태·타임스탬프뿐이라 수용) | 최종 리뷰(실제 스택 공격) | Minor 1·2는 fix wave `53adc6d`, 3은 수용 |
 
 **계획이 맞았던 것(되돌리지 말 것).** `ip_range: 172.30.0.128/25`가 caddy의 고정 IP를 지킨다(없으면 동적 컨테이너가 가져간다 — 대조 실측). **ACME HTTP-01은 명시 `http://` 사이트 블록·IP 허용 목록과 공존한다** — 리뷰어가 로컬 ACME CA를 허용 목록 밖에 두고 실제 발급으로 증명했다. 비 슈퍼유저 `blog_app`으로 마이그레이션과 권한 재조정이 된다.
 
@@ -788,7 +806,7 @@ flowchart TD
 
 ```mermaid
 journey
-    title 운영자의 배포 여정 (4단계 목표)
+    title 운영자의 배포 여정 (4단계, OPERATIONS.md 절차)
     section 준비
       .env 작성 (도메인·허용 CIDR·비밀번호 셋·관리자 해시): 3: 운영자
       해시는 hash-password CLI로 생성: 4: 운영자
@@ -870,9 +888,9 @@ flowchart TD
 
 #### 4. 구현 및 검증
 
-- 수정 파일(브랜치): `PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs`, `StartupValidation`, `HealthcheckCommand`, `PortfolioBlog.Api/Dockerfile`, `PortfolioBlog.Web/Dockerfile`, `deploy/{Caddyfile,docker-compose.yml,.env.example}`, `deploy/postgres-init/10-roles.sh`, `deploy/smoke/{run.sh,smoke.test.mjs}`, `PortfolioBlog.Web/src/test/caddyfile.test.ts`, `.gitattributes`, `.dockerignore`; 문서 `README.md`(랜딩), `docs/*.md` 8개, `plan/resume_guide_0921.md`
-- 주요 변경사항: DB 롤 셋 분리(2B 잔여 위험 해소), 비루트·무셸·`read_only`·`cap_drop: ALL` 컨테이너, 관리 사이트 IP 게이트가 모든 처리보다 앞인 `route`, 운영과 같은 이미지로 띄우는 스모크
-- 검증 결과: .NET **625개** 통과·경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 10·비허용 IP 6·오류 응답 1·복원 리허설 포함), `SMOKE_E2E=1`의 스택 E2E **8개**(Chromium·Firefox). 남은 것: 최종 리뷰(실제 스택 공격) → PR → CI → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`
+- 수정 파일(PR #5, 41개 파일 +3,412 / −149): `PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs`, `StartupValidation`, `HealthcheckCommand`, `PortfolioBlog.Api/Dockerfile`, `PortfolioBlog.Web/Dockerfile`, `deploy/{Caddyfile,docker-compose.yml,docker-compose.smoke.yml,.env.example,backup.sh,restore.sh,OPERATIONS.md}`, `deploy/postgres-init/10-roles.sh`, `deploy/smoke/{run.sh,smoke.test.mjs}`, `PortfolioBlog.Web/{src/test/caddyfile.test.ts,e2e/admin.spec.ts,playwright.stack.config.ts}`, `.github/workflows/ci.yml`(`deploy-smoke`), `.gitattributes`, `.dockerignore`; 문서 `plan/tech_blog_0920.md`(3.6·3.7·3.10·5·6·8절), `docs/deployment.md`(as-built), `README.md`, `docs/testing.md`·`history.md`·`worklog.md`, `plan/resume_guide_0921.md`, `plan/tech_blog_4_report_0923.md`
+- 주요 변경사항: DB 롤 셋 분리(2B 잔여 위험 해소), 비루트·무셸·`read_only`·`cap_drop: ALL` 컨테이너, api는 인터넷으로 나갈 수 없는 3망, 관리 사이트 IP 게이트가 모든 처리보다 앞인 `route` + `:80`/`:443` 폴백, 무중단 백업·복원과 운영 절차, 운영과 같은 이미지로 띄워 복원 리허설까지 도는 스모크, 스택 대상 브라우저 E2E와 CI 게이트
+- 검증 결과: .NET **625개** 통과·경고 0, Vitest **194개**, 기존 E2E **8개**, `SMOKE_E2E=1 bash deploy/smoke/run.sh` **`=== 통과`**(허용 IP 10 · 비허용 IP 6 · 오류 응답 1 · seed 1 · verify-restore 1 · 복원 후 허용 10 · 스택 E2E 8, Chromium·Firefox), 하네스 감사 8/8. 최종 리뷰(브랜치 전체 diff + `SMOKE_KEEP=1` 스택 공격): 관리 우회 시도(Host·SNI·경로 정규화 변형·HTTP/1.0 no-Host·절대 URI·XFF 사칭) 전부 실패, 비허용 IP가 caddy를 건너뛰어 api를 직격해도 403(두 계층 독립 강제), 컨테이너 격리·DB 롤 경계·백업 산출물과 로그에 비밀 0 → **병합 Yes**, Critical 0 · Important 0 · Minor 3. PR #5 → CI 4잡(`test`·`web`·`web-e2e`·`deploy-smoke`) push·PR 실행 모두 통과(첫 Linux `deploy-smoke` 약 2분 20초) → squash 병합 master `531f207`(2026-09-23)
 
 ---
 
@@ -901,7 +919,7 @@ flowchart TD
 
 **단계마다 되풀이 확인된 것.**
 
-1. **계획을 그대로 옮긴 코드는 통과했지만 계획이 틀려 있었다.** 원천은 늘 "측정하지 않고 쓴 문장"이었다(2A 16건, 2B 23건, 3단계 약 20건, 4단계 Task 1~3에서 다수). 비용 상한은 시간으로, 파서는 기본 거부 + 모양 검사, 성능·보안 주장은 측정한 것만, 문자열은 코드 포인트 경계에서.
+1. **계획을 그대로 옮긴 코드는 통과했지만 계획이 틀려 있었다.** 원천은 늘 "측정하지 않고 쓴 문장"이었다(2A 16건, 2B 23건, 3단계 약 20건, 4단계 Task 1~6에서 다수). 비용 상한은 시간으로, 파서는 기본 거부 + 모양 검사, 성능·보안 주장은 측정한 것만, 문자열은 코드 포인트 경계에서.
 2. **프레임워크 기본값은 실제 호스트에서만 드러난다.** 호스트 필터 400의 HTML 본문, publish의 `.gz` 사본, 공백 경로 값의 null 바인딩, Kestrel의 414는 TestServer 스위트가 전부 통과하는 동안 남아 있었다. 최종 리뷰의 실제 호스트 공격은 생략할 수 없는 단계다.
 3. **테스트가 실패할 수 있는지 확인한다(사보타주).** 실패할 수 없는 단언이 2B에서만 6건. 사보타주가 통과해 버리면 테스트의 전제 조건이 성립했는지까지 본다(3단계에서 세 번).
 4. **보안 통제와 테스트 하네스도 제품 코드만큼 의심한다.** 소스 가드가 코드를 삼켰고, "표에 없는 호출은 실패"는 거짓이었고, 4단계 스모크의 롤 검사는 비밀번호를 검증하지 않았고, `caddyfile.test.ts`는 헤더가 사라지는 변경을 통과시켰다.
@@ -911,6 +929,9 @@ flowchart TD
 8. **리뷰어는 저장소 밖 복사본에서만 측정한다.** 3단계에서 리뷰어 1명이 작업 트리에 임시 파일을 만들었다 지웠다.
 9. **이 기계의 광고 차단기가 평문 HTTP 응답을 다시 쓴다.** 실제 호스트 프로브는 HTTPS로만.
 10. **화면 상태 기계는 라운드가 많이 든다.** 다음 계획에서는 상태 전이 표(저장 중 입력, 저장 직후, 언마운트, 세션 만료, 저장소 실패)를 계획에 먼저 그린다.
+11. **"검증됐다"는 값도 환경 산물일 수 있다.** 4단계 스파이크가 잰 호스트 게이트웨이 주소는 망 구성과 Docker 주소 풀 상태에 따라 바뀌었다. 결정적이어야 하는 값은 고정하고 나서 허용 목록에 넣는다.
+12. **운영 문서의 명령은 실행해 보고 로그를 본다.** 계획서가 준 DB 비밀번호 변경 명령은 오타 한 번이면 로그에 평문을 남겼다.
+13. **CI 게이트가 될 테스트는 여러 번 돌린다.** 한 번만 나타난 Firefox 레이스를 "기존 간헐 실패"로 오분류할 뻔했다.
 
 ---
 
@@ -918,11 +939,10 @@ flowchart TD
 
 | 순서 | 내용 | 근거 |
 |---|---|---|
-| 1 | 4단계 Task 3 수정 r1 마무리(3망 구성, 스모크 롤 검사, 비루트 caddy)와 Task 2·3 범위 재리뷰 | 재개 가이드 3.3절, 09-23 진행 중 |
-| 2 | Task 4 백업·복원 스크립트와 `OPERATIONS.md`, 복원 리허설을 스모크에 | 계획 Task 4 |
-| 3 | Task 5 스택 대상 Playwright E2E + CI `deploy-smoke` 잡 | 계획 Task 5 |
-| 4 | Task 6 스펙·README·`docs/deployment.md` as-built, 최종 리뷰(실제 스택 공격) → PR → 보고서 `plan/tech_blog_4_report_<MMDD>.md` | 계획 Task 6 |
-| 5 | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22). 설계 전 — 브레인스토밍으로 편집기 방식(블록 WYSIWYG vs 마크다운 + 미리보기)·저장 형식(마크다운 유지 권장)·공개 페이지는 스크립트 없는 서버 렌더링 유지를 먼저 정한다 | 스펙 7절 TODO |
-| 6 | 스펙 7절의 확장 포인트: TOTP, 초안/예약 발행, slug 변경 + 리다이렉트, 전문 검색, 다중 인스턴스 렌더 캐시, 앞단 CDN(`trusted_proxies` 재설계) | 스펙 7절 |
+| 1 | 실제 서버 첫 배포(범위 밖이었던 대외 작업). 확인할 것: 공인 CA의 ACME HTTP-01이 관리 도메인에서도 발급되는지, Caddy 로그의 `remote_ip`가 실제 클라이언트 IP인지(운영 `public` 서브넷은 자동 할당), 호스트 LAN과 서브넷이 겹치지 않는지 | `deploy/OPERATIONS.md` §1·§2 |
+| 2 | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22). 설계 전 — 브레인스토밍으로 편집기 방식(블록 WYSIWYG vs 마크다운 + 미리보기)·저장 형식(마크다운 유지 권장)·공개 페이지는 스크립트 없는 서버 렌더링 유지를 먼저 정한다 | 스펙 7절 TODO, 4단계 보고서 8절 |
+| 3 | 4단계 소형 후속: 스모크 클라이언트가 CA 개인키 대신 `root.crt`만 받게, caddy healthcheck, 스모크 HTTPS 포트 탈출구, 첨부가 많을 때 스택 E2E의 이미지 로드 대기 | 4단계 보고서 6·8절 |
+| 4 | 병합 완료된 원격 브랜치 5개(`feature/blog-*`) 정리 | 재개 가이드 1절(사용자 몫) |
+| 5 | 스펙 7절의 확장 포인트: TOTP, 초안/예약 발행, slug 변경 + 리다이렉트, 전문 검색, 다중 인스턴스 렌더 캐시, 앞단 CDN(`trusted_proxies` 재설계) | 스펙 7절 |
 
-**수용한 채로 남은 잔여 위험(요약).** 이미지의 비검사 표면 5종(디코딩하지 않으므로) · 렌더 게이트를 공개·관리가 공유 · Kestrel이 직접 거부하는 응답에는 보안 헤더가 없다(본문도 없다) · 관리 SPA CSP의 `style-src-elem 'unsafe-inline'`(CodeMirror) · 소스 가드는 의도적 우회를 막지 못한다(목적은 실수 방지) · 이미지 태그 고정은 다이제스트가 아니다 · WebKit 미검증 · 로컬 Windows Docker Desktop의 간헐 15초 연결 타임아웃(재실행으로 통과, CI에서는 미발생). 각 항목의 근거와 되돌릴 조건은 단계별 보고서 6절.
+**수용한 채로 남은 잔여 위험(요약).** 이미지의 비검사 표면 5종(디코딩하지 않으므로) · 렌더 게이트를 공개·관리가 공유 · Kestrel이 직접 거부하는 응답에는 보안 헤더가 없다(본문도 없다) · 관리 SPA CSP의 `style-src-elem 'unsafe-inline'`(CodeMirror) · 소스 가드는 의도적 우회를 막지 못한다(목적은 실수 방지) · 이미지 태그 고정은 다이제스트가 아니다 · WebKit 미검증 · 로컬 Windows Docker Desktop의 간헐 15초 연결 타임아웃(재실행으로 통과, CI에서는 미발생) · 4단계: `blog_public`이 `postgres`·`template1`에 CONNECT·임시 테이블 가능(읽을 데이터 없음), 운영 `public` 서브넷 자동 할당, caddy healthcheck 없음, 서브넷·`Proxy__TrustedIp`가 4파일에 리터럴 중복, ACME HTTP-01은 로컬 CA로만 실증, 이 PC의 Hyper-V 포트 예약(8073–8272)으로 기존 E2E 4173·스모크 8081은 `SMOKE_HTTP_BIND`나 CI로 판정. 각 항목의 근거와 되돌릴 조건은 단계별 보고서 6절.
