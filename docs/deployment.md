@@ -1,6 +1,6 @@
 # 배포 구성
 
-> **상태: 브랜치 `feature/blog-deploy`에 구현 완료, PR 대기.** 이 문서가 설명하는 `deploy/` 디렉터리와 Dockerfile은 master에 아직 병합되지 않았습니다. 실행 이력은 [작업일지 Step 6](worklog.md)에, 구현 계획 전체는 [`docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`](superpowers/plans/2026-09-22-tech-blog-deploy.md)에 있습니다. **실제 서버·도메인에 올리는 일은 이 단계의 범위 밖입니다** — 구성과 절차를 만들고 운영과 같은 이미지로 로컬(또는 CI)에서 검증하는 데까지입니다. 실제 배포 절차는 [`deploy/OPERATIONS.md`](../deploy/OPERATIONS.md)입니다.
+> **상태: master에 병합됨(PR #5, 2026-09-23).** 이 문서가 설명하는 `deploy/` 디렉터리와 Dockerfile은 master에 있습니다. CI `deploy-smoke` 잡(첫 Linux 실행 포함)이 통과했습니다. 실행 이력은 [작업일지 Step 6](worklog.md)에, 구현 계획 전체는 [`docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`](superpowers/plans/2026-09-22-tech-blog-deploy.md)에 있습니다. **실제 서버·도메인에 올리는 일은 이 단계의 범위 밖입니다** — 구성과 절차를 만들고 운영과 같은 이미지로 로컬(또는 CI)에서 검증하는 데까지입니다. 실제 배포 절차는 [`deploy/OPERATIONS.md`](../deploy/OPERATIONS.md)입니다.
 
 관련 문서: [아키텍처](architecture.md) · [보안 설계](security.md) · [설정 키](configuration.md) · [테스트](testing.md)
 
@@ -67,7 +67,7 @@ SMOKE_KEEP=1 bash deploy/smoke/run.sh # 종료 후에도 스택을 내리지 않
 SMOKE_HTTP_BIND=127.0.0.1:18081 bash deploy/smoke/run.sh  # 기본 8081이 Hyper-V 배타 예약 포트 범위와 겹치는 기계에서
 ```
 
-단계와 통과한 개수(브랜치 최신 실행):
+단계와 통과한 개수(최신 CI 실행):
 
 1. **이미지 빌드·이미지 검사** — api 이미지가 비루트(1654)이고 셸이 없는지.
 2. **기동** — postgres·api·caddy가 healthy(또는 running, caddy는 healthcheck 없음).
@@ -84,7 +84,7 @@ Caddy 액세스 로그에 쿠키·비밀번호가 남지 않는 것도 확인합
 
 ## CI
 
-`.github/workflows/ci.yml`의 `deploy-smoke` 잡이 `test`·`web` 잡 뒤에 `ubuntu-latest`에서 `SMOKE_E2E=1 bash deploy/smoke/run.sh`를 돌립니다(`timeout-minutes: 30`). 실패하면 Playwright trace와 `deploy/smoke/caddy.log`를 아티팩트로 올립니다. **첫 Linux 실행은 게이트입니다** — 게시 포트(`public` 네트워크)의 게이트웨이 주소가 Docker의 기본 주소 풀에서 골라지므로(운영 compose에 `ipam` 없음), 이 저장소의 두 로컬 세션에서만도 `172.30.0.1`과 `172.19.0.1`로 서로 다르게 관측됐습니다. Linux 러너에서 실패하면 `caddy.log`의 `remote_ip`로 원인을 읽고 스모크 전용 허용 목록(운영 Caddyfile이 아니라 `deploy/smoke/run.sh`)만 고칩니다.
+`.github/workflows/ci.yml`의 `deploy-smoke` 잡이 `test`·`web` 잡 뒤에 `ubuntu-latest`에서 `SMOKE_E2E=1 bash deploy/smoke/run.sh`를 돌립니다(`timeout-minutes: 30`). 실패하면 Playwright trace와 `deploy/smoke/caddy.log`를 아티팩트로 올립니다. **첫 Linux 실행이 게이트를 통과했습니다** — 게시 포트(`public` 네트워크)의 게이트웨이 주소가 Docker의 기본 주소 풀에서 골라지므로(운영 compose에 `ipam` 없음), 이 저장소의 두 로컬 세션에서만도 `172.30.0.1`과 `172.19.0.1`로 서로 다르게 관측됐습니다. Linux 러너에서 실패하면 `caddy.log`의 `remote_ip`로 원인을 읽고 스모크 전용 허용 목록(운영 Caddyfile이 아니라 `deploy/smoke/run.sh`)만 고칩니다.
 
 ## 운영에서 반드시 확인할 것
 

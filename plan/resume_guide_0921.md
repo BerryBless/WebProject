@@ -1,4 +1,4 @@
-# 작업 재개 가이드 (2026-09-22 기준, Plan 4 실행 중단 지점까지 갱신)
+# 작업 재개 가이드 (2026-09-23 기준, Plan 4 병합 완료)
 
 > 이 문서 하나만 읽으면 어느 세션에서든 이어서 작업할 수 있도록 쓴 인계 기록이다. 상태가 바뀌면 **이 문서를 갱신**하고 날짜를 고친다(새 파일을 만들지 않는다).
 
@@ -12,12 +12,12 @@
 | 2A | 마크다운 파이프라인, `/api/preview`, 이미지 판정·메타데이터 제거, 이미지 첨부 | 완료 | PR #2 → `898b839`, 보고서 `plan/tech_blog_2a_report_0921.md` |
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
-| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **Task 1~6 구현 완료 — 최종 리뷰·PR 대기**(3절) | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 진행 기록 `.superpowers/sdd/2026-09-22-tech-blog-deploy/progress.md` |
+| **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **완료 — PR #5 → `531f207`(master 병합)** | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 실행 보고서 `plan/tech_blog_4_report_0923.md` |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
-- 기준 커밋: master `3a98985`(Plan 4 계획 문서까지). 작업 브랜치 `feature/blog-deploy`는 그 위에 커밋 6개(3절), origin에 push됨. 작업 트리 깨끗함, 열린 PR 없음.
-- 검증 상태: .NET Release 빌드 경고 0 / 오류 0, 테스트 **591개 통과**. 웹: 타입 오류 0·린트 경고 0·Vitest **188개**·Playwright E2E **8개**(Chromium+Firefox). 하네스 감사 8/8, CI(ubuntu-latest: `test`·`web`·`web-e2e`) 통과.
-- 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`, `origin/feature/blog-admin-spa`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
+- 기준 커밋: master `531f207`(PR #5 병합, 4단계 배포 구성까지 포함). 작업 트리 깨끗함, 열린 PR 없음.
+- 검증 상태: .NET Release 빌드 경고 0 / 오류 0, 테스트 **625개 통과**. 웹: 타입 오류 0·린트 경고 0·Vitest **194개**·Playwright E2E **8개**(Chromium+Firefox)·스택 E2E **8개**. 하네스 감사 8/8, CI(ubuntu-latest: `test`·`web`·`web-e2e`·`deploy-smoke`) 통과.
+- 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`, `origin/feature/blog-admin-spa`, `origin/feature/blog-deploy`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
 
 ## 2. 다시 시작할 때 5분 점검
 
@@ -28,17 +28,17 @@ Test-Path .git/harness_commit_in_progress  # False여야 한다(True면 이전 �
 Test-Path .git/hooks/commit-msg            # False면: Copy-Item scripts/git-hooks/commit-msg .git/hooks/
 docker info --format '{{.ServerVersion}}'  # Docker가 떠 있어야 통합 테스트가 돈다
 dotnet build PortfolioBlog.slnx -c Release # 경고 0 / 오류 0
-dotnet test  PortfolioBlog.slnx -c Release # 591개 통과 (한 개가 연결 타임아웃으로 실패하면 5절 참고 후 재실행)
-cd PortfolioBlog.Web; npm ci; npm run lint; npm run typecheck; npm test; npm run build   # Vitest 188개
+dotnet test  PortfolioBlog.slnx -c Release # 625개 통과 (한 개가 연결 타임아웃으로 실패하면 5절 참고 후 재실행)
+cd PortfolioBlog.Web; npm ci; npm run lint; npm run typecheck; npm test; npm run build   # Vitest 194개
 npm run e2e:prepare; npm run e2e; docker rm -f pb-e2e-pg; cd ..                          # E2E 8개(포트 7198·4173·5433이 비어 있어야 한다)
 pwsh scripts/harness-audit.ps1             # PASS 8/8
 ```
 
 필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만). Node.js 24(react-router 8이 22.22 이상 요구), Playwright 브라우저(`npx playwright install chromium firefox`).
 
-## 3. 다음 작업: Plan 4(배포) 실행 재개
+## 3. Plan 4(배포) — 완료·병합됨
 
-계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행했다. 2026-09-22에 사용자 요청으로 한 차례 정지했다가 09-23에 재개해 **Task 1~6을 전부 마쳤다**(3.2 커밋 표). 남은 것은 최종 리뷰(실제 스택 공격) → PR → CI 게이트 → squash 병합 → 보고서 `plan/tech_blog_4_report_<MMDD>.md`뿐이다.
+계획은 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(Task 6개, 스파이크 S1~S16, 설계 결정 D1~D15)에 있고 master `3a98985`로 올라가 있었다. 실행은 `superpowers:subagent-driven-development`로 브랜치 **`feature/blog-deploy`**에서 진행했다. 2026-09-22에 사용자 요청으로 한 차례 정지했다가 09-23에 재개해 Task 1~6(3.2 커밋 표)과 최종 리뷰(실제 스택 공격)를 전부 마치고 **PR #5로 master(`531f207`)에 병합됐다**(CI `test`·`web`·`web-e2e`·`deploy-smoke` 전부 통과, 2026-09-23). 상세 결함표와 판정 근거는 `plan/tech_blog_4_report_0923.md`에 있다. 진행 기록(ledger) `.superpowers/sdd/2026-09-22-tech-blog-deploy/`는 정리(삭제)될 예정이며, 그 기록은 이제 `plan/tech_blog_4_report_0923.md`와 git 이력에 남는다. **다음 작업은 노션식 에디터·보기다**(사용자 요청, 브레인스토밍으로 방향부터 시작) — 위 표의 TODO 항목.
 
 ### 3.1 재개 절차
 
@@ -75,11 +75,11 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 | `e5a8bcb` | 문서: 상태 헤딩과 어긋난 본문·라벨·커밋 표를 실제와 맞춤(리뷰 F1~F3) | |
 | `53adc6d` | 최종 리뷰 Minor 1·2 수정: handle_errors 헤더 미러 테스트 분리, 계획 문서 dotnet test 주석 갱신 | **최종 리뷰 반영 완료** |
 
-검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **193개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 10·비허용 IP 6·오류 응답 1, 복원 리허설 포함), `SMOKE_E2E=1`의 스택 E2E **8개**(Chromium·Firefox). Task 1~6 전부 완료(위 표).
+검증 상태: .NET **625개** 통과·빌드 경고 0, Vitest **194개**, `bash deploy/smoke/run.sh` **exit 0**(허용 IP 10·비허용 IP 6·오류 응답 1, 복원 리허설 포함), `SMOKE_E2E=1`의 스택 E2E **8개**(Chromium·Firefox). Task 1~6 전부 완료(위 표).
 
-### 3.3 재개하면 바로 할 일 (리뷰가 남긴 결함과 내린 판정)
+### 3.3 다음 작업
 
-**완료 — 최종 리뷰·PR 대기.** Task 1~6(DB 롤·이미지·Caddyfile·compose·스모크·백업/복원·스택 E2E·CI `deploy-smoke`·as-built 문서)을 전부 구현·커밋했다. 상세 결함표와 수정 라운드별 근거는 `plan/tech_blog_4_report_<MMDD>.md`(컨트롤러가 최종 리뷰·PR 뒤 작성)에 남긴다. 다음 단계는 최종 리뷰(실제 스택 공격) → PR → CI → squash 병합 → 보고서.
+**완료·병합됨.** Task 1~6(DB 롤·이미지·Caddyfile·compose·스모크·백업/복원·스택 E2E·CI `deploy-smoke`·as-built 문서)을 전부 구현·커밋하고 최종 리뷰 뒤 PR #5로 master(`531f207`)에 병합했다. 상세 결함표와 수정 라운드별 근거는 `plan/tech_blog_4_report_0923.md`에 있다. **다음 작업은 노션식 에디터·보기다** — 브레인스토밍으로 방향부터 정한다(편집기 방식, 저장 형식; 공개 페이지는 스크립트 없는 서버 렌더링 유지).
 
 ### 3.4 실행하며 확인된 사실(계획에 없던 것)
 

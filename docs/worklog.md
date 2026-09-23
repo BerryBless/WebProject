@@ -17,7 +17,7 @@
 | 3 | 09-21 | 2A단계: 마크다운 정제 파이프라인, 미리보기, 이미지 판정·메타데이터 제거·첨부 | PR #2 → `898b839`, 테스트 412 |
 | 4 | 09-21 | 2B단계: 공개 Razor 페이지·검색·Atom·sitemap, 보안 헤더, 속도 제한, 읽기 전용 DB 연결, 렌더 게이트·캐시 | PR #3 → `80c8dc4`, 테스트 589 |
 | 5 | 09-21 ~ 09-22 | 3단계: 관리 에디터 SPA(React 19 + Vite + CodeMirror 6), sandbox 미리보기, 임시본, 실제 백엔드 E2E | PR #4 → `16a3d25`, .NET 591 · Vitest 188 · E2E 8 |
-| 6 | 09-22 ~ 09-23 | 4단계: Docker Compose·Caddy·DB 롤 분리·백업/복원·스택 스모크·스택 E2E·CI `deploy-smoke`(Task 1~6), 문서 재구성(README 랜딩 + `docs/`) | Task 1~6 완료, PR 대기. .NET 625 · Vitest 193 · 스모크 exit 0 · 스택 E2E 8 |
+| 6 | 09-22 ~ 09-23 | 4단계: Docker Compose·Caddy·DB 롤 분리·백업/복원·스택 스모크·스택 E2E·CI `deploy-smoke`(Task 1~6), 문서 재구성(README 랜딩 + `docs/`) | PR #5 → `531f207`. .NET 625 · Vitest 194 · 스모크 exit 0 · 스택 E2E 8 |
 
 ```mermaid
 flowchart LR
@@ -749,9 +749,9 @@ flowchart TD
 
 ---
 
-### Step 6: 4단계 — 배포 구성 (2026-09-22 ~ 09-23, Task 1~6 완료, 브랜치 `feature/blog-deploy`, PR 대기)
+### Step 6: 4단계 — 배포 구성 (2026-09-22 ~ 09-23, 병합 완료 — PR #5 → `531f207`)
 
-**만든 것(Task 1~6).** 공개 조회 전용 DB 롤(`PublicRoleGrants`)·시작 검증 강화·헬스체크 CLI → `.gitattributes`·`.dockerignore`·`deploy/Caddyfile`·이미지 둘(비루트·무셸 API, SPA를 품은 Caddy)·`caddyfile.test.ts` → `deploy/docker-compose.yml`·DB 롤 init·`.env.example`·스택 스모크(`smoke.test.mjs`·`run.sh`, 허용 IP 컨테이너와 비허용 IP 컨테이너 둘에서 찌른다). Task 1은 수정 2라운드 뒤 재리뷰 APPROVE. 사용자 요청으로 09-22에 정지했고, 그 뒤 README를 랜딩으로 바꾸고 `docs/` 서브페이지로 나누는 문서 재구성을 병행했다(09-22 ~ 23). 09-23에 실행을 재개해 master의 문서 재구성을 병합(`17063f3`)하고 Task 2 수정 r2(`1452204`)·Task 3 수정 r1을 커밋한 뒤, Task 4(백업/복원·`OPERATIONS.md`·복원 리허설)·Task 5(스택 대상 Playwright E2E·CI `deploy-smoke`)·Task 6(스펙·문서 as-built)까지 마쳐 **Task 1~6 완료, PR 대기** 상태다.
+**만든 것(Task 1~6).** 공개 조회 전용 DB 롤(`PublicRoleGrants`)·시작 검증 강화·헬스체크 CLI → `.gitattributes`·`.dockerignore`·`deploy/Caddyfile`·이미지 둘(비루트·무셸 API, SPA를 품은 Caddy)·`caddyfile.test.ts` → `deploy/docker-compose.yml`·DB 롤 init·`.env.example`·스택 스모크(`smoke.test.mjs`·`run.sh`, 허용 IP 컨테이너와 비허용 IP 컨테이너 둘에서 찌른다). Task 1은 수정 2라운드 뒤 재리뷰 APPROVE. 사용자 요청으로 09-22에 정지했고, 그 뒤 README를 랜딩으로 바꾸고 `docs/` 서브페이지로 나누는 문서 재구성을 병행했다(09-22 ~ 23). 09-23에 실행을 재개해 master의 문서 재구성을 병합(`17063f3`)하고 Task 2 수정 r2(`1452204`)·Task 3 수정 r1을 커밋한 뒤, Task 4(백업/복원·`OPERATIONS.md`·복원 리허설)·Task 5(스택 대상 Playwright E2E·CI `deploy-smoke`)·Task 6(스펙·문서 as-built)까지 마치고 최종 리뷰 뒤 **PR #5로 master(`531f207`)에 병합됐다**.
 
 **계획 전 스파이크 S1~S16**은 저장소 밖 복사본에서 이미지·compose·Caddyfile·백업 복원·스택 E2E를 **실제로 띄워** 쟀다(기준 이미지 버전, publish 출력 모양, chiseled + `read_only` + `tmpfs`에서 10MiB 업로드, Caddy 고정 IP 경쟁, `*.localhost` 내부 CA, 공개 `/api` 차단의 표기 변형 우회, `Server` 헤더 제거 위치, 업로드 경계, 액세스 로그의 `REDACTED`, DB 롤, 백업→`down -v`→복원, 전체 완주). 그럼에도 리뷰가 그 위에서 더 찾아냈다.
 

@@ -8,13 +8,13 @@
 
 | 층 | 무엇 | 개수(master) | 무엇을 증명하나 |
 |---|---|---|---|
-| .NET 통합·단위 | xUnit + `WebApplicationFactory` + Testcontainers PostgreSQL | **591** | 접근 매트릭스, 세션 규칙, 마크다운 정제, 이미지 판정·메타데이터 제거, 속도 제한 체인, 공개 페이지·피드·sitemap, DB 제약 ⊇ 앱 검증 |
-| 웹 단위 | Vitest + Testing Library + jsdom | **188** | API 클라이언트의 경로 검사, 에디터 상태 기계(저장 중 입력·409·임시본), 오픈 리다이렉트 방지, 소스 가드 |
+| .NET 통합·단위 | xUnit + `WebApplicationFactory` + Testcontainers PostgreSQL | **625** | 접근 매트릭스, 세션 규칙, 마크다운 정제, 이미지 판정·메타데이터 제거, 속도 제한 체인, 공개 페이지·피드·sitemap, DB 제약 ⊇ 앱 검증 |
+| 웹 단위 | Vitest + Testing Library + jsdom | **194** | API 클라이언트의 경로 검사, 에디터 상태 기계(저장 중 입력·409·임시본), 오픈 리다이렉트 방지, 소스 가드 |
 | 브라우저 E2E | Playwright(Chromium·Firefox) + 실제 백엔드 + production 빌드 | **8** | 배포될 CSP 값 자체, 실제 쿠키·Origin 검사, sandbox iframe, 글쓰기 전 과정, CSP 위반 0건 |
-| 배포 스모크 | Node 테스트 러너 + 실제 컨테이너 스택(운영과 같은 이미지·Caddyfile·compose) | 브랜치 전용(허용 IP 10·비허용 IP 6·오류 응답 1·seed 1·verify-restore 1, 복원 후 허용 IP 10 재실행) | 접근 통제·헤더·업로드 상한, DB 롤 권한(비 superuser, 공개 롤은 읽기 전용), 백업→볼륨 삭제→복원 바이트 단위 일치 |
-| 스택 E2E | Playwright(Chromium·Firefox) + 실제 컨테이너 스택(`SMOKE_E2E=1`) | 브랜치 전용(**8**) | 배포될 CSP·헤더가 Caddy를 통과한 실제 응답, 로그인부터 글쓰기까지 전 과정 |
+| 배포 스모크 | Node 테스트 러너 + 실제 컨테이너 스택(운영과 같은 이미지·Caddyfile·compose) | 허용 IP 10·비허용 IP 6·오류 응답 1·seed 1·verify-restore 1, 복원 후 허용 IP 10 재실행 | 접근 통제·헤더·업로드 상한, DB 롤 권한(비 superuser, 공개 롤은 읽기 전용), 백업→볼륨 삭제→복원 바이트 단위 일치 |
+| 스택 E2E | Playwright(Chromium·Firefox) + 실제 컨테이너 스택(`SMOKE_E2E=1`) | **8** | 배포될 CSP·헤더가 Caddy를 통과한 실제 응답, 로그인부터 글쓰기까지 전 과정 |
 
-브랜치 `feature/blog-deploy`에서는 .NET **625**, Vitest **193**, 브라우저 E2E **8**, 스택 E2E **8**, 스모크 **19**(허용 10·비허용 6·오류 응답 1·seed 1·verify-restore 1)입니다 → [배포 구성](deployment.md).
+master는 .NET **625**, Vitest **194**, 브라우저 E2E **8**, 스택 E2E **8**, 스모크 **19**(허용 10·비허용 6·오류 응답 1·seed 1·verify-restore 1)입니다 → [배포 구성](deployment.md).
 
 ## 실행
 

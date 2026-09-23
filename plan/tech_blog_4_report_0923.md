@@ -11,10 +11,10 @@
 | Task 3 compose·DB 롤 init·스모크 | 완료(`17f4ed3`·`8522c03`·`3f20cc1`) — 3망 분리, DB 롤 검사 실질화, 비루트 caddy, 불변식 주석 정정 |
 | Task 4 백업·복원·OPERATIONS.md | 완료(`36e8394`·`dc4a207`) — 복원 리허설이 스모크에 들어감, 비밀번호 로그 유출 절차 교체, 실패 안내 |
 | Task 5 스택 E2E·CI `deploy-smoke` | 완료(`76e076a`·`10324b0`·`b72bbf6`·`b8265a0`) — 허용 목록 결정성(public 서브넷 고정), 실패 시 caddy 로그 보존, Firefox 레이스 제거 |
-| Task 6 문서 as-built | 완료(`002a01d` + 수정 r1) — 스펙·docs/deployment.md·README·testing·worklog·history·재개 가이드·CLAUDE.md/AGENTS.md |
+| Task 6 문서 as-built | 완료(`002a01d`·`e5a8bcb`) — 스펙·docs/deployment.md·README·testing·worklog·history·재개 가이드·CLAUDE.md/AGENTS.md. 최종 fix wave `53adc6d`(정적 가드 분리·계획서 숫자), 컨트롤러 문서 커밋 `66329e8` |
 | 최종 리뷰(실제 스택 공격) | **병합 Yes** — Critical 0 · Important 0 · Minor 3(정적 가드 강도, 계획서 숫자, 공개 `/health` 200). 관리 우회 시도 전부 차단, IP 게이트가 Caddy·api 두 계층에서 독립 강제, 비밀·`Server` 노출 없음. deferred minor 10건 전부 수용. Minor 1·2는 fix wave로 고침 |
-| PR · CI · 병합 | _(작성 중)_ |
-| 검증 수치 | .NET **625**, Vitest **193**, 기존 E2E **8**, 스택 E2E **8**, 스모크 허용 10·비허용 6·오류 응답 1·seed 1·verify-restore 1·복원 후 허용 10, 하네스 감사 8/8, Release 빌드 경고 0 |
+| PR · CI · 병합 | **PR #5** → CI 4잡(test · web · web-e2e · **deploy-smoke**) push·PR 실행 둘 다 통과(첫 Linux `deploy-smoke` 2분 18초·2분 28초) → squash 병합 master `531f207`(2026-09-23) |
+| 검증 수치 | .NET **625**, Vitest **194**(fix wave에서 1개 추가), 기존 E2E **8**, 스택 E2E **8**, 스모크 허용 10·비허용 6·오류 응답 1·seed 1·verify-restore 1·복원 후 허용 10, 하네스 감사 8/8, Release 빌드 경고 0 |
 
 ## 2. 만든 것
 
@@ -32,7 +32,8 @@
 
 - 컨트롤러는 매 커밋마다 `verify.sh`(트레일러·접두사·NUL·줄 끝·비밀값 스캔·빌드·테스트)를 돌렸다. 리뷰어는 전부 **저장소 밖 복사본에서 실제 스택을 띄워** 측정했고, 새 테스트·가드마다 사보타주로 실패를 확인했다.
 - 리뷰가 실측으로 찾은 것(구현자 보고만으로는 지나갔을 것): PUBLIC 경유 권한 우회(T1 F1), 비 superuser 소유자 형태에서 기동 실패(T1 F2), 오류 응답·평문 HTTP·낯선 Host의 `Server` 헤더(T2), 헤더 블록을 route 끝으로 옮겨도 통과하는 정적 가드(T2 N-A), api의 인터넷 아웃바운드(T3-1), trust 인증을 타는 DB 롤 검사와 "0 아닌 종료=통과"(T3-2), 불변식 주석이 실측과 반대(X-1), 문서 절차의 비밀번호 로그 유출(T4 I1), 복원 중단 시 안내 부재(T4 I2), 자동 할당 게이트웨이에 기댄 허용 목록(T5 I1), Firefox 이미지 로드 레이스(T5 r1 재리뷰).
-- 최종 리뷰: _(작성 중)_
+- 최종 리뷰(브랜치 전체 diff + `SMOKE_KEEP=1` 스택 공격, opus): 관리 우회 시도(Host·SNI·경로 정규화 `%2e%2e`·`//`·`..;`·HTTP/1.0 no-Host·절대 URI·끝점 Host·XFF 사칭) 전부 실패, 비허용 IP가 caddy를 건너뛰어 api를 직격해도 403(두 계층 독립 강제), 공개 상태 변경 405, 컨테이너 격리(read_only·uid 1654·cap_drop·api↛인터넷·caddy↛db·tools 무네트워크·caddy만 포트 게시), DB 롤 경계(read-only 세션 옵션을 꺼도 42501·COPY 거부·scram 강제), 백업 산출물에 비밀 0·SHA256SUMS 전수, 로그에 비밀 0(REDACTED). 판정 **병합 Yes**, Critical 0·Important 0·Minor 3(+핸드백에서 문서 누락 1) — 전부 수정 또는 수용. 게이트 실측: 빌드 경고 0, .NET 625, Vitest 193(fix wave 뒤 194), 스모크+E2E `=== 통과`, 감사 8/8.
+- CI(첫 Linux 실행): `deploy-smoke`가 push·PR 두 실행에서 모두 통과 — `remote_ip`(고정 서브넷)·`*.localhost` 해석·Docker 빌드 시간 걱정은 현실이 되지 않았다.
 
 ## 4. 계획 결함과 교훈
 
@@ -72,7 +73,10 @@
 | R21 | Task 6 F1~F3 수정과 최종 리뷰를 병행 | 문서 수정은 스택 공격과 무관, fix wave 재리뷰가 덮음 | 최종 리뷰어가 본 history.md가 한 커밋 옛것 |
 | R22 | master 병합 시 README 충돌은 master 랜딩 버전 채택 | 브랜치의 설정 키 2줄은 docs/configuration.md에 이미 있음 | 없음 |
 
-_(최종 리뷰 이후 판정은 아래에 추가한다.)_
+| R23 | 최종 리뷰 Minor 1(정적 가드 블록 미분리)·2(계획서 숫자)를 fix wave 1회로 고치고 Minor 3(공개 `/health` 200)은 수용 | 빠른 게이트를 라이브 게이트와 같은 강도로; `/health`는 상태·타임스탬프뿐 | 없음 |
+| R24 | 재리뷰가 남긴 문서 잔여(재개 가이드 커밋 표 2행, 잔여 위험 1줄)와 보고서 초안·플랜 표 행을 **리뷰 없이 컨트롤러 문서 커밋**(`66329e8`)으로 넣고 PR | 전부 문서, fix wave는 1회로 끝 | 문서 오탈자가 리뷰 없이 들어갈 수 있음 |
+| R25 | PR 생성·CI 확인·squash 병합까지 묻지 않고 진행 | 사용자가 정해 둔 실행 방식(추천안으로 끝까지, 끝나면 보고서) | 병합을 되돌리려면 revert 커밋 필요 |
+| R26 | `feature/blog-deploy` 브랜치는 로컬·원격 모두 유지 | 이전 단계 브랜치들도 유지돼 있음 | 브랜치 정리는 사용자 몫 |
 
 ## 6. 수용한 잔여 위험
 
@@ -95,8 +99,8 @@ _(최종 리뷰 이후 판정은 아래에 추가한다.)_
 
 ## 8. 다음 단계
 
-- PR → CI → squash 병합 → 이 보고서의 "작성 중" 칸 채우기, CLAUDE.md/AGENTS.md 플랜 표 행, 스펙 8절 완료 표기.
-- 그다음 백로그: 노션식 에디터·보기(브레인스토밍부터).
+- 운영 첫 배포 때 확인할 것(OPERATIONS.md §2): 공인 CA의 ACME HTTP-01이 관리 도메인에서도 발급되는지, 실제 `remote_ip`가 예상과 같은지(운영 `public` 서브넷은 자동 할당), 호스트 LAN과 서브넷이 겹치지 않는지.
+- 백로그: 노션식 에디터·보기(브레인스토밍부터). 그 밖의 소형 후속: 스모크 클라이언트가 CA 개인키 대신 `root.crt`만 받게, caddy healthcheck, 스모크 HTTPS 포트 탈출구, 첨부 다수 시 lazy 폴 대기.
 
 ## 9. 빌드 검증
 

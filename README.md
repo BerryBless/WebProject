@@ -3,7 +3,7 @@
 단일 작성자용 기술 블로그입니다. 방문자에게는 **스크립트 없는 서버 렌더링 HTML**만 내보내고, 글쓰기는 **별도 서브도메인 + IP 허용 목록 + 비밀번호 세션** 뒤에 둡니다.
 
 > **현재 상태 (2026-09-23):** 공개 사이트와 관리 에디터가 **동작합니다** — 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션, 관리 API, 마크다운 파이프라인·미리보기·이미지 첨부, 공개 페이지·검색·Atom·sitemap·보안 헤더, 관리 에디터 SPA까지 master에 병합됐습니다(.NET 테스트 591개 · Vitest 188개 · 브라우저 E2E 8개, Release 빌드 경고 0).
-> **배포 구성(4단계)은 브랜치 `feature/blog-deploy`에서 구현 완료, PR 대기**입니다(.NET 625개 · Vitest 193개 · 배포 스모크·스택 E2E 통과) → [배포 구성](docs/deployment.md) · [재개 가이드](plan/resume_guide_0921.md).
+> **배포 구성(4단계: Docker Compose + Caddy)도 PR #5로 master에 병합됐습니다**(.NET 테스트 625개 · Vitest 194개 · 브라우저 E2E 8개 · 스택 E2E 8개, 배포 스모크 통과) → [배포 구성](docs/deployment.md) · [재개 가이드](plan/resume_guide_0921.md).
 
 ## 무엇을 만드나
 
@@ -15,7 +15,7 @@
 | 공개 표면 | ASP.NET Core 10 Razor Pages(서버 렌더링, JS 없음) + Markdig · ColorCode.HTML · HtmlSanitizer |
 | 관리 표면 | 최소 API + React 19 · Vite · CodeMirror 6 SPA (`admin.<도메인>` 전용) |
 | 데이터 | EF Core 10 + PostgreSQL 17, 첨부는 내용 주소(SHA-256) 파일 저장 |
-| 배포 | Caddy + Docker Compose (4단계, 브랜치에서 완료·PR 대기) |
+| 배포 | Caddy + Docker Compose (4단계, master에 병합됨 — PR #5) |
 
 ## 왜 이렇게 만들었나
 
@@ -38,7 +38,7 @@
 | 1 | 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션 폐기, 글·시리즈·태그 관리 API | 완료 |
 | 2 | 마크다운 파이프라인·첨부(2A), 공개 페이지·검색·Atom·sitemap·보안 헤더·속도 제한(2B) | 완료 |
 | 3 | 관리 에디터 SPA(글·시리즈·태그·첨부, sandbox 미리보기, 실제 백엔드 E2E) | 완료 |
-| 4 | Docker Compose · Caddy · DB 롤 분리 · 백업/복원 · 배포 스모크 | **브랜치에서 완료**, PR 대기 |
+| 4 | Docker Compose · Caddy · DB 롤 분리 · 백업/복원 · 배포 스모크 | **완료(병합)** — PR #5 |
 | 이후 | 글쓰기·읽기 경험 개선(노션식 편집·보기) | 설계 전 |
 
 단계별로 무엇을 만들고 어떤 결함을 어디서 잡았는지: [진행 기록](docs/history.md).
@@ -50,7 +50,7 @@ git clone https://github.com/BerryBless/WebProject.git
 cd WebProject
 Copy-Item scripts/git-hooks/commit-msg .git/hooks/
 dotnet build PortfolioBlog.slnx -c Release   # 경고 0 / 오류 0
-dotnet test  PortfolioBlog.slnx -c Release   # 625개(이 브랜치 기준, master는 591개) — Docker 필요(Testcontainers)
+dotnet test  PortfolioBlog.slnx -c Release   # 625개 — Docker 필요(Testcontainers)
 ```
 
 .NET 10 SDK와 Docker가 필요하고, 관리 SPA를 띄우려면 Node 24가 필요합니다. 실제로 띄워 보는 절차(개발용 PostgreSQL, 비밀번호 해시, HTTPS 프로필, SPA 개발 서버)는 [개발 환경](docs/development.md)에 있습니다.
@@ -89,7 +89,7 @@ PortfolioBlog.slnx
 ├─ PortfolioBlog.Api/          # ASP.NET Core 10 — 관리 API(최소 API) + 공개 페이지(Razor Pages)
 ├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers PostgreSQL
 ├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite + CodeMirror 6
-├─ deploy/                     # docker-compose · Caddyfile · 운영 절차 (브랜치 feature/blog-deploy)
+├─ deploy/                     # docker-compose · Caddyfile · 운영 절차
 ├─ docs/                       # 이 문서들 + 구현 계획
 ├─ plan/                       # 설계 스펙 · 실행 보고서 · 재개 가이드
 └─ .claude/ .agents/ .codex/ scripts/   # 개발 하네스
