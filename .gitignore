@@ -516,3 +516,9 @@ deploy/smoke/caddy.log
 
 # 로컬 개발 데이터(첨부 등)
 .data/
+
+# doc-harness(문서화 하네스) — 스테이징·로그·세션 인박스는 Run마다 생기는 임시물
+doc-harness/node_modules/
+doc-harness/workspace/runs/*/staging/
+doc-harness/workspace/runs/*/logs/
+doc-harness/workspace/inbox/

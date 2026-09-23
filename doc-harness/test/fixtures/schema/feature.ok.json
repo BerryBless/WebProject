@@ -1,0 +1,18 @@
+{
+  "feature": {
+    "id": "F001", "name": "관리자 로그인", "slug": "ADMIN_LOGIN", "summary": "허용 IP에서 비밀번호로 세션을 연다",
+    "entryPoints": ["POST /api/auth/login"], "relatedFiles": ["Api/Features/Auth/AuthEndpoints.cs"], "dependencies": [],
+    "importance": "CORE", "analysisStatus": "SUCCESS", "status": "ACTIVE"
+  },
+  "summary": "로그인은 IP 허용 목록과 비밀번호 검증을 모두 통과해야 세션 쿠키를 발급한다.",
+  "entryPoints": [{ "text": "POST /api/auth/login", "status": "CONFIRMED", "evidence": [{ "file": "Api/Features/Auth/AuthEndpoints.cs", "symbol": "MapAuthEndpoints", "lines": "10-40" }] }],
+  "executionFlow": [{ "step": 1, "component": "AuthEndpoints", "file": "Api/Features/Auth/AuthEndpoints.cs", "symbol": "Login", "description": "요청 본문을 읽는다" }],
+  "relatedCode": [{ "file": "Api/Features/Auth/AuthEndpoints.cs", "symbol": "Login", "role": "entry" }],
+  "dataFlow": [], "stateTransitions": [], "databaseAccess": [], "externalDependencies": [],
+  "failurePoints": [{ "where": "AuthEndpoints.Login", "condition": "비밀번호 불일치", "handling": "401 반환", "status": "CONFIRMED", "evidence": [{ "file": "Api/Features/Auth/AuthEndpoints.cs" }] }],
+  "edgeCases": [], "logging": [],
+  "diagrams": [{ "id": "F001_SEQUENCE", "type": "sequence", "title": "로그인 흐름", "summary": "요약", "mermaid": "sequenceDiagram\n  Client->>AuthEndpoints: POST /api/auth/login", "details": "상세", "nodes": [{ "node": "AuthEndpoints", "code": "Api/Features/Auth/AuthEndpoints.cs" }], "status": "CONFIRMED" }],
+  "unknowns": [],
+  "evidence": [{ "file": "Api/Features/Auth/AuthEndpoints.cs" }],
+  "history": []
+}

@@ -1,0 +1,13 @@
+{
+  "$id": "api.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "endpoints": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+      "properties": { "method": { "type": "string" }, "path": { "type": "string" }, "host": { "type": "string" }, "caller": { "type": "string" }, "file": { "type": "string" }, "symbol": { "type": "string" },
+        "request": { "type": "string" }, "response": { "type": "string" }, "validation": { "$ref": "common.schema.json#/$defs/stringList" }, "authentication": { "type": "string" },
+        "sideEffects": { "$ref": "common.schema.json#/$defs/stringList" }, "dbChanges": { "$ref": "common.schema.json#/$defs/stringList" }, "errors": { "$ref": "common.schema.json#/$defs/stringList" },
+        "featureIds": { "$ref": "common.schema.json#/$defs/stringList" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["method", "path", "host", "caller", "file", "request", "response", "validation", "authentication", "sideEffects", "dbChanges", "errors", "featureIds", "status", "evidence"] } },
+    "otherInterfaces": { "$ref": "common.schema.json#/$defs/claimList" }, "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["endpoints", "otherInterfaces", "unknowns"]
+}

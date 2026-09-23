@@ -1,0 +1,43 @@
+{
+  "run": "run-0001",
+  "mode": "INITIAL",
+  "fingerprint": "5fd09a465adb73effb41e3c3b2640c1a4404841ca312ec118fabb703425ecd6b",
+  "startedAt": "2026-09-23T13:09:19.487Z",
+  "items": {
+    "inventory": {
+      "status": "SUCCESS",
+      "attempts": 1,
+      "costUsd": 0.788482,
+      "updatedAt": "2026-09-23T13:14:35.077Z",
+      "inputHash": "bdc8b9bca27c6bb9e282afcf275c882217861fa6568e3ae992627862578cfae4"
+    },
+    "__partial__": {
+      "status": "SUCCESS",
+      "attempts": 0,
+      "costUsd": 0,
+      "updatedAt": "2026-09-23T13:23:42.176Z"
+    },
+    "architecture": {
+      "status": "SUCCESS",
+      "attempts": 1,
+      "costUsd": 2.4434904,
+      "updatedAt": "2026-09-23T13:21:37.007Z",
+      "inputHash": "bbbfcc240a4acdc5121b9310479dfd2e7d94358b07fdc981d1b74e2a931a9363"
+    },
+    "discovery": {
+      "status": "SUCCESS",
+      "attempts": 1,
+      "costUsd": 0.724499,
+      "updatedAt": "2026-09-23T13:23:42.175Z",
+      "inputHash": "265ae1cbdd6e3c9641d579989e671ffef1089b4f7191fa90a21a4e6f720e04aa"
+    },
+    "feature:F003": {
+      "status": "RUNNING",
+      "attempts": 0,
+      "costUsd": 0,
+      "updatedAt": "2026-09-23T13:24:16.485Z",
+      "inputHash": "fe869cd8a93c795eee9dad0020095c13b994fa94938bb9d0131165674b7ce77d"
+    }
+  },
+  "status": "RUNNING"
+}

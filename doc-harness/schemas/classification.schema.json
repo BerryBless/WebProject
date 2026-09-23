@@ -1,0 +1,15 @@
+{
+  "$id": "classification.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "items": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+      "properties": { "file": { "type": "string" },
+        "classifications": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["NEW_FEATURE", "FEATURE_CHANGE", "BUG_FIX", "REFACTOR", "API_CHANGE", "DATA_MODEL_CHANGE", "CONFIG_CHANGE", "DEPENDENCY_CHANGE", "ARCHITECTURE_CHANGE", "ERROR_HANDLING_CHANGE", "PERFORMANCE_CHANGE", "SECURITY_CHANGE", "TEST_CHANGE", "DEPLOYMENT_CHANGE", "DOCUMENTATION_ONLY", "UNKNOWN"] } },
+        "significance": { "type": "string", "enum": ["MAJOR", "MINOR", "TRIVIAL"] }, "possibleFeatures": { "$ref": "common.schema.json#/$defs/stringList" }, "rationale": { "type": "string" } },
+      "required": ["file", "classifications", "significance", "possibleFeatures", "rationale"] } },
+    "summary": { "type": "string" },
+    "changelogCandidates": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+      "properties": { "title": { "type": "string" }, "classification": { "$ref": "common.schema.json#/$defs/stringList" }, "description": { "type": "string" }, "impact": { "$ref": "common.schema.json#/$defs/stringList" }, "files": { "$ref": "common.schema.json#/$defs/stringList" } },
+      "required": ["title", "classification", "description", "impact", "files"] } }
+  },
+  "required": ["items", "summary", "changelogCandidates"]
+}

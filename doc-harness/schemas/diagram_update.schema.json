@@ -1,0 +1,8 @@
+{
+  "$id": "diagram_update.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "decision": { "type": "string", "enum": ["UNCHANGED", "UPDATED"] }, "mermaid": { "type": "string" },
+    "changedEdges": { "$ref": "common.schema.json#/$defs/stringList" }, "nodes": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/diagramNode" } }, "reason": { "type": "string" }
+  },
+  "required": ["decision", "mermaid", "changedEdges", "nodes", "reason"]
+}

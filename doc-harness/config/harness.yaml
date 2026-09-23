@@ -1,0 +1,66 @@
+# 문서화 하네스 설정. 경로는 이 파일이 있는 doc-harness/ 기준 상대 경로다(절대 경로 금지).
+project:
+  root: ".."
+  # 분석에서 제외하는 경로 접두사(저장소 루트 기준). 하네스 자신과 생성물, 빌드 산출물.
+  exclude:
+    - "doc-harness/"
+    - "_workspace/"
+    - "docs/generated/"
+    - ".git/"
+    - "bin/"
+    - "obj/"
+    - "node_modules/"
+    - "dist/"
+    - "playwright-report/"
+    - "test-results/"
+    - ".idea/"
+    - ".vs/"
+  # 분석 대상으로 삼는 파일(확장자 또는 정확한 파일명).
+  source_extensions:
+    [".cs", ".cshtml", ".ts", ".tsx", ".mjs", ".css", ".json", ".yml", ".yaml", ".props", ".csproj", ".slnx",
+     ".sh", ".ps1", ".toml", ".sql", ".md", ".http", "Dockerfile", "Caddyfile", ".dockerignore", ".gitattributes", ".editorconfig"]
+  # 개발 도구·설계 문서 디렉터리: inventory에는 기록하되 기능 후보에서 제외한다.
+  tooling_dirs: [".claude/", ".agents/", ".codex/", "scripts/", "plan/", "docs/", ".github/"]
+  # 내용을 절대 프롬프트에 넣지 않는 파일(경로만 언급 가능).
+  secret_globs: ["**/appsettings*.json", "**/.env*", "**/secrets.json", "**/*.pfx", "**/*.pem", "**/*.key"]
+
+analysis:
+  feature_parallelism: 1
+  max_features: 30
+
+retry:
+  max_attempts: 3
+
+verification:
+  enabled: true
+  max_iterations: 3
+
+git:
+  analyze_history: true
+  max_diff_bytes_per_commit: 40000
+  failure_keywords: ["fix", "revert", "retry", "workaround", "temporary", "hack", "fallback", "broken", "restore", "rollback",
+                     "버그수정", "수정", "되돌", "임시", "우회", "레이스", "타임아웃", "결함"]
+  marker_pattern: "TODO|FIXME|HACK|XXX|workaround|fallback|retry|deprecated|legacy"
+
+diagrams:
+  format: mermaid
+  max_nodes: 25
+  max_edges: 40
+
+output:
+  docs: "../docs/generated"
+  workspace: "./workspace"
+
+claude:
+  bin: "claude"
+  default:
+    model: "sonnet"
+    budget_usd: 2.0
+    effort: "medium"
+    timeout_sec: 900
+  phases:
+    architecture: { model: "opus", budget_usd: 4.0, effort: "high" }
+    discovery: { model: "opus", budget_usd: 4.0, effort: "high" }
+    feature: { model: "opus", budget_usd: 3.0, effort: "high" }
+    feature_delta: { model: "opus", budget_usd: 3.0, effort: "high" }
+    verification: { model: "opus", budget_usd: 4.0, effort: "high" }

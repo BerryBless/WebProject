@@ -1,0 +1,18 @@
+{
+  "$id": "architecture.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "components": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false,
+      "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "path": { "type": "string" }, "layer": { "type": "string" }, "responsibilities": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["id", "name", "path", "layer", "responsibilities", "status", "evidence"] } },
+    "relations": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+      "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "kind": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["from", "to", "kind", "status", "evidence"] } },
+    "runtime": { "type": "object", "additionalProperties": false, "properties": { "processes": { "$ref": "common.schema.json#/$defs/claimList" }, "threads": { "$ref": "common.schema.json#/$defs/claimList" }, "network": { "$ref": "common.schema.json#/$defs/claimList" } }, "required": ["processes", "threads", "network"] },
+    "storage": { "$ref": "common.schema.json#/$defs/claimList" }, "externalSystems": { "$ref": "common.schema.json#/$defs/claimList" },
+    "controlFlows": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "name": { "type": "string" }, "steps": { "$ref": "common.schema.json#/$defs/stringList" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } }, "required": ["name", "steps", "status", "evidence"] } },
+    "diagrams": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/diagram" } },
+    "decisions": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "title": { "type": "string" }, "decision": { "type": "string" }, "rationale": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } }, "required": ["title", "decision", "rationale", "status", "evidence"] } },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["components", "relations", "runtime", "storage", "externalSystems", "controlFlows", "diagrams", "decisions", "unknowns"]
+}

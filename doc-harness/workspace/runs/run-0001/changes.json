@@ -1,0 +1,3997 @@
+{
+  "fingerprint": "5fd09a465adb73effb41e3c3b2640c1a4404841ca312ec118fabb703425ecd6b",
+  "baselineCommit": null,
+  "headCommit": "2a67f8ffd5ab3d13aa71c434bbf1283eb92a8b1b",
+  "files": [
+    {
+      "file": ".agents/skills/allocation-peer-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/architecture-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/code-review-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/commitandpush/references/commit-message-guide.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/commitandpush/references/security-patterns.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/commitandpush/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/concurrency-guard-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/deadlock-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/deadlock-static-analysis/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/gc-guard-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/harness-evolve/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/heap-allocation-scan/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/io-loop-design/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/load-test-audit/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/lock-free-enforcement/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/lock-justification-audit/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/performance-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/pipeline-architect-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/pooling-enforcement/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/security-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/style-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/tdd-green-phase/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/tdd-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/tdd-red-phase/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/tdd-refactor-phase/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".agents/skills/thread-dispatch-design/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/allocation-peer-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/architecture-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/codex-adapter.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/cross-implementer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/cross-planner.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/cross-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/deadlock-analyzer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/deadlock-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/git-commit-writer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/git-push-controller.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/git-security-auditor.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/heap-allocation-scanner.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/io-loop-designer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/load-test-auditor.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/lock-free-enforcer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/lock-justification-auditor.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/performance-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/pipeline-supervisor.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/pooling-enforcer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/security-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/style-reviewer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/tdd-analyst.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/tdd-builder.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/tdd-qa.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/agents/thread-dispatcher-designer.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/settings.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/settings.local.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/allocation-peer-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/architecture-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/code-review-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/codex/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/commitandpush/references/commit-message-guide.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/commitandpush/references/security-patterns.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/commitandpush/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/concurrency-guard-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/prompts/adjudicate.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/prompts/final_check.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/prompts/plan_check.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/prompts/plan.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/prompts/reverify.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/prompts/review.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/references/usage.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/scripts/invoke-codex.ps1",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/cross-verify/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/deadlock-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/deadlock-static-analysis/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/gc-guard-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/harness-evolve/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/heap-allocation-scan/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/io-loop-design/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/load-test-audit/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/lock-free-enforcement/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/lock-justification-audit/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/performance-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/pipeline-architect-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/pooling-enforcement/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/security-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/style-review/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/tdd-green-phase/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/tdd-orchestrator/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/tdd-red-phase/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/tdd-refactor-phase/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".claude/skills/thread-dispatch-design/SKILL.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/allocation-peer-reviewer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/architecture-reviewer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/deadlock-analyzer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/deadlock-reviewer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/git-commit-writer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/git-push-controller.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/git-security-auditor.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/heap-allocation-scanner.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/io-loop-designer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/load-test-auditor.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/lock-free-enforcer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/lock-justification-auditor.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/performance-reviewer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/pipeline-supervisor.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/pooling-enforcer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/security-reviewer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/style-reviewer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/tdd-analyst.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/tdd-builder.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/tdd-qa.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/agents/thread-dispatcher-designer.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".codex/config.toml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": ".dockerignore",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": ".gitattributes",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "AGENTS.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "CLAUDE.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "deploy/backup.sh",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/docker-compose.smoke.yml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/OPERATIONS.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/restore.sh",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/smoke/run.sh",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "Directory.Packages.props",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "docs/architecture.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/configuration.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/deployment.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/development.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/harness.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/history.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/security.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-21-tech-blog-public-site.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-22-tech-blog-deploy.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-23-doc-harness.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-23-doc-harness-design.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/testing.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "docs/worklog.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/code_review_harness_fix_0912.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/gc_guard_harness_fix_0912.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/harness_audit_0911.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/harness_changelog.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/harness_cross_check_0913.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/para_notes_0917.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/resume_guide_0921.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/tech_blog_0920.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/tech_blog_2a_report_0921.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/tech_blog_2b_report_0921.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/tech_blog_3_report_0922.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "plan/tech_blog_4_report_0923.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AdminSurfaceTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AttachmentIntegrityTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/DisplayNameTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ForwardedHeadersTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/HostFilteringTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsCacheGuardTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PreviewEndpointsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SearchPageTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ValidationWithinDbConstraintsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/HealthEndpointTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/AdminCredentialTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/AdminOptionsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/CheckConstraintCoverageTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/CidrListTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ClientIpTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ConnectionStringGuardTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/DatabaseSchemaTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/HealthCheckCommandTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/HighlightCssTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/HtmlDoc.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ImageSignatureTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/LikePatternTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/MarkdownRendererTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/MetadataStripperTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/MutableTimeProvider.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PageNumberTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PostgresContainerFixture.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PreviewCssSnapshotTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicDbContextTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicQueriesTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicSeed.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicUrlsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RemoteIpStartupFilter.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RenderedPostCacheTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RenderGateTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/SiteOptionsTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/SlugRulesTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/SteppingTimeProvider.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/TagResolverTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/TestJson.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/TextRulesTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/UrlPolicyTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/XmlTextTests.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Api/appsettings.Development.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/appsettings.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/AttachmentDtos.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/PreviewDtos.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/SeriesDtos.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TagDtos.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TextRules.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/ValidationErrors.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/AdminState.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Attachment.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Post.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/PostTag.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Series.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Tag.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/HashPasswordCommand.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/IAdminAccessPolicy.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/IpAllowlistAdminAccessPolicy.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/ProxyOptions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbClock.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.Designer.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.Designer.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/AppDbContextModelSnapshot.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/ImageKind.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/ImageSignature.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/MetadataStripper.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/_ViewImports.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/_ViewStart.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Index.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PageHead.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PagerModel.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageModel.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Search.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Series.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_Pager.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_PostList.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_TagList.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/PortfolioBlog.Api.http",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/Properties/launchSettings.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Api/wwwroot/css/site.css",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.slnx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/.e2e/env.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/.oxlintrc.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/admin-headers.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/e2e/admin.spec.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/package-lock.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/package.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/playwright.config.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/playwright.stack.config.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/public/preview/highlight.css",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/public/preview/site.css",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/scripts/e2e-prepare.mjs",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.test.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/types.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/App.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/TagInput.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/index.css",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/markdownImage.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/previewDoc.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/validation.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/main.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/AttachmentsPage.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/attachments.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/auth.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/harness.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/preview.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/routeError.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/setup.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/stripComments.test.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/stripComments.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/tagInput.test.tsx",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/unexpected.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "PortfolioBlog.Web/tsconfig.app.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/tsconfig.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/tsconfig.node.json",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/vite.config.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "PortfolioBlog.Web/vitest.config.ts",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": true
+    },
+    {
+      "file": "README.md",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "scripts/auto-commit.ps1",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "scripts/harness-audit.ps1",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    },
+    {
+      "file": "scripts/hooks/guard-write-scope.ps1",
+      "changeType": "ADDED",
+      "untracked": false,
+      "addedLines": [],
+      "removedLines": [],
+      "relatedSymbols": [],
+      "possibleFeatures": [],
+      "requiresAnalysis": false
+    }
+  ]
+}

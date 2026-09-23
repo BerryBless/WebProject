@@ -16,6 +16,7 @@
 | 쓰기 범위 훅 | `scripts/hooks/guard-write-scope.ps1` | 감사·리뷰 전용 에이전트가 자기 작업 디렉터리 밖에 쓰지 못하게 차단 |
 | 하네스 감사 | `scripts/harness-audit.ps1` | 에이전트·스킬·미러 구조 8개 항목 검사(프론트매터, 참조 실존, 절대 경로, 미러 동기화, 서명, 쓰기 범위 훅) |
 | CI | `.github/workflows/ci.yml` | push·PR마다 `test`·`web`·`web-e2e` |
+| 문서화 하네스 | `doc-harness/`, `.claude/skills/doc-harness` | `문서화` 한마디로 `docs/generated/`를 생성·증분 갱신하는 다단계 Claude 파이프라인(읽기 전용 자식 세션, Run 트랜잭션, Mermaid 검증). 상세는 [doc-harness/README.md](../doc-harness/README.md) |
 
 하네스 파일을 고치면 `pwsh scripts/harness-audit.ps1`로 **PASS 8/8**을 확인합니다. `CLAUDE.md`·`.claude/skills/`를 고치면 `AGENTS.md`·`.agents/skills/` 미러도 함께 갱신합니다.
 
@@ -43,6 +44,7 @@ Stop 훅은 턴이 끝날 때 남은 변경을 커밋하는 **수동 안전망**
 | Git 자동화 | `/commitandpush`, 커밋해줘 | 보안 감사 → 한국어 커밋 메시지 생성 → 커밋·푸시 |
 | Codex 협업 | codex, 세컨드 오피니언 | `codex exec`를 세컨드 오피니언·병렬 작업자로 호출 |
 | 교차 검증 개발 | "코덱스 교차 검증으로 구현" | Claude와 Codex가 독립 판단 → 상호 검증 → 근거 기반 조정. Codex는 검증 전담(read-only), 구현은 Claude 전담 |
+| 문서화 | `문서화`, `문서화 전체`, `문서화 상태`, `문서화 검증` | Inventory → Architecture → 기능 발견·심층 분석 → Data/API → 실패 이력 → 횡단 분석 → 문서 생성 → Verification 루프. 최초는 전체, 이후는 baseline 대비 변경분만. 산출물은 `doc-harness/workspace/`와 `docs/generated/`에만 쓴다 |
 
 Codex 산출물은 `*.meta.json`(status=success)으로 실행을 증빙합니다 — **Codex를 실행하지 않고 "교차 검증 완료"라고 보고하는 것은 금지**입니다.
 

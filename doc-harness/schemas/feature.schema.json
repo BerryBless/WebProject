@@ -1,0 +1,22 @@
+{
+  "$id": "feature.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "feature": { "$ref": "common.schema.json#/$defs/featureSummary" },
+    "summary": { "type": "string" },
+    "entryPoints": { "$ref": "common.schema.json#/$defs/claimList" },
+    "executionFlow": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "properties": { "step": { "type": "integer" }, "component": { "type": "string" }, "file": { "type": "string" }, "symbol": { "type": "string" }, "description": { "type": "string" } }, "required": ["step", "component", "file", "description"] } },
+    "relatedCode": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "file": { "type": "string" }, "symbol": { "type": "string" }, "role": { "type": "string" } }, "required": ["file", "role"] } },
+    "dataFlow": { "$ref": "common.schema.json#/$defs/claimList" },
+    "stateTransitions": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "trigger": { "type": "string" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } }, "required": ["from", "to", "trigger", "evidence"] } },
+    "databaseAccess": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "entity": { "type": "string" }, "operation": { "type": "string" }, "file": { "type": "string" }, "symbol": { "type": "string" } }, "required": ["entity", "operation", "file"] } },
+    "externalDependencies": { "$ref": "common.schema.json#/$defs/claimList" },
+    "failurePoints": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "where": { "type": "string" }, "condition": { "type": "string" }, "handling": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } }, "required": ["where", "condition", "handling", "status", "evidence"] } },
+    "edgeCases": { "$ref": "common.schema.json#/$defs/claimList" },
+    "logging": { "$ref": "common.schema.json#/$defs/claimList" },
+    "diagrams": { "$ref": "common.schema.json#/$defs/diagramList" },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" },
+    "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/evidence" } },
+    "history": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/historyEntry" } }
+  },
+  "required": ["feature", "summary", "entryPoints", "executionFlow", "relatedCode", "dataFlow", "stateTransitions", "databaseAccess", "externalDependencies", "failurePoints", "edgeCases", "logging", "diagrams", "unknowns", "evidence", "history"]
+}

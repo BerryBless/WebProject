@@ -1,0 +1,5 @@
+{
+  "$id": "consistency.schema.json", "type": "object", "additionalProperties": false,
+  "properties": { "issues": { "$ref": "common.schema.json#/$defs/issueList" }, "summary": { "type": "string" } },
+  "required": ["issues", "summary"]
+}

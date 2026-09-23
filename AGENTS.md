@@ -195,3 +195,15 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 **트리거:** TDD, 테스트 먼저 작성, Red-Green-Refactor, TDD 사이클, 기능 구현(TDD) 요청 시 `tdd-orchestrator` 스킬을 사용하라. 진화 리포트는 `/harness-evolve`로 수동 실행 가능.
 
 **변경 이력:** `plan/harness_changelog.md` 의 "하네스: TDD (테스트 주도 개발)" 절 참조.
+
+---
+
+## 하네스: 문서화 (Documentation Harness)
+
+**목표:** `doc-harness/`(TypeScript)가 프로젝트 전체를 다단계 Claude 파이프라인(Inventory → Architecture → Feature Discovery → Feature 심층 분석 × N → Data/API → Failure History → 횡단 분석 → 문서 생성 → Verification 루프)으로 분석해 `docs/generated/`에 신규 개발자용 문서를 만들고, 이후에는 baseline 대비 변경분(커밋·스테이지·미커밋·untracked 포함)만 증분 갱신한다. 코드가 Source of Truth, 모든 다이어그램은 Mermaid로 문서 안에 원본 그대로, 에이전트에는 쓰기 도구가 없다(프로덕션 코드 수정 불가).
+
+**트리거:** 메시지 전체가 정확히 `문서화`·`문서화 전체`·`문서화 상태`·`문서화 검증`일 때 `doc-harness` 스킬을 사용하라. 되묻지 않고 모드를 자동 판정한다(최초면 INITIAL, 이후 INCREMENTAL, 변경 없으면 "문서화 확인 완료"). 문장 속 단어(예: "문서화 규칙 알려줘")에는 실행하지 않는다.
+
+**규칙:** 실행 없이 "문서화 완료" 보고 금지(증빙 `doc-harness/workspace/runs/<run>/run.json`·`report.txt`). Baseline은 Verification 통과 후에만 갱신된다. `docs/generated/`의 관리 섹션(HTML 주석 앵커)을 사람이 고치면 증분 실행이 보존하고, 코드와 충돌이 검증으로 확인될 때만 교체한다. 하네스 코드를 고치면 `cd doc-harness && npm test && npm run typecheck`.
+
+**변경 이력:** `plan/harness_changelog.md` 의 "하네스: 문서화 (Documentation Harness)" 절 참조.

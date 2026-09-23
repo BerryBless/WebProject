@@ -1,0 +1,5 @@
+{
+  "$id": "operations.schema.json", "type": "object", "additionalProperties": false,
+  "properties": { "errorHandling": { "$ref": "common.schema.json#/$defs/operationsArea" }, "security": { "$ref": "common.schema.json#/$defs/operationsArea" }, "performance": { "$ref": "common.schema.json#/$defs/operationsArea" }, "techDebt": { "$ref": "common.schema.json#/$defs/operationsArea" } },
+  "required": ["errorHandling", "security", "performance", "techDebt"]
+}
