@@ -23,14 +23,15 @@ public static class StartupValidation
     /// 운영에 필수인 값의 누락·두 origin의 동일 여부·origin의 https 스킴 여부·공개 조회 연결(<c>ConnectionStrings:Public</c>)의 누락·
     /// Data Protection 키 경로(<c>DataProtection:KeysPath</c>)의 누락·상대 경로 여부는 <c>Development</c>가 아닌 모든 환경에서 시작 실패로 처리한다
     /// (<c>Staging</c>이나 오타난 환경 이름이 <c>IsProduction()</c> 검사만으로는 걸러지지 않고 그대로 통과하는 것을 막는다).
-    /// 두 연결 문자열의 형식·<c>AllowPublicKeyRetrieval</c> 금지·<c>Default Command Timeout</c> 규칙과 관리 연결과의 동일 사용자 여부는 환경과 무관하게 항상 검사하고,
+    /// 두 연결 문자열의 형식·<c>AllowPublicKeyRetrieval</c> 금지·<c>Default Command Timeout</c> 규칙(관리 연결은 추가로 0 또는 <see cref="AttachmentLock.WaitSeconds"/>초 초과)과
+    /// 관리 연결과의 동일 사용자 여부는 환경과 무관하게 항상 검사하고,
     /// <c>SslMode</c> Required 이상은 <c>Development</c>가 아닌 환경에서만 요구한다.</summary>
     /// <param name="services">검증 대상 옵션을 조회할 <see cref="IServiceProvider"/>. <c>builder.Build()</c> 이후의 <c>app.Services</c>여야 한다.</param>
     /// <param name="environment">현재 호스팅 환경. <see cref="IHostEnvironment.IsDevelopment"/> 판정에 쓰인다.</param>
     /// <exception cref="InvalidOperationException">설정 값의 형식이 잘못되었거나, <c>Development</c>가 아닌 환경에서 필수 설정이 비어 있거나,
     /// 두 origin이 같거나, origin의 스킴이 <c>https</c>가 아니거나, <c>ConnectionStrings:Public</c>의 사용자 이름이 허용 형식이 아니거나
     /// <c>ConnectionStrings:Default</c>와 같거나, 두 연결 문자열 중 하나가 형식 오류이거나 <c>AllowPublicKeyRetrieval=true</c>이거나 <c>Default Command Timeout</c>이
-    /// <c>Public:StatementTimeoutMs</c>보다 작거나 같거나, <c>Development</c>가 아닌 환경에서 <c>SslMode</c>가 Required 미만일 때. 메시지에 문제가 된 설정 키를 포함한다(값은 넣지 않는다).</exception>
+    /// <c>Public:StatementTimeoutMs</c>보다 작거나 같거나, <c>ConnectionStrings:Default</c>의 <c>Default Command Timeout</c>이 0이 아니면서 <see cref="AttachmentLock.WaitSeconds"/>초 이하이거나, <c>Development</c>가 아닌 환경에서 <c>SslMode</c>가 Required 미만일 때. 메시지에 문제가 된 설정 키를 포함한다(값은 넣지 않는다).</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -88,7 +89,14 @@ public static class StartupValidation
         var publicConnectionString = configuration.GetConnectionString("Public");
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            CheckConnectionString("ConnectionStrings:Default", connectionString, pub.StatementTimeoutMs, requireTls: !environment.IsDevelopment());
+            var defaultParsed = CheckConnectionString("ConnectionStrings:Default", connectionString, pub.StatementTimeoutMs, requireTls: !environment.IsDevelopment());
+            // 관리 연결은 첨부 잠금(GET_LOCK)을 최대 AttachmentLock.WaitSeconds초 기다린다. 클라이언트 명령 시간 제한이 그 이하면
+            // 경합 중인 GET_LOCK이 서버의 0(타임아웃) 응답보다 먼저 클라이언트 쪽에서 끊겨 분류기가 Other로 보고 503이 아니라 500이 된다.
+            if (defaultParsed.DefaultCommandTimeout != 0 && defaultParsed.DefaultCommandTimeout <= AttachmentLock.WaitSeconds)
+            {
+                throw new InvalidOperationException(
+                    $"ConnectionStrings:Default 의 Default Command Timeout(초)은 0(무한)이거나 첨부 잠금 대기 상한(AttachmentLock.WaitSeconds, {AttachmentLock.WaitSeconds}초)보다 커야 합니다 — 아니면 잠금 경합이 503 대신 500이 됩니다.");
+            }
         }
         if (!string.IsNullOrWhiteSpace(publicConnectionString))
         {
