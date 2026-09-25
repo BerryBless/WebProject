@@ -1,7 +1,8 @@
 # MySQL 전환 설계 (PostgreSQL 완전 교체)
 
 - 날짜: 2026-09-26
-- 상태: **설계 확정 대기(사용자 스펙 검토)** → 승인 후 `plan/mysql_migration_impl_0926.md`(구현 계획)
+- 상태: **설계 승인(2026-09-26)** → 구현 계획 `plan/mysql_migration_impl_0926.md`
+- 개정(구현 계획 작성 중 코드 정독 결과): D3 검증 수단을 `SHOW GRANTS`로, D7에 트랜잭션 인터셉터 추가, D13을 `CHAR(36)`으로 확정, D19 서버 설정을 compose 인자로, R6 추가
 - 근거 조사: PG 의존 전수 조사(패키지·컨텍스트·마이그레이션·원시 SQL·SqlState·테스트·deploy·docs), nuget 프로바이더 버전 실측(2026-09-25)
 
 ---
@@ -41,29 +42,30 @@ PostgreSQL은 연결 문자열 수준을 넘어 **보안 통제의 구현 수단
 |---|---|---|---|
 | D1 | `UseNpgsql` ×2 (`Infrastructure/Data/DataServiceCollectionExtensions.cs:32-49`) | `UseMySQL` ×2. `NpgsqlConnectionStringBuilder` 사용처(`PublicDbContext`·`PublicRoleGrants`·`StartupValidation`)는 `MySqlConnectionStringBuilder`로 바꾼다 | 공개 연결 문자열을 따로 두는 구조와, 없으면 Default로 되돌아가는 동작(Development 전용)은 유지한다 |
 | D2 | 공개 연결의 시작 매개변수 `Options=-c statement_timeout -c default_transaction_read_only=on` (`PublicDbContext.BuildConnectionString`) | `PublicSessionInterceptor : DbConnectionInterceptor`. `ConnectionOpenedAsync`에서 `SET SESSION transaction_read_only = ON, max_execution_time = <ms>`를 보낸다 | MySql.Data에는 시작 옵션이 없어 **연결을 열 때마다 1회 왕복**이 든다(풀에서 꺼낼 때도 매번 실행하므로 풀 리셋 여부와 무관하게 값이 보장된다). `max_execution_time`은 읽기 전용 SELECT에만 적용되는데 공개 컨텍스트는 SELECT만 쓰므로 충분하다. 연결 문자열에 `ApplicationName` 같은 식별자가 없으므로 공개 연결 식별은 롤 이름으로 한다 |
-| D3 | 앱이 시작할 때 5개 테이블에 GRANT를 재부여 (`PublicRoleGrants`, `pg_tables` 소유자 조회) | **앱이 GRANT를 적용하고 곧바로 검증한다.** `blog_app`에는 `blog.*` 한정 `WITH GRANT OPTION`을 준다. 적용 뒤 `information_schema.TABLE_PRIVILEGES`·`SCHEMA_PRIVILEGES`·`USER_PRIVILEGES`에서 `blog_public`의 권한 집합이 정확히 {5개 테이블 SELECT}인지 확인하고, 초과나 누락이 있으면 기동을 실패시킨다(fail-closed) | 2.3절 결정 R1 참조. 테이블 이름 목록(Posts·Series·Tags·PostTags·Attachments)과 제외 대상(AdminState·`__EFMigrationsHistory`)은 그대로 둔다 |
+| D3 | 앱이 시작할 때 5개 테이블에 GRANT를 재부여 (`PublicRoleGrants`, `pg_tables` 소유자 조회) | **앱이 GRANT를 적용하고 곧바로 검증한다.** `blog_app`에는 `blog.*` 한정 `WITH GRANT OPTION`을 준다. 적용(`GRANT SELECT` ×5, 멱등)한 뒤 **공개 연결 자신이 `SHOW GRANTS`로 자기 권한을 보고**하게 하고, 그 집합이 정확히 {`USAGE ON *.*`} ∪ {현재 DB 5개 테이블 SELECT}가 아니면 기동을 실패시킨다(fail-closed). 초과 권한을 **자동 회수하지는 않는다**(운영자가 원인을 보고 회수) | 2.3절 결정 R1·R6 참조. `SHOW GRANTS`(인자 없음)는 권한 없이 자기 자신에 대해 항상 허용되므로 `blog_app`에 `mysql.*` 조회 권한을 줄 필요가 없다(information_schema의 권한 뷰는 남의 권한을 보이지 않을 수 있다). 테이블 이름 목록(Posts·Series·Tags·PostTags·Attachments)과 제외 대상(AdminState·`__EFMigrationsHistory`)은 그대로 둔다. 테스트는 팩토리마다 공개 사용자를 따로 만든다(한 사용자가 여러 DB 권한을 가지면 엄격 검증이 깨진다) |
 | D4 | `xmin` 행 버전 (`AppDbContext.cs:96` `IsRowVersion`, `PostEndpoints.cs:210,273`, `RenderedPostCache` 키) | 앱이 관리하는 `Version INT UNSIGNED NOT NULL DEFAULT 1` + `IsConcurrencyToken()`. **Posts 행이 바뀌는 모든 경로에서 +1**: SaveChanges 인터셉터(수정 상태의 Post) 그리고 `SeriesEndpoints.cs:206`의 `ExecuteUpdateAsync`(SeriesId를 비우는 경로)가 `SetProperty(p => p.Version, p => p.Version + 1)`을 함께 보낸다 | 타입이 `uint`로 유지되므로 SPA와 API 계약은 바뀌지 않는다. 시리즈를 풀었는데 버전이 그대로면 `RenderedPostCache`가 시리즈 내비게이션이 남은 오래된 HTML을 낸다(xmin은 자동으로 바뀌었다). 누락을 막기 위해 "Posts를 UPDATE하는 모든 코드가 Version을 올린다"를 아키텍처 테스트로 강제한다(`ExecuteUpdate` 사용처 소스 스캔 + 동작 테스트) |
 | D5 | 권고 잠금 `pg_advisory_lock(hashtextextended('attachment:'+sha,0))` + `SET lock_timeout='10s'` (`Infrastructure/Storage/AttachmentLock.cs:48-80`) | `SELECT GET_LOCK(@name, 10)` / `SELECT RELEASE_LOCK(@name)`. 이름은 `att:` + `hex(SHA-256(DB이름))[..8]` + `:` + `sha[..48]`로 **최대 61자**(한도 64자) | ① MySQL 잠금 이름은 **서버 전역**이라 DB 이름으로 네임스페이스를 나눈다(테스트가 한 컨테이너에 DB를 여러 개 만든다). ② sha 앞 48자(192비트)로 자르면 충돌이 현실적으로 불가능하다. 설령 충돌해도 결과는 불필요한 직렬화뿐이라 안전하다. ③ 타임아웃이면 예외 대신 `0`을 반환하므로 `DbLockTimeoutException`을 직접 던져 503으로 매핑한다. `NULL`(오류)도 같은 경로로 보낸다. ④ 세션 잠금이라 연결을 명시적으로 여는 기존 구조를 유지한다. 풀 반납 시 해제 보장 여부는 스파이크에서 확인한다(`Connection Reset=true`로 명시하는 방안 포함) |
 | D6 | `SELECT … FOR UPDATE` (`SeriesEndpoints.cs:194-213`) | 그대로 쓴다 | D7의 격리 수준 고정이 전제다 |
-| D7 | 기본 격리 수준 READ COMMITTED(PG 기본값) | 서버 설정 `transaction_isolation=READ-COMMITTED`(compose `command`, Testcontainers `WithCommand`, CI 서비스 컨테이너) + 앱 시작 검증(`SELECT @@GLOBAL.transaction_isolation`) | InnoDB 기본값 REPEATABLE READ는 갭 락과 넥스트 키 락 때문에 교착 양상과 `FOR UPDATE` 의미가 달라진다. 기존 동시성 추론은 모두 READ COMMITTED 기준이다 |
+| D7 | 기본 격리 수준 READ COMMITTED(PG 기본값) | **앱: `ReadCommittedTransactionInterceptor`**(`DbTransactionInterceptor.TransactionStarting`에서 격리 수준이 지정되지 않은 트랜잭션을 `BeginTransaction(IsolationLevel.ReadCommitted)`로 대체) + 서버 플래그 `--transaction-isolation=READ-COMMITTED`(compose·Testcontainers, 이중 방어) | InnoDB 기본값 REPEATABLE READ는 갭 락과 넥스트 키 락 때문에 교착 양상과 `FOR UPDATE` 의미가 달라진다. 기존 동시성 추론은 모두 READ COMMITTED 기준이다. MySql.Data의 인자 없는 `BeginTransaction()`이 서버 기본값을 따르지 않고 REPEATABLE READ를 명시할 수 있어(스파이크 S7로 확인) 서버 설정만으로는 부족하다. GitHub Actions 서비스 컨테이너는 명령 인자를 줄 수 없으므로 앱 쪽 보장이 필요하다 |
 | D8 | `INSERT … ON CONFLICT ("NormalizedName") DO NOTHING` + 서수 순서 삽입 (`TagResolver.cs:112`) | `INSERT … ON DUPLICATE KEY UPDATE Id = Id` + 서수 순서 유지 | `INSERT IGNORE`는 **금지**한다. 중복 키뿐 아니라 잘림·CHECK 위반까지 경고로 바꿔 삼키기 때문이다. InnoDB는 중복 검사에서 공유 넥스트 키 락을 잡아 1213 교착이 PG보다 잦을 수 있다. 재시도(최대 3회, 트랜잭션 전체) 여부는 스파이크의 동시 태그 생성 부하 테스트로 판정한다 |
 | D9 | `EF.Functions.ILike` + `\` 이스케이프 (`PublicQueries.cs:89-92`, `PostEndpoints.cs:78-81`, `LikePattern.cs`) | `EF.Functions.Like(col, pattern, "\\")`. 검색 대상 열(Title·Summary·ContentMarkdown)은 대소문자 무시 콜레이션(D10) | `LikePattern`의 이스케이프 규칙(`\`·`%`·`_`)은 그대로 재사용한다. MySQL의 기본 LIKE 이스케이프도 `\`지만 명시한다(`NO_BACKSLASH_ESCAPES` 모드 대비) |
 | D10 | PG 기본 콜레이션(대소문자 구분) | 서버 `character_set_server=utf8mb4`, 기본 콜레이션 `utf8mb4_0900_ai_ci`. **식별자 열은 `utf8mb4_bin`**: Posts.Slug·Series.Slug·Tags.NormalizedName·Attachments.Sha256·Attachments.ContentType·Attachments.StoragePath | `ai_ci`(악센트·대소문자 무시)를 유니크 인덱스에 쓰면 PG에서 서로 달랐던 값이 충돌해 409가 된다(예: `cafe`/`café`). 태그의 대소문자 무시는 앱의 `NormalizedName`이 이미 담당하므로 DB는 이진 비교가 맞다. 검색은 `ai_ci`라 PG의 ILIKE(악센트 구분)보다 넓게 맞는다. 이 차이는 수용한다(7절) |
 | D11 | CHECK 제약 `~`·`btrim`·`octet_length`·`position` (`AppDbContext.cs:104-160`) | `REGEXP_LIKE(col, '<pat>', 'c')`·`CHAR_LENGTH(TRIM(col)) > 0`·`LENGTH(col) <= 204800`(바이트)·`LOCATE('/', col) = 0`. 식별자는 백틱 인용 | ① `LENGTH`는 바이트, `CHAR_LENGTH`는 문자다. 본문 한도는 바이트이므로 `LENGTH`가 맞다. ② 정규식에 `'c'`(대소문자 구분) 플래그를 명시한다. 붙이지 않으면 열 콜레이션을 따라가 ai_ci 열에서 `[a-z]`가 대문자도 받는다. ③ `TRIM`은 공백만 지우고 PG의 `btrim` 기본값과 같다. ④ CHECK는 MySQL 8.0.16+부터 실제로 강제된다(8.4 해당) |
 | D12 | `timestamptz` + 마이크로초 절삭 (`DbClock.cs`) | `DATETIME(6)` + `DateTimeOffset`↔UTC `DateTime` ValueConverter(오프셋이 0이 아니면 저장 시 예외) | MySQL에는 오프셋 저장 타입이 없다(`TIMESTAMP`는 2038년 한계와 세션 시간대 변환이 있어 기각). 앱은 이미 UTC만 쓰므로 불변식을 테스트로 고정한다. `DbClock`의 마이크로초 절삭은 `DATETIME(6)` 정밀도와 같아 그대로 둔다 |
-| D13 | `uuid` 기본 키 (앱에서 `Guid.CreateVersion7()`) | 1순위 `BINARY(16)`, 후보 `CHAR(36)` — 스파이크에서 결정 | 판단 기준은 두 가지다. 프로바이더의 Guid 바이트 순서가 v7 시간 순을 보존하는지, 그리고 `(CreatedAt DESC, Id)` 인덱스의 동률 정렬이 PG와 같은지. 보존하지 못하면 `CHAR(36)` ascii_bin으로 간다(가독성과 정렬 정확성을 얻고 공간을 잃는다) |
+| D13 | `uuid` 기본 키 (앱에서 `Guid.CreateVersion7()`) | **`CHAR(36)`**(프로바이더 기본 매핑) | v7 Guid의 문자열 표현은 앞 12자리가 밀리초 타임스탬프라 소문자 16진 문자열 정렬이 시간 순과 같다. `(CreatedAt DESC, Id)` 동률 정렬도 PG uuid(바이트 비교)와 같은 순서가 된다. `BINARY(16)`은 .NET Guid 바이트 순서(앞 세 필드 리틀엔디언) 때문에 정렬이 깨질 수 있어 기각한다. 공간(36B vs 16B)은 블로그 규모에서 무의미하다. 스파이크 S5는 매핑이 실제로 `char(36)`인지만 확인한다 |
 | D14 | 내림차순 인덱스 `IsDescending(true,false)` | MySQL 8 내림차순 인덱스 | 프로바이더가 DDL에 `DESC`를 내보내는지 스파이크로 확인한다. 안 되면 마이그레이션에서 수동 SQL로 만든다 |
 | D15 | NUL 거부 (`TextRules.cs`, PG 22021 대비) | 입력 검증 **유지** | MySQL은 NUL을 저장하지만 검색·로그·렌더 경로의 이상 입력을 막는 정책으로 남긴다. 22021을 단언하던 테스트는 "400으로 거부"를 단언하도록 바꾼다 |
 | D16 | SqlState 하드코딩: `DbConflict.cs:20-37`(23505·23503), `OverloadExceptionHandler.cs:67`(57014·55P03), `AttachmentEndpoints.cs:168`(23505), `AttachmentJanitor.cs:134`(55P03), `SeriesEndpoints`(23503) | **단일 분류기 `DbErrorClassifier`** (`Infrastructure/Data/`). `DbErrorKind { UniqueViolation, ForeignKeyViolation, CheckViolation, QueryTimeout, LockTimeout, Deadlock, PermissionDenied, ReadOnly, Other }`를 반환한다. 호출부는 번호가 아니라 종류로 판정한다 | 번호를 한곳에 모아 스파이크 실측으로 확정한다(2.4절). 프로바이더를 다시 바꾸게 되면(Pomelo) 이 파일만 바뀐다. 분류기 자체는 표 기반 단위 테스트로 보호한다 |
 | D17 | 인증 scram-sha-256 | 8.4 기본 `caching_sha2_password` + **`SslMode=Required`**(서버가 자동 생성한 인증서, 신뢰 검증 없음) | `AllowPublicKeyRetrieval=true`는 공격자가 공개키를 바꿔치기해 비밀번호를 빼낼 수 있어 **금지**한다. TLS는 비밀번호 전송과 트래픽을 암호화하지만 서버 인증서를 검증하지 않는다. `db` 망이 internal이므로 수용한다(7절). `mysql_native_password`는 8.4에서 기본 비활성이고 약해서 쓰지 않는다 |
 | D18 | 마이그레이션(PG는 DDL도 트랜잭션) | MySQL DDL은 암묵 커밋 | 이번 `InitialCreate`는 빈 DB 대상이라 영향이 없다. **향후 마이그레이션이 중간에 실패하면 스키마가 부분 적용된 채 남는다.** 운영 절차로 "마이그레이션 전 백업"을 `OPERATIONS.md`에 명시한다 |
-| D19 | 서버 측 파일·프로그램 실행 차단(스모크: `COPY … TO PROGRAM` 거부) | `local_infile=OFF`, `secure_file_priv=NULL`(파일 입출력 원천 차단). `blog_app`·`blog_public`에는 `FILE`·`SUPER`·`PROCESS`·`CREATE USER` 없음 | 스모크는 `SELECT … INTO OUTFILE`과 `LOAD DATA LOCAL INFILE`이 거부되는지 확인한다 |
+| D19 | 서버 측 파일·프로그램 실행 차단(스모크: `COPY … TO PROGRAM` 거부) | 서버 명령 인자 `--local-infile=0`, `--secure-file-priv=NULL`(파일 입출력 원천 차단), `--require-secure-transport=ON`(D17을 서버에서도 강제). 사용자는 `REQUIRE SSL`. `blog_app`·`blog_public`에는 `FILE`·`SUPER`·`PROCESS`·`CREATE USER` 없음 | 설정 파일(my.cnf)을 마운트하지 않고 compose `command`로 준다: MySQL은 world-writable 설정 파일을 조용히 무시하는데 Windows 체크아웃의 바인드 마운트 권한이 그렇게 보일 수 있다. 스모크는 `SELECT … INTO OUTFILE` 거부, `@@local_infile=0`, `@@secure_file_priv IS NULL`, 비TLS 접속 거부를 확인한다 |
 
 ### 2.3 질문 없이 내린 판정
 
 | # | 판정 | 이유 |
 |---|---|---|
-| R1 | GRANT는 **앱이 적용하고 검증도 한다**(`blog_app`에 `blog.*` 한정 GRANT OPTION). 계획 단계에서 검토한 "운영자가 부여하고 앱은 검증만" 안은 기각했다 | ① MySQL은 존재하지 않는 테이블에 테이블 단위 GRANT를 거부한다(1146, 스파이크로 재확인). 그런데 테이블은 앱이 기동하며 migrate할 때 생긴다. 운영자 부여 방식이면 첫 배포가 반드시 실패하고, 마이그레이션으로 테이블이 추가될 때마다 수동 단계가 필요하다. ② 권한 상승 분석: GRANT OPTION은 **자기가 가진 권한을 기존 사용자에게 넘기는 것**만 허용한다. 사용자 생성(`CREATE USER`)이나 다른 DB에 대한 권한은 없다. `blog_app` 자격을 탈취한 공격자는 이미 `blog.*` 전체를 읽고 쓸 수 있으므로 `blog_public`에 권한을 넘겨 얻는 것은 없다(`blog_public` 비밀번호도 같은 api 컨테이너 환경에 있다). 순증 위험은 사실상 0이다. ③ 적용 뒤 information_schema로 **정확한 권한 집합을 검증**하고 초과가 있으면 기동을 실패시키므로, 누군가 수동으로 넓혀 둔 권한도 잡힌다 |
+| R1 | GRANT는 **앱이 적용하고 검증도 한다**(`blog_app`에 `blog.*` 한정 GRANT OPTION). 계획 단계에서 검토한 "운영자가 부여하고 앱은 검증만" 안은 기각했다 | ① MySQL은 존재하지 않는 테이블에 테이블 단위 GRANT를 거부한다(1146, 스파이크로 재확인). 그런데 테이블은 앱이 기동하며 migrate할 때 생긴다. 운영자 부여 방식이면 첫 배포가 반드시 실패하고, 마이그레이션으로 테이블이 추가될 때마다 수동 단계가 필요하다. ② 권한 상승 분석: GRANT OPTION은 **자기가 가진 권한을 기존 사용자에게 넘기는 것**만 허용한다. 사용자 생성(`CREATE USER`)이나 다른 DB에 대한 권한은 없다. `blog_app` 자격을 탈취한 공격자는 이미 `blog.*` 전체를 읽고 쓸 수 있으므로 `blog_public`에 권한을 넘겨 얻는 것은 없다(`blog_public` 비밀번호도 같은 api 컨테이너 환경에 있다). 순증 위험은 사실상 0이다. ③ 적용 뒤 공개 연결의 `SHOW GRANTS`로 **정확한 권한 집합을 검증**하고 초과가 있으면 기동을 실패시키므로, 누군가 수동으로 넓혀 둔 권한도 잡힌다 |
+| R6 | 초과 권한은 자동 회수하지 않고 기동 실패로 알린다(PG 판은 자동 회수했다) | 회수하려면 `SHOW GRANTS` 출력 문자열을 SQL로 되돌려 실행해야 한다(서버 출력이라도 문자열→SQL 조립은 피한다). 또 MySQL은 PG와 달리 복원(`restore.sh`)이 권한을 덤프에서 되살리지 않으므로 초과 권한이 생기는 경로는 사람의 수동 GRANT뿐이다. 그 경우 조용히 고치기보다 드러내는 편이 맞다 |
 | R2 | 연결마다 세션 설정 1회 왕복(D2)을 수용한다 | 공개 페이지는 렌더 캐시 뒤에 있고, 쿼리가 대부분 단일 왕복이라 1회 추가는 측정 대상이지 차단 사유가 아니다. `ConnectionOpened`는 풀에서 꺼낼 때도 불리므로 풀 리셋 동작에 기대지 않아도 된다 |
 | R3 | 잠금 이름에 DB 이름 해시를 넣는다(D5) | 운영에서는 DB가 하나지만 테스트는 컨테이너 하나에 `blog_test_<guid>` DB를 여러 개 만든다. 이름을 나누지 않으면 서로 다른 테스트의 같은 SHA가 서로를 기다린다(PG 권고 잠금도 DB 단위였다) |
 | R4 | Testcontainers 이미지는 `mysql:8.4`(부 버전 고정 태그), compose와 CI는 패치까지 고정(`mysql:8.4.x`) | 기존 PG 관례(`postgres:17-alpine` 테스트 / `17.11-alpine` 운영)와 같다. 8.4는 alpine 공식 이미지가 없어 oracle 기반 이미지를 쓴다(이미지가 커지는 것은 수용) |
@@ -93,7 +95,8 @@ PortfolioBlog.Api/
 │  ├─ PublicDbContext.cs             ← BuildConnectionString 제거 → PublicSessionInterceptor 등록
 │  ├─ PublicSessionInterceptor.cs    ★ 신규(D2)
 │  ├─ PostVersionInterceptor.cs      ★ 신규(D4, SaveChanges 시 수정된 Post의 Version+1)
-│  ├─ PublicRoleGrants.cs            ← MySQL GRANT/REVOKE + information_schema 검증(D3, R1)
+│  ├─ ReadCommittedTransactionInterceptor.cs ★ 신규(D7)
+│  ├─ PublicRoleGrants.cs            ← MySQL GRANT + 공개 연결 SHOW GRANTS 검증(D3, R1, R6)
 │  ├─ DbErrorClassifier.cs           ★ 신규(D16) — DbConflict가 이것을 쓴다
 │  ├─ DbConflict.cs                  ← 번호 대신 DbErrorKind
 │  ├─ TagResolver.cs                 ← ON DUPLICATE KEY UPDATE(D8)
@@ -113,8 +116,7 @@ PortfolioBlog.Api.Tests/Infrastructure/
 
 deploy/
 ├─ docker-compose.yml        ← mysql 서비스, 헬스체크는 blog_app으로 `SELECT 1`
-├─ mysql/my.cnf              ★ (isolation·charset·local_infile·secure_file_priv·lock_wait)
-├─ mysql-init/10-users.sql   ★ (postgres-init 대체: DB·blog_app·blog_public)
+├─ mysql-init/10-users.sh    ★ (postgres-init 대체: DB·blog_app·blog_public, 서버 설정은 compose command)
 ├─ backup.sh / restore.sh    ← mysqldump --single-transaction / mysql 복원
 └─ smoke/run.sh, smoke.test.mjs ← 권한·파일 I/O·3306 도달 불가 검사
 ```
@@ -184,7 +186,7 @@ await db.Posts.Where(p => p.SeriesId == id).ExecuteUpdateAsync(u => u
 | 테스트(이식) | `SeriesEndpointsTests`, `PostEndpointsTests`, `PostEndpointsCacheGuardTests`, `StartupValidationTests` 등 나머지 | 연결 문자열·오류 번호 표기만 수정 |
 | E2E | `PortfolioBlog.Web/scripts/e2e-prepare.mjs`, `playwright.config.ts` | `mysql:8.4` 컨테이너, 포트 3307, 준비 확인은 `mysql -e 'SELECT 1'` |
 | CI | `.github/workflows/ci.yml` | web-e2e 서비스 컨테이너 교체(+ isolation 명령 인자), 헬스체크 |
-| 배포 | `deploy/docker-compose.yml`, `deploy/mysql/my.cnf`(신규), `deploy/mysql-init/10-users.sql`(신규, `postgres-init/` 삭제), `backup.sh`, `restore.sh`, `.env.example`(`MYSQL_ROOT_PASSWORD`), `smoke/run.sh`, `smoke/smoke.test.mjs`, `OPERATIONS.md` | D7·D17·D19·R5 |
+| 배포 | `deploy/docker-compose.yml`, `deploy/mysql-init/10-users.sh`(신규, `postgres-init/` 삭제), `backup.sh`, `restore.sh`, `.env.example`(`MYSQL_ROOT_PASSWORD`), `smoke/run.sh`, `smoke/smoke.test.mjs`, `OPERATIONS.md` | D7·D17·D19·R5 |
 | 문서 | `README.md`, `docs/architecture.md`·`security.md`·`development.md`(로컬 MySQL 절차로 교체)·`testing.md`·`configuration.md`·`deployment.md`·`history.md`·`worklog.md`, `CLAUDE.md`·`AGENTS.md` 구성 절 | 이후 `문서화`(doc-harness 증분)로 `docs/generated/` 갱신. ADR-003은 8절 ADR-011로 대체, ADR-008(DB 세션 잠금)은 GET_LOCK으로 개정 |
 
 ## 6. 빌드 검증
@@ -223,7 +225,7 @@ CI 네 잡(test·web·web-e2e·deploy-smoke)이 모두 green이어야 한다.
 - **상태**: 제안(구현 병합 시 채택). `docs/generated/adr/`는 doc-harness 관리 영역이라, 채택 후 `문서화` 증분 실행으로 반영한다.
 - **맥락**: 저장소를 MySQL로 통일하기로 했다. ADR-003은 PG 전용 수단(시작 매개변수 `default_transaction_read_only`·`statement_timeout`, 소유자 GRANT)에 기대고 있었다.
 - **결정**: 두 겹 방어를 유지하고 수단만 바꾼다.
-  - ① DB 권한: `blog_public`의 권한 집합은 정확히 5개 테이블 SELECT다. 앱이 기동할 때 적용하고 information_schema로 검증하며, 불일치하면 기동하지 않는다.
+  - ① DB 권한: `blog_public`의 권한 집합은 정확히 5개 테이블 SELECT다. 앱이 기동할 때 적용하고 공개 연결의 `SHOW GRANTS`로 검증하며, 불일치하면 기동하지 않는다.
   - ② 세션: 연결을 열 때마다 `transaction_read_only=ON`, `max_execution_time`을 설정한다.
   - ③ 앱: `PublicDbContext.SaveChanges*`는 예외를 던진다.
   - `blog_app`은 `blog.*`에 한해 GRANT OPTION을 가진다. 근거는 R1의 권한 상승 분석(순증 위험 0)이다.
