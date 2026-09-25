@@ -17,7 +17,7 @@
 - MySQL 이미지: 테스트는 `mysql:8.4`, 운영(compose)과 CI는 Task 0에서 확인한 패치 태그 **`mysql:8.4.11`**로 고정한다.
 - 서버 인자(운영·테스트 공통): `--transaction-isolation=READ-COMMITTED --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci --local-infile=0 --innodb-lock-wait-timeout=10`. 운영은 여기에 `--secure-file-priv=NULL --require-secure-transport=ON`을 더한다.
 - 연결 문자열: `SslMode=Required` 이상. **`AllowPublicKeyRetrieval=true` 금지.** 앱은 두 연결 모두에 `ConnectionReset=true`를 강제한다(`DataServiceCollectionExtensions.WithSessionReset`).
-- 식별자 열 콜레이션은 `utf8mb4_bin`이다: Posts.Slug, Series.Slug, Tags.NormalizedName, Attachments.Sha256, Attachments.ContentType, Attachments.StoragePath.
+- 식별자 열 콜레이션은 `utf8mb4_0900_bin`(NO PAD)이다: Posts.Slug, Series.Slug, Tags.NormalizedName, Attachments.Sha256, Attachments.ContentType, Attachments.StoragePath. (최종 리뷰에서 `utf8mb4_bin`을 교체했다 — `utf8mb4_bin`은 PAD SPACE라 끝 공백만 다른 값을 같게 본다. 아래 태스크 본문의 코드 조각도 이 값으로 맞췄다.)
 - DB 정규식에는 `$`가 아니라 `\z`를 쓰고, 대소문자 구분 플래그 `'c'`를 명시한다. ICU의 `$`는 끝의 `\n` 앞에서도 매칭되기 때문이다(`SlugRules.cs:13-14`와 같은 이유).
 - `INSERT IGNORE` 금지. 중복 무시는 `ON DUPLICATE KEY UPDATE \`Id\` = \`Id\``로 한다.
 - 주석 규칙은 CLAUDE.md의 "인터페이스 및 API 문서화 규칙"을 따른다. public 클래스·메서드는 `<summary>`와 3항목 `<remarks>`, 테스트 메서드는 `<summary>`만 둔다. 이 계획의 코드 블록에서는 지면상 주석을 줄인 곳이 있지만, **커밋하는 코드에는 규칙대로 채운다.**
@@ -773,7 +773,7 @@ public sealed class PostVersionInterceptor : SaveChangesInterceptor
     public const string SlugPatternSql = "^[a-z0-9]+(-[a-z0-9]+)*\\\\z";
 
     /// <summary>식별자 열(유니크 비교가 바이트 단위여야 하는 열)의 콜레이션.</summary>
-    public const string BinaryCollation = "utf8mb4_bin";
+    public const string BinaryCollation = "utf8mb4_0900_bin";
 ```
 `OnModelCreating` 앞에 추가한다:
 ```csharp
@@ -1075,7 +1075,7 @@ Remove-Item -Recurse -Force PortfolioBlog.Api/Infrastructure/Data/Migrations
 dotnet ef migrations add InitialCreate --project PortfolioBlog.Api --output-dir Infrastructure/Data/Migrations
 ```
 생성된 `*_InitialCreate.cs`를 열어 다음을 눈으로 확인하고, 하나라도 없으면 멈춘다:
-- `collation: "utf8mb4_bin"`이 6개 열에 있다.
+- `collation: "utf8mb4_0900_bin"`이 6개 열에 있다.
 - `CK_Posts_Slug_Format`의 SQL에 `\\z`와 `'c'`가 있다.
 - `(CreatedAt, Id)` 인덱스에 `descending: new[] { true, false }`가 있다.
 - Guid 열이 `char(36)`이다(Pomelo는 `collation: "ascii_general_ci"`를 함께 붙인다 — 스파이크 S1과 같다). `DateTimeOffset` 열이 `datetime(6)`이다.
@@ -1096,7 +1096,7 @@ $env:ASPNETCORE_ENVIRONMENT = "Development"; dotnet run --project PortfolioBlog.
 curl.exe -sk https://localhost:<launchSettings의 https 포트>/health   # 예상: 200
 docker exec pb-dev-mysql mysql -uroot -pchangeme -e "SHOW CREATE TABLE blog_dev.Posts\G"
 ```
-예상: `utf8mb4_bin`, `CHECK (regexp_like(...))`, `KEY ... (CreatedAt DESC, Id)`가 보인다. 서버를 끈다.
+예상: `utf8mb4_0900_bin`, `CHECK (regexp_like(...))`, `KEY ... (CreatedAt DESC, Id)`가 보인다. 서버를 끈다.
 
 **마이그레이션 경로 관문:** 스파이크 S1은 마이그레이션 SQL 생성(`IMigrationsModelDiffer` + `IMigrationsSqlGenerator`)까지는 확인했지만 `Migrate()` 자체(이력 테이블 `__EFMigrationsHistory`, 마이그레이션 잠금)는 실행하지 않았다. 여기서 처음 실행된다. `Migrate()`가 **매핑이 아니라 프로바이더 때문에** 실패하면(예: 이력 테이블 DDL 오류, 마이그레이션 잠금 미지원) 우회 패치를 하지 말고 멈춘 뒤 보고한다. 남은 후퇴안이 없으므로(Oracle은 no-go) 사용자 판단 사안이다.
 
@@ -2095,7 +2095,7 @@ public sealed class CollationTests(ApiFactory factory) : IClassFixture<ApiFactor
         await db.SaveChangesAsync();
     }
 
-    /// <summary>모델이 선언한 식별자 열 6개가 실제 스키마에서 utf8mb4_bin이다(마이그레이션이 콜레이션을 빠뜨리지 않았다).</summary>
+    /// <summary>모델이 선언한 식별자 열 6개가 실제 스키마에서 utf8mb4_0900_bin이다(마이그레이션이 콜레이션을 빠뜨리지 않았다).</summary>
     [Theory]
     [InlineData("Posts", "Slug")]
     [InlineData("Series", "Slug")]
@@ -2355,7 +2355,7 @@ deny() { # $1 사용자 $2 비밀번호 $3 SQL
   case "$out" in *"denied"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
 }
 test "$(mysql_as root "$mysql_root_password" "select count(*) from mysql.user where User in ('blog_app','blog_public') and Super_priv='N' and File_priv='N' and Process_priv='N' and Create_user_priv='N' and Grant_priv='N' and ssl_type='ANY'")" = "2"
-test "$(mysql_as root "$mysql_root_password" "select concat(@@local_infile, ':', ifnull(@@secure_file_priv,'NULL'), ':', @@require_secure_transport, ':', @@global.transaction_isolation)")" = "0:NULL:1:READ-COMMITTED"
+test "$(mysql_as root "$mysql_root_password" "select concat(@@local_infile, ':', coalesce(@@secure_file_priv, '<SQL NULL>'), ':', @@require_secure_transport, ':', @@global.transaction_isolation)")" = "0:NULL:1:READ-COMMITTED"
 mysql_as blog_public "$public_password" 'select count(*) from `Posts`' > /dev/null
 for sql in 'delete from `Posts`' 'set session transaction_read_only = off; delete from `Posts`' 'create table smoke_t(i int)' 'select * from `AdminState`' 'select * from `__EFMigrationsHistory`' 'select * from mysql.user' 'use mysql'; do
   deny blog_public "$public_password" "$sql"

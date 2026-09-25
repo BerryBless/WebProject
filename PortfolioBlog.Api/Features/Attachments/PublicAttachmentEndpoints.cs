@@ -61,22 +61,24 @@ public static class PublicAttachmentEndpoints
     /// <param name="store">저장 경로를 실제 파일 시스템 경로로 바꾸는 저장소.</param>
     /// <param name="ct">요청 취소 토큰.</param>
     /// <returns>파일이 있으면 200(스트리밍 본문, GET일 때만 — HEAD는 프레임워크가 본문을 비운다) 또는 <c>If-None-Match</c>가 일치하면 304(본문 없음),
-    /// DB 행이 없거나 파일을 열 수 없으면 404. DB 조회가 <c>max_execution_time</c>을 넘기면 오류 3024(메타데이터 잠금 대기는 <c>lock_wait_timeout</c>의 1205) →
-    /// <see cref="OverloadExceptionHandler"/>가 503 + <c>Retry-After</c>로 바꾼다.</returns>
+    /// DB 행이 없거나 파일을 열 수 없으면 404. DB 조회가 <c>max_execution_time</c>을 넘기면 오류 3024 — 메타데이터 잠금(MDL) 대기도 실측상 이 3024로 끝난다 —
+    /// → <see cref="OverloadExceptionHandler"/>가 503 + <c>Retry-After</c>로 바꾼다(<c>lock_wait_timeout</c>의 1205도 같은 503으로 매핑되는 또 하나의 상한이다).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다. 파일을 여는 <see cref="FileStream"/> 생성자 호출은 짧은 동기 I/O다(비동기 오버랩 I/O로 여는 핸들 자체를 만드는 단계는 동기적으로 끝난다).</description></item>
     /// <item><description><b>Memory Policy:</b> DB 조회는 <c>StoragePath</c>·<c>ContentType</c> 두 필드만 프로젝션한다. 본체는 <c>TypedResults.Stream</c>이 응답으로 버퍼링 복사하므로 파일 전체를 메모리에 한 번에 올리지 않는다.</description></item>
     /// <item><description><b>Overload:</b> 이 조회는 <see cref="PublicDbContext"/>(공개 연결 풀)를 쓴다 — <c>Attachments</c> 테이블이 잠겨(예: <c>LOCK TABLES … WRITE</c>) 조회가 기다리면
-    /// 무한정 기다리지 않고 <c>max_execution_time</c>(3024) 또는 <c>lock_wait_timeout</c>(1205)으로 끊겨 503 + <c>Retry-After</c>가 된다
-    /// (<c>AttachmentEndpointsTests.PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter</c>가 고정한다 — PG 판에서 실측했고 MySQL 판은 그 테스트의 전환에서 재측정한다).
-    /// 관리 풀(<see cref="AppDbContext"/>)에는 이 세션 상한이 없어 같은 조건에서 서버 기본 <c>lock_wait_timeout</c>까지 기다린다.</description></item>
+    /// 무한정 기다리지 않고 끊겨 503 + <c>Retry-After</c>가 된다. MySQL 판 실측(<c>AttachmentEndpointsTests.PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter</c>,
+    /// <c>LOCK TABLES … WRITE</c> 아래 공개 GET): MDL 대기가 <c>max_execution_time</c>의 3024로 끝나 503이 된다(스파이크 S3c와 같은 결과).
+    /// <c>lock_wait_timeout</c>(1205, 같은 503 매핑)은 <c>max_execution_time</c>이 닿지 않는 경로의 안전망이다.
+    /// 관리 풀(<see cref="AppDbContext"/>)에는 이 세션 상한이 없어 같은 조건에서 서버 기본 <c>lock_wait_timeout</c>까지 기다린다 — 예외는 첨부 잠금을 쥔 세션으로,
+    /// <see cref="AttachmentLock"/>이 그 세션에 <c>lock_wait_timeout</c>을 잠금 대기 상한(<see cref="AttachmentLock.WaitSeconds"/>초)으로 건다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 존재 확인과 여는 시점을 분리하지 않고 <c>FileStream</c>을 직접 열어 실패를 잡는다(<c>File.Exists</c> 뒤에 열기가 실패하는 TOCTOU 경쟁이 없다). 삭제와 경쟁하면(<see cref="AttachmentEndpoints.DeleteAsync"/> 참조) DB 행이 먼저 지워지므로 이 조회가 404가 되거나, DB 행이 아직 남아 있는 사이 파일이 지워졌으면(관리자가 볼륨에서 직접 지운 경우 포함) <see cref="FileNotFoundException"/>을 잡아 404가 된다 — 이 핸들러가 잘못된 내용을 돌려주는 경로는 없다. <see cref="FileShare.Delete"/>로 열기 때문에 이 핸들러가 스트리밍 중인 동안 <see cref="FileSystemAttachmentStore.TryDelete"/>가 같은 파일을 지워도(Windows에서) 공유 위반 없이 성공한다 — 삭제는 즉시 디렉터리 항목을 없애고(이후 요청은 404), 이미 열려 있는 이 핸들은 응답이 끝날 때까지 데이터를 계속 읽을 수 있다. Non-blocking: DB 조회는 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     // PublicDbContext: 관리 풀과 연결 문자열이 달라(운영) MySqlConnector가 풀을 따로 만들고, 그 연결은 열릴 때마다 PublicSessionInterceptor가
-    // max_execution_time·lock_wait_timeout을 건다 — 관리 작업이 Attachments를 잠가도 공개 요청이 그 시간 안에 3024/1205로 끊겨 503이 되고, 관리 풀의 연결을 잡아먹지도 않는다.
+    // max_execution_time·lock_wait_timeout을 건다 — 관리 작업이 Attachments를 잠가도 공개 요청이 그 시간 안에 끊겨(MDL 대기 실측: 3024, 안전망 1205) 503이 되고, 관리 풀의 연결을 잡아먹지도 않는다.
     private static async Task<IResult> GetAsync(Guid id, HttpContext http, PublicDbContext db, FileSystemAttachmentStore store, CancellationToken ct)
     {
         // 이 핸들러가 내는 모든 응답(200·404)에 스니핑 금지·CSP를 건다 — 캐시 헤더만 200 전용이다(아래).

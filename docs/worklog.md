@@ -900,7 +900,7 @@ flowchart TD
 
 **한 일.**
 1. Phase 0 스파이크로 EF 프로바이더를 먼저 검증했다. Oracle `MySql.EntityFrameworkCore` 10.0.9는 `UseCollation`·`IsDescending`이 생성 DDL에서 빠지고 `Like` 이스케이프가 잘못된 SQL을 내 **no-go**였다. **Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0**(EF Core를 9.0.20으로 하향)으로 다시 스파이크해 **go** 판정을 받고 사용자에게 보고 후 승인받았다.
-2. 스키마·매핑 교체: `Version`(int, 앱이 관리하는 동시성 토큰) · `utf8mb4_0900_ai_ci`(검색)·`utf8mb4_bin`(식별자 열) 콜레이션 · `REGEXP_LIKE(..., 'c')` CHECK · `CHAR(36)` Guid · `DATETIME(6)` + UTC 변환기.
+2. 스키마·매핑 교체: `Version`(INT UNSIGNED, 앱이 관리하는 동시성 토큰) · `utf8mb4_0900_ai_ci`(검색)·`utf8mb4_0900_bin`(식별자 열, NO PAD — 최종 리뷰에서 PAD SPACE인 `utf8mb4_bin`을 교체) 콜레이션 · `REGEXP_LIKE(..., 'c')` CHECK · `CHAR(36)` Guid · `DATETIME(6)` + UTC 변환기.
 3. 세션 통제 재구현: `PublicSessionInterceptor`(연결 열릴 때마다 `transaction_read_only`·`max_execution_time`) · `ReadCommittedTransactionInterceptor`(MySqlConnector가 트랜잭션마다 강제하는 REPEATABLE READ를 되돌림, 서버 플래그와 이중 방어) · `PublicRoleGrants`(앱이 GRANT하고 `SHOW GRANTS`로 자기 검증, 불일치 시 기동 실패) · `GET_LOCK`/`RELEASE_LOCK`(DB 이름 해시로 네임스페이스 분리) · `DbErrorClassifier`(SqlState 대신 `MySqlException.Number`).
 4. 테스트 기반을 `Testcontainers.MySql`로 교체하고, PG 고유 동작을 단언하던 테스트(`AttachmentIntegrityTests`·`PublicDbContextTests`·`PublicRoleGrantsTests`·`ErrorPipelineTests`·`CheckConstraintCoverageTests`·`DatabaseSchemaTests` 등)를 MySQL 동작 기준으로 새로 증명했다.
 5. 배포 스택(compose·Caddyfile·init 스크립트·백업/복원·스모크)과 CI(web-e2e 서비스 컨테이너)를 MySQL로 교체했다.
