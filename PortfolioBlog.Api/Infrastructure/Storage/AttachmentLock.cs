@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -28,6 +30,24 @@ public static class AttachmentLock
 {
     /// <summary>잠금 키 문자열. 다른 용도의 advisory lock과 겹치지 않게 접두사를 둔다. 테스트가 같은 키를 직접 잡는다.</summary>
     internal static string KeyFor(string sha256) => "attachment:" + sha256;
+
+    /// <summary>MySQL <c>GET_LOCK</c> 이름을 만든다: <c>att:</c> + DB 이름 SHA-256 앞 8자 + <c>:</c> + 내용 SHA 앞 48자(총 61자).</summary>
+    /// <param name="databaseName">현재 연결의 DB 이름. 잠금 이름이 서버 전역이라 DB별로 나눈다.</param>
+    /// <param name="sha256">첨부 내용의 소문자 16진 SHA-256(64자).</param>
+    /// <returns>64자 이하의 잠금 이름.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 순수 함수.</description></item>
+    /// <item><description><b>Memory Allocation:</b> UTF-8 바이트 배열·해시 32B·문자열 2개(수십 바이트). 업로드·삭제당 한 번이라 풀링하지 않는다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
+    /// </list>
+    /// </remarks>
+    internal static string NameFor(string databaseName, string sha256)
+    {
+        var dbTag = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(databaseName)))[..8];
+        return $"att:{dbTag}:{sha256[..48]}";
+    }
 
     /// <summary><paramref name="sha256"/> 내용의 세션 advisory lock을 잡는다. 반환된 핸들을 <c>await using</c>으로 해제해야 잠금이 풀린다.</summary>
     /// <param name="db">잠금을 걸 연결을 제공하는 DbContext. 반환 이후의 모든 EF 명령이 이 잠금과 같은 물리 연결을 쓰게 된다.</param>

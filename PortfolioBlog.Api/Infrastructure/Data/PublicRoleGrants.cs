@@ -24,6 +24,42 @@ public static partial class PublicRoleGrants
     [GeneratedRegex("^[a-z_][a-z0-9_]{0,62}\\z")]
     private static partial Regex RoleNamePattern();
 
+    [GeneratedRegex("^GRANT (?<privs>.+?) ON (?<obj>\\S+) TO ")]
+    private static partial Regex GrantLine();
+
+    /// <summary>공개 사용자의 <c>SHOW GRANTS</c> 출력이 {USAGE ON *.*} ∪ {현재 DB 허용 테이블 SELECT}와 정확히 같은지 판정한다.</summary>
+    /// <param name="showGrantsLines">공개 연결에서 실행한 <c>SHOW GRANTS</c>의 각 행.</param>
+    /// <param name="database">현재 DB 이름.</param>
+    /// <param name="readableTables">SELECT를 허용할 테이블 목록.</param>
+    /// <returns>위반 설명 목록. 비어 있으면 통과.</returns>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 순수 함수.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 기대 집합 HashSet 1개와 위반 목록. 기동 시 한 번만 호출된다.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
+    /// </list>
+    /// 테이블 이름은 대소문자를 무시하고 비교한다(Windows MySQL은 소문자로 보고). 롤 부여 행(<c>ON</c> 없음)·<c>WITH GRANT OPTION</c>·다른 DB·전역 권한은 모두 위반이다.
+    /// </remarks>
+    public static IReadOnlyList<string> Violations(IEnumerable<string> showGrantsLines, string database, IReadOnlyList<string> readableTables)
+    {
+        var expected = readableTables.Select(t => $"`{database}`.`{t}`").ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var violations = new List<string>();
+        foreach (var line in showGrantsLines)
+        {
+            var match = GrantLine().Match(line);
+            if (!match.Success || line.Contains(" WITH GRANT OPTION", StringComparison.Ordinal)) { violations.Add(line); continue; }
+            var privileges = match.Groups["privs"].Value;
+            var target = match.Groups["obj"].Value;
+            if (privileges == "USAGE" && target == "*.*") continue;
+            if (privileges == "SELECT" && expected.Contains(target)) { seen.Add(target); continue; }
+            violations.Add(line);
+        }
+        violations.AddRange(expected.Where(t => !seen.Contains(t)).Select(t => $"누락: SELECT ON {t}"));
+        return violations;
+    }
+
     /// <summary>공개 연결 문자열에서 롤 이름을 꺼내 검증한다.</summary>
     /// <param name="publicConnectionString"><c>ConnectionStrings:Public</c> 값.</param>
     /// <returns>검증된 롤 이름.</returns>
