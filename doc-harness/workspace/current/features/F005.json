@@ -1,0 +1,1191 @@
+{
+  "feature": {
+    "id": "F005",
+    "name": "편집 임시본 자동 보관·복원",
+    "slug": "LOCAL_DRAFT_RECOVERY",
+    "summary": "관리 SPA 편집 화면(Editor)은 입력 필드를 1초 디바운스 뒤 글 id별 localStorage 키 `pb.draft.v1:<postId|new>`에 임시본으로 저장한다. 임시본에는 baseVersion과 savedAt이 함께 들어간다. 화면을 떠날 때(언마운트·pagehide)와 저장 요청 직전에는 디바운스를 기다리지 않고 한 번 더 쓴다. 다시 열었을 때 임시본이 서버본과 다르면 복원·버리기 배너를 띄운다. 저장에 성공하면 임시본을 지우거나 새 version으로 다시 쓰고, 새 글이면 새 id 키로 옮긴다. 읽을 때 모양을 검사해 깨진 값은 없는 것으로 본다. 저장소 쓰기가 실패하면 경고 문구와 beforeunload 확인 창을 띄운다.",
+    "entryPoints": [
+      "SPA /posts/new",
+      "SPA /posts/:id"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Web/src/lib/drafts.ts",
+      "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "PortfolioBlog.Web/src/lib/lib.test.ts",
+      "PortfolioBlog.Web/src/test/editor.test.tsx",
+      "PortfolioBlog.Web/src/test/source-guards.test.ts"
+    ],
+    "dependencies": [
+      "F003",
+      "F006",
+      "F029"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F005는 서버 없이 브라우저 안에서만 동작한다. 기능 전체를 `lib/drafts.ts`(load·save·clear·sameFields와 모양 검사 isDraft)와 `PostEditorPage.tsx`의 `Editor` 컴포넌트가 맡는다. 이번 재검증에서 이전 분석의 줄 번호와 동작 서술이 현재 코드와 일치함을 확인했다. 동작 변경은 없다.\n\n임시본을 쓰는 시점은 네 가지다.\n① `useDebounced(fields, 1000)`을 받는 자동 저장 effect\n② `flushDraft`(언마운트, `pagehide`, 저장 요청 직전)\n③ 기존 글 저장 성공 `onSuccess`에서 그사이 입력이 바뀌었을 때 새 version으로 다시 쓰기\n④ 새 글 생성 뒤 새 id 키로 옮겨 쓰기\n\n임시본을 지우는 시점은 여섯 가지다.\n① settled 입력이 기준선과 같아졌을 때\n② 저장 성공 뒤 그사이 바뀐 입력이 없을 때(기존 글은 draftKey, 새 글은 'new')\n③ '버리기'를 눌렀을 때\n④ 충돌 해결에서 '서버본으로 바꾸기'를 골랐을 때\n⑤ 새 글을 새 id 키로 옮겨 쓰는 데 성공했을 때('new' 삭제, 184행)\n⑥ 옮겨 쓰기에 실패해 화면을 잠글 때('new' 삭제, 195행)\n\n복원 여부를 고르기 전(pendingDraft)에는 자동 저장과 flush가 모두 멈춰 기존 임시본을 보존한다. '임시본 복원'을 눌러도 곧바로 저장소에 쓰지 않는다. settled가 아직 기준선이면 먼저 clearDraft가 실행되고, 1초 뒤에 saveDraft로 다시 쓴다.\n\ndrafts 함수는 저장소 예외를 모두 삼켜 boolean이나 null로 바꾼다. 다만 기본 인자 `storage = window.localStorage`는 try 밖에서 평가된다(POTENTIAL_ISSUE).\n\n복원하면 `replaceAll(pendingDraft)`가 Draft 객체 전체를 fields에 넣는다. 그래서 `baseVersion`·`savedAt`이 다음 저장 요청 JSON에 함께 실린다. 서버 `UpsertPostRequest`에는 두 속성이 없고, API 코드에 알 수 없는 속성을 거부하는 JSON 설정도 없다. 따라서 무시될 것으로 추론한다.\n\n재검증에서 새로 확인한 점이 있다. 조작된 임시본 slug로 기존 글을 PUT하면 서버 `PostEndpoints`가 'slug는 생성 후 바꿀 수 없습니다'라는 400으로 거부한다.\n\n이 기능에는 서버 API·DB 접근이 없다. 서버 호출은 F003(저장)과 F006(충돌)에 속하고, 이 기능은 그 결과에 반응해 임시본을 정리한다.",
+  "entryPoints": [
+    {
+      "text": "SPA 라우트 `/posts/new`·`/posts/:id`가 `PostEditorPage`를 지연 로딩한다. `PostEditorPage`는 `Editor`를 `key={postId ?? NEW_POST_KEY}`로 마운트하므로 글마다 임시본 키(`draftKey`)가 고정된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "symbol": "routes",
+          "lines": "13,29-30"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "PostEditorPage",
+          "lines": "34-47"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor",
+          "lines": "50-51"
+        }
+      ]
+    },
+    {
+      "text": "마운트할 때 `useState` 초기화 함수가 `loadDraft(draftKey)`를 부른다. 임시본이 기준선(서버본 또는 EMPTY)과 다를 때만 `pendingDraft`로 두고 복원 배너를 띄운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.pendingDraft",
+          "lines": "59-62"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "288-295"
+        }
+      ]
+    },
+    {
+      "text": "브라우저 이벤트 진입점은 두 가지다. `pagehide`(탭·창 닫기, bfcache 진입)와 `beforeunload`(임시본 저장이 실패했고 dirty일 때만 등록)다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "136-148"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "PostEditorPage",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage",
+      "description": "`/posts/:id`이면 `posts.get`으로 상세를 불러온다(staleTime Infinity, gcTime 0). 불러오는 중이거나 오류면 Editor를 그리지 않는다. 불러온 결과를 `server` prop으로 넘겨 `Editor`를 마운트한다. 새 글이면 server=null이다."
+    },
+    {
+      "step": 2,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor (baseline/fields 초기화)",
+      "description": "`draftKey = postId ?? 'new'`로 정한다. 기준선은 `fromServer(server)` 또는 `EMPTY`이고 version은 `server?.version ?? null`이다. `fields`를 이 기준선으로 초기화한다."
+    },
+    {
+      "step": 3,
+      "component": "drafts.ts",
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "loadDraft",
+      "description": "`storage.getItem('pb.draft.v1:'+postId)`로 읽는다. 값이 없으면 null이다. 값이 있으면 `JSON.parse`한 뒤 `isDraft`로 모양을 검사하고, 실패하면 null을 돌려준다. 예외가 나도 null이다."
+    },
+    {
+      "step": 4,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.pendingDraft",
+      "description": "임시본이 있고 `sameFields(draft, baseline.fields)`가 false면 `pendingDraft`로 둔다. 배너에는 `formatDateTime(savedAt)`을 보여 준다. `baseVersion !== baseline.version`이면 '서버본이 바뀌었습니다' 경고를 덧붙인다."
+    },
+    {
+      "step": 5,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "임시본 복원 / 버리기 버튼",
+      "description": "'복원'을 누르면 `replaceAll(pendingDraft)`가 Draft 객체 전체(baseVersion·savedAt 포함)로 fields를 바꾸고, editorKey를 올려 비제어 편집기를 재마운트한다. 이어서 `setPendingDraft(null)`한다. saveDraft는 부르지 않는다. '버리기'를 누르면 `clearDraft(draftKey)` 뒤 `setPendingDraft(null)`한다."
+    },
+    {
+      "step": 6,
+      "component": "useDebounced",
+      "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "symbol": "useDebounced",
+      "description": "`useState(value)`의 초기값은 첫 렌더의 fields(기준선)다. fields가 1000ms 동안 바뀌지 않으면 그 값을 `settled`로 넘긴다(setTimeout/clearTimeout). 값이 바뀌면 타이머를 다시 시작한다."
+    },
+    {
+      "step": 7,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "자동 저장 useEffect",
+      "description": "의존성은 [settled, pendingDraft, draftKey, createdPostId]다. pendingDraft나 createdPostId가 있으면 아무것도 하지 않는다. settled가 baselineRef의 기준선과 같으면 `clearDraft`하고 draftFailed=false로 둔다. 다르면 `saveDraft(draftKey, {...settled, baseVersion, savedAt: now})`를 부르고 실패 여부를 `draftFailed`에 반영한다. baseline은 의존성에서 일부러 뺐다."
+    },
+    {
+      "step": 8,
+      "component": "drafts.ts",
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "saveDraft",
+      "description": "`setItem(key, JSON.stringify(draft))`로 쓰고 true를 돌려준다. 예외(용량 초과·비공개 모드)가 나면 false를 돌려준다."
+    },
+    {
+      "step": 9,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "flushDraft",
+      "description": "ref(fieldsRef·baselineRef)의 최신값으로 즉시 한 번 쓴다. `skipFlushRef`·`pendingDraftRef`·`createdPostIdRef` 중 하나라도 걸리거나 입력이 기준선과 같으면 쓰지 않는다. 언마운트 cleanup, `pagehide`, `submit` 직전에 호출되며 반환값은 무시한다."
+    },
+    {
+      "step": 10,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "submit",
+      "description": "`validatePost`를 통과하면 `flushDraft()`를 부른 뒤 `save.mutate(fields)`한다. 저장 요청이 401로 돌아와 화면이 언마운트돼도 입력이 남게 하려는 순서다."
+    },
+    {
+      "step": 11,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "save.onSuccess (공통 + 기존 글)",
+      "description": "공통 처리: `unchanged = sameFields(fieldsRef.current, submitted)`를 계산하고, setBaseline과 쿼리 캐시를 갱신한다.\n\n기존 글이면 먼저 `setFields(prev => sameFields(prev, submitted) ? next : prev)`를 호출한다. 그다음 unchanged면 `clearDraft(draftKey)`하고, 본문이 다를 때만 editorKey를 올린다. unchanged가 아니면 `saveDraft(draftKey, {...fieldsRef.current, baseVersion: saved.version, savedAt})`로 다시 쓰고, 실패 여부를 draftFailed에 반영한다."
+    },
+    {
+      "step": 12,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "save.onSuccess (새 글)",
+      "description": "unchanged면 `clearDraft('new')`하고 skipFlushRef=true로 둔 뒤 `/posts/{id}`로 replace 이동한다.\n\n그사이 입력이 바뀌었으면 `saveDraft(saved.id, {...현재, slug: saved.slug, baseVersion})`로 새 id 키에 옮겨 쓴다.\n- 옮겨 쓰기에 성공하면 'new'를 지우고(184행) 이동한다.\n- 실패하면 'new'를 지우고(195행) 화면을 잠근다. 잠글 때 skipFlushRef를 켜고, createdPostId를 채우고, draftFailed=true·pendingDraft=null로 둔다."
+    },
+    {
+      "step": 13,
+      "component": "ConflictPanel",
+      "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "symbol": "onTakeServer / onKeepMine",
+      "description": "409 충돌에서 '서버본으로 바꾸기'를 고르면 Editor 콜백이 기준선과 fields를 `fromServer(conflict)`로 바꾸고 `clearDraft(draftKey)`한다. '내 내용 유지'를 고르면 기준선만 서버본·서버 version으로 바꾸고, fields와 임시본은 그대로 둔다."
+    },
+    {
+      "step": 14,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "beforeunload useEffect",
+      "description": "`dirty && draftFailed`일 때만 beforeunload에서 `preventDefault`를 호출해, 창을 닫기 전에 확인을 받는다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "Draft / DraftFields",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "isDraft",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "loadDraft",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "saveDraft",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "clearDraft",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "sameFields",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor (pendingDraft·자동 저장 effect·flushDraft·replaceAll·set·save.onSuccess)",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor 복원 배너·draftFailed 경고·createdPostId 경고",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "symbol": "useDebounced / formatDateTime",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "symbol": "ConflictPanel",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure / createQueryClient",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "posts.create / posts.update",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "symbol": "UpsertPostRequest",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+      "symbol": "describe('drafts')",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+      "symbol": "임시본 관련 it 블록",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+      "symbol": "저장소 접근은 임시본 모듈뿐이다",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력 쪽 흐름이다. 편집 필드(slug·title·summary·contentMarkdown·tagNames·seriesId·seriesOrder)는 `DraftFields` state `fields`에 담긴다. 1초 디바운스 뒤 `settled`가 되고, `{...settled, baseVersion: baseline.version, savedAt: ISO}` 형태의 `Draft` 객체가 된다. 이 객체를 `JSON.stringify`해 localStorage 키 `pb.draft.v1:<postId|new>`에 저장한다. fields에 남아 있던 옛 baseVersion·savedAt은 뒤에 오는 값으로 덮인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "104-113,131"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "4-17,41-43"
+        }
+      ]
+    },
+    {
+      "text": "출력 쪽 흐름이다. localStorage 문자열을 `JSON.parse`하고 `isDraft`로 모양을 검사해 `Draft | null`을 얻는다. 이 값이 `pendingDraft`가 되고, 복원하면 `replaceAll`을 거쳐 `fields`와 편집기 initialValue에 들어간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "loadDraft",
+          "lines": "31-38"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "150,292,366"
+        }
+      ]
+    },
+    {
+      "text": "복원을 눌러도 저장소에 곧바로 쓰지 않는다. 복원값이 저장소에 다시 들어가는 경로는 두 가지다. 하나는 1초 뒤 디바운스된 `settled`를 받은 자동 저장 effect의 `saveDraft`이고, 다른 하나는 그 전에 화면을 떠날 때의 `flushDraft`다. 그보다 먼저 pendingDraft가 null로 바뀌면서 effect가 한 번 더 돈다. 이때 settled가 기준선과 같으면 기존 임시본이 `clearDraft`로 먼저 지워진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "104-113,125-140,292"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "symbol": "useDebounced",
+          "lines": "4-11"
+        }
+      ]
+    },
+    {
+      "text": "복원하면 `replaceAll(pendingDraft)`가 `Draft` 객체 전체를 `fields`에 넣는다. 여기에는 `baseVersion`·`savedAt`도 들어간다. `set()`과 시리즈 select는 prev를 펼쳐 쓰므로 편집해도 두 속성이 남는다. 그래서 다음 `save.mutate(fields)`가 두 속성을 `posts.create`/`posts.update` → `request`의 `JSON.stringify` 요청 본문에 싣는다.\n\n두 속성이 fields에서 사라지는 경우는 네 가지다.\n① 기존 글 onSuccess의 `setFields` 업데이터가 prev와 submitted를 같다고 보고 `fromServer(saved)`로 바꿀 때\n② `onTakeServer`의 `replaceAll(fromServer(conflict))`\n③ 새 글 생성 뒤 navigate로 재마운트될 때\n④ 화면을 떠났다가 다시 열 때",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "replaceAll / set",
+          "lines": "76,150,292"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "시리즈 select onChange",
+          "lines": "333-336"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "save.mutationFn / submit / onSuccess",
+          "lines": "155,175,186,206,236"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "onTakeServer / onKeepMine",
+          "lines": "298-299"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "posts.create / posts.update",
+          "lines": "20-21"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request",
+          "lines": "51"
+        }
+      ]
+    },
+    {
+      "text": "요청에 딸려 간 `baseVersion`·`savedAt`은 서버가 무시할 것으로 추론한다. 근거는 세 가지다. 서버 `UpsertPostRequest`는 Slug·Title·Summary·ContentMarkdown·TagNames·SeriesId·SeriesOrder·Version만 가진다. API 코드에서 `UnmappedMemberHandling`이나 `ConfigureHttpJsonOptions` 설정을 찾지 못했다. System.Text.Json은 기본적으로 알 수 없는 속성을 무시한다. 다만 프레임워크 기본 동작은 저장소 코드 밖의 사실이다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "UpsertPostRequest",
+          "lines": "47-48"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "51"
+        }
+      ]
+    },
+    {
+      "text": "저장에 성공하면 서버 응답의 `PostDetail.version`이 기준선 version이 된다. 이 값은 이후 임시본의 `baseVersion`으로 기록되고, 다음에 열 때 서버 version과 비교해 경고를 띄우는 데 쓰인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "164,182,214,291"
+        }
+      ]
+    },
+    {
+      "text": "임시본에는 인증 정보를 넣지 않는다. 저장소 접근은 `lib/drafts.ts` 하나로 제한되고, 소스 가드 테스트가 이를 강제한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+          "lines": "114"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "1-2"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "임시본 없음",
+      "to": "복원 대기(pendingDraft)",
+      "trigger": "마운트할 때 `loadDraft`가 기준선과 다른 유효한 임시본을 돌려준다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "59-62"
+        }
+      ]
+    },
+    {
+      "from": "복원 대기(pendingDraft)",
+      "to": "임시본 없음(복원값은 화면에만 있음)",
+      "trigger": "'임시본 복원'을 누르면 replaceAll(pendingDraft)와 setPendingDraft(null)가 실행된다. 이어 도는 자동 저장 effect에서 settled가 아직 기준선이라 clearDraft(draftKey)가 실행된다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "104-113,292"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "lines": "4-11"
+        }
+      ]
+    },
+    {
+      "from": "임시본 없음(복원값은 화면에만 있음)",
+      "to": "임시본 저장됨",
+      "trigger": "1000ms 뒤 settled가 복원값이 되면 saveDraft가 실행된다. 그 전에 화면을 떠나면 flushDraft가 fieldsRef의 복원값으로 쓴다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "110-112,125-140"
+        }
+      ]
+    },
+    {
+      "from": "복원 대기(pendingDraft)",
+      "to": "편집 중(임시본 삭제됨)",
+      "trigger": "'버리기'를 누르면 clearDraft(draftKey) 뒤 setPendingDraft(null)가 실행된다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "293"
+        }
+      ]
+    },
+    {
+      "from": "편집 중(기준선과 같음)",
+      "to": "임시본 저장됨",
+      "trigger": "디바운스된 settled가 기준선과 다르고, saveDraft가 true를 돌려준다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "110-112"
+        }
+      ]
+    },
+    {
+      "from": "임시본 저장됨",
+      "to": "임시본 없음",
+      "trigger": "settled가 기준선과 같아진다(clearDraft)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "110"
+        }
+      ]
+    },
+    {
+      "from": "임시본 저장됨",
+      "to": "저장 실패 표시(draftFailed=true)",
+      "trigger": "saveDraft가 false를 돌려준다(용량 초과·비공개 모드). 경고 문구가 뜨고 beforeunload 확인이 켜진다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "112,143-148,281"
+        }
+      ]
+    },
+    {
+      "from": "저장 실패 표시(draftFailed=true)",
+      "to": "임시본 저장됨",
+      "trigger": "다음 자동 저장에서 saveDraft가 true를 돌려준다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "112"
+        }
+      ]
+    },
+    {
+      "from": "임시본 저장됨",
+      "to": "임시본 없음",
+      "trigger": "기존 글 저장이 성공했고 fieldsRef 기준으로 unchanged다: clearDraft(draftKey)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "204-210"
+        }
+      ]
+    },
+    {
+      "from": "임시본 저장됨",
+      "to": "임시본 저장됨(새 baseVersion)",
+      "trigger": "저장은 성공했지만 응답을 기다리는 동안 입력이 더 바뀌었다: saveDraft(draftKey, baseVersion=saved.version)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "211-215"
+        }
+      ]
+    },
+    {
+      "from": "'new' 임시본",
+      "to": "임시본 없음('new' 삭제, 새 글 화면으로 이동)",
+      "trigger": "새 글 생성이 성공했고 unchanged다: clearDraft('new'), skipFlushRef=true, navigate",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "169-176"
+        }
+      ]
+    },
+    {
+      "from": "'new' 임시본",
+      "to": "새 글 id 키 임시본",
+      "trigger": "새 글 생성이 성공했고 그사이 입력이 바뀌었다. saveDraft(saved.id)가 성공하면 clearDraft('new')(184행) 뒤 이동한다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "178-188"
+        }
+      ]
+    },
+    {
+      "from": "'new' 임시본",
+      "to": "잠김(createdPostId 설정, 임시본 없음)",
+      "trigger": "새 글은 생성됐으나 새 id 키로 saveDraft하지 못했다. clearDraft('new')(195행)를 부르고 skipFlush, draftFailed=true, pendingDraft=null로 둔다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "189-202,308-314"
+        }
+      ]
+    },
+    {
+      "from": "충돌(conflict)",
+      "to": "임시본 없음",
+      "trigger": "ConflictPanel의 '서버본으로 바꾸기'(onTakeServer)가 clearDraft(draftKey)를 호출한다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "298"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+          "lines": "7-8,25"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [],
+  "externalDependencies": [
+    {
+      "text": "브라우저 Web Storage API(`window.localStorage`의 getItem·setItem·removeItem)를 쓴다. 키 접두사는 `pb.draft.v1:`이다. 이 기능 안에는 서버·DB와의 네트워크 통신이 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "15-17,31-47"
+        }
+      ]
+    },
+    {
+      "text": "브라우저 생명주기 이벤트 `pagehide`와 `beforeunload`를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "136-148"
+        }
+      ]
+    },
+    {
+      "text": "비동기 디바운스는 React 훅과 `window.setTimeout`(useDebounced)으로 구현한다. 저장 뒤 임시본 정리는 react-query `useMutation`의 onSuccess 콜백에서 시작된다. 전역 mutation 설정이 `retry: false`라 자동 재시도는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "lines": "4-11"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "152-216"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "19-24"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "drafts.ts loadDraft",
+      "condition": "getItem 예외, JSON.parse 실패, 모양 검사(isDraft) 실패(필드 타입 불일치·배열 아님·null 등)",
+      "handling": "try/catch와 isDraft로 null을 돌려준다. 임시본이 없는 것으로 보고 복원 배너를 띄우지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "loadDraft",
+          "lines": "21-38"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+          "lines": "87-90"
+        }
+      ]
+    },
+    {
+      "where": "drafts.ts saveDraft",
+      "condition": "setItem 예외(QuotaExceededError·비공개 모드)",
+      "handling": "false를 돌려준다. 호출부가 `draftFailed`를 true로 두어 '임시본을 저장하지 못했습니다' 문구를 보여 주고, dirty면 beforeunload 확인을 건다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "40-43"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "112,143-148,214,281"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+          "lines": "91-94"
+        }
+      ]
+    },
+    {
+      "where": "drafts.ts clearDraft",
+      "condition": "removeItem 예외",
+      "handling": "예외를 삼키고 임시본을 그대로 둔다. 새 글 생성 뒤 'new' 임시본이 남으면, 그것을 복원해 다시 저장할 때 중복 생성(slug 409)으로 이어질 수 있다. 코드 주석도 이를 '미검증 잔여 위험'으로 인정한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "45-47"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "189-195"
+        }
+      ]
+    },
+    {
+      "where": "drafts.ts loadDraft/saveDraft/clearDraft의 기본 인자 `storage = window.localStorage`",
+      "condition": "`window.localStorage` 속성 접근 자체가 예외를 던지는 환경(저장소 접근이 차단된 브라우저 설정 등)",
+      "handling": "처리 없음(예외 전파). 기본 인자는 try 블록 밖에서 평가된다. 그래서 `Editor`의 useState 초기화에서 부르는 loadDraft가 예외를 던지면 렌더가 실패하고, 루트 errorElement(RouteError)로 갈 것으로 추론한다. 재현하지는 않았다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "31-47"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "59-62"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "18-20"
+        }
+      ]
+    },
+    {
+      "where": "PostEditorPage.tsx flushDraft",
+      "condition": "떠나는 중(언마운트·pagehide)이거나 submit 직전에 saveDraft가 실패함",
+      "handling": "반환값을 무시한다. submit 경로의 실패도 화면에 따로 표시되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "125-132,236"
+        }
+      ]
+    },
+    {
+      "where": "PostEditorPage.tsx save.onSuccess(새 글)",
+      "condition": "글은 서버에 생성됐으나 그사이 친 내용을 새 id 키로 saveDraft하지 못함",
+      "handling": "이동하지 않는다. 'new' 임시본을 지우고 createdPostId로 화면을 잠근다(저장 버튼 비활성, 자동 저장·flush 중단). draftFailed=true로 beforeunload 경고를 켜고, '복사해 두고 방금 만든 글 열기' 안내를 띄운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "182-202,284,308-314"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+          "lines": "226-257"
+        }
+      ]
+    },
+    {
+      "where": "PostEditorPage.tsx save.onError",
+      "condition": "저장 실패(400·409·네트워크·401 등)",
+      "handling": "임시본은 건드리지 않는다. submit 직전 flushDraft로 남긴 임시본이 유지된다. 409 화면(ConflictPanel)은 '내 변경은 임시본으로 보관되어 있습니다'라고 안내한다. 자동 재시도는 없다(mutations retry: false).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "217-236"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+          "lines": "17"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "23"
+        }
+      ]
+    },
+    {
+      "where": "PostEditorPage.tsx 409 재조회 404",
+      "condition": "충돌 뒤 최신본 재조회가 404(다른 곳에서 삭제됨)",
+      "handling": "'화면의 내용은 그대로 있으니 복사해 새 글로 저장하라'는 고정 문구로 안내한다. 임시본이 남아 있다고 단정하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "25-32"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "복원 여부를 고르기 전(pendingDraft가 있음)에는 자동 저장 effect와 flushDraft가 모두 쓰지 않아 기존 임시본이 보존된다. 하지만 그 상태에서 편집한 내용은, 고르지 않고 떠나면 임시본에 남지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "108,126"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+          "lines": "326-335"
+        }
+      ]
+    },
+    {
+      "text": "'임시본 복원' 직후 settled가 아직 기준선이면 `clearDraft(draftKey)`가 먼저 실행되고, 1초 뒤 saveDraft로 다시 쓴다. 그 1초 안에 떠나도 언마운트·pagehide flush가 복원값을 쓴다. 다만 pagehide가 오지 않는 종료(프로세스 강제 종료 등)에서는 이 구간에 임시본이 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "88-89,104-113,125-140,292"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "lines": "4-11"
+        }
+      ]
+    },
+    {
+      "text": "pendingDraft가 떠 있는 동안 입력을 바꾼 뒤 '임시본 복원'을 누르면 경로가 달라진다. settled가 복원 전 편집값이라 기준선과 다르므로, 자동 저장 effect가 clearDraft 대신 그 편집값을 먼저 saveDraft로 쓴다. 1초 뒤 복원값으로 다시 덮인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "104-113,292"
+        }
+      ]
+    },
+    {
+      "text": "기존 글 onSuccess는 두 판단을 서로 다른 값으로 한다. 임시본 삭제·재작성과 재마운트는 fieldsRef 기준 `unchanged`로 정하고, 화면 입력에 서버값을 넣을지는 `setFields` 업데이터의 prev로 정한다. 주석은 fieldsRef가 한 렌더 뒤처질 수 있다고 밝힌다. 두 값이 갈라지면 임시본은 지워졌는데 fields는 사용자 입력 그대로 남을 수 있다. 이때 임시본은 다음 자동 저장이나 flush에서 다시 쓰일 것으로 추론한다. 재현하지는 않았다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "save.onSuccess",
+          "lines": "156-162,204-215"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "81-82"
+        }
+      ]
+    },
+    {
+      "text": "복원된 fields에 딸려 온 `baseVersion`·`savedAt`은 편집해도 사라지지 않고, 복원 뒤 첫 저장 요청 본문에 실린다. 반면 임시본에 쓸 때는 두 값이 현재 값으로 덮이므로, 저장된 임시본이 낡은 값으로 오염되지는 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "76,112,131,150,155,214,292,335"
+        }
+      ]
+    },
+    {
+      "text": "임시본의 baseVersion이 현재 서버 version과 달라도 복원할 수 있다. 이때 배너가 '복원 후 저장하면 서버의 변경을 덮어씁니다'라고 경고한다. 저장 요청은 현재 서버 version(`baseline.version`)을 싣기 때문에 409 없이 덮어쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "155,291"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+          "lines": "122-132"
+        }
+      ]
+    },
+    {
+      "text": "기존 글 임시본을 복원하면 draft의 slug가 fields에 들어간다. 편집 화면에서는 slug 입력이 readOnly지만, localStorage 값이 조작돼 slug가 서버본과 다르면 PUT 요청에 다른 slug가 실린다. 서버 `PostEndpoints`는 `req.Slug != post.Slug`면 'slug는 생성 후 바꿀 수 없습니다' 400으로 거부하고, 화면은 이를 필드 오류로 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "219,292,322"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "193-194"
+        }
+      ]
+    },
+    {
+      "text": "임시본의 모든 필드가 기준선과 같으면(sameFields) 복원을 제안하지 않는다. sameFields는 태그 순서까지 비교한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "49-54"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "61"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+          "lines": "95-99"
+        }
+      ]
+    },
+    {
+      "text": "새 글 임시본 키는 'new' 하나뿐이다. 여러 탭에서 각각 새 글을 쓰거나 같은 글을 여러 탭에서 편집하면 같은 키를 서로 덮어쓴다(마지막 쓰기 우선). 탭 사이 동기화(storage 이벤트)는 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "16-17"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "51"
+        }
+      ]
+    },
+    {
+      "text": "임시본에는 만료·정리 로직이 없다. drafts 모듈을 쓰는 화면이 PostEditorPage뿐이라 글 삭제나 로그아웃에서도 임시본을 지우지 않는다. 삭제된 글의 임시본은 상세 조회가 404라 다시 열 방법이 없는 채 남는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "13,44"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+          "lines": "114"
+        }
+      ]
+    },
+    {
+      "text": "새 글 생성이 성공한 뒤 서버가 제목 공백을 다듬어 입력이 기준선과 달라져도, `skipFlushRef`가 언마운트 flush를 막으므로 'new' 임시본이 되살아나지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "170-176"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+          "lines": "337-350"
+        }
+      ]
+    },
+    {
+      "text": "자동 저장 effect의 의존성에서 baseline을 뺐다. 저장 성공 직후 낡은 settled 값이 새 baseVersion과 함께 다시 쓰이던 결함을 막기 위해서다(주석: 실측 결함). 이에 대한 회귀 테스트가 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "98-113"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+          "lines": "73-86,352-362"
+        }
+      ]
+    },
+    {
+      "text": "savedAt은 문자열인지만 검사한다. 날짜로 해석되지 않으면 `formatDateTime`이 원문 문자열을 그대로 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "24"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "lines": "13-16"
+        }
+      ]
+    },
+    {
+      "text": "디바운스가 끝나기 전에 떠나도(401 전환, 링크 이동, 탭 닫기) 언마운트·pagehide flush가 마지막 입력을 남긴다. 401 처리는 location을 직접 바꾸지 않고 RequireAuth가 화면을 바꾼다. 그래서 로그인 뒤 같은 편집 화면을 열면 복원을 제안받는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "115-140"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+          "lines": "308-324"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "noteAuthFailure",
+          "lines": "7-13"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "이 기능에는 console 로그나 원격 로깅이 없다. 실패는 모두 화면으로만 알린다: `draftFailed` 경고 문구, createdPostId 잠금 안내, beforeunload 확인.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "31-47"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "281,308-314"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F005_SEQUENCE",
+      "type": "sequence",
+      "title": "임시본 로드·복원·자동 저장·저장 후 정리",
+      "summary": "Editor가 마운트할 때 drafts.ts로 임시본을 읽어 복원을 제안하고, 편집 중에는 useDebounced를 거쳐 localStorage에 쓰며, 저장 성공 뒤에는 onSuccess가 임시본을 지우거나 새 version으로 다시 쓴다.",
+      "details": "PostEditorPage가 key(postId 또는 new)로 Editor를 마운트하면 loadDraft → isDraft → sameFields 순서로 복원 배너 여부를 정한다.\n\n'복원'을 누르면 곧바로 쓰지 않는다. settled가 아직 기준선이면 clearDraft가 먼저 돌고, 1000ms 뒤에 saveDraft한다. 자동 저장은 settled와 기준선을 비교해 clear 또는 save로 갈린다. flushDraft는 submit·언마운트·pagehide에서 fieldsRef의 값으로 즉시 쓴다.\n\n저장 성공 뒤 분기:\n- 새 글이면 'new' 키를 지우거나 saved.id 키로 옮긴다.\n- 기존 글이면 unchanged 여부에 따라 clear하거나 saved.version으로 다시 쓴다.",
+      "mermaid": "sequenceDiagram\n    participant PostEditorPage\n    participant Editor\n    participant useDebounced\n    participant drafts as drafts.ts\n    participant localStorage\n    PostEditorPage->>Editor: mount key=postId or new\n    Editor->>drafts: loadDraft(draftKey)\n    drafts->>localStorage: getItem pb.draft.v1 key\n    localStorage-->>drafts: raw or null\n    drafts-->>Editor: Draft or null after isDraft\n    Editor->>drafts: sameFields(draft, baseline)\n    alt 임시본이 기준선과 다름\n        Editor-->>Editor: pendingDraft 배너 표시\n        alt 복원\n            Editor->>Editor: replaceAll(pendingDraft) setPendingDraft null\n            Editor->>drafts: clearDraft (settled 아직 기준선)\n            useDebounced-->>Editor: 1000ms 뒤 settled 복원값\n            Editor->>drafts: saveDraft 복원값\n        else 버리기\n            Editor->>drafts: clearDraft\n        end\n    end\n    Editor->>useDebounced: fields\n    useDebounced-->>Editor: settled after 1000ms\n    alt settled equals baseline\n        Editor->>drafts: clearDraft\n    else 다름\n        Editor->>drafts: saveDraft with baseVersion savedAt\n        drafts->>localStorage: setItem\n        drafts-->>Editor: true or false to draftFailed\n    end\n    Editor->>Editor: flushDraft on submit unmount pagehide\n    Editor->>drafts: saveDraft from fieldsRef\n    Editor->>Editor: save.onSuccess setBaseline\n    alt 새 글\n        alt 입력 그대로\n            Editor->>drafts: clearDraft new 후 navigate\n        else 그사이 변경\n            Editor->>drafts: saveDraft saved.id\n            Editor->>drafts: clearDraft new 성공이면 navigate 실패면 잠금\n        end\n    else 기존 글\n        Editor->>Editor: setFields 업데이터 prev 기준\n        alt unchanged\n            Editor->>drafts: clearDraft draftKey\n        else 그사이 변경\n            Editor->>drafts: saveDraft with saved.version\n        end\n    end",
+      "nodes": [
+        {
+          "node": "PostEditorPage",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "PostEditorPage"
+        },
+        {
+          "node": "Editor",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor"
+        },
+        {
+          "node": "useDebounced",
+          "code": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "symbol": "useDebounced"
+        },
+        {
+          "node": "drafts.ts",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "loadDraft/saveDraft/clearDraft/sameFields"
+        },
+        {
+          "node": "localStorage",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "window.localStorage 기본 인자"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F005_FLOW",
+      "type": "flowchart",
+      "title": "저장 성공(onSuccess) 뒤 임시본 처리 분기",
+      "summary": "onSuccess는 fieldsRef 기준 unchanged와 새 글 여부로 네 갈래로 나뉜다. 새 글에서 옮겨 쓰기에 실패하면 화면을 잠근다.",
+      "details": "먼저 unchanged를 계산하고 기준선을 서버값으로 맞춘다.\n\n기존 글은 setFields 업데이터가 prev 기준으로 서버값 대입을 따로 결정한다. 그다음 unchanged면 clearDraft(필요 시 편집기 재마운트)하고, 아니면 saved.version으로 saveDraft한다.\n\n새 글은 unchanged면 'new'를 지우고 이동한다. 아니면 saved.id 키로 옮겨 쓰고, 성공하면 이동한다. 실패하면 'new'를 지운 뒤 createdPostId로 화면을 잠근다.",
+      "mermaid": "flowchart TD\n    onSuccess[\"save.onSuccess\"] --> computeUnchanged[\"unchanged = sameFields fieldsRef submitted\"]\n    computeUnchanged --> setBaseline[\"setBaseline 서버값과 saved.version\"]\n    setBaseline --> isNew{\"postId === null\"}\n    isNew -- 아니오 --> setFieldsUpdater[\"setFields 업데이터 prev가 submitted와 같으면 fromServer\"]\n    setFieldsUpdater --> unchangedEdit{\"unchanged\"}\n    unchangedEdit -- 예 --> clearEdit[\"clearDraft draftKey\"]\n    clearEdit --> contentDiff{\"서버 본문이 제출 본문과 다름\"}\n    contentDiff -- 예 --> remountEditor[\"setEditorKey 편집기 재마운트\"]\n    unchangedEdit -- 아니오 --> resaveEdit[\"saveDraft draftKey baseVersion=saved.version\"]\n    resaveEdit --> draftFailedEdit[\"setDraftFailed 실패 여부\"]\n    isNew -- 예 --> unchangedNew{\"unchanged\"}\n    unchangedNew -- 예 --> clearNew[\"clearDraft NEW_POST_KEY\"]\n    clearNew --> skipAndNavigate[\"skipFlushRef true 후 navigate posts id\"]\n    unchangedNew -- 아니오 --> moveDraft{\"saveDraft saved.id 성공\"}\n    moveDraft -- 예 --> clearNewMoved[\"clearDraft NEW_POST_KEY\"]\n    clearNewMoved --> skipAndNavigate\n    moveDraft -- 아니오 --> clearNewFailed[\"clearDraft NEW_POST_KEY\"]\n    clearNewFailed --> lockScreen[\"skipFlushRef, setCreatedPostId, setDraftFailed true, setPendingDraft null\"]",
+      "nodes": [
+        {
+          "node": "save.onSuccess",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "save.onSuccess"
+        },
+        {
+          "node": "clearDraft draftKey",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "clearDraft"
+        },
+        {
+          "node": "saveDraft draftKey baseVersion=saved.version",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "saveDraft"
+        },
+        {
+          "node": "clearDraft NEW_POST_KEY",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "NEW_POST_KEY / clearDraft"
+        },
+        {
+          "node": "skipFlushRef, setCreatedPostId, setDraftFailed true, setPendingDraft null",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "save.onSuccess 잠금 분기"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F005_DATAFLOW",
+      "type": "dataflow",
+      "title": "복원된 Draft 속성이 저장 요청 본문까지 가는 경로",
+      "summary": "복원된 Draft의 baseVersion·savedAt은 fields에 남아 저장 요청 JSON에 실린다. 임시본에 다시 쓸 때는 현재 값으로 덮인다.",
+      "details": "localStorage의 값은 loadDraft와 isDraft를 거쳐 pendingDraft가 된다. replaceAll을 거치면 fields 전체가 Draft 객체로 바뀐다. set과 시리즈 select는 prev를 펼치므로 두 속성이 유지된다.\n\nsubmit 경로에서는 endpoints.ts와 client.ts request의 JSON.stringify가 요청 본문을 만든다. 서버 UpsertPostRequest에는 두 속성이 없다. 자동 저장 경로에서는 settled를 거친 saveDraft가 두 값을 현재 값으로 덮어쓴다.\n\n두 속성은 onSuccess의 setFields 업데이터나 onTakeServer의 fromServer로만 fields에서 사라진다.",
+      "mermaid": "flowchart LR\n    localStorage[\"localStorage pb.draft.v1 key\"] --> loadDraft[\"drafts.ts loadDraft isDraft\"]\n    loadDraft --> pendingDraft[\"Editor pendingDraft Draft\"]\n    pendingDraft --> replaceAll[\"Editor replaceAll setFields\"]\n    replaceAll --> fields[\"Editor fields with baseVersion savedAt\"]\n    fields --> set[\"Editor set prev spread\"]\n    set --> fields\n    fields --> submit[\"Editor submit save.mutate\"]\n    submit --> endpoints[\"endpoints.ts posts.create or posts.update\"]\n    endpoints --> request[\"client.ts request JSON.stringify\"]\n    request --> UpsertPostRequest[\"PostDtos.cs UpsertPostRequest\"]\n    fields --> settled[\"useDebounced settled\"]\n    settled --> saveDraft[\"drafts.ts saveDraft baseVersion savedAt overwritten\"]\n    saveDraft --> localStorage\n    onSuccess[\"Editor save.onSuccess setFields prev fromServer\"] --> fields\n    onTakeServer[\"ConflictPanel onTakeServer fromServer\"] --> fields",
+      "nodes": [
+        {
+          "node": "drafts.ts loadDraft isDraft",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "loadDraft"
+        },
+        {
+          "node": "Editor replaceAll setFields",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "replaceAll"
+        },
+        {
+          "node": "endpoints.ts posts.create or posts.update",
+          "code": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "posts"
+        },
+        {
+          "node": "client.ts request JSON.stringify",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "PostDtos.cs UpsertPostRequest",
+          "code": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "UpsertPostRequest"
+        },
+        {
+          "node": "useDebounced settled",
+          "code": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "symbol": "useDebounced"
+        },
+        {
+          "node": "ConflictPanel onTakeServer fromServer",
+          "code": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+          "symbol": "onTakeServer"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F005_STATE",
+      "type": "state",
+      "title": "편집 화면의 임시본 상태",
+      "summary": "임시본은 NoDraft·PendingDraft·Stored·DraftFailed·Locked 사이를 오간다. 저장 성공과 충돌 해결이 Stored를 NoDraft로 되돌린다.",
+      "details": "PendingDraft는 마운트할 때만 생긴다. 복원이나 버리기로 NoDraft가 된다(복원은 effect의 clearDraft를 거친다). 자동 저장이 성공하면 Stored, 실패하면 DraftFailed가 된다.\n\n기존 글 저장 성공에서 unchanged면 NoDraft가 되고, 그사이 변경이 있으면 새 baseVersion으로 Stored에 머문다. onTakeServer도 NoDraft로 만든다.\n\n새 글 생성은 navigate로 이 인스턴스를 끝낸다. 옮겨 쓰기에 실패하면 Locked가 된다.",
+      "mermaid": "stateDiagram-v2\n    [*] --> NoDraft\n    [*] --> PendingDraft: loadDraft가 기준선과 다른 임시본 반환\n    PendingDraft --> NoDraft: 임시본 복원 후 effect clearDraft\n    PendingDraft --> NoDraft: 버리기 clearDraft\n    NoDraft --> Stored: settled 변경 saveDraft true\n    NoDraft --> DraftFailed: saveDraft false\n    Stored --> NoDraft: settled equals baseline clearDraft\n    Stored --> NoDraft: 저장 성공 unchanged clearDraft\n    Stored --> Stored: 저장 성공 중 변경 saveDraft 새 baseVersion\n    Stored --> NoDraft: onTakeServer clearDraft\n    Stored --> DraftFailed: saveDraft false\n    DraftFailed --> Stored: 다음 saveDraft 성공\n    Stored --> [*]: 새 글 생성 성공 new 키 clearDraft 후 navigate\n    Stored --> Locked: 새 글 생성 후 saveDraft saved.id 실패 new 키 clearDraft\n    Locked --> [*]",
+      "nodes": [
+        {
+          "node": "PendingDraft",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "pendingDraft state"
+        },
+        {
+          "node": "DraftFailed",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "draftFailed state"
+        },
+        {
+          "node": "Locked",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "createdPostId state"
+        },
+        {
+          "node": "Stored",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "saveDraft"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "복원된 fields에 딸려 요청 본문에 실리는 `baseVersion`·`savedAt`을 서버 역직렬화가 실제로 무시하는지는 요청이나 테스트로 확인하지 않았다. `UpsertPostRequest`에 해당 속성이 없고 API 코드에 알 수 없는 속성을 거부하는 설정이 없다는 점만 확인했다.",
+    "`window.localStorage` 접근 자체가 예외를 던지는 브라우저 환경에서 편집 화면이 실제로 오류 화면(RouteError)으로 가는지는 재현하지 않았다.",
+    "여러 탭에서 같은 키로 동시에 편집할 때 실제 사용자에게 미치는 영향은 측정하지 않았다.",
+    "기존 글 onSuccess에서 fieldsRef 기준 `unchanged`와 setFields 업데이터의 prev 기준 판단이 실제로 갈라지는 타이밍이 생기는지는 재현하지 않았다.",
+    "검증에서 지적된 문제는 모두 다른 기능 행에 대한 것이다. F006 행의 의존 목록(F001·F003·F005·F007·F008·F011·F018·F020·F029), F008 행의 의존 목록(F001·F018·F020·F029), F002·F007·F011·F018 행이 대상이다. 이 세션의 출력은 F005 기능 객체 하나뿐이어서 그 표 행을 여기서 고칠 수 없다. F005의 의존은 코드로 다시 확인해 F003·F006·F029로 둔다. F003은 PostEditorPage·posts.create/update, F006은 ConflictPanel·onTakeServer의 clearDraft, F029는 routes.tsx 지연 로딩·noteAuthFailure·request다. 참고로 F006이 F005에 의존한다는 지적은 ConflictPanel 문구와 onTakeServer의 clearDraft로 보아 코드와 맞는다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "Draft/isDraft/loadDraft/saveDraft/clearDraft/sameFields",
+      "lines": "1-54"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor",
+      "lines": "50-237"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "save.onSuccess",
+      "lines": "156-216"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "복원 배너·경고·입력 핸들러",
+      "lines": "281-342"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "symbol": "useDebounced",
+      "lines": "4-16"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "symbol": "ConflictPanel",
+      "lines": "7-26"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "lines": "13,18-30"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure / createQueryClient",
+      "lines": "7-27"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "posts",
+      "lines": "20-21"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "lines": "51"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "symbol": "UpsertPostRequest",
+      "lines": "47-48"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "slug 불변 검사",
+      "lines": "193-194"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+      "symbol": "describe('drafts')",
+      "lines": "71-99"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+      "lines": "73-86,97-132,201-362"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+      "lines": "114"
+    }
+  ],
+  "history": []
+}

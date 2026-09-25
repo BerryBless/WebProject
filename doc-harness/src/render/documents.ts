@@ -38,6 +38,8 @@ export interface UpdateDocsOptions {
   issues?: Map<string, string[]>;
   /** 이 문서들만 다시 만든다(수정 루프). */
   onlyDocs?: Set<string>;
+  /** 수정 루프 회차. 같은 이슈로 다시 고칠 때 캐시된 같은 답을 재사용하지 않도록 항목 id에 섞는다. */
+  fixAttempt?: number;
 }
 
 /** docs/generated를 읽어 이름 → 본문 맵으로. */
@@ -115,7 +117,7 @@ function previousSectionsJson(prev: string | undefined): string {
   return JSON.stringify(sections.map((s) => ({ id: s.id, body: s.body.slice(0, 6000) })), null, 1).slice(0, 60_000);
 }
 
-async function renderNarrativeDoc(ctx: PhaseContext, name: string, ws: CurrentWorkspace, prev: string | undefined, truth: string, issues: string[] | undefined, extraHash: string): Promise<{ md: string; diagrams: Diagram[] }> {
+async function renderNarrativeDoc(ctx: PhaseContext, name: string, ws: CurrentWorkspace, prev: string | undefined, truth: string, issues: string[] | undefined, extraHash: string, fixAttempt = 0): Promise<{ md: string; diagrams: Diagram[] }> {
   const spec = DOC_SPECS[name];
   if (!spec) throw new Error(`서술 문서 사양이 없다: ${name}`);
   const prompt = buildPrompt('08_document', {
@@ -124,11 +126,12 @@ async function renderNarrativeDoc(ctx: PhaseContext, name: string, ws: CurrentWo
     inputs: JSON.stringify(spec.inputs(ws), null, 1).slice(0, 70_000),
     truthLists: name === '05_CONFIGURATION.md' || name === '08_API.md' ? truth : '(이 문서에는 제공하지 않음)',
     readHints: spec.readHints,
+    docNames: [...TEMPLATE_DOCS, ...NARRATIVE_DOCS, ...ws.features.features.filter((f) => f.status !== 'REMOVED').map((f) => featureDocName(f.id, f.slug))].sort().map((d) => `- ${d}`).join('\n'),
     previous: previousSectionsJson(prev),
     issues: issues?.length ? issues.map((i) => `- ${i}`).join('\n') : '(없음)',
     today: today(),
   });
-  const out = await callClaude<DocumentOutput>(ctx, { itemId: `doc:${name}${issues?.length ? ':fix' + sha256(issues.join('|')).slice(0, 6) : ''}`, phase: spec.phase, schemaName: 'document', prompt, outFile: `docs/${name}.json`, extraHash });
+  const out = await callClaude<DocumentOutput>(ctx, { itemId: `doc:${name}${issues?.length ? ':fix' + sha256(issues.join('|')).slice(0, 6) + (fixAttempt ? `-${fixAttempt}` : '') : ''}`, phase: spec.phase, schemaName: 'document', prompt, outFile: `docs/${name}.json`, extraHash });
   const prevSections = prev ? new Map(parseSections(prev).sections.map((s) => [s.id, s])) : new Map<string, Section>();
   const sections: { id: string; body: string }[] = [];
   const diagrams: Diagram[] = [];
@@ -271,7 +274,7 @@ export async function updateDocs(ctx: PhaseContext, opts: UpdateDocsOptions): Pr
     const changedInputs = baseline?.documents[name]?.inputsHash !== hash;
     const inScope = !incremental || affectedDocs.has(name) || changedInputs || !prev || (issues?.has(name) ?? false);
     if (!inScope) { skipped.push(name); continue; }
-    const r = await renderNarrativeDoc(ctx, name, ws, incremental ? prev : undefined, truthText, issues?.get(name), hash);
+    const r = await renderNarrativeDoc(ctx, name, ws, incremental ? prev : undefined, truthText, issues?.get(name), hash, opts.fixAttempt ?? 0);
     let md = r.md;
     if (incremental && prev) {
       const prevSections = new Map(parseSections(prev).sections.map((s) => [s.id, s]));

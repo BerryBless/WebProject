@@ -1,0 +1,344 @@
+{
+  "score": {
+    "coverage": 86,
+    "accuracy": 91
+  },
+  "hallucinations": [
+    {
+      "document": "13_SECURITY.md",
+      "section": "evidence",
+      "type": "NONEXISTENT_FILE_PATH",
+      "description": "근거 표에 `PortfolioBlog.Api/Features/SiteEndpoints.cs | 71-80`이 있지만 이 경로의 파일은 없다. SiteEndpoints는 `PortfolioBlog.Api/Pages/SiteEndpoints.cs`에 있다. RequireHost(publicHost) 호출(71·74·76·80행)은 그 파일에 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints",
+          "lines": "66-80"
+        }
+      ]
+    }
+  ],
+  "missingItems": [
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "section": "key-points",
+      "type": "MISSING_PATH_RULE",
+      "description": "ErrorResponses가 ProblemDetails를 쓰는 경로 접두사는 `/api`만이 아니라 MachinePrefixes 네 개(`/api`, `/attachments`, `/health`, `/openapi`)다. 공개 첨부 GET의 본문 없는 404(TypedResults.NotFound)는 고정 HTML이 아니라 ProblemDetails를 받는다. 문서는 이 규칙을 빠뜨렸다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.MachinePrefixes",
+          "lines": "17"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints.GetAsync",
+          "lines": "90, 100-101"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "section": "key-points",
+      "type": "INCORRECT_BEHAVIOR",
+      "description": "문서는 '/api는 ProblemDetails, 공개 경로는 고정 HTML'로 나눈다(전역 핸들러 표, 404 행, ERR014). 코드에서는 `/attachments`·`/health`·`/openapi`도 ProblemDetails다. 그래서 공개 표면인 첨부 404는 HTML이 아니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync",
+          "lines": "45-56"
+        }
+      ]
+    },
+    {
+      "document": "13_SECURITY.md",
+      "section": "details",
+      "type": "OVERSTATED_CLAIM",
+      "description": "'이미 잘 처리된 것'에 '보안 헤더가 모든 응답에 붙고'라고 적혀 있다. 코드 주석에 따르면 HostFiltering 시작 필터의 400은 SecurityHeadersMiddleware보다 바깥에서 만들어진다. 그래서 이 응답에는 보안 헤더가 붙지 않는다(HostFilteringTests.RejectedHost_400_HasNoBody_AndNoSecurityHeaders로 실측). 대신 IncludeFailureMessage=false로 본문을 없앴다. Kestrel이 앱 도달 전에 거부하는 응답에도 헤더가 없다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "38-41, 93-98"
+        }
+      ]
+    },
+    {
+      "document": "14_PERFORMANCE.md",
+      "section": "key-points",
+      "type": "INCORRECT_BEHAVIOR",
+      "description": "'동기 파일 I/O는 기동 probe와 AttachmentJanitor에만 있음'은 틀렸다. 요청 경로에도 동기 파일 I/O가 있다. 업로드 경로 FileSystemAttachmentStore.SaveAsync는 Directory.CreateDirectory, 동기 FileStream(FileOptions.Asynchronous 없음), File.Exists, File.Move를 쓴다. 삭제 경로 TryDelete는 File.Delete를 쓴다. 공개 첨부 GET은 FileStream 생성자로 파일을 동기로 연다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "SaveAsync / TryDelete",
+          "lines": "166-170, 191-231"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "GetAsync",
+          "lines": "98"
+        }
+      ]
+    },
+    {
+      "document": "14_PERFORMANCE.md",
+      "section": "key-points",
+      "type": "INCORRECT_BEHAVIOR",
+      "description": "'요청 본문 상한 | 기본 256KB, 미리보기 200KB'라고 적혀 있다. 미리보기에는 별도 본문 상한(RequestSizeLimit)이 없고 ApiBodyLimitMiddleware의 256KB(413)가 똑같이 적용된다. 200KB는 markdown 필드의 UTF-8 바이트 수 검증이다. 이를 넘으면 400 ValidationProblem이 나온다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render",
+          "lines": "61-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21, 41-51"
+        }
+      ]
+    },
+    {
+      "document": "18_GLOSSARY.md",
+      "section": "one-liner",
+      "type": "INCORRECT_COUNT",
+      "description": "one-liner와 요약은 '용어 47개'라고 하지만 용어 표의 행은 41개다. 또 '용어는 가나다/알파벳 순'이라고 하지만 실제 순서가 아니다. 예를 들어 ConflictPanel 뒤에 '내용 주소'·'낙관적 동시성'·'동시 실행 제한기'·'임시본'이 오고, 그다음에 healthcheck가 온다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "(문서 자체 표 구성 확인)"
+        }
+      ]
+    },
+    {
+      "document": "18_GLOSSARY.md",
+      "section": "terms",
+      "type": "WRONG_CODE_LOCATION",
+      "description": "MarkdownTooComplexException 행의 코드 이름·경로가 'PostModel (PortfolioBlog.Api/Pages)'로 되어 있다. 예외 클래스는 `PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs`에 있다. PostModel은 이 예외를 잡아 쓰는 곳일 뿐이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+          "symbol": "MarkdownTooComplexException"
+        }
+      ]
+    },
+    {
+      "document": "19_UNKNOWN_AND_TODO.md",
+      "section": "unknowns",
+      "type": "STALE_UNKNOWN",
+      "description": "코드와 다른 생성 문서로 이미 확인된 사항이 UNKNOWN으로 남아 있다. (1) ApiBodyLimitMiddleware의 한도·상태 코드는 JsonLimitBytes=262,144, 초과 시 413이다(Architecture·API 절). (2) 첨부 200 응답의 Cache-Control은 public, max-age=31536000, immutable이다(성능 절). (3) Caddyfile 에지 방어는 13_SECURITY가 인용한다(보안 절). (4) AttachmentJanitor 주기·조건은 Interval 6시간, MinimumAge 1시간이다(API 절). (5) 옵션 기본값은 appsettings가 아니라 *Options.cs 코드에 있다(Architecture 절). (6) CI 잡 구성은 15_TESTING이 확인했다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21, 47-51"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "108"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "32, 35"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "lines": "18-30"
+        },
+        {
+          "file": ".github/workflows/ci.yml"
+        }
+      ]
+    },
+    {
+      "document": "13_SECURITY.md",
+      "section": "unknowns",
+      "type": "STALE_UNKNOWN",
+      "description": "'미들웨어 등록 순서(HostFiltering과 SecurityHeadersMiddleware의 상대 위치)를 확인하지 못했다'고 적었지만 코드로 확정할 수 있다. HostFiltering은 프레임워크 시작 필터라서 SecurityHeadersMiddleware(Program.cs 98행, 앱 미들웨어 맨 앞)보다 바깥이다. 이어지는 순서는 UseTrustedForwardedHeaders → UseExceptionHandler → UseStatusCodePages → UseStaticFiles → AdminSurfaceMiddleware → UseRateLimiter → UseAuthentication → UseAuthorization → ApiBodyLimitMiddleware다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "93-108"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "diagram": "ERR_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "설명은 Program 노드를 'UseExceptionHandler 기본 처리(500)'라고 하는데, 코드 근거 표는 이 노드를 `Program.cs (UseStatusCodePages)`에 연결한다. '그 밖의 예외' 간선이 도착하는 곳은 Program.cs 100행 UseExceptionHandler다. UseStatusCodePages(101행)가 아니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100-101"
+        }
+      ]
+    },
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "diagram": "ERR_FLOW",
+      "type": "DIAGRAM_ABSTRACT_NODE",
+      "description": "HttpResponse 노드는 코드의 클래스나 파일이 아니라 추상 개념이다. 그런데 코드 근거 표는 이 노드를 `ErrorResponses.cs`에 연결해 ErrorResponses 노드와 겹친다. AdminSurfaceMiddleware·DbConflict는 ErrorResponses를 거치지 않는다고 설명하면서 같은 파일을 근거로 댄 것은 모순이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.Reject",
+          "lines": "112-113"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.Problem",
+          "lines": "50-51"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "section": "unknowns",
+      "type": "SELF_CONTRADICTION",
+      "description": "unknowns에는 '워크스페이스 발췌가 F016에서 잘려 F017 이후 기능의 실패 경로는 반영하지 못함'이라고 적혀 있다. 하지만 본문 ERR012(HighlightCss, F017), ERR008(F009 janitor 연계), 기동 실패 경로(F021), AttachmentJanitor(F024)는 F017 이후 기능의 실패 경로를 이미 다룬다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "lines": "23"
+        }
+      ]
+    }
+  ],
+  "fixRequired": [
+    {
+      "doc": "13_SECURITY.md",
+      "section": "evidence",
+      "issue": "SiteEndpoints 근거 경로를 `PortfolioBlog.Api/Features/SiteEndpoints.cs`에서 `PortfolioBlog.Api/Pages/SiteEndpoints.cs`로 고친다. section=evidence",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "66-80"
+        }
+      ]
+    },
+    {
+      "doc": "13_SECURITY.md",
+      "section": "details",
+      "issue": "'보안 헤더가 모든 응답에 붙고'를 고친다. HostFiltering 400과 Kestrel 거부 응답에는 헤더가 없고, 대신 HostFiltering 400은 본문도 없다는 점을 반영한다. section=details",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "38-41, 93-98"
+        }
+      ]
+    },
+    {
+      "doc": "13_SECURITY.md",
+      "section": "unknowns",
+      "issue": "HostFiltering과 SecurityHeadersMiddleware의 상대 위치는 Program.cs 93-108행으로 확정되므로 UNKNOWN에서 빼고 실제 순서를 적는다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "93-108"
+        }
+      ]
+    },
+    {
+      "doc": "10_ERROR_HANDLING.md",
+      "section": "key-points",
+      "issue": "ErrorResponses의 ProblemDetails 대상 경로를 `/api`·`/attachments`·`/health`·`/openapi`로 바로잡고, 공개 첨부 404는 ProblemDetails라는 점을 반영한다(404 행과 ERR014 포함). section=key-points",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "17, 45-56"
+        }
+      ]
+    },
+    {
+      "doc": "10_ERROR_HANDLING.md",
+      "section": "ERR_FLOW",
+      "issue": "Program 노드의 코드 근거를 UseExceptionHandler(Program.cs 100행)로 고친다. HttpResponse 노드는 ErrorResponses.cs에 연결하지 말고 추상 노드임을 밝히거나 없앤다. section=ERR_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100-101"
+        }
+      ]
+    },
+    {
+      "doc": "10_ERROR_HANDLING.md",
+      "section": "unknowns",
+      "issue": "F017 이후 실패 경로를 반영하지 못했다는 항목은 본문 ERR012 등과 모순되므로 지우거나 고친다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "lines": "23"
+        }
+      ]
+    },
+    {
+      "doc": "14_PERFORMANCE.md",
+      "section": "key-points",
+      "issue": "'동기 파일 I/O는 기동 probe와 AttachmentJanitor에만'을 고친다. 업로드 SaveAsync, 삭제 TryDelete, 공개 첨부 FileStream 열기에도 동기 파일 I/O가 있다. section=key-points",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "166-170, 191-231"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "98"
+        }
+      ]
+    },
+    {
+      "doc": "14_PERFORMANCE.md",
+      "section": "key-points",
+      "issue": "'미리보기 200KB'는 본문 상한이 아니라 markdown 필드 UTF-8 크기 검증(초과 시 400)이다. 미리보기 요청 본문 상한은 256KB(413)다. section=key-points",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "lines": "61-62"
+        }
+      ]
+    },
+    {
+      "doc": "18_GLOSSARY.md",
+      "section": "one-liner",
+      "issue": "용어 수 47개를 실제 표 행 수(41)에 맞추고, '가나다/알파벳 순'이라는 설명을 지우거나 표를 실제로 정렬한다. section=one-liner",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs"
+        }
+      ]
+    },
+    {
+      "doc": "18_GLOSSARY.md",
+      "section": "terms",
+      "issue": "MarkdownTooComplexException의 코드 경로를 `PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs`로 고친다. section=terms",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs"
+        }
+      ]
+    },
+    {
+      "doc": "19_UNKNOWN_AND_TODO.md",
+      "section": "unknowns",
+      "issue": "코드로 이미 확인된 항목을 UNKNOWN 목록에서 빼거나 확인됨으로 옮긴다. 해당 항목은 ApiBodyLimit 262,144바이트·413, 첨부 Cache-Control, Caddyfile 에지 방어, AttachmentJanitor 6시간·1시간, 옵션 코드 기본값, CI 잡 구성이다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21, 47-51"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "32, 35"
+        },
+        {
+          "file": ".github/workflows/ci.yml"
+        }
+      ]
+    }
+  ]
+}

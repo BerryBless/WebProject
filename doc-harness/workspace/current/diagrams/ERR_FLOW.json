@@ -1,0 +1,48 @@
+{
+  "decision": "UPDATED",
+  "mermaid": "flowchart LR\n  AdminSurfaceMiddleware -->|호스트 IP CSRF Origin 실패 404 403 Results.Problem 직접 기록| HttpResponse\n  RateLimitingExtensions -->|429 Retry-After| ErrorResponses\n  ApiBodyLimitMiddleware -->|413| ErrorResponses\n  PostEndpoints -->|xmin 23505 23503| DbConflict\n  DbConflict -->|TypedResults.Problem 409| HttpResponse\n  PostEndpoints -->|57014 55P03 RenderBusyException| OverloadExceptionHandler\n  OverloadExceptionHandler -->|503 Retry-After 5| ErrorResponses\n  PostEndpoints -->|그 밖의 예외| Program\n  ErrorResponses --> HttpResponse",
+  "changedEdges": [
+    "AdminSurfaceMiddleware --> ErrorResponses: 삭제(Results.Problem으로 HttpResponse에 직접 기록)",
+    "AdminSurfaceMiddleware --> HttpResponse: 추가",
+    "DbConflict --> ErrorResponses: 삭제(TypedResults.Problem 409)",
+    "DbConflict --> HttpResponse: 추가",
+    "ErrorResponses --> HttpResponse: 추가"
+  ],
+  "nodes": [
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.Reject"
+    },
+    {
+      "node": "ErrorResponses",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync"
+    },
+    {
+      "node": "ApiBodyLimitMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware"
+    },
+    {
+      "node": "DbConflict",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict"
+    },
+    {
+      "node": "OverloadExceptionHandler",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler"
+    },
+    {
+      "node": "Program",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "UseStatusCodePages"
+    },
+    {
+      "node": "HttpResponse",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs"
+    }
+  ],
+  "reason": "코드 확인 결과 AdminSurfaceMiddleware.Reject는 Results.Problem(...).ExecuteAsync로 직접 기록하고, DbConflict는 TypedResults.Problem(409)을 반환하므로 둘 다 ErrorResponses를 거치지 않는다. 413(ErrorResponses.WriteAsync 호출), 429(StatusCodePages 경유), 503은 기존대로다. 나머지 간선은 보존했다."
+}

@@ -102,12 +102,32 @@ describe('runPipeline (Fake, mini-project)', () => {
     expect(s).toContain('UP_TO_DATE');
   }, 120_000);
 
-  it('검증이 계속 실패하면 Run FAILED, baseline·문서 불변, 리포트에 남은 문제', async () => {
+  const persistentLlmIssue = () => {
+    const base = fakeResponder();
+    return new FakeClaudeRunner({ '*': (req: ClaudeRequest) => req.schemaName === 'verification' && req.id.startsWith('verify:features') ? { ...(base(req) as object), hallucinations: [{ document: 'features/F001_POST_LIST.md', type: 'GHOST', description: '없는 메서드', evidence: [] }] } : base(req) });
+  };
+
+  it('LLM 지적만 계속 남으면(결정적 차단 0) 잔여 지적을 19_UNKNOWN_AND_TODO에 적고 발행한다', async () => {
     const root = await tempMiniRepo();
     const paths = await testPaths(root);
     const cfg = loadConfig();
-    const base = fakeResponder();
-    const fake = new FakeClaudeRunner({ '*': (req: ClaudeRequest) => req.schemaName === 'verification' && req.id.startsWith('verify:features') ? { ...(base(req) as object), hallucinations: [{ document: 'features/F001_POST_LIST.md', type: 'GHOST', description: '없는 메서드', evidence: [] }] } : base(req) });
+    cfg.verification.max_iterations = 3;
+    const fake = persistentLlmIssue();
+    const r = await runPipeline({ mode: 'auto', cfg, paths, runner: fake, log: () => undefined });
+    expect(r.status).toBe('SUCCESS');
+    expect(r.report).toContain('검증 잔여 지적');
+    expect(r.record!.verification!.passed).toBe(false);
+    expect(readFileSync(path.join(paths.docsOut, '19_UNKNOWN_AND_TODO.md'), 'utf8')).toContain('없는 메서드');
+    expect(await loadBaseline(paths)).not.toBeNull();
+    expect(fake.calls.filter((c) => c.id.startsWith('feature:F001:fix'))).toHaveLength(2);
+  }, 120_000);
+
+  it('publish_on_residual=false면 검증이 계속 실패할 때 Run FAILED, baseline·문서 불변, 리포트에 남은 문제', async () => {
+    const root = await tempMiniRepo();
+    const paths = await testPaths(root);
+    const cfg = loadConfig();
+    cfg.verification.publish_on_residual = false;
+    const fake = persistentLlmIssue();
     const r = await runPipeline({ mode: 'auto', cfg, paths, runner: fake, log: () => undefined });
     expect(r.status).toBe('FAILED');
     expect(r.report).toContain('문서화 실패');
@@ -116,7 +136,19 @@ describe('runPipeline (Fake, mini-project)', () => {
     expect(existsSync(path.join(paths.docsOut, 'README.md'))).toBe(false);
     expect(existsSync(path.join(paths.runs, 'run-0001', 'staging', 'docs', 'README.md'))).toBe(false);
     expect((await Run.latest(paths))!.state.status).toBe('FAILED');
-    expect(fake.calls.filter((c) => c.id.startsWith('feature:F001:fix'))).toHaveLength(2);
+  }, 120_000);
+
+  it('결정적 차단 이슈(없는 파일 경로)가 남으면 publish_on_residual이어도 FAILED', async () => {
+    const root = await tempMiniRepo();
+    const paths = await testPaths(root);
+    const cfg = loadConfig();
+    const base = fakeResponder();
+    // 서술 문서가 저장소에 없는 경로를 계속 언급한다 → HALLUCINATED_PATH(결정적)
+    const fake = new FakeClaudeRunner({ '*': (req: ClaudeRequest) => { const out = base(req) as { sections?: { body: string }[] }; if (req.schemaName === 'document' && out.sections) out.sections[0].body += ' 참고: `Api/DoesNotExist.cs`'; return out; } });
+    const r = await runPipeline({ mode: 'auto', cfg, paths, runner: fake, log: () => undefined });
+    expect(r.status).toBe('FAILED');
+    expect(r.report).toContain('결정적 차단');
+    expect(await loadBaseline(paths)).toBeNull();
   }, 120_000);
 
   it('--phase discovery는 RUNNING Run을 남기고 resume이 이어간다', async () => {

@@ -1,0 +1,55 @@
+{
+  "decision": "UPDATED",
+  "mermaid": "flowchart LR\n  Caddyfile --> AdminSurfaceMiddleware\n  AdminSurfaceMiddleware --> PostEndpoints\n  PostEndpoints --> RenderGate\n  RenderGate --> MarkdownRenderer\n  PostEndpoints --> AppDbContext\n  PostEndpoints --> PostQueries\n  PostEndpoints --> RenderedPostCache",
+  "changedEdges": [
+    "AdminSurfaceMiddleware --> RenderGate: 삭제",
+    "AdminSurfaceMiddleware --> PostEndpoints: 추가",
+    "PostEndpoints --> RenderGate: 추가",
+    "MarkdownRenderer --> AppDbContext: 삭제",
+    "AppDbContext --> RenderedPostCache: 삭제",
+    "PostEndpoints --> AppDbContext: 추가",
+    "PostEndpoints --> PostQueries: 추가",
+    "PostEndpoints --> RenderedPostCache: 추가"
+  ],
+  "nodes": [
+    {
+      "node": "Caddyfile",
+      "code": "Caddyfile"
+    },
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Program.cs"
+    },
+    {
+      "node": "PostEndpoints",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync/UpdateAsync"
+    },
+    {
+      "node": "RenderGate",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate"
+    },
+    {
+      "node": "MarkdownRenderer",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "MarkdownRenderer"
+    },
+    {
+      "node": "AppDbContext",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "AppDbContext"
+    },
+    {
+      "node": "PostQueries",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.GetDetailAsync"
+    },
+    {
+      "node": "RenderedPostCache",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache"
+    }
+  ],
+  "reason": "PostEndpoints.CreateAsync/UpdateAsync가 RenderGate, AppDbContext, PostQueries.GetDetailAsync, RenderedPostCache를 직접 받아 호출한다(PostEndpoints.cs 124, 160, 187, 241). 기존의 MarkdownRenderer→AppDbContext→RenderedPostCache 직렬 체인은 코드와 맞지 않아 새 분석안으로 고쳤다. AdminSurfaceMiddleware→PostEndpoints 간선은 새 분석안을 따랐고 이번에 코드로 확인하지 않았다."
+}

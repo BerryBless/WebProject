@@ -18,7 +18,8 @@ const OPS_FILE_RE = /\.(cs|cshtml|ts|tsx)$/;
 
 function failurePointsText(analyses: Map<string, FeatureAnalysis>): string {
   const lines: string[] = [];
-  for (const [id, fa] of analyses) {
+  // 병렬 워커의 완료 순서(Map 삽입 순서)가 프롬프트에 새면 입력 해시가 실행마다 달라진다 → id 순으로 고정.
+  for (const [id, fa] of [...analyses].sort(([a], [b]) => a.localeCompare(b))) {
     for (const fp of fa.failurePoints.slice(0, 12)) lines.push(`- [${id}] ${fp.where}: ${fp.condition} → ${fp.handling} (${fp.status})`);
   }
   return lines.length ? lines.slice(0, 200).join('\n') : '(없음)';

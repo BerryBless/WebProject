@@ -22,13 +22,14 @@ import { runFeatures, today } from './phases/feature.js';
 import { runInventory } from './phases/inventory.js';
 import { runOperations } from './phases/operations.js';
 import { documentBaselineEntry, readDocs, updateDocs, type UpdateDocsResult } from './render/documents.js';
-import { extractMermaidBlocks, parseSections, sectionHash } from './render/sections.js';
+import { extractMermaidBlocks, parseSections, replaceSection, sectionHash } from './render/sections.js';
+import { renderResidualSection } from './render/templates.js';
 import { formatReport, formatStatus, formatUpToDate, type ReportExtras } from './report.js';
 import { Run } from './run.js';
 import { totalCost } from './state.js';
 import type { Architecture, Baseline, ChangeSet, Classification, CurrentWorkspace, FeatureDelta, FeaturesFile, Impact, Inventory, ManualOverride, RunMode, RunRecord, Verification } from './types.js';
 import { makeFixer } from './verify/fixer.js';
-import { runVerificationPass, verificationLoop } from './verify/loop.js';
+import { hasDeterministicBlocking, runVerificationPass, verificationLoop } from './verify/loop.js';
 
 export interface PipelineOptions {
   mode: 'auto' | 'full';
@@ -154,8 +155,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineSummar
     log(`미완료 ${run.name}을 ABANDONED 처리`);
     run = null;
   }
-  if (run) log(`미완료 ${run.name} 재개`);
-  else run = await Run.create(paths, mode, changes.fingerprint);
+  if (run) {
+    log(`미완료 ${run.name} 재개${run.state.status === 'FAILED' ? ' (이전 실패 항목만 다시 실행)' : ''}`);
+    await run.reopen();
+  } else run = await Run.create(paths, mode, changes.fingerprint);
   await atomicWriteJson(path.join(run.dir, 'changes.json'), changes);
 
   const counting = new CountingRunner(opts.runner ?? new CliClaudeRunner(cfg));
@@ -179,15 +182,27 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineSummar
     }
     record.costUsd = totalCost(run.state);
     record.claudeCalls = counting.calls;
+    let residual: string[] = [];
     if (!result.verification.passed) {
-      record.status = 'FAILED';
-      record.verification = result.verification;
-      record.error = `검증 ${result.verification.iterations}회 후에도 문제가 남음`;
-      record.completedAt = new Date().toISOString();
-      await run.fail(record.error);
-      const report = formatReport(record, { discovered: result.discovered, remainingIssues: result.verification.fixRequired.map((f) => `${f.doc}: ${f.issue}`) });
-      await finishRun(run, record, report);
-      return { status: 'FAILED', mode, runName: run.name, report, record };
+      const publishable = (cfg.verification.publish_on_residual ?? true) && !hasDeterministicBlocking(result.verification);
+      if (!publishable) {
+        record.status = 'FAILED';
+        record.verification = result.verification;
+        record.error = `검증 ${result.verification.iterations}회 후에도 결정적 차단 문제가 남음`;
+        record.completedAt = new Date().toISOString();
+        await run.fail(record.error);
+        const report = formatReport(record, { discovered: result.discovered, remainingIssues: result.verification.fixRequired.map((f) => `${f.doc}: ${f.issue}`) });
+        await finishRun(run, record, report);
+        return { status: 'FAILED', mode, runName: run.name, report, record };
+      }
+      // 결정적 차단 이슈는 0, LLM 검증자의 지적만 남음 → 잔여 지적을 19_UNKNOWN_AND_TODO에 적고 발행한다(publish_on_residual).
+      residual = result.verification.fixRequired.map((f) => `${f.doc}: ${f.issue}`);
+      const unknownsDoc = '19_UNKNOWN_AND_TODO.md';
+      const base = result.allDocs.get(unknownsDoc) ?? result.docs.get(unknownsDoc) ?? '';
+      const withResidual = replaceSection(base, 'residual', renderResidualSection(result.verification.fixRequired).body);
+      result.docs.set(unknownsDoc, withResidual);
+      result.allDocs.set(unknownsDoc, withResidual);
+      log(`검증 잔여 지적 ${residual.length}건을 ${unknownsDoc}에 기록하고 발행한다(결정적 차단 이슈 0).`);
     }
     // 커밋: 문서·baseline·depgraph
     for (const [name, md] of result.docs) await atomicWriteText(path.join(run.staging.docs, name), md);
@@ -204,7 +219,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineSummar
     record.completedAt = new Date().toISOString();
     const report = formatReport(record, {
       discovered: result.discovered, diagramCounts: diagramCounts(finalDocs), documentsTotal: finalDocs.size, featuresTotal: result.ws.features.features.filter((f) => f.status !== 'REMOVED').length,
-      unknowns: countUnknowns(result.ws), issues: countIssues(result.ws), projectName: result.ws.inventory.project.name,
+      unknowns: countUnknowns(result.ws), issues: countIssues(result.ws), projectName: result.ws.inventory.project.name, remainingIssues: residual,
     });
     await finishRun(run, record, report);
     return { status: 'SUCCESS', mode, runName: run.name, report, record };
@@ -219,6 +234,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineSummar
     const report = formatReport(record, { discovered: { newApis: 0, dataModelChanges: 0, failures: 0, techDebt: 0 } });
     await finishRun(run, record, report);
     log(`실패: ${msg}`);
+    if ((e as Error).stack) await atomicWriteText(path.join(run.dir, 'error.txt'), String((e as Error).stack));
     return { status: 'FAILED', mode, runName: run.name, report, record };
   }
 }
@@ -300,7 +316,8 @@ async function runInitial(ctx: PhaseContext, changes: ChangeSet, record: RunReco
 async function runIncremental(ctx: PhaseContext, baseline: Baseline, changes: ChangeSet, record: RunRecord, reached: (p: string) => boolean, onlyFeature: string | undefined): Promise<StageResult> {
   const { paths, cfg, run } = ctx;
   await seedStagingFromCurrent(ctx);
-  const prevWs = await loadWorkspace(run.staging.current);
+  // "이전 상태"는 정본(current/)에서 읽는다. 스테이징은 resume 시 이미 갱신된 분석을 담고 있어 프롬프트가 달라지고 캐시가 깨진다(2026-09-25 실측).
+  const prevWs = await loadWorkspace(existsSync(path.join(paths.current, 'features.json')) ? paths.current : run.staging.current);
   const prevDocs = readDocs(paths.docsOut);
   const journal0 = await loadJournal(ctx);
 
@@ -423,7 +440,7 @@ export async function verifyOnly(opts: { cfg?: HarnessConfig; paths?: HarnessPat
   run.state.status = 'SUCCESS';
   await run.save();
   await rm(run.staging.root, { recursive: true, force: true }).catch(() => undefined);
-  const lines = ['문서화 검증 완료', '', `문서 ${docs.size}개 · 판정: ${v.passed ? '통과' : '문제 있음'}`, '', `- Hallucination: ${v.hallucinations.length}`, `- Missing: ${v.missingItems.length}`, `- Incorrect Relation: ${v.incorrectRelations.length}`, `- Diagram: ${v.diagramIssues.length}`, `- Unsupported Claim: ${v.unsupportedClaims.length}`, `- Mermaid 파서: ${v.mermaidParser}`, ''];
+  const lines = ['문서화 검증 완료', '', `문서 ${docs.size}개 · 판정: ${v.passed ? '통과' : '문제 있음'}`, '', `- Hallucination: ${v.hallucinations.length}`, `- Missing: ${v.missingItems.length}`, `- Incorrect Relation: ${v.incorrectRelations.length}`, `- Diagram: ${v.diagramIssues.length}`, `- Unsupported Claim: ${v.unsupportedClaims.length}`, `- 경고(보고만): ${v.warnings?.length ?? 0}`, `- Mermaid 파서: ${v.mermaidParser}`, ''];
   if (v.fixRequired.length) lines.push('고칠 것:', ...v.fixRequired.slice(0, 60).map((f) => `- ${f.doc}: ${f.issue}`));
   const report = lines.join('\n');
   await atomicWriteJson(path.join(run.dir, 'verification.json'), v);

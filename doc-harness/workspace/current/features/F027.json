@@ -1,0 +1,1124 @@
+{
+  "feature": {
+    "id": "F027",
+    "name": "DB·첨부 백업과 복원",
+    "slug": "BACKUP_RESTORE",
+    "summary": "운영자가 deploy/backup.sh를 실행하면 서비스를 멈추지 않고 두 가지를 차례로 만든다. 먼저 postgres 컨테이너에서 pg_dump -Fc로 blog DB 덤프(blog.dump)를 만들고, 이어서 profile tools 서비스로 attachments 볼륨을 tar로 묶는다(attachments.tar, .tmp 제외). 그 자리에서 pg_restore -l과 tar -tf로 읽히는지 확인한 뒤 SHA256SUMS를 기록한다. deploy/restore.sh --yes <디렉터리>는 체크섬을 검증한 다음 caddy·api를 멈추고 postgres만 올린다. 그 상태에서 pg_restore --clean --single-transaction으로 DB를 되돌리고, api 컨테이너를 생성만 해 볼륨을 초기화한다. 이어 tools로 첨부를 지우고 풀어 넣은 뒤 전체 스택을 다시 띄운다.",
+    "entryPoints": [
+      "CLI deploy/backup.sh [백업 루트]",
+      "CLI deploy/restore.sh --yes <백업 디렉터리>"
+    ],
+    "relatedFiles": [
+      "deploy/backup.sh",
+      "deploy/restore.sh",
+      "deploy/docker-compose.yml",
+      "deploy/postgres-init/10-roles.sh",
+      "deploy/OPERATIONS.md",
+      "deploy/smoke/run.sh",
+      "deploy/smoke/smoke.test.mjs",
+      "PortfolioBlog.Api/Dockerfile",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs"
+    ],
+    "dependencies": [
+      "F026",
+      "F021",
+      "F024"
+    ],
+    "importance": "INFRA",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F027은 애플리케이션 코드가 아니다. deploy/ 아래 두 bash 스크립트가 docker compose 서비스(postgres·tools·api·caddy)를 조작해 수행하는 운영 절차다. backup.sh는 무중단으로 동작한다. DB 덤프 → 첨부 tar 순서로 일관성을 잡고(행 없는 파일은 허용하고 AttachmentJanitor가 치운다), 읽기 검증과 SHA256SUMS를 남긴다. 어느 단계든 실패하면 ERR trap이 부분 백업 디렉터리를 지운다. restore.sh는 --yes와 체크섬 검증을 통과해야 쓰기 쪽(caddy·api)을 멈춘다. 그 뒤 postgres만 올려 단일 트랜잭션 pg_restore를 하고, api 컨테이너 생성으로 빈 볼륨 소유권(1654, 0700)을 맞춘 다음 tools로 첨부를 교체하고 전체를 기동한다. 기동 시 Program.cs가 Migrate()와 PublicRoleGrants.Apply를 다시 돌려 복원된 ACL을 코드 기준으로 되맞춘다. 실패 처리는 안내 메시지뿐이며 자동 롤백은 없다. 원자적인 구간은 pg_restore 한 단계뿐이다. 그래서 중간 실패 시 서비스 정지나 첨부 비어 있음 상태가 남을 수 있다. 검증은 deploy/smoke/run.sh의 복원 리허설이 맡는데, 빈 볼륨에 복원하는 경우만 다룬다.",
+  "entryPoints": [
+    {
+      "text": "deploy/backup.sh [백업 루트(기본 backups)]: 운영자나 cron이 직접 실행한다. 만든 디렉터리 경로를 마지막 줄에 출력한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "1-3"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "32"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "80-87"
+        }
+      ]
+    },
+    {
+      "text": "deploy/restore.sh --yes <백업 디렉터리>: --yes가 없거나 디렉터리 인자가 비면 사용법을 출력하고 exit 2로 끝난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "3-13"
+        }
+      ]
+    },
+    {
+      "text": "deploy/smoke/run.sh가 복원 리허설 단계에서 두 스크립트를 호출한다(seed → backup.sh smoke/backups → down -v → restore.sh --yes → verify-restore).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "92-98"
+        }
+      ]
+    },
+    {
+      "text": "운영 문서가 재배포 전 백업과 cron 일일 백업 예시를 권장한다. 스크립트 자체에는 스케줄러가 없다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "67"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "87"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "backup.sh",
+      "file": "deploy/backup.sh",
+      "symbol": "(스크립트 본문) 초기화",
+      "description": "set -euo pipefail과 MSYS_NO_PATHCONV=1을 설정한다. cd 전에 호출자 cwd를 caller_pwd에 저장하고 deploy/로 이동한 뒤 umask 077을 적용한다(백업 파일이 700/600으로 생긴다)."
+    },
+    {
+      "step": 2,
+      "component": "backup.sh",
+      "file": "deploy/backup.sh",
+      "symbol": "root/dest 계산",
+      "description": "인자(기본 backups)가 상대경로이면 caller_pwd 기준으로 푼다. mkdir -p root를 한 뒤 dest=root/<UTC yyyymmddTHHMMSSZ>를 -p 없이 mkdir한다. 같은 초에 두 번 실행되면 여기서 실패한다."
+    },
+    {
+      "step": 3,
+      "component": "backup.sh",
+      "file": "deploy/backup.sh",
+      "symbol": "trap ERR",
+      "description": "이후 어느 단계에서든 명령이 실패하면 rm -rf \"$dest\"로 부분 백업을 지우도록 ERR trap을 건다."
+    },
+    {
+      "step": 4,
+      "component": "postgres (compose 서비스)",
+      "file": "deploy/backup.sh",
+      "symbol": "docker compose exec -T postgres pg_dump",
+      "description": "실행 중인 postgres 컨테이너에서 pg_dump -U postgres -Fc blog를 실행하고, 표준출력을 호스트의 $dest/blog.dump로 리다이렉트한다."
+    },
+    {
+      "step": 5,
+      "component": "tools (compose 서비스)",
+      "file": "deploy/backup.sh",
+      "symbol": "docker compose --profile tools run --rm -T --no-deps tools",
+      "description": "tools 컨테이너(postgres 이미지, uid 1654, network_mode none, read_only)에서 tar -C /data/attachments --exclude=./.tmp -cf - .를 실행하고 $dest/attachments.tar로 받는다. DB 덤프 뒤에 파일을 묶는 순서 자체가 일관성 전략이다."
+    },
+    {
+      "step": 6,
+      "component": "postgres (compose 서비스)",
+      "file": "deploy/backup.sh",
+      "symbol": "pg_restore -l",
+      "description": "blog.dump를 stdin으로 넘겨 pg_restore -l(목차 나열)을 실행한다. 읽을 수 있는 덤프인지만 확인한다."
+    },
+    {
+      "step": 7,
+      "component": "backup.sh (호스트 tar·sha256sum)",
+      "file": "deploy/backup.sh",
+      "symbol": "tar -tf / sha256sum",
+      "description": "호스트에서 tar -tf로 attachments.tar 구조를 확인한다. 이어 dest 안에서 sha256sum blog.dump attachments.tar > SHA256SUMS를 기록하고 dest 경로를 echo한다."
+    },
+    {
+      "step": 8,
+      "component": "restore.sh",
+      "file": "deploy/restore.sh",
+      "symbol": "인자 검사",
+      "description": "$1 == --yes이고 $2가 비어 있지 않은지 확인한다. 아니면 stderr에 사용법을 출력하고 exit 2로 끝난다."
+    },
+    {
+      "step": 9,
+      "component": "restore.sh",
+      "file": "deploy/restore.sh",
+      "symbol": "fail() / trap ERR",
+      "description": "touched=0에서 시작한다. fail()은 docker를 건드렸는지(touched)에 따라 다른 안내 문구를 stderr로 출력하며, ERR trap에 연결된다."
+    },
+    {
+      "step": 10,
+      "component": "restore.sh",
+      "file": "deploy/restore.sh",
+      "symbol": "src 해석 + sha256sum -c",
+      "description": "백업 디렉터리를 절대경로로 해석한다(상대경로는 caller_pwd 기준). 그 디렉터리에서 sha256sum -c SHA256SUMS로 무결성을 확인한다. 여기까지는 docker를 건드리지 않는다."
+    },
+    {
+      "step": 11,
+      "component": "caddy·api (compose 서비스)",
+      "file": "deploy/restore.sh",
+      "symbol": "docker compose stop caddy api",
+      "description": "touched=1로 바꾸고 쓰는 쪽 서비스(caddy·api)를 멈춘다. 없는 서비스를 멈추는 것은 오류가 아니다."
+    },
+    {
+      "step": 12,
+      "component": "postgres (compose 서비스)",
+      "file": "deploy/restore.sh",
+      "symbol": "docker compose up -d --wait postgres",
+      "description": "postgres만 올리고 healthcheck(pg_isready -U blog_app -d blog)가 통과할 때까지 기다린다. 빈 pgdata이면 postgres-init/10-roles.sh가 blog_app·blog_public 롤과 빈 blog DB를 만든다."
+    },
+    {
+      "step": 13,
+      "component": "postgres (compose 서비스)",
+      "file": "deploy/restore.sh",
+      "symbol": "pg_restore --clean --if-exists --single-transaction",
+      "description": "blog.dump를 stdin으로 넘겨 postgres 슈퍼유저로 blog DB에 복원한다. 덤프에 들어 있는 객체를 드롭한 뒤 다시 만들고 데이터를 적재하며, 전체가 한 트랜잭션이다."
+    },
+    {
+      "step": 14,
+      "component": "api (compose 서비스)",
+      "file": "deploy/restore.sh",
+      "symbol": "docker compose up --no-start api",
+      "description": "api 컨테이너를 생성만 한다. 빈 attachments 볼륨은 이때 이미지의 /data/attachments(1654 소유, 0700)로 초기화된다. 이 단계를 건너뛰면 tools(1654)가 root 소유의 새 볼륨에 쓸 수 없다."
+    },
+    {
+      "step": 15,
+      "component": "tools (compose 서비스)",
+      "file": "deploy/restore.sh",
+      "symbol": "find -delete && tar -xf -",
+      "description": "tools 컨테이너에서 /data/attachments 아래를 전부 지운 뒤(.tmp 포함) attachments.tar를 stdin으로 받아 푼다."
+    },
+    {
+      "step": 16,
+      "component": "docker compose (전체 스택)",
+      "file": "deploy/restore.sh",
+      "symbol": "docker compose up -d --wait",
+      "description": "전체 서비스를 올리고 healthy가 될 때까지 기다린 뒤 '복원 완료: <src>'를 출력한다."
+    },
+    {
+      "step": 17,
+      "component": "Program (PortfolioBlog.Api)",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "Database.Migrate / PublicRoleGrants.Apply",
+      "description": "api가 기동할 때 마이그레이션을 적용하고 blog_public 권한을 코드 기준으로 다시 맞춘다. pg_restore --clean이 덤프의 ACL로 되돌린 권한을 다시 정렬하는 단계다."
+    },
+    {
+      "step": 18,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "SweepOnceAsync",
+      "description": "기동 직후와 6시간마다 돈다. 백업 시점 차이로 생긴 '행 없는 파일'(1시간 이상 된 참조 없는 파일)은 지우고, '파일 없는 행'은 경고 로그로 개수만 보고한다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "deploy/backup.sh",
+      "role": "entry",
+      "symbol": "backup.sh"
+    },
+    {
+      "file": "deploy/restore.sh",
+      "role": "entry",
+      "symbol": "restore.sh / fail()"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "role": "config",
+      "symbol": "services.tools / services.postgres / services.api / volumes.attachments"
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "role": "config",
+      "symbol": "blog_app·blog_public 롤, blog DB 생성"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "role": "config",
+      "symbol": "/data/attachments 0700, chown 1654, USER 1654"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "role": "service",
+      "symbol": "adminDb.Database.Migrate / PublicRoleGrants.Apply"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "role": "data",
+      "symbol": "SaveAsync(.tmp 쓰기 → File.Move)"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "role": "service",
+      "symbol": "SweepOnceAsync"
+    },
+    {
+      "file": "deploy/smoke/run.sh",
+      "role": "test",
+      "symbol": "복원 리허설 단계"
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "role": "test",
+      "symbol": "ROLE seed / verify-restore"
+    },
+    {
+      "file": "deploy/OPERATIONS.md",
+      "role": "config",
+      "symbol": "5. 백업과 복원(운영 문서)"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "백업 DB 경로: postgres 컨테이너의 blog DB → pg_dump -Fc(표준출력) → docker compose exec -T 파이프 → 호스트 $dest/blog.dump(umask 077, 600).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "12"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "24"
+        }
+      ]
+    },
+    {
+      "text": "백업 첨부 경로: attachments 볼륨(/data/attachments) → tools 컨테이너 tar -cf -(.tmp 제외) → 호스트 $dest/attachments.tar.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "25"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "113-125"
+        }
+      ]
+    },
+    {
+      "text": "무결성 기록: blog.dump와 attachments.tar의 sha256을 $dest/SHA256SUMS에 쓴다. restore.sh가 sha256sum -c로 이 파일을 대조한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "30"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "29"
+        }
+      ]
+    },
+    {
+      "text": "복원 DB 경로: 호스트 $src/blog.dump → stdin → postgres 컨테이너 pg_restore -U postgres -d blog --clean --if-exists --single-transaction.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "35"
+        }
+      ]
+    },
+    {
+      "text": "복원 첨부 경로: 호스트 $src/attachments.tar → stdin → tools 컨테이너 find -delete 후 tar -xf - → attachments 볼륨.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "40"
+        }
+      ]
+    },
+    {
+      "text": "백업하지 않는 것: dpkeys 볼륨(세션 암호화 키), caddy_data(인증서), .env(비밀값). 복원 뒤에는 관리자 재로그인과 인증서 재발급이 필요하고, .env는 따로 보관해야 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "7"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "85"
+        }
+      ]
+    },
+    {
+      "text": "업로드는 .tmp 아래 임시 파일에 먼저 쓴 뒤 File.Move(overwrite:false)로 최종 내용 주소 경로에 옮긴다. .tmp를 제외한 tar에는 쓰는 중인 파일이 들어가지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "193-230",
+          "symbol": "FileSystemAttachmentStore.SaveAsync"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "25"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "백업 디렉터리 없음",
+      "to": "$dest 생성됨(빈 디렉터리)",
+      "trigger": "mkdir \"$dest\"(-p 없음)",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "20-21"
+        }
+      ]
+    },
+    {
+      "from": "$dest 작성 중",
+      "to": "$dest 삭제됨",
+      "trigger": "trap ERR 이후 명령 실패",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "22"
+        }
+      ]
+    },
+    {
+      "from": "$dest 작성 중",
+      "to": "완성 백업(blog.dump·attachments.tar·SHA256SUMS)",
+      "trigger": "pg_restore -l·tar -tf 검증 통과 후 sha256sum 기록",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "28-32"
+        }
+      ]
+    },
+    {
+      "from": "restore touched=0(docker 미접촉)",
+      "to": "touched=1",
+      "trigger": "sha256sum -c 통과 후 서비스 정지 직전",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "15"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "32"
+        }
+      ]
+    },
+    {
+      "from": "스택 실행 중(caddy·api·postgres)",
+      "to": "caddy·api 정지, postgres만 healthy",
+      "trigger": "docker compose stop caddy api → up -d --wait postgres",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "33-34"
+        }
+      ]
+    },
+    {
+      "from": "blog DB 현재 내용",
+      "to": "blog DB = 백업 내용",
+      "trigger": "pg_restore --single-transaction 커밋",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "35"
+        }
+      ]
+    },
+    {
+      "from": "attachments 볼륨 현재 내용(또는 빈 볼륨)",
+      "to": "백업 tar 내용",
+      "trigger": "up --no-start api → tools find -delete && tar -xf",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "37-40"
+        }
+      ]
+    },
+    {
+      "from": "caddy·api 정지",
+      "to": "전체 스택 healthy",
+      "trigger": "docker compose up -d --wait",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "42-43"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "blog 데이터베이스 전체(스키마·데이터·ACL)",
+      "operation": "SELECT",
+      "file": "deploy/backup.sh",
+      "symbol": "pg_dump -U postgres -Fc blog"
+    },
+    {
+      "entity": "blog 데이터베이스 전체(덤프에 포함된 객체 DROP/CREATE, ACL 포함)",
+      "operation": "DDL",
+      "file": "deploy/restore.sh",
+      "symbol": "pg_restore --clean --if-exists --single-transaction"
+    },
+    {
+      "entity": "blog 데이터베이스 전체 테이블 데이터",
+      "operation": "INSERT",
+      "file": "deploy/restore.sh",
+      "symbol": "pg_restore(데이터 적재)"
+    },
+    {
+      "entity": "blog_app·blog_public 롤, blog DB(빈 pgdata에서만)",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "CREATE ROLE / CREATE DATABASE"
+    },
+    {
+      "entity": "__EFMigrationsHistory 및 스키마(복원 뒤 api 기동 시)",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "adminDb.Database.Migrate"
+    },
+    {
+      "entity": "blog_public 테이블 권한(GRANT/REVOKE, 복원 뒤 api 기동 시)",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "PublicRoleGrants.Apply"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "Docker와 docker compose CLI(exec·run --profile·stop·up --wait·up --no-start)가 필요하다. 두 스크립트 모두 cd deploy/ 후 기본 compose 파일을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "11"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "8"
+        }
+      ]
+    },
+    {
+      "text": "postgres:17.11-alpine 이미지의 pg_dump·pg_restore를 쓴다. tools 서비스도 같은 이미지이며, 여기서는 sh·tar·find만 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "90"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "113-125"
+        }
+      ]
+    },
+    {
+      "text": "호스트에 bash, tar, sha256sum, date가 있어야 한다(backup.sh의 tar -tf와 sha256sum, restore.sh의 sha256sum -c).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "29-30"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "29"
+        }
+      ]
+    },
+    {
+      "text": "compose 파일 보간에 ${DOMAIN:?} 같은 필수 변수가 있다. deploy/.env가 없거나 불완전하면 exec를 포함한 모든 compose 호출이 실패한다고 추정한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "32-35"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "61-69"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "98-100"
+        }
+      ]
+    },
+    {
+      "text": "Windows Git Bash 경로 변환 방지를 위해 MSYS_NO_PATHCONV=1을 설정한다(Linux에서는 영향 없음).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "9"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "6"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "deploy/backup.sh mkdir \"$dest\"",
+      "condition": "같은 UTC 초에 백업이 두 번 실행되어 디렉터리가 이미 있음",
+      "handling": "mkdir 실패, set -e로 종료. trap ERR 설정 전이라 다른 실행의 디렉터리를 지우지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "21-22"
+        }
+      ]
+    },
+    {
+      "where": "deploy/backup.sh pg_dump / tools tar / pg_restore -l / tar -tf / sha256sum",
+      "condition": "어느 명령이든 0이 아닌 종료 코드(postgres 미기동, 볼륨 권한, 디스크 부족, 덤프 손상 등)",
+      "handling": "trap ERR이 rm -rf \"$dest\"로 부분 백업을 지우고 set -e로 종료한다. 재시도는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "8"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "22-30"
+        }
+      ]
+    },
+    {
+      "where": "deploy/backup.sh docker compose exec -T postgres",
+      "condition": "postgres 서비스가 실행 중이 아님(exec는 컨테이너를 올리지 않음)",
+      "handling": "exec 실패 → ERR trap으로 부분 디렉터리 삭제 후 종료.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "24"
+        }
+      ]
+    },
+    {
+      "where": "deploy/backup.sh 실행 중 신호",
+      "condition": "SIGINT·SIGTERM(Ctrl-C, cron 강제 종료)으로 중단",
+      "handling": "ERR trap은 신호에 반응하지 않아 평문 덤프가 든 부분 디렉터리가 남을 수 있다. 다만 SHA256SUMS가 없으므로 restore.sh의 sha256sum -c가 이 디렉터리를 거부한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "22"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "29"
+        }
+      ]
+    },
+    {
+      "where": "deploy/restore.sh 인자 검사",
+      "condition": "--yes 누락 또는 디렉터리 인자 없음",
+      "handling": "사용법을 stderr에 출력하고 exit 2. 아무것도 건드리지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "10-13"
+        }
+      ]
+    },
+    {
+      "where": "deploy/restore.sh src 해석 / sha256sum -c",
+      "condition": "디렉터리가 없음, SHA256SUMS 없음, 체크섬 불일치",
+      "handling": "ERR trap의 fail()이 touched=0 안내(docker 미접촉, 서비스 그대로)를 출력하고 종료한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "16-29"
+        }
+      ]
+    },
+    {
+      "where": "deploy/restore.sh pg_restore",
+      "condition": "덤프 적용 중 오류(스키마 충돌, 손상 등)",
+      "handling": "--single-transaction이라 DB는 복원 전 내용으로 롤백된다. fail()이 touched=1 안내를 출력하지만 caddy·api는 멈춘 채로 남는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "17-18"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "33-35"
+        }
+      ]
+    },
+    {
+      "where": "deploy/restore.sh tools find -delete && tar -xf",
+      "condition": "pg_restore 커밋 후 첨부 교체 중 실패",
+      "handling": "안내 메시지만 출력하고 롤백하지 않는다. DB는 이미 백업 내용이고 첨부는 비어 있거나 일부만 풀린 상태다. fail()이 권하는 'docker compose up -d로 이전 상태로 돌아간다'는 이 시점 이후에는 성립하지 않는다(이전 DB와 첨부가 이미 사라짐). 같은 백업으로 재실행해야 한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "18"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "35-40"
+        }
+      ]
+    },
+    {
+      "where": "deploy/restore.sh 최종 docker compose up -d --wait",
+      "condition": "api가 healthy가 되지 못함(예: 기동 시 Migrate() 실패, 비밀번호 불일치)",
+      "handling": "compose가 오류를 반환하고 fail()이 재실행을 안내한다. 원인이 설정이나 스키마라면 재실행으로는 해결되지 않는다. 대기 시간은 compose healthcheck(api: interval 30s·retries 3·start_period 40s, postgres: interval 10s·retries 12)에 묶인다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "42"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "77-83"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "106-110"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "85-87"
+        }
+      ]
+    },
+    {
+      "where": "deploy/restore.sh up --no-start api 생략 시",
+      "condition": "빈 attachments 볼륨이 root 소유로 생성됨",
+      "handling": "tools(1654)의 tar 풀기가 권한 오류로 실패한다. 이 단계가 바로 그 상황을 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "37-39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "20-31"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "백업 사이 시점 불일치: DB 덤프 후 tar 전에 올라온 파일은 '행 없는 파일'이 된다. 복원 뒤 AttachmentJanitor가 1시간 경과·참조 없음을 확인하고 지운다. 반대로 그 사이에 첨부를 지우면 '파일 없는 행'이 생긴다. 청소 잡은 이를 고치지 않고 경고로 개수만 보고하므로, 해당 이미지는 다시 올릴 때까지 404다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "5-6"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "32",
+          "symbol": "MinimumAge"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "106",
+          "symbol": "SweepOnceAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "117-122",
+          "symbol": "SweepOnceAsync"
+        }
+      ]
+    },
+    {
+      "text": "복원 시 find -delete가 .tmp까지 지운다. SaveAsync가 매 호출 Directory.CreateDirectory(.tmp)로 다시 만들므로 업로드는 영향을 받지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "40"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "193",
+          "symbol": "FileSystemAttachmentStore.SaveAsync"
+        }
+      ]
+    },
+    {
+      "text": "새 서버(빈 볼륨)에 복원: postgres 초기화 스크립트가 롤과 빈 DB를 만들고 restore.sh가 내용을 채운다. .env의 DB 비밀번호가 원래 서버와 같아야 앱이 접속할 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "4"
+        },
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "20-30"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "85"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "88"
+        }
+      ]
+    },
+    {
+      "text": "더 새로운 스키마 위로 복원(마이그레이션 적용 후 되돌리기, OPERATIONS.md 4절 권장): pg_restore --clean은 덤프에 있는 객체만 드롭한다. 나중에 추가된 테이블이나 FK가 트랜잭션을 실패시키거나 남은 채로 있을 수 있다. 그러면 이전 __EFMigrationsHistory 기준으로 Migrate()가 같은 객체를 다시 만들려다 실패할 수 있다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "35"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "75"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "85"
+        }
+      ]
+    },
+    {
+      "text": "pg_restore --clean은 ACL을 덤프 시점 것으로 되돌린다. api 기동 시 PublicRoleGrants.Apply가 권한을 다시 맞추며, 스모크는 이 경계를 복원 직후에 검사한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "100-116"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "87"
+        }
+      ]
+    },
+    {
+      "text": "상대경로 인자는 deploy/가 아니라 호출자 cwd 기준으로 푼다(backup root, restore src 모두).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "10-18"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "7"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "25-28"
+        }
+      ]
+    },
+    {
+      "text": "백업 검증의 깊이: pg_restore -l은 목차만 읽고, tar -tf는 구조만 본다. SHA256SUMS는 기록된 바이트의 전송 무결성만 보장한다. 빈 tar가 백업 단계 검증을 통과할 수 있다는 것은 계획 문서에서 인정한 내용이다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "27-30"
+        },
+        {
+          "file": "docs/superpowers/plans/2026-09-22-tech-blog-deploy.md",
+          "lines": "1974"
+        }
+      ]
+    },
+    {
+      "text": "백업과 복원, 또는 두 복원이 동시에 실행되는 것을 막는 잠금이 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh"
+        },
+        {
+          "file": "deploy/restore.sh"
+        }
+      ]
+    },
+    {
+      "text": "스모크 리허설은 docker compose down -v 뒤 빈 볼륨에 복원하는 경로만 검증한다. 실행 중인 DB와 채워진 첨부 볼륨 위로 덮어쓰는 복원은 자동 검증되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "94-98"
+        }
+      ]
+    },
+    {
+      "text": "백업 디렉터리에는 글 전체와 첨부가 평문으로 들어 있다(암호화 없음). 보관 기간 정리나 오프사이트 복사는 스크립트 밖(운영 문서의 cron·find 예시)에 맡긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "12"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "86-87"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "backup.sh는 성공하면 표준출력 마지막 줄에 백업 디렉터리 경로만 출력한다. 호출자(smoke/run.sh)는 tail -n 1로 그 경로를 받는다. 전용 로그 파일은 없고, 운영 문서의 cron 예시가 출력을 /var/log/blog-backup.log로 리다이렉트한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh",
+          "lines": "32"
+        },
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "94"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "87"
+        }
+      ]
+    },
+    {
+      "text": "restore.sh는 실패 시 fail()이 touched 상태에 따라 두 가지 안내 중 하나를 stderr에 쓰고, 성공 시 '복원 완료: <src>'를 출력한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/restore.sh",
+          "lines": "16-22"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "43"
+        }
+      ]
+    },
+    {
+      "text": "복원 뒤 AttachmentJanitor가 청소 결과를 Information으로, 파일 없는 행 수를 Warning으로 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "59"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "122"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F027_SEQUENCE",
+      "type": "sequence",
+      "title": "backup.sh 무중단 백업 순서",
+      "summary": "backup.sh는 서비스를 멈추지 않는다. postgres에서 덤프를 먼저 받고 tools로 첨부를 묶은 뒤, 읽기 검증을 거쳐 SHA256SUMS를 남긴다.",
+      "mermaid": "sequenceDiagram\n    participant BackupSh as backup.sh\n    participant postgres\n    participant tools\n    participant attachments as attachments volume\n    participant Dest as dest directory\n    BackupSh->>Dest: mkdir dest, trap ERR rm -rf dest\n    BackupSh->>postgres: docker compose exec -T pg_dump -Fc blog\n    postgres-->>Dest: blog.dump\n    BackupSh->>tools: docker compose run --profile tools tar exclude .tmp\n    tools->>attachments: read /data/attachments\n    tools-->>Dest: attachments.tar\n    BackupSh->>postgres: pg_restore -l with blog.dump on stdin\n    postgres-->>BackupSh: TOC ok\n    BackupSh->>Dest: tar -tf attachments.tar\n    BackupSh->>Dest: sha256sum to SHA256SUMS\n    BackupSh-->>BackupSh: echo dest path",
+      "details": "컨테이너 서비스 이름은 deploy/docker-compose.yml의 postgres와 tools다. tools는 profile tools로만 뜨며 uid 1654, network_mode none, read_only이고 attachments 볼륨만 마운트한다. DB를 먼저 덤프하고 파일을 나중에 묶는 순서가 일관성 전략이다. 이 순서에서는 그 사이에 올라온 파일이 '행 없는 파일'이 될 뿐이다. 이 경로의 어느 명령이 실패해도 ERR trap이 dest를 지운다. 단, trap 설정 전의 mkdir 실패(같은 초 중복 실행)는 예외다. pg_restore -l은 DB에 접속하지 않고 목차만 확인한다.",
+      "nodes": [
+        {
+          "node": "backup.sh",
+          "code": "deploy/backup.sh"
+        },
+        {
+          "node": "postgres",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.postgres"
+        },
+        {
+          "node": "tools",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.tools"
+        },
+        {
+          "node": "attachments volume",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "volumes.attachments"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F027_FLOW",
+      "type": "flowchart",
+      "title": "restore.sh 복원 분기와 실패 처리",
+      "summary": "restore.sh는 --yes와 체크섬을 통과해야 docker를 건드린다. 그 뒤 실패하면 touched=1 안내만 남기고 자동 롤백은 하지 않는다. DB 원자성은 pg_restore 단계에만 있다.",
+      "mermaid": "flowchart TD\n    ArgCheck{\"--yes 와 디렉터리 인자?\"}\n    Exit2[\"사용법 출력, exit 2\"]\n    ShaCheck{\"sha256sum -c SHA256SUMS\"}\n    FailBefore[\"fail touched=0: docker 미접촉 안내\"]\n    StopWriters[\"docker compose stop caddy api\"]\n    UpPostgres[\"docker compose up -d --wait postgres\"]\n    PgRestore[\"pg_restore --clean --if-exists --single-transaction\"]\n    CreateApi[\"docker compose up --no-start api\"]\n    ToolsTar[\"tools: find -delete, tar -xf\"]\n    UpAll[\"docker compose up -d --wait\"]\n    Done[\"복원 완료 출력\"]\n    FailAfter[\"fail touched=1: 서비스 정지, 재실행 안내\"]\n    ArgCheck -->|아니오| Exit2\n    ArgCheck -->|예| ShaCheck\n    ShaCheck -->|실패| FailBefore\n    ShaCheck -->|통과| StopWriters\n    StopWriters --> UpPostgres\n    UpPostgres --> PgRestore\n    PgRestore --> CreateApi\n    CreateApi --> ToolsTar\n    ToolsTar --> UpAll\n    UpAll --> Done\n    StopWriters -->|실패| FailAfter\n    UpPostgres -->|실패| FailAfter\n    PgRestore -->|실패, DB 롤백| FailAfter\n    CreateApi -->|실패| FailAfter\n    ToolsTar -->|실패, 첨부 비었을 수 있음| FailAfter\n    UpAll -->|unhealthy| FailAfter",
+      "details": "모든 노드는 deploy/restore.sh의 한 줄에 대응한다. touched 플래그는 서비스 정지 직전에 1이 되고, fail()이 두 가지 안내 문구 중 하나를 고른다. pg_restore는 단일 트랜잭션이라 실패 시 DB가 이전 상태로 남는다. 그러나 ToolsTar와 UpAll 실패 시점에는 DB가 이미 백업 내용이다. 이때 첨부는 비어 있을 수 있어, 안내 문구의 'up -d로 이전 상태 복귀'가 성립하지 않는다. 최종 UpAll에서 api 기동 시 Program.cs가 Migrate()와 PublicRoleGrants.Apply를 실행한다.",
+      "nodes": [
+        {
+          "node": "ArgCheck",
+          "code": "deploy/restore.sh",
+          "symbol": "인자 검사(10-13)"
+        },
+        {
+          "node": "ShaCheck",
+          "code": "deploy/restore.sh",
+          "symbol": "sha256sum -c(29)"
+        },
+        {
+          "node": "FailBefore",
+          "code": "deploy/restore.sh",
+          "symbol": "fail()"
+        },
+        {
+          "node": "FailAfter",
+          "code": "deploy/restore.sh",
+          "symbol": "fail()"
+        },
+        {
+          "node": "StopWriters",
+          "code": "deploy/restore.sh"
+        },
+        {
+          "node": "UpPostgres",
+          "code": "deploy/restore.sh"
+        },
+        {
+          "node": "PgRestore",
+          "code": "deploy/restore.sh"
+        },
+        {
+          "node": "CreateApi",
+          "code": "deploy/restore.sh"
+        },
+        {
+          "node": "ToolsTar",
+          "code": "deploy/restore.sh"
+        },
+        {
+          "node": "UpAll",
+          "code": "deploy/restore.sh"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F027_DATAFLOW",
+      "type": "dataflow",
+      "title": "백업 산출물과 복원 대상의 이동",
+      "summary": "blog DB와 attachments 볼륨이 각각 blog.dump와 attachments.tar로 나가고, SHA256SUMS가 둘을 묶는다. 복원은 같은 경로를 거꾸로 따른다. 이후 api 기동과 AttachmentJanitor가 권한과 불일치를 정리한다.",
+      "mermaid": "flowchart LR\n    BlogDb[\"postgres blog DB\"]\n    AttachmentsVolume[\"attachments volume\"]\n    BlogDump[\"blog.dump\"]\n    AttachmentsTar[\"attachments.tar\"]\n    Sha256Sums[\"SHA256SUMS\"]\n    ProgramCs[\"Program.cs Migrate + PublicRoleGrants.Apply\"]\n    AttachmentJanitor[\"AttachmentJanitor\"]\n    BlogDb -->|pg_dump -Fc| BlogDump\n    AttachmentsVolume -->|tools tar, .tmp 제외| AttachmentsTar\n    BlogDump --> Sha256Sums\n    AttachmentsTar --> Sha256Sums\n    Sha256Sums -->|sha256sum -c| BlogDump\n    BlogDump -->|pg_restore --clean| BlogDb\n    AttachmentsTar -->|find -delete, tar -xf| AttachmentsVolume\n    BlogDb --> ProgramCs\n    AttachmentsVolume --> AttachmentJanitor\n    BlogDb --> AttachmentJanitor",
+      "details": "blog.dump·attachments.tar·SHA256SUMS는 backup.sh가 $dest(umask 077)에 만드는 실제 파일 이름이다. dpkeys·caddy_data·.env는 이 흐름에 없다. 복원 뒤 api가 기동하면 Program.cs가 마이그레이션과 공개 롤 권한 재부여를 수행한다. AttachmentJanitor는 DB 행과 파일을 대조해 참조 없는 파일을 지우고, 파일 없는 행은 경고만 한다.",
+      "nodes": [
+        {
+          "node": "BlogDb",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.postgres"
+        },
+        {
+          "node": "AttachmentsVolume",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "volumes.attachments"
+        },
+        {
+          "node": "BlogDump",
+          "code": "deploy/backup.sh"
+        },
+        {
+          "node": "AttachmentsTar",
+          "code": "deploy/backup.sh"
+        },
+        {
+          "node": "Sha256Sums",
+          "code": "deploy/backup.sh"
+        },
+        {
+          "node": "ProgramCs",
+          "code": "PortfolioBlog.Api/Program.cs"
+        },
+        {
+          "node": "AttachmentJanitor",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "pg_dump·pg_restore가 postgres 컨테이너 안에서 비밀번호 없이 -U postgres로 접속되는 근거(로컬 소켓 trust 등 공식 이미지 기본 pg_hba 설정)는 저장소 코드로 직접 확인하지 못했다.",
+    "pg_restore -l만으로 데이터 영역이 잘린 덤프를 검출할 수 있는지는 확인하지 못했다.",
+    "실행 중인 DB와 채워진 볼륨 위로 덮어쓰는 복원(특히 더 새로운 마이그레이션이 적용된 DB로 복원)의 실제 결과는 자동 검증이 없어 확인하지 못했다.",
+    "docker compose up --wait에 --wait-timeout이 없을 때 compose 버전별 최대 대기 동작은 확인하지 못했다(healthcheck 설정에 묶인다고만 판단).",
+    "백업 파일의 오프사이트 복사·보관 기간 정리는 스크립트 밖이라 실제 운영에서 수행되는지 알 수 없다."
+  ],
+  "evidence": [
+    {
+      "file": "deploy/backup.sh",
+      "lines": "1-33"
+    },
+    {
+      "file": "deploy/restore.sh",
+      "lines": "1-44"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "lines": "50-125"
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "lines": "1-30"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "lines": "20-31"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "85-87"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "lines": "193-230",
+      "symbol": "FileSystemAttachmentStore.SaveAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "lines": "32-123",
+      "symbol": "AttachmentJanitor.SweepOnceAsync"
+    },
+    {
+      "file": "deploy/smoke/run.sh",
+      "lines": "92-116"
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "lines": "346-381"
+    },
+    {
+      "file": "deploy/OPERATIONS.md",
+      "lines": "64-90"
+    }
+  ],
+  "history": []
+}

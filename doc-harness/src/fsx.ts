@@ -102,3 +102,8 @@ export function isSecretPath(rel: string, cfg: HarnessConfig): boolean {
 export function fileSize(file: string): number {
   return statSync(file).size;
 }
+
+/** 오늘 날짜(YYYY-MM-DD). 프롬프트에 들어가지만 입력 해시에서는 제외된다(callClaude). */
+export function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}

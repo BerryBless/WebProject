@@ -1,0 +1,65 @@
+{
+  "title": "성능",
+  "oneLiner": "렌더 동시성 제한·렌더 캐시·속도 제한·statement_timeout으로 주요 성능 위험은 방어되어 있고, 남은 위험은 검색의 ILIKE 풀스캔, 취소할 수 없는 동기 렌더, 캐시 거부 관측 부재, 서버측 응답 캐시 부재다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "body": "## 한 줄 요약\n\n성능 위험은 대부분 이미 방어되어 있다. 목록 쿼리는 태그를 서브쿼리로 내장해 N+1이 없고 본문을 뺀 프로젝션만 가져온다. 렌더 CPU는 RenderGate(기본 2슬롯)로, 렌더 결과는 (PostId, xmin) 키의 RenderedPostCache로, 공개 DB 조회는 statement_timeout·lock_timeout과 속도 제한으로 보호된다. 남은 위험은 ILIKE 풀스캔 검색(PERF001), 취소할 수 없는 동기 렌더(PERF002), 캐시 거부 관측 부재(PERF003), 서버측 메모리 캐시 부재(PERF006·PERF008)다. 이 프로젝트 규모에서는 모두 낮거나 중간 수준이다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "body": "## 핵심 내용\n\n이미 있는 성능·자원 보호 장치는 다음과 같다.\n\n| 장치 | 내용 | 관련 기능 |\n|---|---|---|\n| N+1 방지 | 목록 쿼리가 태그를 서브쿼리로 내장하고 본문 없는 프로젝션만 조회 | [F012](features/F012_PUBLIC_HOME_LIST.md) |\n| statement_timeout·lock_timeout | 57014·55P03을 503 + Retry-After로 변환 | [F012](features/F012_PUBLIC_HOME_LIST.md) |\n| RenderGate | 렌더 동시 실행 수 제한(기본 2), 대기 5초 초과 시 RenderBusyException → 503 | [F011](features/F011_MARKDOWN_RENDERING_CACHE.md) |\n| RenderedPostCache | (PostId, xmin) 키, 같은 키의 동시 미스를 한 번의 렌더로 합침, MemoryCache SizeLimit으로 메모리 상한 | [F011](features/F011_MARKDOWN_RENDERING_CACHE.md), [F013](features/F013_PUBLIC_POST_DETAIL.md) |\n| 코드 강조 예산 | 블록 250ms·문서 2초·60,000자 | [F011](features/F011_MARKDOWN_RENDERING_CACHE.md) |\n| 속도 제한 | IP별·전역 제한, 검색·미리보기 동시성 제한(검색 동시 4), page-ip 분당 120, asset-ip 분당 600 | [F019](features/F019_RATE_LIMITING.md) |\n| 요청 본문 상한 | 기본 256KB, 미리보기 200KB, 첨부 10MB | [F004](features/F004_MARKDOWN_PREVIEW.md), [F009](features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md) |\n| 페이지 상한 | page 1..500, 검색은 1..50 | [F014](features/F014_PUBLIC_SEARCH.md) |\n| HTTP 캐시 헤더 | 첨부 200: Cache-Control public max-age=31536000 immutable + 강한 ETag(sha256) + Last-Modified. /feed.xml·/sitemap.xml: max-age=300. highlight.css: max-age=86400 | [F010](features/F010_PUBLIC_ATTACHMENT_SERVING.md), [F017](features/F017_PUBLIC_SITE_FEEDS.md) |\n| 클라이언트 미리보기 | useDebounced로 입력을 모으고 AbortController로 이전 요청 취소 | [F004](features/F004_MARKDOWN_PREVIEW.md) |\n| 동기 블로킹 | .Result/.Wait 호출은 발견되지 않음. 동기 파일 I/O는 기동 probe와 AttachmentJanitor에만 있음 | [F024](features/F024_ATTACHMENT_JANITOR.md) |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "details",
+      "heading": "상세 내용",
+      "body": "## 상세 내용\n\n### 조건부 위험 (POTENTIAL_RISK)\n\n| ID | 항목 | 내용 | 권고(개선 제안) |\n|---|---|---|---|\n| PERF001 | 검색 ILIKE 풀스캔 | PublicQueries.SearchAsync와 PostEndpoints.ListAsync가 Title·Summary·ContentMarkdown에 앞뒤 와일드카드 ILIKE를 OR로 건다. B-tree로 탐색할 수 없어 글 수·본문 크기에 비례해 스캔한다. PageAsync가 같은 조건으로 COUNT와 목록 SELECT를 따로 실행해 스캔이 두 번 일어난다. 방어는 statement_timeout(약 3초), SearchConcurrency(4), 분당 IP 한도, 503 변환이다. | pg_trgm GIN 인덱스나 to_tsvector 전문 검색. 총 개수 상한 또는 생략 검토 |\n| PERF002 | 렌더 슬롯 장기 점유 | RenderGate 뒤의 Markdig 렌더는 시작하면 취소할 수 없다. 적대적 입력에서 문서상 최대 약 8.5초 동안 슬롯(기본 2)과 스레드를 쓴다. 슬롯이 차면 다른 렌더는 5초 뒤 503이 되며, 공개 글 캐시 미스·저장·미리보기가 모두 영향을 받는다. 방어는 입력 200KB 상한, 중첩 한도 128, 코드 강조 예산, 미리보기 동시성·분당 한도다. | 파서 단계 벽시계 상한 또는 렌더 분리. 공개 렌더와 미리보기 슬롯 분리 |\n| PERF003 | 캐시 상한 초과 시 조용한 거부 | MemoryCache가 SizeLimit을 넘으면 축출하지 않고 Set을 거부한다. 압축이 비동기라 그동안 새 글은 요청마다 재렌더된다. 로그·메트릭이 없어 관측할 수 없다. 항목 수명이 24시간이고 키에 xmin이 들어 있어, 수정된 글의 옛 버전 항목이 만료까지 상한을 차지한다. | 거부 카운터·로그 추가. 수정·삭제 시 이전 (Id, xmin) 항목 제거 검토. CacheMegabytes 여유 확보 |\n| PERF007 | 첨부 advisory lock의 전용 연결 점유 | AttachmentLock.HoldAsync가 같은 sha256의 동시 업로드를 직렬화하려고 전용 DB 연결을 열고 pg_advisory_lock을 건다. 대기는 lock_timeout 10초이며 초과 시 503이다. 해제가 실패하면 연결만 닫으므로 풀의 물리 연결에서 잠금이 늦게 풀릴 수 있다(코드 주석). 관리자 전용이라 실제 위험은 작다. | 풀 크기가 관리 동시 업로드 수보다 충분한지 확인. 해제 실패 시 연결 폐기 검토 |\n\n### 개선 후보 (IMPROVEMENT)\n\n| ID | 항목 | 내용 | 권고(개선 제안) |\n|---|---|---|---|\n| PERF004 | slug 검사가 렌더 뒤 | PostEndpoints.CreateAsync는 slug 중복 검사(409)를 렌더 뒤에 한다. 중복 요청도 렌더 슬롯을 먼저 쓴다. 렌더는 트랜잭션 밖이라 DB 연결을 붙잡지 않고, 관리자 전용이라 위험은 낮다. | slug 사전 검사를 렌더 앞으로 이동 |\n| PERF005 | 범위 밖 쪽의 이중 쿼리 | 마지막 쪽을 넘는 page는 형식 검사를 통과해 COUNT와 목록 SELECT를 모두 실행한 뒤 404가 된다. 쪽 수 상한과 IP별 분당 한도 때문에 비용은 한정적이다. | COUNT를 먼저 실행해 범위 밖이면 SELECT 생략. 또는 한 쿼리로 합치기 |\n| PERF006 | 피드·사이트맵·태그 목록의 서버측 캐시 부재 | SitemapAsync는 요청마다 SELECT 3회(각 상한 SitemapMax)를 실행하고 피드도 요청마다 DB를 조회한다. 응답에는 이미 Cache-Control public max-age=300이 있어 브라우저·프록시가 5분간 재사용할 수 있다. 없는 것은 서버측 메모리 캐시와 ETag(조건부 요청)다. 캐시 헤더를 무시하는 크롤러에는 page-ip 한도(분당 120)만 적용된다. 앞단 Caddy의 캐시 여부는 확인하지 못했다. | 짧은 TTL 메모리 캐시와 ETag 추가, 글 변경 시 무효화 |\n| PERF008 | 첨부 서빙의 매 요청 DB 조회 | PublicAttachmentEndpoints.GetAsync는 200 응답에 Cache-Control public max-age=31536000 immutable, 강한 ETag(sha256), Last-Modified를 이미 싣는다. 남는 비용은 재검증·캐시 미스 요청마다 Attachments 행을 조회하고 FileStream을 여는 것이다. 첨부는 내용 주소(sha256)라 내용이 바뀌지 않는데도 DB 왕복이 필요하다. 조회 한도는 asset-ip 분당 600이며 없는 id의 404도 그 한도를 쓰고, 404 응답에는 캐시 헤더가 없다. | (id → 경로·타입) 메타를 짧게 메모리 캐시 |\n| PERF009 | 세션 검증의 매 요청 DB 조회 | SessionValidator.ValidateAsync가 쿠키가 붙은 관리 요청마다 AdminStates를 SingleAsync로 조회해 epoch를 비교한다. 로그아웃 시 다른 세션을 즉시 폐기하기 위한 설계로 보인다. 부하는 작지만 DB가 느려지면 관리 요청이 이 경로에서 함께 실패한다. | 현재 규모에서는 조치 불필요. 필요하면 epoch를 초 단위 메모리 캐시로 두고 로그아웃 시 갱신 |\n| PERF010 | 미리보기 디바운스의 한계 | PreviewPane이 디바운스·취소·직전 성공 HTML 유지로 부하를 줄인다. 그러나 취소는 클라이언트 연결만 끊고, 서버에서 시작된 렌더는 미리보기 슬롯을 계속 점유한다(PERF002). 빠른 타이핑에서 429·503이 생길 수 있다. | 디바운스 간격 확대, 응답 대기 중에는 마지막 입력만 큐에 유지 |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "evidence",
+      "heading": "코드 근거",
+      "body": "## 코드 근거\n\n| 주장 | 파일 | 심볼 | 줄 |\n|---|---|---|---|\n| 검색 ILIKE 풀스캔 | PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs | PublicQueries.SearchAsync | 89-92 |\n| COUNT와 목록 SELECT 분리 실행 | PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs | PublicQueries.PageAsync | 250-258 |\n| 관리 목록 검색 | PortfolioBlog.Api/Features/Posts/PostEndpoints.cs | PostEndpoints.ListAsync | 78-81 |\n| 렌더 뒤 slug 검사 | PortfolioBlog.Api/Features/Posts/PostEndpoints.cs | PostEndpoints.CreateAsync | 128-136 |\n| 렌더 슬롯 점유 | PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs | RenderGate.RenderAsync | - |\n| 캐시 렌더·저장 | PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs | RenderedPostCache.RenderAndStoreAsync | 136-151 |\n| 캐시 상한 초과 시 Set 거부 | PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs | RenderedPostCache.Store | 27-35, 115-122 |\n| 사이트맵 매 요청 조회 | PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs | PublicQueries.SitemapAsync | 210-218 |\n| 피드·사이트맵 Cache-Control max-age=300 | PortfolioBlog.Api/Pages/SiteEndpoints.cs | SiteEndpoints.FeedAsync, SitemapAsync | 141, 179 |\n| 첨부 200 응답 캐시 헤더 | PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs | PublicAttachmentEndpoints.GetAsync | 108-110 |\n| 첨부 advisory lock | PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs | AttachmentLock.HoldAsync | - |\n| 첨부 업로드 | PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs | AttachmentEndpoints.UploadAsync | - |\n| 세션 검증 DB 조회 | PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs | SessionValidator.ValidateAsync | - |\n| 미리보기 디바운스·취소 | PortfolioBlog.Web/src/components/PreviewPane.tsx | PreviewPane | - |\n| 디바운스 훅 | PortfolioBlog.Web/src/lib/useDebounced.ts | useDebounced | - |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "caveats",
+      "heading": "주의사항",
+      "body": "## 주의사항\n\n- 검색 쿼리를 고칠 때 COUNT와 목록 SELECT 두 곳이 같은 조건을 쓰는지 확인한다(PageAsync 공유).\n- 렌더 슬롯은 저장·미리보기·공개 캐시 미스가 함께 쓰므로, 슬롯 수나 대기 시간을 바꾸면 세 경로 모두 영향을 받는다.\n- 캐시 상한 초과는 로그 없이 발생하므로 CacheMegabytes를 바꿀 때는 반복 렌더 증상으로만 확인할 수 있다.\n- 첨부·피드·사이트맵의 Cache-Control은 이미 있다. 캐시 개선을 계획할 때 중복 구현하지 않는다.\n- 이 문서는 EXPLAIN·부하 측정 없이 코드 기준으로 작성했다. 수치(8.5초 등)는 코드 주석·문서에서 온 값이다.\n- RenderGate.cs는 직접 읽지 않고 기능 분석 결과에 의존했다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "body": "## 관련 문서\n\n- [02_ARCHITECTURE](02_ARCHITECTURE.md)\n- [07_DATA_MODEL](07_DATA_MODEL.md)\n- [08_API](08_API.md)\n- [10_ERROR_HANDLING](10_ERROR_HANDLING.md)\n- [13_SECURITY](13_SECURITY.md)\n- [17_TECH_DEBT](17_TECH_DEBT.md)\n- [F011 렌더 캐시](features/F011_MARKDOWN_RENDERING_CACHE.md)\n- [F014 검색](features/F014_PUBLIC_SEARCH.md)\n- [F019 속도 제한](features/F019_RATE_LIMITING.md)",
+      "diagrams": [],
+      "unchanged": false
+    }
+  ],
+  "relatedDocs": [
+    "02_ARCHITECTURE.md",
+    "07_DATA_MODEL.md",
+    "08_API.md",
+    "10_ERROR_HANDLING.md",
+    "13_SECURITY.md",
+    "17_TECH_DEBT.md",
+    "features/F011_MARKDOWN_RENDERING_CACHE.md",
+    "features/F014_PUBLIC_SEARCH.md",
+    "features/F019_RATE_LIMITING.md"
+  ],
+  "unknowns": [
+    "실제 데이터 규모(글 수·본문 크기)와 DB 인덱스 사용 여부는 코드만으로 측정하지 못했다(EXPLAIN 미실행).",
+    "Caddy가 피드·사이트맵·첨부 응답을 캐시하는지는 확인하지 못했다.",
+    "DB 연결 풀 크기(Maximum Pool Size)와 Rendering:Concurrency 운영값이 실제 동시 부하에 충분한지 알 수 없다.",
+    "RenderGate.cs는 직접 읽지 않고 기능 분석 결과에 의존했다."
+  ]
+}

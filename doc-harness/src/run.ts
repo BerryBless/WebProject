@@ -60,14 +60,23 @@ export class Run {
     return run;
   }
 
-  /** 가장 최근 Run이 RUNNING이면 그것을, 아니면 null. */
+  /** 가장 최근 Run이 RUNNING 또는 FAILED(한도·일시 오류로 중단)면 그것을, SUCCESS·ABANDONED면 null. */
   static async latestIncomplete(paths: HarnessPaths): Promise<Run | null> {
     const runs = await Run.listRuns(paths);
     if (!runs.length) return null;
     const last = runs[runs.length - 1];
     const state = await loadRunState(path.join(paths.runs, last, 'state.json'));
-    if (!state || state.status !== 'RUNNING') return null;
+    if (!state || (state.status !== 'RUNNING' && state.status !== 'FAILED')) return null;
     return new Run(paths, last, state);
+  }
+
+  /** FAILED Run을 다시 RUNNING으로 돌린다(성공한 항목은 그대로 두고 실패·미시작 항목만 다시 돈다). */
+  async reopen(): Promise<void> {
+    if (this.state.status === 'RUNNING') return;
+    this.state.status = 'RUNNING';
+    this.state.abandonReason = undefined;
+    for (const item of Object.values(this.state.items)) if (item.status === 'RUNNING') item.status = 'PENDING';
+    await this.save();
   }
 
   static async latest(paths: HarnessPaths): Promise<Run | null> {

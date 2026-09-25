@@ -1,0 +1,1386 @@
+{
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "host": "admin",
+      "caller": "관리 SPA(세션 확인)",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.MapAuthEndpoints (GET /me 람다)",
+      "request": "본문 없음. 헤더 X-Requested-With: XMLHttpRequest 필요.",
+      "response": "200 AuthStatusDto(Succeeded 여부). 세션이 없어도 200이며 값만 false.",
+      "validation": [
+        "AdminSurfaceMiddleware 통과(호스트·IP·X-Requested-With)"
+      ],
+      "authentication": "AllowAnonymous. 핸들러가 AdminCookie 스킴을 직접 AuthenticateAsync로 평가",
+      "sideEffects": [
+        "없음(읽기)"
+      ],
+      "dbChanges": [
+        "세션 검증 시 SessionValidator가 epoch 조회(값 확인은 별도 파일)"
+      ],
+      "errors": [
+        "404: 관리 호스트가 아님(AdminSurfaceMiddleware)",
+        "403: 허용 IP 밖 / X-Requested-With 누락(AdminSurfaceMiddleware)",
+        "GET이므로 Origin 검사는 하지 않음",
+        "오류 본문은 ProblemDetails, Cache-Control: no-store"
+      ],
+      "featureIds": [
+        "F001",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "MapAuthEndpoints",
+          "lines": "37-50"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "host": "admin",
+      "caller": "관리 SPA 로그인 화면",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync",
+      "request": "JSON LoginRequest{password}. 헤더 X-Requested-With, Origin=관리 origin 필요.",
+      "response": "204 + __Host- 세션 쿠키(비영속). 실패 401 ProblemDetails.",
+      "validation": [
+        "password null이거나 256자 초과면 400 ValidationProblem",
+        "AdminCredential.Verify로 비밀번호 검증"
+      ],
+      "authentication": "AllowAnonymous. RateLimitPolicy.Login(login-concurrency, login-ip, login-global 창)",
+      "sideEffects": [
+        "성공 시 SignInAsync로 쿠키 발급(지문·SessionEpoch 클레임)",
+        "성공·실패를 RemoteIp만 남기고 로그(비밀번호 미기록)"
+      ],
+      "dbChanges": [
+        "AdminStates에서 SessionEpoch 읽기만(변경 없음)"
+      ],
+      "errors": [
+        "400: password 누락/256자 초과",
+        "401: 비밀번호 불일치",
+        "429 + Retry-After: 로그인 속도·동시성 한도 초과",
+        "404: 관리 호스트가 아님",
+        "403: 허용 IP 밖 / X-Requested-With 누락 / Origin이 관리 origin과 다름(POST)",
+        "위 404·403은 AdminSurfaceMiddleware의 ProblemDetails, no-store"
+      ],
+      "featureIds": [
+        "F001",
+        "F018",
+        "F019"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LoginAsync",
+          "lines": "48-99"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "BuildChain",
+          "lines": "88-101"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LogoutAsync",
+      "request": "본문 없음. X-Requested-With, Origin 필요.",
+      "response": "204",
+      "validation": [
+        "세션 필수(그룹 인가 정책)"
+      ],
+      "authentication": "AdminCookie 세션 필수",
+      "sideEffects": [
+        "쿠키 삭제(SignOutAsync)",
+        "전 세션 폐기(SessionEpoch+1)",
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "AdminStates.SessionEpoch = SessionEpoch + 1 (ExecuteUpdateAsync)"
+      ],
+      "errors": [
+        "401: 세션 없음(인가 정책)",
+        "404: 관리 호스트가 아님",
+        "403: 허용 IP 밖 / X-Requested-With 누락 / Origin 불일치",
+        "404·403은 AdminSurfaceMiddleware의 ProblemDetails, no-store"
+      ],
+      "featureIds": [
+        "F001",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LogoutAsync",
+          "lines": "49,115-123"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts",
+      "host": "admin",
+      "caller": "관리 SPA 글 목록",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync",
+      "request": "쿼리 q(≤100자), skip(≥0), take(1~200, 기본 50)",
+      "response": "200 PagedPostsDto(요약 목록+total)",
+      "validation": [
+        "skip<0, take 범위 밖, q에 NUL 또는 100자 초과 → 400"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "Posts 조회(q 있으면 Title·Summary·ContentMarkdown ILIKE)"
+      ],
+      "errors": [
+        "400 ValidationProblem",
+        "401 세션 없음",
+        "404: 관리 호스트가 아님(AdminSurfaceMiddleware)",
+        "403: 허용 IP 밖 / X-Requested-With 누락(AdminSurfaceMiddleware)",
+        "오류 본문 ProblemDetails, no-store"
+      ],
+      "featureIds": [
+        "F002",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.ListAsync",
+          "lines": "64-86"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA 에디터",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.GetAsync",
+      "request": "경로 id(guid)",
+      "response": "200 PostDetailDto(Version 포함) / 404",
+      "validation": [
+        "id는 guid 라우트 제약"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "Posts 조회"
+      ],
+      "errors": [
+        "404: 글 없음 / 관리 호스트가 아님(미들웨어)",
+        "401 세션 없음",
+        "403: 허용 IP 밖 / X-Requested-With 누락(미들웨어)"
+      ],
+      "featureIds": [
+        "F003",
+        "F006",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.GetAsync",
+          "lines": "101-102"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/posts",
+      "host": "admin",
+      "caller": "관리 SPA 에디터",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync",
+      "request": "JSON UpsertPostRequest(slug, title, summary, contentMarkdown, seriesId, seriesOrder, tagNames)",
+      "response": "201 Location=/api/posts/{id} + PostDetailDto",
+      "validation": [
+        "PostValidation.Validate",
+        "seriesId 존재 확인",
+        "RenderGate 렌더 가능성 확인 — MarkdownTooComplexException이면 400",
+        "slug 중복 사전 검사"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "저장 뒤 RenderedPostCache에 (Id, Version) 선채움(본문이 같을 때만)",
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "트랜잭션: Tags upsert, Posts insert, PostTags insert"
+      ],
+      "errors": [
+        "400 검증 실패/중첩 과다",
+        "409 slug 중복 또는 참조(시리즈·태그) 경쟁 삭제",
+        "503 + Retry-After: RenderGate 슬롯 대기 초과(RenderBusyException) 또는 DB 57014/55P03",
+        "401",
+        "404: 관리 호스트가 아님(미들웨어)",
+        "403: 허용 IP 밖 / X-Requested-With 누락 / Origin 불일치(미들웨어)"
+      ],
+      "featureIds": [
+        "F003",
+        "F011",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "124-164"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "IsOverload",
+          "lines": "63-70"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/posts/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA 에디터(충돌 해결 포함)",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync",
+      "request": "JSON UpsertPostRequest, Version 필수(xmin). slug 변경 불가.",
+      "response": "200 갱신된 PostDetailDto",
+      "validation": [
+        "PostValidation.Validate",
+        "slug가 현재와 다르면 400",
+        "version 누락 400",
+        "seriesId 존재 확인",
+        "version 불일치 시 렌더보다 먼저 409",
+        "MarkdownTooComplexException이면 400"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "렌더 캐시 선채움",
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "트랜잭션: Posts update(WHERE xmin=Version), PostTags 차집합 삭제·추가, Tags upsert"
+      ],
+      "errors": [
+        "400",
+        "404 글 없음",
+        "409 오래된 version(DbUpdateConcurrencyException 포함)/참조 삭제 경쟁",
+        "503 + Retry-After: RenderBusyException 또는 57014/55P03",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F003",
+        "F006",
+        "F011",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "187-245"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/posts/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA 글 목록",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync",
+      "request": "경로 id, 필수 쿼리 version(uint)",
+      "response": "204",
+      "validation": [
+        "version 없으면 400"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "Posts DELETE WHERE xmin=version(PostTags는 DB cascade)"
+      ],
+      "errors": [
+        "400 version 누락",
+        "404 글 없음",
+        "409 version 불일치",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F002",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.DeleteAsync",
+          "lines": "263-285"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/preview",
+      "host": "admin",
+      "caller": "관리 SPA 에디터(디바운스 미리보기)",
+      "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "symbol": "PreviewEndpoints.Render",
+      "request": "JSON PreviewRequest{markdown}",
+      "response": "200 PreviewResponse{Html}",
+      "validation": [
+        "markdown null 400(빈 문자열 허용)",
+        "NUL 포함 400",
+        "UTF-8 기준 MarkdownRenderer.MaxInputBytes 초과 400",
+        "MarkdownTooComplexException이면 400"
+      ],
+      "authentication": "세션 필수. RateLimitPolicy.Preview(preview-concurrency, preview-global 창)",
+      "sideEffects": [
+        "서버에 보관하지 않음, 본문 로그 미기록"
+      ],
+      "dbChanges": [
+        "없음"
+      ],
+      "errors": [
+        "400",
+        "429 + Retry-After",
+        "503 + Retry-After: RenderGate 대기 초과",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F004",
+        "F011",
+        "F019"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render",
+          "lines": "36-77"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/series",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.ListAsync",
+      "request": "없음",
+      "response": "200 SeriesDto[](제목순, 글 수 포함)",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "Series 조회"
+      ],
+      "errors": [
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With 위반 403)"
+      ],
+      "featureIds": [
+        "F007",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.ListAsync",
+          "lines": "65-66"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/series/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.GetAsync",
+      "request": "경로 id",
+      "response": "200 SeriesDetailDto(소속 글 정렬 목록) / 404",
+      "validation": [
+        "guid 라우트 제약"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "Series·Posts 조회"
+      ],
+      "errors": [
+        "404 시리즈 없음",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With 위반 403)"
+      ],
+      "featureIds": [
+        "F007",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.GetAsync",
+          "lines": "81-91"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/series",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.CreateAsync",
+      "request": "JSON UpsertSeriesRequest(slug,title,description)",
+      "response": "201 Location + SeriesDto",
+      "validation": [
+        "SeriesValidation.Validate",
+        "slug 중복 사전 검사"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "Series insert"
+      ],
+      "errors": [
+        "400",
+        "409 slug 중복(경쟁 포함)",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F007",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.CreateAsync",
+          "lines": "108-126"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/series/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.UpdateAsync",
+      "request": "JSON UpsertSeriesRequest. slug 변경 불가.",
+      "response": "200 SeriesDto",
+      "validation": [
+        "SeriesValidation.Validate",
+        "slug가 다르면 400"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "Series update(title, description)"
+      ],
+      "errors": [
+        "400",
+        "404 없음 또는 저장 직전·재조회 직전 삭제 경쟁",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F007",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.UpdateAsync",
+          "lines": "146-172"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/series/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.DeleteAsync",
+      "request": "경로 id",
+      "response": "204",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "소속 글의 SeriesId·SeriesOrder를 함께 비움",
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "트랜잭션: SELECT ... FOR UPDATE, Posts UPDATE(시리즈 해제), Series DELETE"
+      ],
+      "errors": [
+        "404 없음(트랜잭션 롤백)",
+        "409 FK 위반(참조 경쟁)",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F007",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync",
+          "lines": "192-223"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints (GET 람다)",
+      "request": "없음",
+      "response": "200 TagDto[](NormalizedName순, 글 수 포함)",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "Tags 조회"
+      ],
+      "errors": [
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With 위반 403)"
+      ],
+      "featureIds": [
+        "F008",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "symbol": "MapTagEndpoints",
+          "lines": "30-36"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/tags/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA",
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints (DELETE 람다)",
+      "request": "경로 id",
+      "response": "204",
+      "validation": [
+        "guid 라우트 제약"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "Tags DELETE(PostTags 링크는 FK cascade, 글 행·Version 불변)"
+      ],
+      "errors": [
+        "404 없음",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F008",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "symbol": "MapTagEndpoints",
+          "lines": "37-42"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/attachments",
+      "host": "admin",
+      "caller": "관리 SPA 첨부 화면",
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "symbol": "AttachmentEndpoints.ListAsync",
+      "request": "쿼리 skip(≥0), take(1~200, 기본 50)",
+      "response": "200 PagedAttachmentsDto(최신순+total)",
+      "validation": [
+        "skip·take 범위 밖 400"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "Attachments 조회"
+      ],
+      "errors": [
+        "400",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With 위반 403)"
+      ],
+      "featureIds": [
+        "F009",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "symbol": "AttachmentEndpoints.ListAsync",
+          "lines": "81-93"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/attachments",
+      "host": "admin",
+      "caller": "관리 SPA 첨부 화면·에디터",
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "symbol": "AttachmentEndpoints.UploadAsync",
+      "request": "multipart 필드 file. RequestSizeLimit = MaxBytes+1MB. antiforgery는 이 엔드포인트만 비활성(CSRF는 미들웨어가 방어).",
+      "response": "201 Location + AttachmentDto(신규) / 200 기존 첨부(동일 sha256)",
+      "validation": [
+        "file 없음·빈 파일 400",
+        "10MB 초과 413",
+        "시그니처 판정 실패·손상 415",
+        "표시 이름 정리(DisplayName)"
+      ],
+      "authentication": "세션 필수. RateLimitPolicy.Upload(upload-concurrency, upload-global 창)",
+      "sideEffects": [
+        "메타데이터 제거 후 내용 주소 파일 저장",
+        "감사 로그(id·sha256·크기)"
+      ],
+      "dbChanges": [
+        "Attachments insert(sha256 잠금 AttachmentLock 안에서)"
+      ],
+      "errors": [
+        "400",
+        "413",
+        "415",
+        "429 + Retry-After",
+        "503 + Retry-After: 잠금 대기 10초 초과(55P03)",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F009",
+        "F018",
+        "F019"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "symbol": "AttachmentEndpoints.UploadAsync",
+          "lines": "42-51,113-179"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/attachments/{id:guid}",
+      "host": "admin",
+      "caller": "관리 SPA 첨부 화면",
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "symbol": "AttachmentEndpoints.DeleteAsync",
+      "request": "경로 id",
+      "response": "204",
+      "validation": [
+        "guid 라우트 제약"
+      ],
+      "authentication": "세션 필수",
+      "sideEffects": [
+        "파일 삭제(실패 시 고아 파일로 남고 AttachmentJanitor가 정리)",
+        "감사 로그"
+      ],
+      "dbChanges": [
+        "Attachments DELETE(ExecuteDeleteAsync, 잠금 안)"
+      ],
+      "errors": [
+        "404 없음/이미 삭제",
+        "503 + Retry-After: 잠금 대기 초과",
+        "401",
+        "404·403: AdminSurfaceMiddleware(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)"
+      ],
+      "featureIds": [
+        "F009",
+        "F018"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "symbol": "AttachmentEndpoints.DeleteAsync",
+          "lines": "198-213"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "host": "both",
+      "caller": "컨테이너 헬스체크(HealthCheckCommand), 모니터링",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "Program.cs MapGet(\"/health\")",
+      "request": "없음",
+      "response": "200 HealthResponse{Status:\"Healthy\", GeneratedAt}. 의존성 점검 없이 상수.",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "없음(RequireHost 없음, /api 밖). RateLimitPolicy.PublicAsset",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "없음"
+      ],
+      "errors": [
+        "429 + Retry-After: PublicAsset 한도 초과",
+        "400: 허용되지 않은 Host(HostFiltering, 본문 없음)"
+      ],
+      "featureIds": [
+        "F022"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "MapGet /health",
+          "lines": "115-120"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/attachments/{id:guid}/{fileName}",
+      "host": "both",
+      "caller": "공개 사이트 글 본문의 <img>, 관리 SPA 미리보기 iframe, 크롤러, 링크 점검기",
+      "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "symbol": "PublicAttachmentEndpoints.GetAsync",
+      "request": "경로 id만 조회 키. fileName은 장식이며 무시. If-None-Match 지원. Range 미지원.",
+      "response": "200 파일 스트림(ContentType, ETag=sha256, Last-Modified, Cache-Control: public,max-age=31536000,immutable) / 304 / 404. 모든 응답에 nosniff와 SandboxCsp.",
+      "validation": [
+        "id는 guid 라우트 제약"
+      ],
+      "authentication": "AllowAnonymous. RateLimitPolicy.PublicAsset(IP별). RequireHost 없음, 미들웨어는 /api만 검사하므로 공개·관리 두 호스트 모두 응답(코드 주석이 두 사용처를 명시).",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext로 Attachments 읽기(읽기 전용 연결, statement_timeout)"
+      ],
+      "errors": [
+        "404 행 없음 또는 파일 열기 실패(FileNotFound/DirectoryNotFound)",
+        "503 + Retry-After: statement_timeout 57014(OverloadExceptionHandler)",
+        "429 + Retry-After",
+        "400: 허용 Host 밖(HostFiltering)"
+      ],
+      "featureIds": [
+        "F010"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "MapPublicAttachmentEndpoints / GetAsync",
+          "lines": "9,36,50-54,81-119"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "HostFilteringOptions",
+          "lines": "34-42"
+        }
+      ]
+    },
+    {
+      "method": "HEAD",
+      "path": "/attachments/{id:guid}/{fileName}",
+      "host": "both",
+      "caller": "캐시·링크 점검기",
+      "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "symbol": "PublicAttachmentEndpoints.GetAsync",
+      "request": "GET과 같은 핸들러(MapMethods GET,HEAD)",
+      "response": "GET과 같은 상태·헤더, 본문 없음(프레임워크가 생략)",
+      "validation": [
+        "id guid 제약"
+      ],
+      "authentication": "AllowAnonymous, PublicAsset 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "GET과 동일한 읽기"
+      ],
+      "errors": [
+        "404",
+        "503 + Retry-After(57014)",
+        "429"
+      ],
+      "featureIds": [
+        "F010"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "MapPublicAttachmentEndpoints",
+          "lines": "47-54"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "host": "public",
+      "caller": "브라우저·크롤러",
+      "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+      "symbol": "IndexModel.OnGetAsync",
+      "request": "쿼리 page(추정, 세부 미확인)",
+      "response": "200 HTML 최신 글 목록",
+      "validation": [
+        "쪽 번호 검증(세부는 Index.cshtml.cs 미열람)"
+      ],
+      "authentication": "없음. PublicPageConvention이 GET/HEAD·공개 호스트·RateLimitPolicy.PublicPage를 건다.",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext 읽기"
+      ],
+      "errors": [
+        "404 범위 밖 쪽(추정)",
+        "429 + Retry-After",
+        "503 + Retry-After: statement_timeout 57014",
+        "비공개 호스트 404, 비허용 메서드 405"
+      ],
+      "featureIds": [
+        "F012"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+          "symbol": "IndexModel.OnGetAsync",
+          "lines": "19,49"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "32-41"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "IsOverload",
+          "lines": "63-70"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/posts/{slug}",
+      "host": "public",
+      "caller": "브라우저·크롤러",
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.OnGetAsync",
+      "request": "경로 slug",
+      "response": "200 HTML(본문은 RenderedPostCache 히트 또는 미스 시 렌더). 두 경우 BodyHtml=null인 200: 렌더러 거부(MarkdownTooComplexException), 메타 조회 직후 경쟁 삭제.",
+      "validation": [
+        "공백뿐이거나 SlugRules 형식 밖이면 DB 조회 없이 404"
+      ],
+      "authentication": "없음. PublicPage 한도",
+      "sideEffects": [
+        "캐시 미스 시 (Id, Version) 키로 렌더 결과 캐시"
+      ],
+      "dbChanges": [
+        "PublicDbContext: GetPostAsync(메타), 미스 시 GetContentAsync(본문)"
+      ],
+      "errors": [
+        "404 slug 형식 밖/글 없음",
+        "503 + Retry-After: 캐시 미스 때 GetOrRenderAsync의 RenderGate 슬롯 대기 초과(RenderBusyException)",
+        "503 + Retry-After: statement_timeout 57014",
+        "200(본문 없음): MarkdownTooComplexException 또는 경쟁 삭제",
+        "429 + Retry-After"
+      ],
+      "featureIds": [
+        "F011",
+        "F013"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.OnGetAsync / RenderAsync",
+          "lines": "27-29,43-74"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "88"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/search",
+      "host": "public",
+      "caller": "브라우저",
+      "file": "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+      "symbol": "SearchModel.OnGetAsync",
+      "request": "쿼리 q(트림 후 2~100자, 하나만), page(상한 50)",
+      "response": "200 HTML(빈 폼 또는 결과). noindex.",
+      "validation": [
+        "q 반복 → 400 본문 있는 HTML",
+        "길이 밖·NUL·2자 미만 → 400 본문 있는 HTML",
+        "page 형식·상한 밖이거나 page>1인데 결과 없음 → 404"
+      ],
+      "authentication": "없음. RateLimitPolicy.Search: search-concurrency와 search-ip 창에 더해 PublicPage와 같은 page-ip 창에도 계산되어 공개 페이지 IP 한도를 함께 소모한다.",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext: COUNT 1회 + 목록 SELECT 1회"
+      ],
+      "errors": [
+        "400",
+        "404",
+        "429 + Retry-After",
+        "503 + Retry-After: statement_timeout 57014"
+      ],
+      "featureIds": [
+        "F014",
+        "F019"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+          "symbol": "SearchModel.OnGetAsync",
+          "lines": "65-88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "BuildChain",
+          "lines": "93,99-100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "34"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/series/{slug}",
+      "host": "public",
+      "caller": "브라우저·크롤러",
+      "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+      "symbol": "SeriesPageModel.OnGetAsync",
+      "request": "경로 slug(page 쿼리 여부는 미열람)",
+      "response": "200 HTML 시리즈 글 목록",
+      "validation": [
+        "slug 검증 세부는 미열람"
+      ],
+      "authentication": "없음. PublicPage 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext 읽기"
+      ],
+      "errors": [
+        "404 시리즈 없음(추정)",
+        "429 + Retry-After",
+        "503 + Retry-After: statement_timeout 57014"
+      ],
+      "featureIds": [
+        "F015"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+          "symbol": "SeriesPageModel.OnGetAsync",
+          "lines": "20,37"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/tags/{tag}",
+      "host": "public",
+      "caller": "브라우저·크롤러",
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync",
+      "request": "경로 tag(퍼센트 인코딩)",
+      "response": "200 HTML 태그별 글 목록",
+      "validation": [
+        "tag 검증 세부는 미열람(PublicUrls.Tag이 null을 돌릴 수 있음)"
+      ],
+      "authentication": "없음. PublicPage 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext 읽기"
+      ],
+      "errors": [
+        "404 태그 없음/형식 밖(추정)",
+        "429 + Retry-After",
+        "503 + Retry-After: statement_timeout 57014"
+      ],
+      "featureIds": [
+        "F016"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "21,57"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/feed.xml",
+      "host": "public",
+      "caller": "피드 구독기",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.FeedAsync",
+      "request": "없음(GET·HEAD)",
+      "response": "200 application/atom+xml, Cache-Control public,max-age=300. 최신 PublicQueries.FeedSize개.",
+      "validation": [
+        "XmlText.Clean으로 무효 문자 제거"
+      ],
+      "authentication": "AllowAnonymous. PublicPage 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext: 피드 SELECT 1문장"
+      ],
+      "errors": [
+        "429 + Retry-After",
+        "503 + Retry-After: statement_timeout 57014(OverloadExceptionHandler)"
+      ],
+      "featureIds": [
+        "F017"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.FeedAsync",
+          "lines": "74-75,99-143"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "IsOverload",
+          "lines": "63-70"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/sitemap.xml",
+      "host": "public",
+      "caller": "검색 엔진 크롤러",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.SitemapAsync",
+      "request": "없음(GET·HEAD, HEAD도 GET과 같은 작업 수행)",
+      "response": "200 application/xml, Cache-Control public,max-age=300. 글·태그·시리즈 각 최대 SitemapMax건.",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "AllowAnonymous. PublicPage 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "PublicDbContext: 3문장 순차 SELECT"
+      ],
+      "errors": [
+        "429 + Retry-After",
+        "503 + Retry-After: statement_timeout 57014"
+      ],
+      "featureIds": [
+        "F017"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.SitemapAsync",
+          "lines": "76-77,160-181"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/robots.txt",
+      "host": "public",
+      "caller": "크롤러",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints (robots 람다)",
+      "request": "없음(GET·HEAD)",
+      "response": "200 text/plain: Allow 전체 + Sitemap URL",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "AllowAnonymous. PublicAsset 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "없음"
+      ],
+      "errors": [
+        "429 + Retry-After"
+      ],
+      "featureIds": [
+        "F017"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "MapPublicSiteEndpoints",
+          "lines": "78-81"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/css/highlight.css",
+      "host": "public",
+      "caller": "공개 페이지 <link>",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints (강조 CSS 람다)",
+      "request": "없음(GET·HEAD)",
+      "response": "200 text/css, Cache-Control public,max-age=86400",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "AllowAnonymous. PublicAsset 한도",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "없음"
+      ],
+      "errors": [
+        "429 + Retry-After"
+      ],
+      "featureIds": [
+        "F017"
+      ],
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "MapPublicSiteEndpoints",
+          "lines": "66-72"
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/css/site.css",
+      "host": "both",
+      "caller": "공개 Razor 페이지",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "UseStaticFiles",
+      "request": "없음",
+      "response": "200 정적 파일, Cache-Control public,max-age=3600",
+      "validation": [
+        "없음"
+      ],
+      "authentication": "없음(정적 파일 미들웨어, 속도 제한 엔드포인트 메타데이터 없음)",
+      "sideEffects": [
+        "없음"
+      ],
+      "dbChanges": [
+        "없음"
+      ],
+      "errors": [
+        "404 파일 없음"
+      ],
+      "featureIds": [
+        "F020"
+      ],
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "UseStaticFiles",
+          "lines": "102-103"
+        }
+      ]
+    }
+  ],
+  "otherInterfaces": [
+    {
+      "text": "CLI `dotnet PortfolioBlog.Api.dll hash-password`: 웹 호스트를 만들지 않고 비밀번호 해시를 출력하고 종료한다(HashPasswordCommand.Run).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "HashPasswordCommand.Run",
+          "lines": "15-19"
+        }
+      ]
+    },
+    {
+      "text": "CLI `dotnet PortfolioBlog.Api.dll healthcheck`: 같은 컨테이너의 /health를 한 번 호출하고 종료 코드로 답한다(컨테이너 헬스체크용).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "HealthCheckCommand.RunAsync",
+          "lines": "21-26"
+        }
+      ]
+    },
+    {
+      "text": "BackgroundService AttachmentJanitor: 고아 첨부 파일 정리(AddHostedService). 정리 주기 등 세부는 이 세션에서 열람하지 않았다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "AddHostedService AttachmentJanitor",
+          "lines": "66-67"
+        }
+      ]
+    },
+    {
+      "text": "개발 환경 전용 OpenAPI 문서 엔드포인트(MapOpenApi): Development에서만 등록된다. 경로 세부는 프레임워크 기본값으로 이 세션에서 확인하지 않았다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.MapOpenApi",
+          "lines": "110-113"
+        }
+      ]
+    },
+    {
+      "text": "기동 시 부트스트랩: StartupValidation.Validate, 첨부 루트 쓰기 검사, 마이그레이션(Migrate), Public 연결 문자열이 있으면 PublicRoleGrants.Apply, 마크다운 렌더러 워밍업.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "symbol": "top-level statements",
+          "lines": "75-91"
+        }
+      ]
+    },
+    {
+      "text": "관리 표면 방어(미들웨어): /api 요청에 Cache-Control: no-store를 걸고, 관리 호스트가 아니면 404, 허용 IP 밖이면 403, X-Requested-With: XMLHttpRequest가 없으면 403, GET·HEAD가 아닌데 Origin이 관리 origin과 다르면 403을 ProblemDetails로 돌려준다. 순서는 호스트, IP, CSRF 헤더, Origin이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        }
+      ]
+    },
+    {
+      "text": "과부하 매핑: PostgresException 57014·55P03 또는 RenderBusyException이면 OverloadExceptionHandler가 503 + Retry-After 5초로 바꾼다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler",
+          "lines": "20,35-70"
+        }
+      ]
+    },
+    {
+      "text": "Razor 페이지 공통 규약: 모든 페이지에 GET/HEAD 전용, 공개 호스트 전용, 속도 제한 정책(/Search만 Search, 나머지 PublicPage)을 라우팅 메타데이터로 건다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "32-41"
+        }
+      ]
+    },
+    {
+      "text": "관리 SPA 라우트(/login, /, /posts/new, /posts/:id, /series, /tags, /attachments)는 PortfolioBlog.Web 클라이언트 라우터가 처리하며 Caddy가 정적 서빙한다. 서버 엔드포인트가 아니다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "symbol": "routes"
+        }
+      ]
+    }
+  ],
+  "unknowns": [
+    "Index·Series·Tag 페이지의 page 쿼리 검증과 404 조건 세부(Index.cshtml.cs, Series.cshtml.cs, Tag.cshtml.cs 본문)는 이 세션에서 열람하지 않았다.",
+    "ApiBodyLimitMiddleware의 /api 본문 한도 초과 응답 코드는 열람하지 않아 오류 열에 넣지 않았다.",
+    "AttachmentJanitor의 정리 주기와 조건은 열람하지 않았다.",
+    "/css/site.css 이외 정적 파일 존재 여부는 wwwroot를 열람하지 않아 확인하지 못했다(Program.cs 주석은 site.css 하나뿐이라 함)."
+  ]
+}

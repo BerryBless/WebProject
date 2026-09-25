@@ -1,0 +1,1735 @@
+{
+  "feature": {
+    "id": "F001",
+    "name": "관리자 로그인·세션 확인·로그아웃",
+    "slug": "ADMIN_AUTH_SESSION",
+    "summary": "관리자는 아이디 없이 비밀번호 하나로 인증한다(작성자 1명). SPA /login에서 비밀번호를 내면 POST /api/auth/login(AuthEndpoints.LoginAsync)이 AdminCredential.Verify(PBKDF2)로 검증한다. 통과하면 pwd(비밀번호 지문)와 epoch(AdminState.SessionEpoch) 클레임이 든 __Host-AdminSession 세션 쿠키를 발급한다. 쿠키가 붙은 요청마다 OnValidatePrincipal(SessionValidator)이 SessionRules.IsValid로 절대 수명·지문·epoch를 다시 검증하고, 하나라도 어긋나면 주체를 거부하고 쿠키를 지운다. SPA는 GET /api/auth/me 결과로 RequireAuth의 화면 접근을 가른다. Layout의 로그아웃 버튼이 POST /api/auth/logout을 호출하면 SessionEpoch가 1 올라가 모든 세션이 폐기된다.",
+    "entryPoints": [
+      "SPA /login (LoginPage)",
+      "SPA 보호 라우트 (RequireAuth → GET /api/auth/me)",
+      "SPA Layout 로그아웃 버튼 (POST /api/auth/logout)",
+      "GET /api/auth/me",
+      "POST /api/auth/login",
+      "POST /api/auth/logout"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+      "PortfolioBlog.Api/Domain/AdminState.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "PortfolioBlog.Web/src/components/Layout.tsx",
+      "PortfolioBlog.Web/src/components/notices.tsx",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Web/src/api/errors.ts",
+      "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/AdminCredentialTests.cs",
+      "PortfolioBlog.Web/src/test/auth.test.tsx",
+      "PortfolioBlog.Web/src/lib/lib.test.ts"
+    ],
+    "dependencies": [
+      "F018",
+      "F019",
+      "F020",
+      "F021",
+      "F029"
+    ],
+    "importance": "CORE",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F001은 관리자 인증을 쿠키 세션 하나로 처리하고, 쿠키가 붙은 요청마다 DB로 세션을 다시 검증한다. 이번 재검증에서는 AuthEndpoints·SessionValidator·SessionRules·AdminCredential·AdminOptions·AuthServiceCollectionExtensions·ApiEndpoints·AuthDtos·Program.cs 파이프라인과 SPA 파일(LoginPage·RequireAuth·Layout·queryClient·safeNext·endpoints·client·routes)을 다시 읽었다. 이전 분석과 다른 동작은 없었다. 검증에서 지적된 문제는 모두 F006·F008(과 F002·F007·F011·F018) 행의 의존 표에 관한 것이다. F001의 의존 목록(F018·F019·F020·F021·F029)은 코드로 다시 확인해 그대로 유지했다. 로그인 흐름: POST /api/auth/login(AuthEndpoints.LoginAsync)은 AdminCredential.Verify(ASP.NET Core Identity PasswordHasher, PBKDF2)가 통과하면 __Host-AdminSession 쿠키를 발급한다. 클레임은 ClaimTypes.Name=admin, pwd 클레임=AdminCredential.Fingerprint, epoch=AdminState.SessionEpoch 세 개이고, 쿠키는 HttpOnly·Secure·SameSite=Strict이며 영속되지 않는다. 요청 파이프라인은 SecurityHeadersMiddleware → UseTrustedForwardedHeaders → UseExceptionHandler → UseStatusCodePages → UseStaticFiles → AdminSurfaceMiddleware → UseRateLimiter → UseAuthentication → UseAuthorization → ApiBodyLimitMiddleware 순서다. 세션 재검증: OnValidatePrincipal(SessionValidator.ValidateAsync)은 쿠키 티켓이 복호화될 때만 호출된다. AdminStates 1행을 조회한 뒤 SessionRules.IsValid로 절대 수명(SessionHours, 기본 12시간)·지문 일치·epoch 일치를 판정한다. 어긋나면 RejectPrincipal과 SignOutAsync만 한다. 401은 Admin 정책 챌린지(OnRedirectToLogin)가 설정하고, 본문 ProblemDetails는 ErrorResponses가 붙인다. GET /api/auth/me는 익명을 허용하고 AuthStatusDto를 200으로 돌려준다. POST /api/auth/logout은 Admin 정책으로 보호되며, ExecuteUpdateAsync로 SessionEpoch를 원자적으로 1 올려 복사된 쿠키를 포함한 모든 세션을 폐기한다. SPA는 ME_KEY 쿼리로 RequireAuth 접근을 가르고, 로그인 성공·로그아웃 성공·401 수신 때 ME_KEY 값을 직접 바꾼다. 관찰한 잠재 문제는 네 가지다. AdminState SingleAsync 예외가 처리되지 않고 전파된다. 로그아웃이 갱신 행 수를 확인하지 않는다. 세션이 이미 무효일 때 로그아웃하면 Layout의 캐시 정리가 실행되지 않는다. 세션 거부가 로그로 남지 않는다.",
+  "entryPoints": [
+    {
+      "text": "SPA 라우트 /login은 LoginPage를 렌더한다. RequireAuth 바깥에 있어 로그인 없이 접근할 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "22",
+          "symbol": "routes"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "12-58",
+          "symbol": "LoginPage"
+        }
+      ]
+    },
+    {
+      "text": "SPA 보호 라우트는 RequireAuth → Layout 아래에 있다. RequireAuth는 useQuery(ME_KEY, auth.me)로 GET /api/auth/me를 호출한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "23-36",
+          "symbol": "routes"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "11-21",
+          "symbol": "RequireAuth"
+        }
+      ]
+    },
+    {
+      "text": "SPA Layout 헤더의 로그아웃 버튼이 auth.logout()으로 POST /api/auth/logout을 호출한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "12-23,35-37",
+          "symbol": "Layout"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "lines": "10-14",
+          "symbol": "auth"
+        }
+      ]
+    },
+    {
+      "text": "GET /api/auth/me(이름 GetAuthStatus)는 AllowAnonymous다. AdminCookie 스킴을 명시해 인증하고 AuthStatusDto(Authenticated)를 200으로 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "40-46",
+          "symbol": "AuthEndpoints.MapAuthEndpoints"
+        }
+      ]
+    },
+    {
+      "text": "POST /api/auth/login(이름 Login)은 AllowAnonymous이고 RateLimitMetadata(RateLimitPolicy.Login)가 붙어 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "48,69-99",
+          "symbol": "AuthEndpoints.LoginAsync"
+        }
+      ]
+    },
+    {
+      "text": "POST /api/auth/logout(이름 Logout)은 /api 그룹에 걸린 RequireHost(관리 호스트)와 RequireAuthorization(\"Admin\")을 그대로 받는다. 따라서 유효한 세션이 있어야 핸들러에 도달한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "49,115-123",
+          "symbol": "AuthEndpoints.LogoutAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39-40",
+          "symbol": "ApiEndpoints.MapApiEndpoints"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "LoginPage",
+      "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "symbol": "LoginPage.submit",
+      "description": "폼을 제출할 때 비밀번호가 비었거나 요청이 진행 중이면 아무것도 하지 않는다. 그 밖에는 login.mutate()를 인자 없이 호출하고, mutationFn 클로저가 제출 시점의 password 상태를 읽는다. 비밀번호를 mutation 변수로 넘기지 않으므로 MutationCache에 남지 않는다."
+    },
+    {
+      "step": 2,
+      "component": "request",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "description": "auth.login(password)은 request('POST','/api/auth/login',{json:{password}})를 호출한다. request는 buildUrl로 경로를 검사하고 X-Requested-With: XMLHttpRequest 헤더를 붙인다. fetch 옵션은 credentials 'same-origin', cache 'no-store', redirect 'error'다."
+    },
+    {
+      "step": 3,
+      "component": "SecurityHeadersMiddleware / UseTrustedForwardedHeaders",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseMiddleware<SecurityHeadersMiddleware> / UseTrustedForwardedHeaders",
+      "description": "앱 미들웨어 맨 앞에서 보안 헤더를 붙인다. ProxyOptions.TrustedIp가 비어 있지 않을 때만 ForwardedHeaders 미들웨어가 등록되어 RemoteIpAddress를 X-Forwarded-For 값으로 바꾼다."
+    },
+    {
+      "step": 4,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "description": "/api 경로에 Cache-Control: no-store를 설정하고 네 조건을 순서대로 검사한다. 관리 호스트가 아니면 404, IP 허용 정책 밖이면 403, CSRF 헤더가 없으면 403, GET/HEAD가 아닌데 Origin이 관리 origin과 다르면 403이다."
+    },
+    {
+      "step": 5,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions (Login 체인)",
+      "description": "엔드포인트 메타데이터가 RateLimitPolicy.Login이면 세 한도를 모두 통과해야 한다. login-concurrency(LoginConcurrency), login-ip:{IP}(LoginPerIpPerMinute), login-global(LoginGlobalPerMinute)이다. 하나라도 넘으면 429와 Retry-After를 돌려준다."
+    },
+    {
+      "step": 6,
+      "component": "CookieAuthenticationHandler",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "UseAuthentication",
+      "description": "기본 스킴 AdminCookie가 __Host-AdminSession 쿠키를 복호화한다. 복호화에 성공했을 때만 OnValidatePrincipal(SessionValidator.ValidateAsync)을 호출한다. 쿠키가 없는 로그인 요청은 미인증 상태로 지나간다."
+    },
+    {
+      "step": 7,
+      "component": "ApiBodyLimitMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "description": "UseAuthorization 다음에 실행된다. Content-Length가 JsonLimitBytes(262144)를 넘으면 413이다. 길이를 선언하지 않은 본문은 LengthLimitedStream으로 감싸 읽으면서 바이트를 센다."
+    },
+    {
+      "step": 8,
+      "component": "AuthEndpoints",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync",
+      "description": "LoginRequest를 바인딩한다. request.Password가 null이거나 PasswordMaxLength(256)를 넘으면 ValidationProblem(400)을 돌려준다."
+    },
+    {
+      "step": 9,
+      "component": "AdminCredential",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+      "symbol": "AdminCredential.Verify",
+      "description": "설정 해시가 비어 있으면 false를 돌려준다(fail closed). 해시가 있으면 PasswordHasher.VerifyHashedPassword 결과가 Failed가 아닐 때 true다. 검증에 실패하면 LoginAsync가 LogWarning을 남기고 401 Problem('로그인 실패')을 돌려준다."
+    },
+    {
+      "step": 10,
+      "component": "AppDbContext",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync",
+      "description": "db.AdminStates.AsNoTracking()으로 Id=AdminState.SingletonId 행의 SessionEpoch를 SingleAsync(ct)로 읽는다."
+    },
+    {
+      "step": 11,
+      "component": "AuthEndpoints",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync",
+      "description": "Name=admin, pwd 클레임=Fingerprint, epoch 클레임으로 ClaimsIdentity를 만든다. SignInAsync(AdminCookie, IsPersistent=false, IssuedUtc=clock.GetUtcNow())로 쿠키를 발급하고 LogInformation을 남긴 뒤 204를 돌려준다."
+    },
+    {
+      "step": 12,
+      "component": "LoginPage",
+      "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "symbol": "LoginPage.login.onSuccess",
+      "description": "onSettled는 성공 여부와 관계없이 입력을 비운다. onSuccess는 ME_KEY를 {authenticated:true}로 설정하고 navigate(safeNext(next), {replace:true})로 이동한다."
+    },
+    {
+      "step": 13,
+      "component": "safeNext",
+      "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "symbol": "safeNext",
+      "description": "같은 출처의 절대 경로만 통과시키고 나머지는 모두 '/'로 바꾼다. '/'가 되는 경우는 다음과 같다: 빈 값, 2048자 초과, '/'로 시작하지 않거나 '//'·'/\\'로 시작, 제어 문자 포함, URL 파싱 실패, 다른 origin, /login 자신(대소문자·끝 슬래시 무시), 정규화 뒤 '//'·'/\\'로 시작하게 되는 값."
+    },
+    {
+      "step": 14,
+      "component": "RequireAuth",
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "symbol": "RequireAuth",
+      "description": "보호 라우트에 들어오면 useQuery(ME_KEY, auth.me)를 실행한다. 응답을 기다리는 동안 Loading을, 오류가 나면 재시도 버튼이 있는 ErrorNotice를 보여 준다. authenticated=false면 /login?next=현재경로로 보내고, true면 Outlet을 렌더한다."
+    },
+    {
+      "step": 15,
+      "component": "SessionValidator",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync",
+      "description": "쿠키 티켓이 복호화된 요청에서만 호출된다. TimeProvider, AdminOptions.SessionHours, AdminCredential.Fingerprint를 읽고, AdminStates.SessionEpoch를 SingleAsync(RequestAborted)로 조회해 SessionRules.IsValid에 넘긴다. 결과가 false면 RejectPrincipal과 SignOutAsync만 하고 상태 코드는 설정하지 않는다."
+    },
+    {
+      "step": 16,
+      "component": "SessionRules",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "symbol": "SessionRules.IsValid",
+      "description": "순수 함수다. IssuedUtc가 없거나 미래 시각이거나 발급 후 lifetime 이상 지났으면 false다. 지문이 Ordinal 비교로 다르면 false다. epoch 클레임은 NumberStyles.None으로 파싱해 현재 epoch와 같아야 true다."
+    },
+    {
+      "step": 17,
+      "component": "AuthEndpoints",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.MapAuthEndpoints (/me)",
+      "description": "ctx.AuthenticateAsync(\"AdminCookie\")의 result.Succeeded를 AuthStatusDto에 담아 200으로 돌려준다. AllowAnonymous이므로 세션이 거부되어도 401이 아니라 Authenticated=false가 나간다."
+    },
+    {
+      "step": 18,
+      "component": "AuthServiceCollectionExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "CookieAuthenticationOptions.Events.OnRedirectToLogin",
+      "description": "UseAuthorization 단계에서 Admin 정책(RequireAuthenticatedUser)이 실패하면 AdminCookie 챌린지가 일어난다. OnRedirectToLogin은 리다이렉트하지 않고 상태 코드 401만 설정한다. ProblemDetails 본문은 UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)가 쓴다."
+    },
+    {
+      "step": 19,
+      "component": "Layout",
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout.logout",
+      "description": "로그아웃 버튼이 auth.logout()을 호출한다. 성공하면 ME_KEY를 false로 설정하고, ME_KEY 외의 쿼리를 removeQueries로 지우고, MutationCache를 비운다. 실패하면 ErrorNotice를 보여 준다."
+    },
+    {
+      "step": 20,
+      "component": "AuthEndpoints",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LogoutAsync",
+      "description": "인가를 통과한 요청만 여기에 도달한다. AdminStates(Id=1)에 ExecuteUpdateAsync(SessionEpoch = SessionEpoch + 1)를 실행하고, SignOutAsync로 쿠키를 지우고, LogInformation을 남긴 뒤 204를 돌려준다."
+    },
+    {
+      "step": 21,
+      "component": "queryClient",
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure",
+      "description": "QueryCache·MutationCache의 onError가 ApiError 401을 받으면 ME_KEY를 {authenticated:false}로 설정한다. RequireAuth가 이 값을 보고 로그인 화면으로 보낸다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.MapAuthEndpoints / LoginAsync / LogoutAsync",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "AuthServiceCollectionExtensions.AddAdminAuth",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "symbol": "SessionRules.IsValid",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+      "symbol": "AdminCredential.Verify / Fingerprint",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "symbol": "AdminOptions",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "UseTrustedForwardedHeaders",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions (login-concurrency / login-ip / login-global)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "AddAdminAuth / AddExceptionHandler / 미들웨어 파이프라인",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+      "symbol": "AuthStatusDto / LoginRequest",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/AdminState.cs",
+      "symbol": "AdminState",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.AdminStates",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "symbol": "LoginPage",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "symbol": "RequireAuth",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "symbol": "ErrorNotice / Loading",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "ME_KEY / noteAuthFailure / createQueryClient",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "symbol": "safeNext / hasControlChar",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "auth",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request / buildUrl",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "ApiError / toApiError / describeError",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "symbol": "AuthEndpointsTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+      "symbol": "SessionRulesTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/AdminCredentialTests.cs",
+      "symbol": "AdminCredentialTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/auth.test.tsx",
+      "symbol": "describe('인증 흐름')",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+      "symbol": "describe('safeNext')",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "로그인 입력은 LoginPage의 password 상태(최대 256자)에서 JSON {password}로 직렬화되고, 서버에서 LoginRequest(string? Password)로 바인딩된다. 비밀번호는 mutation 변수로 넘기지 않아 MutationCache에 남지 않고, onSettled에서 입력 칸이 비워진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "18-30,48"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "lines": "12"
+        },
+        {
+          "file": "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+          "lines": "8",
+          "symbol": "LoginRequest"
+        }
+      ]
+    },
+    {
+      "text": "자격 증명 경로: 설정 Admin:PasswordHash → AdminCredential._hash(싱글턴이 생성될 때 한 번 읽음) → Fingerprint. Fingerprint는 해시 문자열의 SHA-256 앞 16바이트를 소문자 hex 32자로 쓴 값이다. 해시 원문은 쿠키에 들어가지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "lines": "37-45",
+          "symbol": "AdminCredential..ctor"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "45"
+        }
+      ]
+    },
+    {
+      "text": "세션 티켓은 클레임(Name=admin, pwd 클레임=Fingerprint, epoch=SessionEpoch의 InvariantCulture 문자열)과 AuthenticationProperties(IsPersistent=false, IssuedUtc)로 구성된다. 쿠키 핸들러가 이를 Data Protection으로 보호해 __Host-AdminSession에 싣는다. 쿠키 속성은 Path=/, HttpOnly, Secure(Always), SameSite=Strict, IsEssential이다. ExpireTimeSpan=SessionHours, SlidingExpiration=false다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "87-96",
+          "symbol": "AuthEndpoints.LoginAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "55-71"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "65",
+          "symbol": "Login_CorrectPassword_Returns204_AndHardenedCookie"
+        }
+      ]
+    },
+    {
+      "text": "세션 재검증은 쿠키 티켓 값(IssuedUtc, pwd, epoch)과 현재 서버 상태(TimeProvider.GetUtcNow, AdminOptions.SessionHours, AdminCredential.Fingerprint, DB의 AdminState.SessionEpoch)를 SessionRules.IsValid에 넣어 bool을 얻는다. 이 계산은 티켓이 복호화된 요청에서만 일어난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "33-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "lines": "39-51"
+        }
+      ]
+    },
+    {
+      "text": "세션 상태는 /me의 AuthStatusDto(bool Authenticated) JSON으로 나간다. SPA는 이 값을 TanStack Query 캐시 ME_KEY=['auth','me']에 저장하고, RequireAuth가 이 값을 보고 라우팅을 가른다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+          "lines": "5",
+          "symbol": "AuthStatusDto"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "5"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "13-20"
+        }
+      ]
+    },
+    {
+      "text": "SPA는 서버에 다시 묻지 않고 ME_KEY 값을 직접 바꾼다. 로그인에 성공하면 true, 로그아웃에 성공하면 false가 되고, 어느 쿼리나 mutation에서든 401을 받으면 false가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "26-29"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "14-22"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-13,17-18"
+        }
+      ]
+    },
+    {
+      "text": "로그인 후 이동 경로: RequireAuth가 location.pathname+search를 encodeURIComponent로 인코딩해 ?next=로 넘긴다. LoginPage는 safeNext(params.get('next'))로 검증한 경로로 이동한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "16-19"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "28"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+          "lines": "18-34"
+        }
+      ]
+    },
+    {
+      "text": "클라이언트 IP: ProxyOptions.TrustedIp가 비어 있지 않을 때만 UseTrustedForwardedHeaders가 UseForwardedHeaders를 등록해 RemoteIpAddress를 X-Forwarded-For 값으로 바꾼다. 이 값은 세 곳에서 쓰인다: AdminSurfaceMiddleware의 IP 허용 검사, login-ip:{IP} 속도 제한 파티션, LoginAsync·LogoutAsync 로그의 RemoteIp.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "68-72",
+          "symbol": "UseTrustedForwardedHeaders"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "98-99"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "94"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "83,97,121"
+        }
+      ]
+    },
+    {
+      "text": "오류 응답 본문은 세 경로로 만들어진다. (1) 상태 코드만 설정되고 본문이 없는 /api 응답(OnRedirectToLogin의 401 등)에는 UseStatusCodePages → ErrorResponses.WriteAsync가 ProblemDetails{Status}를 쓴다. 적용 대상은 MachinePrefixes(/api·/attachments·/health·/openapi)다. (2) LoginAsync의 401과 AdminSurfaceMiddleware의 거부 응답은 핸들러·미들웨어가 ProblemDetails를 직접 쓴다. (3) 처리되지 않은 예외는 UseExceptionHandler로 가고, OverloadExceptionHandler가 PostgresException 57014·55P03과 RenderBusyException을 503 + Retry-After 5로 바꾼다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,100-101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "17,30-55"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "84"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42,63-67",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload"
+        }
+      ]
+    },
+    {
+      "text": "Data Protection 키: DataProtection:KeysPath가 설정되어 있으면 그 디렉터리에 FileSystemXmlRepository로 영속화하고, 없으면 프레임워크 기본 위치를 쓴다. 애플리케이션 이름은 PortfolioBlog.Api로 고정되어 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "75-84"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "미인증(쿠키 없음)",
+      "to": "인증됨(__Host-AdminSession 발급)",
+      "trigger": "POST /api/auth/login 성공(204). 티켓에 현재 epoch와 지문이 담긴다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "87-98",
+          "symbol": "AuthEndpoints.LoginAsync"
+        }
+      ]
+    },
+    {
+      "from": "인증됨",
+      "to": "미인증(모든 세션 폐기)",
+      "trigger": "POST /api/auth/logout. AdminState.SessionEpoch가 1 올라가 이전에 발급된 모든 쿠키(복사본 포함)의 epoch와 맞지 않게 된다. 호출한 브라우저의 쿠키는 SignOutAsync로 삭제된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "115-123",
+          "symbol": "AuthEndpoints.LogoutAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "168",
+          "symbol": "Logout_RevokesEverySession_IncludingCopiedCookies"
+        }
+      ]
+    },
+    {
+      "from": "인증됨",
+      "to": "미인증(쿠키 삭제)",
+      "trigger": "발급 후 SessionHours(기본 12시간)가 지남. sliding 연장이 없어서 활동이 있어도 수명이 늘지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "lines": "42-45"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "65-66"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+          "lines": "33"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "224",
+          "symbol": "Session_ExpiresAfterAbsoluteLifetime_NoSliding"
+        }
+      ]
+    },
+    {
+      "from": "인증됨",
+      "to": "미인증(쿠키 삭제)",
+      "trigger": "Admin:PasswordHash를 교체하고 재시작하면 AdminCredential.Fingerprint가 달라진다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "lines": "46-49"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "196",
+          "symbol": "HashRotation_RevokesSessions_ButControlFactoryWithSameHashStillAccepts"
+        }
+      ]
+    },
+    {
+      "from": "AdminState.SessionEpoch = N",
+      "to": "AdminState.SessionEpoch = N+1",
+      "trigger": "LogoutAsync의 ExecuteUpdateAsync(SessionEpoch + 1). 초기값은 시드 데이터의 1이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "118-119"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "141-145"
+        }
+      ]
+    },
+    {
+      "from": "SPA ME_KEY authenticated=true",
+      "to": "SPA ME_KEY authenticated=false → /login?next= 이동",
+      "trigger": "로그아웃 성공(Layout.onSuccess) 또는 어느 API 호출에서든 받은 401(noteAuthFailure)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "14-17"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-13"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "16-19"
+        }
+      ]
+    },
+    {
+      "from": "SPA ME_KEY authenticated=false",
+      "to": "SPA ME_KEY authenticated=true → safeNext(next) 이동",
+      "trigger": "LoginPage 로그인 성공(onSuccess의 setQueryData)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "26-29"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "AdminState (테이블 AdminState, Id=1 단일 행)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync"
+    },
+    {
+      "entity": "AdminState (테이블 AdminState, Id=1 단일 행)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync"
+    },
+    {
+      "entity": "AdminState (테이블 AdminState, Id=1 단일 행)",
+      "operation": "UPDATE",
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LogoutAsync"
+    },
+    {
+      "entity": "AdminState (CHECK CK_AdminState_Single, 시드 SessionEpoch=1)",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext (AdminState 모델 구성·HasData)"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "ASP.NET Core 쿠키 인증(AddAuthentication(\"AdminCookie\").AddCookie)과 인가 정책 Admin(RequireAuthenticatedUser)",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "54-72"
+        }
+      ]
+    },
+    {
+      "text": "ASP.NET Core Data Protection. 운영에서는 DataProtection:KeysPath 위치의 FileSystemXmlRepository를 쓴다. 개발 외 환경에서는 StartupValidation이 이 경로가 절대 경로인지 강제한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "75-84"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "116,134"
+        }
+      ]
+    },
+    {
+      "text": "비밀번호 검증은 Microsoft.AspNetCore.Identity.PasswordHasher<object>(PBKDF2-HMAC-SHA512)를 쓴다. 프레임워크 내장이라 추가 패키지가 필요 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "lines": "12-24,58-65"
+        }
+      ]
+    },
+    {
+      "text": "PostgreSQL(EF Core AppDbContext)의 AdminState 테이블",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "84,141-145"
+        }
+      ]
+    },
+    {
+      "text": "System.Threading.RateLimiting 기반의 ASP.NET Core 속도 제한기(F019)가 로그인 엔드포인트에 적용된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "88-95"
+        }
+      ]
+    },
+    {
+      "text": "ASP.NET Core ForwardedHeaders 미들웨어. 신뢰 프록시가 설정된 경우에만 등록되며 RemoteIpAddress를 결정한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "68-72"
+        }
+      ]
+    },
+    {
+      "text": "SPA는 @tanstack/react-query(useQuery, useMutation, QueryClient), react-router(Navigate, useSearchParams, useNavigate), 브라우저 fetch에 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "1-3"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "1-2"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "60-62"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "AdminSurfaceMiddleware.InvokeAsync(/api/auth/* 전부)",
+      "condition": "다음 중 하나: 관리 호스트가 아님, IP가 허용 정책 밖, X-Requested-With 헤더 없음, GET/HEAD가 아닌 요청의 Origin 불일치",
+      "handling": "핸들러에 닿기 전에 ProblemDetails로 거부한다(각각 404, 403, 403, 403). UseRateLimiter보다 앞에 있으므로 여기서 걸린 요청은 로그인 속도 제한 예산을 쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "67-96"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-105"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "323",
+          "symbol": "Login_FromOutsiderIp_Returns403_AndDoesNotConsumeRateLimit"
+        }
+      ]
+    },
+    {
+      "where": "RateLimitingExtensions(POST /api/auth/login)",
+      "condition": "동시 검증 수가 LoginConcurrency를 넘거나, IP당 또는 전역 분당 한도를 넘음. 경로 변형과 IPv4-mapped 주소도 같은 예산으로 센다.",
+      "handling": "429와 Retry-After를 돌려준다. Retry-After는 고정 창이면 창이 끝날 때까지 남은 1~60초, 동시성 제한이면 5초다. QueueLimit=0이라 초과 요청은 대기하지 않는다. SPA는 describeError로 안내 문구를 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "26,50,69-72,88-95,148,169"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "246-377"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware.InvokeAsync(POST /api/auth/login 등)",
+      "condition": "Content-Length가 JsonLimitBytes(262144)를 넘거나, 길이를 선언하지 않은 본문이 읽는 도중 상한을 넘음",
+      "handling": "선언된 길이가 넘으면 LoginAsync에 닿기 전에 413 ProblemDetails로 거부한다. 길이를 선언하지 않은 본문은 LengthLimitedStream이 BadHttpRequestException(413)을 던진다. 이 미들웨어는 UseAuthorization 뒤에 있어서, 세션이 필요한 로그아웃 경로에서는 401이 먼저 나간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21,47-55,84"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "108"
+        }
+      ]
+    },
+    {
+      "where": "LoginAsync 바인딩",
+      "condition": "JSON 파싱 실패 또는 본문이 JSON null",
+      "handling": "RouteHandlerOptions.ThrowOnBadRequest=false라서 예외 없이 400을 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "49"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "380",
+          "symbol": "Login_NullJsonBody_Returns400"
+        }
+      ]
+    },
+    {
+      "where": "AuthEndpoints.LoginAsync",
+      "condition": "Password가 null이거나 256자 초과",
+      "handling": "해싱 전에 TypedResults.ValidationProblem(400, password 필드 오류)을 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "72-79"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "112",
+          "symbol": "Login_MissingOrOversizedPassword_Returns400"
+        }
+      ]
+    },
+    {
+      "where": "AdminCredential.Verify → AuthEndpoints.LoginAsync",
+      "condition": "비밀번호 불일치(빈 문자열 포함) 또는 설정 해시가 비어 있음",
+      "handling": "LogWarning(RemoteIp만 기록)을 남기고 401 Problem(title '로그인 실패')을 돌려준다. 쿠키는 발급하지 않는다. SPA는 '비밀번호가 맞지 않습니다.'를 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "81-85"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "lines": "58-65"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "32-34"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "94",
+          "symbol": "Login_WrongPassword_Returns401_NoCookie"
+        }
+      ]
+    },
+    {
+      "where": "AuthEndpoints.LoginAsync의 AdminStates SingleAsync",
+      "condition": "AdminState 행이 없거나 여러 개, DB 연결 실패, 요청 취소",
+      "handling": "처리 없음(예외 전파). UseExceptionHandler가 예외를 받는다. OverloadExceptionHandler.IsOverload는 InnerException 체인에 있는 PostgresException(57014·55P03)만 503 + Retry-After 5로 바꾼다. 그 밖의 예외(행이 없을 때의 InvalidOperationException, 연결 실패 등)는 기본 예외 처리로 넘어간다. 행이 없어질 위험은 CHECK 제약과 HasData 시드로 줄여 두었다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "87"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42,63-67",
+          "symbol": "OverloadExceptionHandler.IsOverload"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "141-145"
+        }
+      ]
+    },
+    {
+      "where": "SessionValidator.ValidateAsync의 AdminStates SingleAsync",
+      "condition": "DB 장애나 행이 없는 상태에서 쿠키가 붙은 요청이 들어옴(/me 포함)",
+      "handling": "처리 없음(예외 전파). 쿠키가 붙은 관리 요청은 모두 UseAuthentication 단계에서 실패하고, UseExceptionHandler가 오류 응답을 만든다. 57014·55P03만 503이 된다. /me는 원래 항상 200을 돌려주는 계약이지만 이 경우에는 오류 응답이 나갈 수 있다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "39-42"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "40-46"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100,106"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "63-67"
+        }
+      ]
+    },
+    {
+      "where": "SessionValidator.ValidateAsync",
+      "condition": "SessionRules.IsValid가 false. 원인은 만료, 미래 발급 시각, IssuedUtc 없음, 지문 불일치·누락, epoch 불일치·비숫자·누락 중 하나",
+      "handling": "context.RejectPrincipal()과 SignOutAsync(쿠키 삭제)만 하고 상태 코드는 설정하지 않는다. /me는 Authenticated=false와 함께 200을 받고, 보호 엔드포인트는 인가 단계의 챌린지로 401을 받는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "44-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "lines": "39-51"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+          "lines": "49-150",
+          "symbol": "SessionRulesTests"
+        }
+      ]
+    },
+    {
+      "where": "쿠키 인증 핸들러(AdminCookie)",
+      "condition": "Data Protection이 복호화할 수 없는 쿠키 값",
+      "handling": "미인증으로 처리하고 SessionValidator는 호출하지 않는다. /me는 500이 아니라 Authenticated=false를 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "399",
+          "symbol": "Me_WithMalformedCookie_ReturnsNotAuthenticated_NotServerError"
+        }
+      ]
+    },
+    {
+      "where": "인가 정책 Admin(UseAuthorization, POST /api/auth/logout 등)",
+      "condition": "쿠키가 없거나, 복호화에 실패했거나, SessionValidator가 주체를 거부함",
+      "handling": "OnRedirectToLogin이 리다이렉트 대신 401만 설정한다(AccessDenied는 403). 본문 ProblemDetails는 UseStatusCodePages → ErrorResponses가 붙인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "67-69,72"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "30-55"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "149",
+          "symbol": "ProtectedEndpoint_WithoutSession_Returns401_NotRedirect"
+        }
+      ]
+    },
+    {
+      "where": "AuthEndpoints.LogoutAsync",
+      "condition": "ExecuteUpdateAsync가 0행을 갱신함(AdminState 행이 없음)",
+      "handling": "갱신된 행 수를 확인하지 않는다. epoch가 오르지 않아 다른 세션은 폐기되지 않았는데도, 호출한 브라우저의 쿠키만 지우고 204를 돌려준다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "118-122"
+        }
+      ]
+    },
+    {
+      "where": "AuthEndpoints.LogoutAsync",
+      "condition": "epoch UPDATE 중 DB 예외 또는 요청 취소",
+      "handling": "처리 없음(예외 전파). SignOutAsync까지 가지 못해 쿠키가 남는다. 57014·55P03만 503이 되고 나머지는 기본 예외 처리 응답이다. SPA의 Layout은 ErrorNotice를 보여 준다. UPDATE와 쿠키 삭제는 한 단위로 묶여 있지 않다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "118-120"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "63-67"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "39"
+        }
+      ]
+    },
+    {
+      "where": "Layout.logout(SPA)",
+      "condition": "세션이 이미 만료되었거나 폐기된 상태에서 로그아웃을 눌러 401을 받음",
+      "handling": "MutationCache.onError의 noteAuthFailure가 ME_KEY를 false로 바꿔 로그인 화면으로 보낸다. 하지만 onSuccess가 실행되지 않으므로 removeQueries와 getMutationCache().clear()도 실행되지 않는다. 앞 사용자의 쿼리 캐시와 mutation 기록이 그대로 남는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "12-23"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-13,17-18"
+        }
+      ]
+    },
+    {
+      "where": "request(SPA API 클라이언트)",
+      "condition": "fetch 네트워크 실패, 리다이렉트 응답(redirect:'error'), 2xx인데 JSON이 아닌 본문, AbortError",
+      "handling": "네트워크 실패와 리다이렉트는 ApiError(0,'네트워크 오류')가 되고, JSON 파싱 실패는 ApiError(status,'응답을 해석할 수 없습니다')가 된다. AbortError는 그대로 다시 던진다. 이때 RequireAuth는 재시도 버튼이 있는 ErrorNotice를 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "57-75"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "15"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate(기동 시)",
+      "condition": "다음 중 하나: PasswordHash가 base64가 아님, LoginPerIpPerMinute·LoginGlobalPerMinute·LoginConcurrency·SessionHours 중 하나가 1 미만, 개발 외 환경에서 PasswordHash 누락, 개발 외 환경에서 DataProtection:KeysPath가 절대 경로가 아님",
+      "handling": "예외를 던져 기동을 중단한다. 개발 환경에서는 빈 해시가 허용되며, 이때 로그인은 항상 401이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "58-64,116-134"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "lines": "60-63"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76"
+        }
+      ]
+    },
+    {
+      "where": "재시도·타임아웃",
+      "condition": "로그인, /me, 로그아웃 실패",
+      "handling": "자동 재시도가 없다(queries·mutations 모두 retry:false). 사용자가 버튼을 눌러 다시 시도한다. 인증 경로에는 명시적 타임아웃이 없고, 취소 토큰(ct, RequestAborted)만 전달된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "19-24"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "42"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "빈 비밀번호: SPA는 password.length===0이면 제출하지 않는다. 서버에 빈 문자열이 오면 길이 검사는 통과하지만 Verify가 false를 돌려주므로 401이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "38"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "94"
+        }
+      ]
+    },
+    {
+      "text": "길이 상한 256: 클라이언트 input maxLength와 서버 PasswordMaxLength가 같은 값이다(단위는 UTF-16 코드 단위). 257자는 400이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "10,48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "25,72"
+        }
+      ]
+    },
+    {
+      "text": "적대적인 next 값은 모두 '/'로 바뀐다. 다른 origin, //host, /\\host, 제어 문자, /login, 정규화 뒤 '//'가 되는 경로가 여기에 해당한다. /login은 대소문자·끝 슬래시를 무시하고 거부해 이동 루프를 막는다. '/loginx'처럼 접두사만 같은 경로는 통과한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+          "lines": "18-34"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/lib.test.ts",
+          "symbol": "describe('safeNext')"
+        }
+      ]
+    },
+    {
+      "text": "복사된 쿠키: 로그아웃이 epoch를 올리므로, 다른 곳에 복사해 둔 쿠키도 다음 요청부터 거부된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "168",
+          "symbol": "Logout_RevokesEverySession_IncludingCopiedCookies"
+        }
+      ]
+    },
+    {
+      "text": "로그인은 epoch를 올리지 않는다. 그래서 로그아웃하기 전까지는 여러 브라우저·기기의 세션이 동시에 유효하다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "87-96"
+        }
+      ]
+    },
+    {
+      "text": "로그인과 로그아웃이 겹칠 때: 로그인이 epoch N을 읽은 직후 동시에 실행된 로그아웃이 epoch를 N+1로 올리면, 새로 발급된 쿠키는 발급 직후부터 무효다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "87,118-119"
+        }
+      ]
+    },
+    {
+      "text": "다음 티켓은 모두 무효다: IssuedUtc가 현재보다 미래인 티켓, 수명 경계(now-issued == lifetime)에 걸린 티켓(>= 비교이므로), epoch가 숫자가 아니거나 없는 티켓.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "lines": "42-50"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+          "lines": "60,82,139,150",
+          "symbol": "ExactlyAtLifetime_IsInvalid / IssuedInFuture_IsInvalid / NonNumericEpoch_IsInvalid / MissingEpoch_IsInvalid"
+        }
+      ]
+    },
+    {
+      "text": "PasswordVerificationResult.SuccessRehashNeeded도 성공으로 본다(!= Failed 비교). 해시가 설정 값이라 재해시 결과를 저장하는 경로가 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "lines": "64"
+        }
+      ]
+    },
+    {
+      "text": "이미 로그인한 상태로 /login에 들어가도 LoginPage는 ME_KEY를 확인하지 않고 로그인 폼을 그대로 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "lines": "12-58"
+        }
+      ]
+    },
+    {
+      "text": "비밀번호가 틀려서 받은 401도 MutationCache.onError → noteAuthFailure를 거쳐 ME_KEY를 false로 설정한다. 사용자는 이미 /login에 있으므로 화면은 바뀌지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-13,18"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "84"
+        }
+      ]
+    },
+    {
+      "text": "/me에는 RateLimitMetadata가 없어 로그인 한도가 적용되지 않는다. 쿠키가 붙은 /me 요청마다 SessionValidator의 DB 조회가 일어난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "40-46"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "39-42"
+        }
+      ]
+    },
+    {
+      "text": "쿠키가 없는 요청(로그인 전 /me, 쿠키 없이 보낸 로그아웃 등)에서는 SessionValidator가 호출되지 않아 AdminStates 조회도 없다. 쿠키 없이 보낸 로그아웃은 인가 단계에서 바로 401이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "14"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "68,70,72"
+        }
+      ]
+    },
+    {
+      "text": "쿠키 인증이 기본 스킴이라서, 인가 정책이 없는 경로(/health 등)에서도 쿠키가 붙어 있으면 SessionValidator의 DB 조회가 실행된다. 이 동작은 코드 주석에 실측 결과로 적혀 있다. __Host- 쿠키는 공개 호스트로는 전송되지 않는다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "47-54"
+        }
+      ]
+    },
+    {
+      "text": "ProxyOptions.TrustedIp가 비어 있으면 ForwardedHeaders를 등록하지 않는다. 프록시 뒤에서 이 설정이 빠지면 모든 요청이 프록시 IP 하나로 보인다. 그러면 IP 허용 목록과 login-ip 한도가 모두 프록시 IP 기준으로 동작한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "68-72"
+        }
+      ]
+    },
+    {
+      "text": "SPA는 모든 호출의 401을 세션 종료로 본다. 편집 중에 401이 오면 로그인 화면으로 이동하고, next에 현재 경로가 남는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "7-13"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/auth.test.tsx"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "로그인 실패: 로거 카테고리 PortfolioBlog.Api.Auth에 LogWarning \"관리자 로그인 실패. RemoteIp={RemoteIp}\"를 남긴다. 비밀번호와 요청 본문은 기록하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "80-83"
+        }
+      ]
+    },
+    {
+      "text": "로그인 성공: LogInformation \"관리자 로그인 성공. RemoteIp={RemoteIp}\"",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "97"
+        }
+      ]
+    },
+    {
+      "text": "로그아웃: LogInformation \"관리자 로그아웃(전 세션 폐기). RemoteIp={RemoteIp}\"",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "121"
+        }
+      ]
+    },
+    {
+      "text": "SessionValidator는 만료나 지문·epoch 불일치로 세션을 거부해도 로그를 남기지 않는다. 그래서 폐기된 쿠키를 다시 쓰려는 시도가 기록되지 않는다(관찰).",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "lines": "49-53"
+        }
+      ]
+    },
+    {
+      "text": "Data Protection의 FileSystemXmlRepository는 NullLoggerFactory.Instance로 생성되므로 키 저장소 로그가 나오지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "81-82"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F001_SEQUENCE",
+      "type": "sequence",
+      "title": "관리자 로그인 시퀀스(POST /api/auth/login)",
+      "summary": "로그인 요청은 AdminSurfaceMiddleware → 속도 제한 → 본문 크기 제한 → AuthEndpoints.LoginAsync를 차례로 통과해야 한다. 비밀번호가 맞으면 현재 epoch를 담은 쿠키를 발급하고, SPA는 safeNext로 검증한 경로로 이동한다.",
+      "mermaid": "sequenceDiagram\n  participant LoginPage\n  participant request\n  participant AdminSurfaceMiddleware\n  participant RateLimitingExtensions\n  participant ApiBodyLimitMiddleware\n  participant AuthEndpoints\n  participant AdminCredential\n  participant AppDbContext\n  participant safeNext\n  LoginPage->>request: auth.login(password)\n  request->>AdminSurfaceMiddleware: POST /api/auth/login + X-Requested-With + Origin\n  alt 호스트 또는 IP 또는 CSRF 또는 Origin 불일치\n    AdminSurfaceMiddleware-->>request: 404 또는 403\n  else 통과\n    AdminSurfaceMiddleware->>RateLimitingExtensions: Login 정책 임대 요청\n    alt 동시 또는 IP당 또는 전역 한도 초과\n      RateLimitingExtensions-->>request: 429 + Retry-After\n    else 허용\n      RateLimitingExtensions->>ApiBodyLimitMiddleware: 인증 인가 통과 후\n      alt 본문 262144바이트 초과\n        ApiBodyLimitMiddleware-->>request: 413\n      else 이내\n        ApiBodyLimitMiddleware->>AuthEndpoints: LoginAsync(LoginRequest)\n        alt Password null 또는 256자 초과\n          AuthEndpoints-->>request: 400 ValidationProblem\n        else 형식 통과\n          AuthEndpoints->>AdminCredential: Verify(password)\n          alt 불일치 또는 해시 미설정\n            AuthEndpoints-->>request: 401 로그인 실패\n          else 일치\n            AuthEndpoints->>AppDbContext: AdminStates SessionEpoch SingleAsync\n            AppDbContext-->>AuthEndpoints: epoch\n            AuthEndpoints-->>request: 204 + Set-Cookie __Host-AdminSession\n            request-->>LoginPage: onSuccess\n            LoginPage->>safeNext: safeNext(next)\n            safeNext-->>LoginPage: 검증된 경로 또는 루트\n          end\n        end\n      end\n    end\n  end",
+      "details": "실행 순서는 Program.cs의 미들웨어 등록 순서(104~108행)를 따른다. AdminSurfaceMiddleware가 UseRateLimiter보다 앞에 있으므로, 외부 IP나 CSRF 헤더 없는 요청은 로그인 한도를 소진하지 않는다. RateLimitingExtensions는 login-concurrency, login-ip:{IP}, login-global 세 파티션을 모두 통과해야 허용한다. ApiBodyLimitMiddleware는 UseAuthorization 뒤에 있지만 로그인은 AllowAnonymous라서 인가 단계를 그대로 통과한다. LoginAsync는 길이 검사 → AdminCredential.Verify(PBKDF2) → AdminStates epoch 조회 → SignInAsync 순서로 진행한다. epoch 조회에서 예외가 나면 처리되지 않고 UseExceptionHandler로 전파된다(다이어그램에는 생략). SPA는 성공하면 ME_KEY를 true로 설정하고 safeNext로 검증한 경로로 replace 이동한다.",
+      "nodes": [
+        {
+          "node": "LoginPage",
+          "code": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "symbol": "LoginPage"
+        },
+        {
+          "node": "request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "node": "RateLimitingExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions"
+        },
+        {
+          "node": "ApiBodyLimitMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+        },
+        {
+          "node": "AuthEndpoints",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LoginAsync"
+        },
+        {
+          "node": "AdminCredential",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "symbol": "AdminCredential.Verify"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.AdminStates"
+        },
+        {
+          "node": "safeNext",
+          "code": "PortfolioBlog.Web/src/lib/safeNext.ts",
+          "symbol": "safeNext"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F001_SEQUENCE_LOGOUT",
+      "type": "sequence",
+      "title": "로그아웃 시퀀스(POST /api/auth/logout)",
+      "summary": "로그아웃은 세션 재검증을 통과해야 핸들러에 닿는다. 핸들러는 SessionEpoch를 1 올려 모든 세션을 폐기한다. 세션이 이미 무효면 401이 나가고, SPA는 noteAuthFailure로만 로그인 화면으로 보낸다.",
+      "mermaid": "sequenceDiagram\n  participant Layout\n  participant request\n  participant AdminSurfaceMiddleware\n  participant CookieAuthenticationHandler\n  participant SessionValidator\n  participant SessionRules\n  participant AuthEndpoints\n  participant AppDbContext\n  participant queryClient\n  Layout->>request: auth.logout()\n  request->>AdminSurfaceMiddleware: POST /api/auth/logout\n  AdminSurfaceMiddleware->>CookieAuthenticationHandler: UseAuthentication\n  CookieAuthenticationHandler->>SessionValidator: OnValidatePrincipal\n  SessionValidator->>AppDbContext: AdminStates SessionEpoch SingleAsync\n  AppDbContext-->>SessionValidator: epoch\n  SessionValidator->>SessionRules: IsValid\n  alt 무효\n    SessionValidator->>CookieAuthenticationHandler: RejectPrincipal + SignOutAsync\n    CookieAuthenticationHandler-->>request: 401 Admin 정책 챌린지\n    request-->>queryClient: noteAuthFailure\n  else 유효\n    CookieAuthenticationHandler->>AuthEndpoints: LogoutAsync\n    AuthEndpoints->>AppDbContext: ExecuteUpdateAsync SessionEpoch + 1\n    AuthEndpoints-->>request: 204 + 쿠키 삭제\n    request-->>Layout: onSuccess\n    Layout->>queryClient: ME_KEY false, removeQueries, MutationCache clear\n  end",
+      "details": "LogoutAsync는 /api 그룹의 RequireAuthorization(\"Admin\")을 받으므로 인가 단계를 통과한 요청만 도달한다. 쿠키 핸들러(CookieAuthenticationHandler, AuthServiceCollectionExtensions에서 AddCookie로 등록)가 티켓을 복호화하면 SessionValidator가 AdminStates를 조회하고 SessionRules.IsValid로 판정한다. 무효면 RejectPrincipal과 SignOutAsync만 하고, 401 상태 코드는 OnRedirectToLogin이, ProblemDetails 본문은 ErrorResponses가 쓴다. 이 경우 SPA에서는 MutationCache.onError의 noteAuthFailure만 실행되고 Layout.onSuccess의 캐시 정리는 실행되지 않는다(POTENTIAL_ISSUE). 유효하면 ExecuteUpdateAsync로 epoch를 원자적으로 1 올린 뒤 SignOutAsync로 쿠키를 지우고 204를 돌려준다. 갱신된 행 수는 확인하지 않는다.",
+      "nodes": [
+        {
+          "node": "Layout",
+          "code": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "symbol": "Layout.logout"
+        },
+        {
+          "node": "request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "node": "CookieAuthenticationHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "symbol": "AddCookie(Scheme) / OnRedirectToLogin"
+        },
+        {
+          "node": "SessionValidator",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "symbol": "SessionValidator.ValidateAsync"
+        },
+        {
+          "node": "SessionRules",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "symbol": "SessionRules.IsValid"
+        },
+        {
+          "node": "AuthEndpoints",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LogoutAsync"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.AdminStates"
+        },
+        {
+          "node": "queryClient",
+          "code": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "noteAuthFailure / ME_KEY"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F001_FLOW",
+      "type": "flowchart",
+      "title": "요청별 세션 재검증 분기(SessionValidator)",
+      "summary": "쿠키 티켓이 복호화된 요청만 DB로 epoch를 조회해 SessionRules.IsValid로 판정한다. 무효면 미인증으로 처리하고 쿠키를 지운다. DB 예외는 처리되지 않고 예외 처리기로 넘어간다.",
+      "mermaid": "flowchart TD\n  CookieAuthenticationHandler{쿠키 티켓 복호화}\n  CookieAuthenticationHandler -->|쿠키 없음 또는 복호화 실패| Anonymous[미인증 주체]\n  CookieAuthenticationHandler -->|성공| SessionValidator[SessionValidator.ValidateAsync]\n  SessionValidator --> AdminStates[(AdminStates SingleAsync)]\n  AdminStates -->|DB 예외| UseExceptionHandler[UseExceptionHandler와 OverloadExceptionHandler]\n  AdminStates -->|epoch| SessionRules{SessionRules.IsValid}\n  SessionRules -->|false| RejectPrincipal[RejectPrincipal + SignOutAsync]\n  RejectPrincipal --> Anonymous\n  SessionRules -->|true| Authenticated[인증된 주체]\n  Anonymous -->|GET /api/auth/me| MeEndpoint[AuthStatusDto false 200]\n  Anonymous -->|보호 엔드포인트| OnRedirectToLogin[Admin 정책 챌린지 401]\n  OnRedirectToLogin --> ErrorResponses[ErrorResponses.HandleStatusCodeAsync]\n  Authenticated --> AuthEndpoints[LogoutAsync 또는 AuthStatusDto true]",
+      "details": "SessionValidator는 CookieAuthenticationOptions.Events.OnValidatePrincipal로 등록되어 있어 티켓 복호화에 성공한 요청에서만 호출된다. 쿠키가 없거나 복호화에 실패한 요청은 DB 조회 없이 미인증이 된다. AdminStates 조회(SingleAsync)는 try/catch 없이 await되므로, DB 예외는 UseExceptionHandler로 전파된다. OverloadExceptionHandler는 57014·55P03만 503으로 바꾼다. SessionRules.IsValid는 수명·지문·epoch를 차례로 검사하고, false면 RejectPrincipal과 SignOutAsync로 쿠키를 지운다. 미인증 주체는 /me에서 Authenticated=false와 함께 200을 받고, 보호 엔드포인트에서는 OnRedirectToLogin이 설정한 401에 ErrorResponses가 ProblemDetails를 붙인다.",
+      "nodes": [
+        {
+          "node": "CookieAuthenticationHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "symbol": "AddCookie(Scheme)"
+        },
+        {
+          "node": "SessionValidator",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "symbol": "SessionValidator.ValidateAsync"
+        },
+        {
+          "node": "AdminStates",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.AdminStates"
+        },
+        {
+          "node": "UseExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        },
+        {
+          "node": "SessionRules",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "symbol": "SessionRules.IsValid"
+        },
+        {
+          "node": "RejectPrincipal",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "symbol": "SessionValidator.ValidateAsync"
+        },
+        {
+          "node": "MeEndpoint",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.MapAuthEndpoints (/me)"
+        },
+        {
+          "node": "OnRedirectToLogin",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "symbol": "Events.OnRedirectToLogin"
+        },
+        {
+          "node": "ErrorResponses",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync"
+        },
+        {
+          "node": "AuthEndpoints",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LogoutAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F001_STATE",
+      "type": "state",
+      "title": "관리자 세션 상태",
+      "summary": "세션은 로그인으로 시작하고, 로그아웃(epoch 증가)·절대 수명 경과·비밀번호 해시 교체 중 하나로 끝난다. 활동이 있어도 수명은 연장되지 않는다.",
+      "mermaid": "stateDiagram-v2\n  state \"미인증\" as Unauthenticated\n  state \"인증됨\" as Authenticated\n  [*] --> Unauthenticated\n  Unauthenticated --> Authenticated: LoginAsync 204 쿠키 발급\n  Authenticated --> Authenticated: SessionRules.IsValid true\n  Authenticated --> Unauthenticated: LogoutAsync SessionEpoch + 1\n  Authenticated --> Unauthenticated: SessionHours 경과\n  Authenticated --> Unauthenticated: PasswordHash 교체 후 재시작\n  Unauthenticated --> Unauthenticated: Verify 실패 401",
+      "details": "인증됨 상태는 요청마다 SessionRules.IsValid가 true일 때만 유지된다. LogoutAsync는 서버의 AdminState.SessionEpoch를 올려 복사본을 포함한 모든 쿠키를 무효로 만든다. SessionHours가 지나면 SlidingExpiration=false라서 활동과 무관하게 만료된다. PasswordHash를 교체하면 AdminCredential.Fingerprint가 달라져 기존 티켓의 pwd 클레임과 맞지 않게 된다. 로그인은 epoch를 바꾸지 않으므로 여러 기기에서 동시에 인증됨 상태일 수 있다. 비밀번호 검증이 실패하면 쿠키가 발급되지 않아 미인증 상태로 남는다.",
+      "nodes": [
+        {
+          "node": "Unauthenticated",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "symbol": "SessionValidator.ValidateAsync"
+        },
+        {
+          "node": "Authenticated",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LoginAsync"
+        },
+        {
+          "node": "LogoutAsync",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LogoutAsync"
+        },
+        {
+          "node": "SessionRules.IsValid",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+          "symbol": "SessionRules.IsValid"
+        },
+        {
+          "node": "SessionHours",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+          "symbol": "AdminOptions.SessionHours"
+        },
+        {
+          "node": "PasswordHash",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+          "symbol": "AdminCredential.Fingerprint"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "검증 지적 사항(F006·F008 행의 의존 목록, F002·F007·F011·F018 행과 의존 표의 불일치)은 모두 다른 기능의 의존 색인 표에 관한 것이다. F001의 의존 목록과는 관련이 없다. 이 세션은 F001만 분석하므로 해당 행은 여기서 고칠 수 없다. F001의 의존(F018 AdminSurfaceMiddleware, F019 로그인 속도 제한, F020 ErrorResponses·OverloadExceptionHandler·ApiBodyLimitMiddleware, F021 StartupValidation, F029 request·queryClient)은 코드로 다시 확인해 유지했다. 지적 내용 자체(모든 /api 요청이 Program.cs 104행의 AdminSurfaceMiddleware와 43·100행의 예외 처리기를 거친다)는 이번에 읽은 Program.cs에서 사실로 확인했다.",
+    "입력으로 받은 이전 분석이 diagrams 중간에서 잘려, 이전 history 항목이 있었는지 확인할 수 없었다. 이번 재검증에서는 동작 변경이 없어 새 history 항목을 추가하지 않았다.",
+    "OverloadExceptionHandler가 처리하지 않는 예외(예: AdminState 행이 없을 때의 InvalidOperationException, DB 연결 실패)에 대해 UseExceptionHandler + AddProblemDetails 조합이 실제로 어떤 상태 코드와 본문을 내는지는 테스트로 확인하지 못했다. 500 ProblemDetails일 것으로 추론한다.",
+    "Data Protection 키를 교체하거나 잃어버렸을 때(KeysPath 볼륨 유실 등) 기존 세션이 어떻게 되는지는 복호화 실패 → 미인증 경로로 추론할 뿐, 코드나 테스트로 확인하지 않았다.",
+    "PortfolioBlog.Web/src/test/auth.test.tsx의 개별 테스트 이름과 줄 범위는 이번 세션에서 다시 읽지 않았다(파일이 있는지만 확인했다)."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints",
+      "lines": "37-123"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "AuthServiceCollectionExtensions.AddAdminAuth",
+      "lines": "42-86"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync",
+      "lines": "33-54"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "symbol": "SessionRules.IsValid",
+      "lines": "39-51"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+      "symbol": "AdminCredential",
+      "lines": "37-65"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "symbol": "AdminOptions",
+      "lines": "12-46"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "lines": "34-47"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43-51,98-108"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "lines": "84,141-145"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "symbol": "LoginPage",
+      "lines": "12-58"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "symbol": "RequireAuth",
+      "lines": "11-21"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout",
+      "lines": "10-43"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure / createQueryClient",
+      "lines": "5-27"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "symbol": "safeNext",
+      "lines": "18-34"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "lines": "46-76"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "lines": "65-399"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+      "lines": "49-150"
+    }
+  ],
+  "history": []
+}

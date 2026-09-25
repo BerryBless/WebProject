@@ -71,6 +71,20 @@ export function renderFeatureDoc(fa: FeatureAnalysis): { name: string; md: strin
   return { name, md: assembleDoc(`${featureTitle(f)}`, sections) };
 }
 
+/** 기능 간 의존: 노드 25개·간선 40개 이하면 flowchart(라벨은 따옴표로 감싸 괄호·특수문자 안전), 넘으면 표로 낸다(복잡도 상한 D14). */
+function renderDependencies(active: FeatureSummary[]): string {
+  const withDeps = active.filter((f) => f.dependencies.length);
+  if (!withDeps.length) return '_(기능 간 의존 없음)_';
+  const nodes = new Set<string>();
+  for (const f of withDeps) { nodes.add(f.id); for (const d of f.dependencies) nodes.add(d); }
+  const edges = withDeps.reduce((s, f) => s + f.dependencies.length, 0);
+  if (nodes.size > 25 || edges > 40) {
+    return ['기능이 많아 표로 적는다(다이어그램 복잡도 상한 25/40).', '', '| 기능 | 의존하는 기능 |', '|---|---|', ...withDeps.map((f) => `| ${f.id} ${esc(f.name)} | ${f.dependencies.join(', ')} |`)].join('\n');
+  }
+  const label = (id: string) => { const f = active.find((x) => x.id === id); return `${id}["${id} ${(f?.name ?? '').replace(/["\\]/g, ' ')}"]`; };
+  return ['```mermaid', 'flowchart LR', ...[...nodes].map((n) => `  ${label(n)}`), ...withDeps.flatMap((f) => f.dependencies.map((d) => `  ${f.id} --> ${d}`)), '```'].join('\n');
+}
+
 export function renderFeaturesIndex(ws: CurrentWorkspace): string {
   const active = ws.features.features.filter((f) => f.status !== 'REMOVED');
   const removed = ws.features.features.filter((f) => f.status === 'REMOVED');
@@ -82,7 +96,7 @@ export function renderFeaturesIndex(ws: CurrentWorkspace): string {
   const sections = [
     { id: 'summary', body: ['## 한 줄 요약', '', `기능 ${active.length}개(CORE ${byImportance('CORE').length} · SUPPORTING ${byImportance('SUPPORTING').length} · INFRA ${byImportance('INFRA').length}). 각 기능의 흐름·다이어그램·실패 지점은 개별 문서에 있다.`].join('\n') },
     { id: 'list', body: ['## 기능 목록', '', '| ID | 이름 | 중요도 | 상태 | 진입점 | 요약 |', '|---|---|---|---|---|---|', ...active.map(row)].join('\n') },
-    { id: 'dependencies', body: ['## 기능 간 의존', '', active.some((f) => f.dependencies.length) ? ['```mermaid', 'flowchart LR', ...active.flatMap((f) => f.dependencies.map((d) => `  ${f.id}[${f.id} ${f.name.replace(/[\[\]"]/g, ' ')}] --> ${d}`)), '```'].join('\n') : '_(기능 간 의존 없음)_'].join('\n') },
+    { id: 'dependencies', body: ['## 기능 간 의존', '', renderDependencies(active)].join('\n') },
   ];
   if (removed.length) sections.push({ id: 'removed', body: ['## 제거된 기능', '', '| ID | 이름 | 요약 |', '|---|---|---|', ...removed.map((f) => `| ${f.id} | ${esc(f.name)} | ${esc(f.summary)} |`), '', '변경 사유는 [20_CHANGELOG](20_CHANGELOG.md)를 본다.'].join('\n') });
   if (ws.features.excludedCandidates.length) sections.push({ id: 'excluded', body: ['## 기능으로 세지 않은 것', '', ...ws.features.excludedCandidates.map((e) => `- ${e.name} — ${e.reason}`)].join('\n') });
@@ -162,6 +176,12 @@ export function renderTechDebt(ws: CurrentWorkspace): string {
     { id: 'improvement', body: ['## 개선 제안(IMPROVEMENT)', '', table(byClass('IMPROVEMENT'))].join('\n') },
     { id: 'related', body: ['## 관련 문서', '', related(['14_PERFORMANCE.md', '13_SECURITY.md', '10_ERROR_HANDLING.md', '19_UNKNOWN_AND_TODO.md'])].join('\n') },
   ]);
+}
+
+/** 검증 루프가 끝난 뒤 남은 LLM 지적을 19_UNKNOWN_AND_TODO에 붙인다(발행 시 사람이 확인할 목록). */
+export function renderResidualSection(fixRequired: { doc: string; section?: string; issue: string }[]): { id: string; body: string } {
+  const rows = fixRequired.map((f) => `| ${f.doc}${f.section ? ` #${f.section}` : ''} | ${esc(f.issue.replace(/ section=[\w:-]+$/, ''))} |`);
+  return { id: 'residual', body: ['## 검증 잔여 지적(사람 확인 필요)', '', `검증 루프가 최대 반복 후에도 해결하지 못한 LLM 검증자의 지적 ${fixRequired.length}건. 코드가 맞고 문서가 틀렸을 수도, 지적이 틀렸을 수도 있다 — 다음 \`문서화\` 실행 전에 확인한다.`, '', '| 문서 | 지적 |', '|---|---|', ...rows].join('\n') };
 }
 
 export function renderUnknowns(ws: CurrentWorkspace): string {

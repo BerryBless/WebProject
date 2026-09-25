@@ -10,6 +10,7 @@ function verificationLines(v: Verification | null): string[] {
     `- Incorrect Relation: ${v.incorrectRelations.length}`,
     `- Diagram: ${v.diagramIssues.length}`,
     `- Unsupported Claim: ${v.unsupportedClaims.length}`,
+    `- 경고(보고만): ${v.warnings?.length ?? 0}`,
     `- 반복: ${v.iterations}회 · Mermaid 파서: ${v.mermaidParser} · 점수(내부 지표) coverage ${v.score.coverage} / accuracy ${v.score.accuracy}`,
   ];
 }
@@ -46,7 +47,9 @@ export function formatReport(r: RunRecord, x: ReportExtras): string {
     }
     lines.push(`Failures discovered: ${r.failuresDiscovered.length}`, '');
     if (x.issues) lines.push('Issues:', `  Confirmed: ${x.issues.confirmed}`, `  Potential: ${x.issues.potential}`, `  Improvement: ${x.issues.improvement}`, '');
-    lines.push(...verificationLines(r.verification), '', `Unknowns: ${x.unknowns ?? 0}`, '', 'Documentation:', 'docs/generated/README.md', '', `비용: $${r.costUsd.toFixed(2)} · Claude 호출 ${r.claudeCalls}회 · Baseline 생성 완료`);
+    lines.push(...verificationLines(r.verification), '', `Unknowns: ${x.unknowns ?? 0}`, '');
+    if (x.remainingIssues?.length) lines.push(`검증 잔여 지적 ${x.remainingIssues.length}건(결정적 차단 이슈 0) → 19_UNKNOWN_AND_TODO.md "검증 잔여 지적" 절에 기록하고 발행함`, '');
+    lines.push('Documentation:', 'docs/generated/README.md', '', `비용: $${r.costUsd.toFixed(2)} · Claude 호출 ${r.claudeCalls}회 · Baseline 생성 완료`);
     return lines.join('\n');
   }
   lines.push('문서화 완료', '', `모드: ${r.mode}`, `기준: ${(r.baselineBefore ?? '').slice(0, 10)} → ${(r.baselineAfter ?? '').slice(0, 10)}`, '',
@@ -54,7 +57,9 @@ export function formatReport(r: RunRecord, x: ReportExtras): string {
     `문서 수정: ${r.updatedDocuments.length}${r.deletedDocuments.length ? ` (삭제 ${r.deletedDocuments.length})` : ''}`, `Diagram 수정: ${r.updatedDiagrams.length} (유지 ${r.unchangedDiagrams.length})`, '',
     '발견:', `- 신규 API: ${x.discovered.newApis}`, `- Data Model 변경: ${x.discovered.dataModelChanges}`, `- 실패/Workaround: ${x.discovered.failures}`, `- Technical Debt: ${x.discovered.techDebt}`, '');
   if (r.manualEditsOverridden.length) lines.push('수동 수정 교체:', ...r.manualEditsOverridden.map((m) => `- ${m.document} #${m.section}: ${m.reason.slice(0, 120)}`), '');
-  lines.push(...verificationLines(r.verification), '', `Baseline 갱신 완료 · 비용 $${r.costUsd.toFixed(2)} · Claude 호출 ${r.claudeCalls}회`);
+  lines.push(...verificationLines(r.verification), '');
+  if (x.remainingIssues?.length) lines.push(`검증 잔여 지적 ${x.remainingIssues.length}건(결정적 차단 이슈 0) → 19_UNKNOWN_AND_TODO.md에 기록하고 발행함`, '');
+  lines.push(`Baseline 갱신 완료 · 비용 $${r.costUsd.toFixed(2)} · Claude 호출 ${r.claudeCalls}회`);
   return lines.join('\n');
 }
 

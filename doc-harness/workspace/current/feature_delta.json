@@ -1,0 +1,11 @@
+{
+  "newFeatures": [],
+  "changedFeatureIds": [
+    "F008"
+  ],
+  "removedFeatures": [],
+  "unknowns": [
+    "영향 분석 힌트가 F006(글 저장 충돌 감지·비교 해결)을 영향 기능으로 골랐지만, 변경된 코드 파일 PortfolioBlog.Api/Features/Tags/TagEndpoints.cs는 F006의 relatedFiles에 없고 DbConflict·Conflict 참조도 없다(Grep으로 확인). 그래서 F006을 changedFeatureIds에서 뺐다. 힌트가 F006을 고른 근거는 확인하지 못했다.",
+    "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs:5의 변경은 주석 한 줄('// doc-harness incremental check (temporary, reverted after the test)')뿐이다. 엔드포인트 GET /api/tags(33행)와 DELETE /api/tags/{id:guid}(37행)는 그대로 있다. F008은 관련 파일이 바뀌어 재검증 대상에 넣었으며, 동작은 바뀌지 않았을 것으로 추론한다(INFERRED)."
+  ]
+}

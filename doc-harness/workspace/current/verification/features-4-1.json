@@ -1,0 +1,39 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 98
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [
+    {
+      "document": "features/F012_PUBLIC_HOME_LIST.md",
+      "section": "summary",
+      "type": "OVERGENERALIZED_METADATA",
+      "description": "요약은 PublicPageConvention이 '모든 Razor 페이지 엔드포인트'에 GET/HEAD·공개 호스트·RateLimitPolicy.PublicPage 세 메타데이터를 건다고 쓴다. 실제 코드는 ViewEnginePath가 \"/Search\"인 페이지에만 RateLimitPolicy.Search를 걸고, 나머지 페이지에는 PublicPage를 건다. Index(/)가 PublicPage를 받는다는 결론은 맞지만, '모든 페이지 = PublicPage'라는 일반화는 틀렸다. 같은 문서의 flow 2단계와 F013 진입점 근거는 이 구분을 정확히 적고 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "32-41"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F012_PUBLIC_HOME_LIST.md",
+      "section": "summary",
+      "issue": "PublicPageConvention이 거는 속도 제한 메타데이터를 '모든 페이지에 RateLimitPolicy.PublicPage'가 아니라 '/Search는 RateLimitPolicy.Search, 나머지(Index 포함)는 RateLimitPolicy.PublicPage'로 고친다. section=summary",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "34"
+        }
+      ]
+    }
+  ]
+}

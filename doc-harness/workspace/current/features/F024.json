@@ -1,0 +1,1127 @@
+{
+  "feature": {
+    "id": "F024",
+    "name": "고아 첨부 파일 정리(백그라운드)",
+    "slug": "ATTACHMENT_JANITOR",
+    "summary": "AttachmentJanitor(BackgroundService)는 기동 직후 1회 스윕하고, 그 뒤 PeriodicTimer로 6시간마다 스윕한다. 스윕 한 번은 세 단계다. (1) .tmp의 모든 임시 파일을 돌며 1시간보다 오래된 것을 지운다. (2) 내용 주소 모양({sha[..2]}/{sha}.{ext})이고 1시간보다 오래됐으며 Attachments 행이 참조하지 않는 파일을, sha256 세션 advisory lock(AttachmentLock) 안에서 다시 확인한 뒤 지운다. (3) 파일이 없는 행을 세어 경고만 남긴다. 후보 하나의 잠금 대기가 초과(55P03)되면 그 파일만 건너뛴다. 그 밖의 예외는 스윕 전체를 중단시키고, ExecuteAsync가 LogError로 남긴 뒤 다음 주기(6시간 뒤)에 다시 시도한다. Attachments:JanitorEnabled=false이면 루프는 시작 직후 끝난다.",
+    "entryPoints": [
+      "BackgroundService AttachmentJanitor.ExecuteAsync (Program.cs AddHostedService 등록)",
+      "AttachmentJanitor.SweepOnceAsync (public, 테스트에서 직접 호출)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs"
+    ],
+    "dependencies": [
+      "F009"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F024의 AttachmentJanitor는 싱글턴이면서 호스티드 서비스로 등록되어 있고, 앱 기동 직후와 6시간마다 SweepOnceAsync를 실행한다. 코드상 실제로 동작하는 기능이다(ACTIVE). 스윕 한 번은 세 단계로 이루어진다. (1) 저장 루트의 .tmp 밑 모든 파일을 foreach로 돈다. 마지막 쓰기가 1시간보다 오래된 파일만 TryDeleteFile로 지우고, 열거가 끝난 뒤에야 다음 단계로 넘어간다. (2) 스윕 전용 스코프의 AppDbContext를 연 뒤 내용 주소 모양의 저장 파일을 돈다. 1시간보다 오래됐고 Attachments.Sha256 행이 없는 파일이면 AttachmentLock.HoldAsync로 sha256 세션 advisory lock을 잡는다(lock_timeout 10s). 잠금 안에서 행이 없음을 다시 확인한 뒤 FileSystemAttachmentStore.TryDelete로 지운다. (3) Attachments.StoragePath를 스트리밍으로 읽으며 파일이 없는 행을 센다. 결과 SweepResult(Temp/Orphans/Missing)는 LogInformation으로 남긴다. 파일 없는 행이 1건 이상이면 LogWarning도 하나 남긴다. 실패 처리: 55P03 잠금 대기 초과는 해당 파일만 건너뛴다. 임시 파일 삭제가 IO·권한 오류로 실패하면 경고를 남기고 계속한다. 그 밖의 예외(DB 연결 실패, try 밖 OpenConnectionAsync 실패, 손상된 StoragePath로 인한 PhysicalPath의 InvalidOperationException)는 스윕 전체를 중단시킨다. ExecuteAsync가 LogError로 남기고 다음 6시간 주기를 기다린다. 업로드·삭제(F009)도 같은 잠금 키로 직렬화된다. 삭제 엔드포인트는 파일 삭제에 실패하면 남은 고아 파일 처리를 이 청소 잡에 맡긴다. 이번 재검증에서는 F024_FLOW 다이어그램의 임시 파일 단계를 .tmp 전체를 도는 루프로 고쳤다. 코드 동작 자체는 이전 분석과 같다.",
+  "entryPoints": [
+    {
+      "text": "Program.cs는 AttachmentJanitor를 싱글턴으로 등록하고, 같은 인스턴스를 AddHostedService(sp => sp.GetRequiredService<AttachmentJanitor>())로 호스티드 서비스에 올린다. 테스트는 이 싱글턴을 꺼내 SweepOnceAsync를 직접 호출할 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "66-67"
+        }
+      ]
+    },
+    {
+      "text": "호스티드 서비스는 app.Run()에서 시작된다. EnsureRootIsWritable(79행)과 Database.Migrate(85행)가 app.Run()(126행)보다 먼저 실행되므로, 첫 스윕 시점에는 저장 루트 검증과 마이그레이션이 끝나 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "79-85"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "126"
+        }
+      ]
+    },
+    {
+      "text": "BackgroundService 진입점은 AttachmentJanitor.ExecuteAsync(stoppingToken)이다. do-while 구조라서 기동 직후 1회 실행하고, 이후 PeriodicTimer(Interval=6시간)의 틱마다 반복한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.ExecuteAsync",
+          "lines": "48-67"
+        }
+      ]
+    },
+    {
+      "text": "public 메서드 SweepOnceAsync(DateTimeOffset now, CancellationToken ct)는 테스트 진입점 역할도 한다. 테스트는 ApiFactory에서 Attachments:JanitorEnabled=false로 백그라운드 루프를 끄고 이 메서드를 직접 호출한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.SweepOnceAsync",
+          "lines": "83-124"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs",
+          "lines": "118"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+          "lines": "73, 112"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "top-level statements",
+      "description": "AttachmentOptions를 설정 섹션 Attachments에 바인딩한다. FileSystemAttachmentStore와 AttachmentJanitor를 싱글턴으로 등록하고, AttachmentJanitor를 호스티드 서비스로 올린다(62-67). TimeProvider는 AuthServiceCollectionExtensions가 TryAddSingleton(TimeProvider.System)으로 제공한다."
+    },
+    {
+      "step": 2,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.Run",
+      "description": "EnsureRootIsWritable과 마이그레이션이 끝나면 app.Run()이 호스트를 시작한다. 이때 BackgroundService.StartAsync가 ExecuteAsync를 호출한다."
+    },
+    {
+      "step": 3,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.ExecuteAsync",
+      "description": "JanitorEnabled가 false면 즉시 return한다. true면 Task.Yield로 비동기 전환해 호스트 시작을 막지 않는다. 그다음 PeriodicTimer(6시간)를 만들고 do-while 루프에 들어간다."
+    },
+    {
+      "step": 4,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync",
+      "description": "clock.GetUtcNow()를 now로 받아 cutoff = now.UtcDateTime - MinimumAge(1시간)를 계산한다."
+    },
+    {
+      "step": 5,
+      "component": "FileSystemAttachmentStore",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.EnumerateTempFiles",
+      "description": "{root}/.tmp 디렉터리가 있으면 파일을 스트리밍으로 열거한다(지연 평가 iterator). LinkTarget이 null이 아닌 심볼릭 링크는 건너뛴다."
+    },
+    {
+      "step": 6,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync / TryDeleteFile",
+      "description": "foreach로 .tmp의 모든 파일을 돈다(87-90). 파일마다 File.GetLastWriteTimeUtc가 cutoff 이전인지 보고, 오래된 파일만 TryDeleteFile(File.Delete)로 지운다. 성공하면 temp를 증가시킨다. IOException·UnauthorizedAccessException이 나면 LogWarning을 남기고 false를 돌려준다. 열거가 끝난 뒤에야 다음 단계로 넘어간다."
+    },
+    {
+      "step": 7,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync",
+      "description": "IServiceScopeFactory.CreateAsyncScope로 스윕 전용 스코프를 열고 AppDbContext를 해석한다(92-93). 싱글턴은 스코프 DbContext를 직접 주입받을 수 없기 때문이다."
+    },
+    {
+      "step": 8,
+      "component": "FileSystemAttachmentStore",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.EnumerateStoredFiles",
+      "description": "저장 루트에서 이름이 2자 소문자 hex이고 링크가 아닌 버킷 디렉터리만 연다. 그 안의 파일은 다음 조건을 모두 만족할 때만 (StoragePath, Sha256)으로 내보낸다: 이름 길이 66~70자, name[64]=='.', 소문자 hex sha, 버킷 접두사 일치, 영숫자 확장자, 링크가 아님."
+    },
+    {
+      "step": 9,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync",
+      "description": "파일마다 ct.ThrowIfCancellationRequested를 확인한다. PhysicalPath 기준 mtime이 cutoff 이후면 건너뛴다. 다음으로 db.Attachments.AnyAsync(a => a.Sha256 == sha)로 잠금 없이 1차 확인하고, 행이 있으면 건너뛴다(Sha256 UNIQUE 인덱스를 탄다)."
+    },
+    {
+      "step": 10,
+      "component": "AttachmentLock",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "AttachmentLock.HoldAsync",
+      "description": "try 블록 밖(52행)에서 OpenConnectionAsync로 연결을 고정한다. 그다음 try 블록(53-62행) 안에서 SET lock_timeout = '10s'와 SELECT pg_advisory_lock(hashtextextended('attachment:'+sha, 0))을 실행한다. catch에서 CloseConnectionAsync를 호출하고 다시 던지는 처리는 이 두 문장이 실패할 때만 적용된다."
+    },
+    {
+      "step": 11,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync",
+      "description": "잠금 안에서 AnyAsync로 다시 확인한다. 여전히 행이 없고 store.TryDelete(storagePath)가 true면 orphans를 증가시킨다(106)."
+    },
+    {
+      "step": 12,
+      "component": "FileSystemAttachmentStore",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.TryDelete",
+      "description": "PhysicalPath로 경로가 루트 안에 있는지 검사한 뒤 File.Delete를 호출한다. 파일이 없어도 true를 돌려준다. IOException·UnauthorizedAccessException이면 false를 돌려준다."
+    },
+    {
+      "step": 13,
+      "component": "AttachmentLock",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "Releaser.DisposeAsync",
+      "description": "await using 블록이 끝나면 CancellationToken.None으로 pg_advisory_unlock을 실행한다. 실패는 삼키고, finally에서 CloseConnectionAsync로 연결을 반환한다."
+    },
+    {
+      "step": 14,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.IsLockTimeout",
+      "description": "HoldAsync나 잠금 블록이 PostgresException SqlState 55P03을 던지면(InnerException 체인까지 확인) StoragePath를 담은 LogWarning을 남기고 그 파일만 건너뛴 채 스윕을 계속한다. 55P03이 아닌 예외는 이 catch 필터를 통과하지 못해 SweepOnceAsync 밖으로 전파된다."
+    },
+    {
+      "step": 15,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync",
+      "description": "저장 파일 열거가 끝나면 db.Attachments.AsNoTracking().OrderBy(Id).Select(StoragePath)를 AsAsyncEnumerable로 스트리밍하며 store.Exists(path)가 false인 행을 센다. missing이 0보다 크면 LogWarning을 남기고 SweepResult(temp, orphans, missing)를 반환한다."
+    },
+    {
+      "step": 16,
+      "component": "AttachmentJanitor",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.ExecuteAsync",
+      "description": "성공하면 LogInformation(Temp/Orphans/MissingFiles)을 남긴다. OperationCanceledException이 아닌 예외는 LogError를 남기고 삼킨다. 이어서 timer.WaitForNextTickAsync(stoppingToken)로 다음 6시간 틱을 기다리며, 호스트가 종료되면 루프를 빠져나간다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.ExecuteAsync",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.SweepOnceAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "SweepResult",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.IsLockTimeout",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor.TryDeleteFile",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "AttachmentLock.HoldAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "AttachmentLock.Releaser.DisposeAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.EnumerateTempFiles",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.EnumerateStoredFiles",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.TryDelete",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.Exists",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.PhysicalPath",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+      "symbol": "AttachmentOptions.JanitorEnabled",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "AddHostedService<AttachmentJanitor>",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "TryAddSingleton(TimeProvider.System)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating (Attachment: Sha256 UNIQUE)",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "symbol": "UploadAsync / DeleteAsync (같은 AttachmentLock 사용)",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+      "symbol": "AttachmentJanitorTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs",
+      "symbol": "ApiFactory.ConfigureWebHost (JanitorEnabled=false)",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력은 두 가지다. 첫째는 시각이다. 배경 루프는 TimeProvider.GetUtcNow()를 넘기고, 테스트는 임의의 now를 넘긴다. 둘째는 파일 시스템 상태다. 판정 기준값은 cutoff = now - 1시간이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "58, 85"
+        }
+      ]
+    },
+    {
+      "text": "임시 파일 흐름: {root}/.tmp의 파일 전체 경로를 모두 열거하는 foreach 루프다. 파일마다 File.GetLastWriteTimeUtc가 cutoff 이전이면 File.Delete하고 temp 카운트를 올린다. 이 단계는 DB에 접근하지 않고, 열거가 끝난 뒤에야 DB 스코프를 연다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "86-93"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "EnumerateTempFiles",
+          "lines": "284-294"
+        }
+      ]
+    },
+    {
+      "text": "고아 파일 흐름: EnumerateStoredFiles가 파일 이름에서 (StoragePath 'ab/abcd….ext', Sha256)을 뽑는다. Attachments.Sha256으로 1차 조회한 뒤, sha로 advisory lock 키 'attachment:'+sha를 만들어 잠금을 잡고 2차 조회한다. 여전히 행이 없으면 파일을 지우고 orphans 카운트를 올린다. 행 존재 여부는 Sha256만으로 판정하며 StoragePath나 확장자는 비교하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "95-115"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "KeyFor",
+          "lines": "30"
+        }
+      ]
+    },
+    {
+      "text": "누락 진단 흐름: DB의 Attachments.StoragePath를 Id 순서로 스트리밍하면서 store.Exists(PhysicalPath)가 false인 행을 센다. 행을 수정하거나 삭제하지는 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "117-122"
+        }
+      ]
+    },
+    {
+      "text": "출력은 SweepResult(TempFilesDeleted, OrphanFilesDeleted, RowsMissingFiles)다. 배경 루프는 이 값을 로그로만 남기고 버리며, 따로 저장하거나 외부로 노출하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "12, 58-59, 123"
+        }
+      ]
+    },
+    {
+      "text": "업로드(F009)는 잠금 안에서 행을 넣는다. 삭제(F009)는 잠금 안에서 행을 지운 뒤 store.TryDelete를 호출하고, 실패하면 '첨부 파일 삭제 실패(고아 파일)' LogWarning을 남긴 채 그 파일을 고아로 남겨 청소 잡에 맡긴다. 따라서 청소 잡과 업로드·삭제는 같은 sha 잠금 키로 직렬화된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "142"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "204-209"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "호스트 시작(ExecuteAsync 진입)",
+      "to": "종료(비활성)",
+      "trigger": "AttachmentOptions.JanitorEnabled == false",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "50"
+        }
+      ]
+    },
+    {
+      "from": "호스트 시작(ExecuteAsync 진입)",
+      "to": "스윕 실행 중",
+      "trigger": "JanitorEnabled == true이고 Task.Yield 이후 첫 do 반복(기동 직후)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "51-58"
+        }
+      ]
+    },
+    {
+      "from": "스윕 실행 중",
+      "to": "다음 틱 대기",
+      "trigger": "SweepOnceAsync 성공(LogInformation) 또는 취소가 아닌 예외(LogError 후 삼킴)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "56-66"
+        }
+      ]
+    },
+    {
+      "from": "다음 틱 대기",
+      "to": "스윕 실행 중",
+      "trigger": "PeriodicTimer.WaitForNextTickAsync가 true를 반환(6시간 경과)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "53, 66"
+        }
+      ]
+    },
+    {
+      "from": "다음 틱 대기 / 스윕 실행 중",
+      "to": "종료",
+      "trigger": "stoppingToken 취소로 OperationCanceledException 발생(catch 필터가 제외하므로 전파됨)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "61, 66, 97"
+        }
+      ]
+    },
+    {
+      "from": "고아 후보 파일(존재, 참조 행 없음, 1시간 초과)",
+      "to": "삭제됨",
+      "trigger": "잠금 안 재조회에서도 행이 없고 TryDelete가 true를 반환",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "103-107"
+        }
+      ]
+    },
+    {
+      "from": "고아 후보 파일",
+      "to": "유지(다음 스윕에 다시 후보)",
+      "trigger": "잠금 대기 55P03, 잠금 안에서 행 발견, 또는 TryDelete가 false",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "106-114"
+        }
+      ]
+    },
+    {
+      "from": "sha256 advisory lock 미보유",
+      "to": "보유",
+      "trigger": "AttachmentLock.HoldAsync에서 OpenConnectionAsync(try 밖) 후 try 안의 SET lock_timeout·pg_advisory_lock 성공",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "48-64"
+        }
+      ]
+    },
+    {
+      "from": "sha256 advisory lock 보유",
+      "to": "해제",
+      "trigger": "Releaser.DisposeAsync의 pg_advisory_unlock. UNLOCK이 실패하면 연결이 폐기될 때, 또는 그 물리 연결이 다음에 재사용될 때 늦게 풀린다(주석에 적힌 측정과 추론)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "Releaser.DisposeAsync",
+          "lines": "69-100"
+        }
+      ]
+    },
+    {
+      "from": "오래된 .tmp 임시 파일",
+      "to": "삭제됨",
+      "trigger": "mtime < cutoff이고 File.Delete 성공",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "87-90, 140-152"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Attachments",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "SweepOnceAsync — db.Attachments.AnyAsync(a => a.Sha256 == sha) 잠금 전 1차 확인"
+    },
+    {
+      "entity": "Attachments",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "SweepOnceAsync — 잠금 안 AnyAsync 재확인"
+    },
+    {
+      "entity": "Attachments",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "SweepOnceAsync — AsNoTracking().OrderBy(Id).Select(StoragePath).AsAsyncEnumerable() 누락 진단"
+    },
+    {
+      "entity": "pg_advisory_lock(hashtextextended('attachment:'+sha, 0)) 세션 잠금",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "AttachmentLock.HoldAsync"
+    },
+    {
+      "entity": "pg_advisory_unlock(hashtextextended('attachment:'+sha, 0))",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "Releaser.DisposeAsync"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL 세션 advisory lock(pg_advisory_lock/pg_advisory_unlock, hashtextextended)과 세션 설정 SET lock_timeout = '10s'에 의존한다. 잠금 대기가 한도를 넘으면 Npgsql PostgresException SqlState 55P03이 발생한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "55-56, 76"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "IsLockTimeout",
+          "lines": "130-137"
+        }
+      ]
+    },
+    {
+      "text": "로컬 파일 시스템(Attachments:RootPath가 가리키는 볼륨)에 의존한다. Directory.EnumerateDirectories/EnumerateFiles, File.GetLastWriteTimeUtc, File.Delete, File.Exists를 동기 I/O로 호출하고, FileInfo/DirectoryInfo.LinkTarget으로 링크 여부를 판정한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "284-332"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "89, 98, 144"
+        }
+      ]
+    },
+    {
+      "text": ".NET 제네릭 호스트의 BackgroundService, PeriodicTimer, IServiceScopeFactory, TimeProvider를 쓴다. TimeProvider는 AddAdminAuth 안에서 TryAddSingleton(TimeProvider.System)으로 등록된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "28-29, 53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "44"
+        }
+      ]
+    },
+    {
+      "text": "DB 접근은 EF Core(AppDbContext)와 Npgsql을 거친다. 스윕마다 새 스코프의 AppDbContext를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "92-93"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "AttachmentJanitor.ExecuteAsync",
+      "condition": "SweepOnceAsync가 OperationCanceledException이 아닌 예외를 던짐(DB 연결 실패, 손상된 경로 등)",
+      "handling": "catch (Exception ex) when (ex is not OperationCanceledException)에서 LogError를 남기고 삼킨다. 짧은 간격의 재시도는 없고, 다음 PeriodicTimer 틱(6시간 뒤)에 다시 시도한다. 이미 지운 파일은 되돌리지 않으며, 그 스윕의 카운트 로그는 남지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "56-66"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentJanitor.SweepOnceAsync → AttachmentLock.HoldAsync",
+      "condition": "다른 요청이 같은 sha를 잠그고 있어 lock_timeout 10초를 넘김(SqlState 55P03)",
+      "handling": "pg_advisory_lock은 HoldAsync의 try 안에 있으므로 CloseConnectionAsync를 먼저 호출한 뒤 예외를 다시 던진다. Janitor의 IsLockTimeout은 InnerException 체인까지 확인한다. 55P03이면 StoragePath를 담은 LogWarning을 남기고 그 파일만 건너뛰며 스윕을 계속한다. 코드 주석에 따르면 이 분기는 테스트하지 않았다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "101-114, 130-137"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "79-80"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "53-62"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentLock.HoldAsync (try 블록 53-62행)",
+      "condition": "SET lock_timeout 또는 pg_advisory_lock이 55P03이 아닌 예외로 실패(연결 끊김, 취소 등)",
+      "handling": "catch에서 CloseConnectionAsync를 호출한 뒤 예외를 다시 던진다. Janitor는 55P03만 잡으므로 스윕 전체가 중단되고, ExecuteAsync가 LogError를 남긴다. 뒤따르는 누락 진단도 그 주기에는 실행되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "53-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "109"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentLock.HoldAsync (52행, try 블록 밖)",
+      "condition": "db.Database.OpenConnectionAsync(ct)가 실패(DB 연결 불가, 풀 고갈, 취소 등)",
+      "handling": "처리 없음(예외 전파). OpenConnectionAsync는 try 앞에 있어서 HoldAsync의 catch와 CloseConnectionAsync를 거치지 않고 예외가 호출부로 그대로 전파된다. 55P03이 아니므로 IsLockTimeout 필터도 통과하지 못한다. 스윕 전체가 중단되고 ExecuteAsync가 LogError를 남긴다. 취소로 인한 OperationCanceledException이면 루프가 종료된다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "52-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "61, 109"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentLock.Releaser.DisposeAsync",
+      "condition": "pg_advisory_unlock 실행 실패",
+      "handling": "빈 catch로 삼키며 로그도 남기지 않는다. finally에서 CloseConnectionAsync를 호출한다. 주석에 따르면 잠금은 연결이 폐기될 때, 또는 그 물리 연결이 재사용될 때 늦게 풀린다(Npgsql 내부 동작은 추론).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "71-99"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentJanitor.TryDeleteFile",
+      "condition": "오래된 임시 파일의 File.Delete가 IOException 또는 UnauthorizedAccessException으로 실패",
+      "handling": "파일 이름만 담은 LogWarning을 남기고 false를 돌려주며 카운트하지 않는다. 임시 파일 루프는 다음 파일로 계속 진행하고, 이 파일은 다음 스윕에서 다시 시도한다. 그 밖의 예외 타입은 스윕 전체로 전파된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "87-90, 140-152"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentJanitor.SweepOnceAsync → FileSystemAttachmentStore.TryDelete",
+      "condition": "고아 파일 삭제가 IO 또는 권한 오류로 실패해 false 반환",
+      "handling": "orphans를 증가시키지 않을 뿐, Janitor 쪽에는 로그가 없다. 삭제 실패가 반복돼도 LogInformation의 Orphans 수치가 기대보다 작게 나오는 것 말고는 드러나지 않는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "106"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "TryDelete",
+          "lines": "166-175"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentJanitor.SweepOnceAsync 누락 진단 루프 → FileSystemAttachmentStore.Exists → PhysicalPath",
+      "condition": "DB의 StoragePath 값이 손상돼 저장 루트 밖을 가리킴. StoragePath에는 HasMaxLength(80) 외에 CHECK 제약이 없다(CHECK는 Size·Sha256·ContentType·FileName에만 있다).",
+      "handling": "처리 없음(예외 전파). PhysicalPath가 InvalidOperationException을 던져 SweepOnceAsync 전체가 실패하고, ExecuteAsync가 LogError를 남긴다. 그런 행이 남아 있는 한 매 주기 같은 실패가 반복되어 누락 경고와 결과 로그가 계속 사라진다. 앞 단계의 파일 삭제는 이미 수행된 상태다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "118-121"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "PhysicalPath",
+          "lines": "136-147"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "151, 155-161"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentJanitor.SweepOnceAsync — db.Attachments.AnyAsync 및 스트리밍 조회",
+      "condition": "DB 연결 불가 또는 쿼리 실패",
+      "handling": "처리 없음(예외 전파). ExecuteAsync가 LogError를 남기고 6시간 뒤에 다시 시도한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "100, 118"
+        }
+      ]
+    },
+    {
+      "where": "FileSystemAttachmentStore.EnumerateStoredFiles / EnumerateTempFiles",
+      "condition": "열거 도중 버킷 디렉터리나 .tmp가 사라짐(DirectoryNotFoundException), 또는 열거 권한 오류",
+      "handling": "처리 없음(예외 전파). 스윕이 실패하고 LogError가 남는다. 주석에 따르면 이 코드베이스에는 버킷이나 루트를 지우는 경로가 없다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "302, 311-332"
+        }
+      ]
+    },
+    {
+      "where": "AttachmentJanitor.SweepOnceAsync",
+      "condition": "호스트 종료로 stoppingToken 취소",
+      "handling": "저장 파일 반복마다 ct.ThrowIfCancellationRequested를 확인하고, EF 호출에도 ct를 넘긴다. OperationCanceledException은 catch 필터에서 제외되므로 ExecuteAsync 밖으로 전파되어 루프가 끝난다. 임시 파일 삭제 루프는 ct를 확인하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "61, 87-90, 97"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "마지막 쓰기가 1시간(MinimumAge) 이내인 임시 파일과 저장 파일은 건드리지 않는다. 진행 중인 업로드이거나 방금 옮겨진 파일일 수 있기 때문이다. 테스트는 새 고아 파일과 새 임시 파일이 남는 것을 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "32, 89, 98"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+          "lines": "73-81"
+        }
+      ]
+    },
+    {
+      "text": "내용 주소 규칙에 맞지 않는 파일은 오래됐어도 지우지 않는다. 사람이 둔 파일, 대문자 hex 이름, 버킷 접두사가 맞지 않는 파일, 시작 확인 파일 등이 여기에 해당한다. 심볼릭 링크나 정션인 버킷과 파일은 따라가지 않는다. 테스트는 정션 버킷이 가리키는 루트 밖 파일이 보존되는지 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "EnumerateStoredFiles",
+          "lines": "311-332"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+          "symbol": "Sweep_DoesNotFollowASymbolicLinkBucket_ToDeleteFilesOutsideTheRoot",
+          "lines": "89-114"
+        }
+      ]
+    },
+    {
+      "text": "열거한 뒤 잠금을 잡기 전에 같은 내용의 업로드가 행을 넣었다면, 잠금 안 재조회에서 행이 발견되어 파일을 지우지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "103-107"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "142"
+        }
+      ]
+    },
+    {
+      "text": "고아 판정은 Sha256만 비교한다. 행은 sha.png를 가리키는데 sha가 같고 확장자만 다른 오래된 파일 sha.jpg가 있으면, 행이 존재하므로 그 파일은 아무도 참조하지 않아도 계속 남는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "100, 106"
+        }
+      ]
+    },
+    {
+      "text": "TryDelete는 이미 없는 파일에도 true를 돌려준다. 그래서 열거와 삭제 사이에 다른 요청이 같은 파일을 지웠다면 OrphanFilesDeleted가 중복 집계될 수 있다. 코드 주석은 이것이 안전 문제는 아니라고 설명하며, 재현 테스트는 없다고 적고 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "78"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "151, 166-175"
+        }
+      ]
+    },
+    {
+      "text": "열거한 뒤 GetLastWriteTimeUtc를 호출하기 전에 파일이 사라지면, .NET은 없는 파일에 대해 1601-01-01 UTC를 돌려주는 것으로 알려져 있다. 그러면 '오래됨'으로 판정돼 삭제 경로로 들어간다. File.Delete는 아무 일도 하지 않지만 카운트는 올라갈 수 있다(.NET 동작에 근거한 추론).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "89, 98"
+        }
+      ]
+    },
+    {
+      "text": "행은 있는데 파일이 없는 불일치는 고치지 않고 개수만 경고한다. 테스트는 RowsMissingFiles=1을 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "11, 117-122"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+          "lines": "75"
+        }
+      ]
+    },
+    {
+      "text": "PeriodicTimer는 스윕이 Interval보다 오래 걸려도 틱을 겹쳐 실행하지 않는다. 다만 잠긴 후보가 많으면 후보마다 최대 10초씩 대기가 쌓여 스윕이 길어질 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "25, 52-53"
+        }
+      ]
+    },
+    {
+      "text": "JanitorEnabled=false이면 배경 루프는 아무 일도 하지 않는다. 그래도 싱글턴은 등록돼 있어 SweepOnceAsync를 직접 호출할 수 있다. 운영 기본값은 true이고, 테스트(ApiFactory)는 false로 둔다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "50"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+          "lines": "13"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs",
+          "lines": "118"
+        }
+      ]
+    },
+    {
+      "text": ".tmp 디렉터리나 저장 루트가 없으면 열거가 빈 시퀀스를 돌려주므로, 해당 단계는 0건으로 조용히 끝난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "286, 313"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "스윕이 성공할 때마다 LogInformation \"첨부 청소. Temp={Temp} Orphans={Orphans} MissingFiles={Missing}\"을 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "59"
+        }
+      ]
+    },
+    {
+      "text": "스윕이 실패하면 LogError(ex, \"첨부 청소 실패. 다음 주기에 다시 시도한다.\")를 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "63"
+        }
+      ]
+    },
+    {
+      "text": "잠금 대기가 초과되면 LogWarning(ex, \"고아 파일 후보의 잠금 대기 시간 초과…\", StoragePath)를 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "113"
+        }
+      ]
+    },
+    {
+      "text": "파일이 없는 행이 1건 이상이면 LogWarning(\"파일이 없는 첨부 행 {Count}건…\")을 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "122"
+        }
+      ]
+    },
+    {
+      "text": "임시 파일 삭제에 실패하면 LogWarning(\"임시 파일 정리 실패. TempFile={TempFile}\")을 남긴다. 파일 이름만 기록하고 예외 객체는 넘기지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "149"
+        }
+      ]
+    },
+    {
+      "text": "고아 파일 삭제 실패(TryDelete false)와 advisory UNLOCK 실패는 둘 다 로그를 남기지 않는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "106"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "78-94"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F024_SEQUENCE",
+      "type": "sequence",
+      "title": "AttachmentJanitor 스윕 1회 호출 순서",
+      "summary": "ExecuteAsync가 기동 직후와 6시간마다 SweepOnceAsync를 부른다. SweepOnceAsync는 임시 파일 루프, 저장 파일(고아) 루프, 누락 진단 스트리밍을 차례로 수행하고, 고아 삭제는 AttachmentLock 세션 잠금 안에서만 일어난다.",
+      "mermaid": "sequenceDiagram\n    participant Program\n    participant AttachmentJanitor\n    participant FileSystemAttachmentStore\n    participant AppDbContext\n    participant AttachmentLock\n    Program->>AttachmentJanitor: app.Run 시 ExecuteAsync(stoppingToken)\n    AttachmentJanitor->>AttachmentJanitor: JanitorEnabled 확인, Task.Yield, PeriodicTimer 6h 생성\n    loop 기동 직후 1회 + 6시간마다\n        loop .tmp 임시 파일마다\n            AttachmentJanitor->>FileSystemAttachmentStore: EnumerateTempFiles 다음 파일\n            AttachmentJanitor->>AttachmentJanitor: mtime 1h 초과면 TryDeleteFile\n        end\n        AttachmentJanitor->>AppDbContext: CreateAsyncScope 후 해석\n        loop 내용 주소 저장 파일마다\n            AttachmentJanitor->>FileSystemAttachmentStore: EnumerateStoredFiles 다음 파일\n            AttachmentJanitor->>AppDbContext: Attachments.AnyAsync(Sha256) 1차\n            AttachmentJanitor->>AttachmentLock: HoldAsync(db, sha)\n            AttachmentLock->>AppDbContext: OpenConnectionAsync (try 밖)\n            AttachmentLock->>AppDbContext: SET lock_timeout 10s, pg_advisory_lock (try 안)\n            alt 잠금 획득\n                AttachmentJanitor->>AppDbContext: Attachments.AnyAsync(Sha256) 재확인\n                AttachmentJanitor->>FileSystemAttachmentStore: TryDelete(storagePath)\n                AttachmentJanitor->>AttachmentLock: DisposeAsync\n                AttachmentLock->>AppDbContext: pg_advisory_unlock, CloseConnectionAsync\n            else 55P03 잠금 대기 초과\n                AttachmentLock->>AppDbContext: CloseConnectionAsync 후 재던짐\n                AttachmentJanitor->>AttachmentJanitor: LogWarning 후 이 파일 건너뜀\n            end\n        end\n        AttachmentJanitor->>AppDbContext: Attachments StoragePath 스트리밍 조회\n        AttachmentJanitor->>FileSystemAttachmentStore: Exists(path)\n        AttachmentJanitor->>AttachmentJanitor: SweepResult 반환 후 LogInformation\n    end",
+      "details": "Program.cs가 AttachmentJanitor를 싱글턴과 호스티드 서비스로 등록하고, app.Run() 때 ExecuteAsync가 시작된다. 스윕은 세 단계로 순서대로 진행된다. (1) 임시 파일 루프는 EnumerateTempFiles가 내놓는 .tmp 파일을 전부 돌며, mtime이 cutoff 이전인 파일만 TryDeleteFile로 지운다. (2) 저장 파일 루프는 스윕 전용 스코프의 AppDbContext로 동작한다. 오래된 저장 파일마다 AnyAsync로 1차 확인하고, 행이 없을 때만 HoldAsync로 sha 잠금을 잡은 뒤 재확인하고 TryDelete를 호출한다. 편의상 1차 확인 뒤 HoldAsync를 그렸지만, 실제로는 mtime이 새 파일이거나 1차 확인에서 행이 있으면 잠금 없이 다음 파일로 넘어간다. OpenConnectionAsync는 HoldAsync의 try 밖에 있어, 실패하면 CloseConnectionAsync 없이 예외가 그대로 전파된다. (3) 누락 진단은 StoragePath를 스트리밍하며 Exists로 확인한다.",
+      "nodes": [
+        {
+          "node": "Program",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "AddSingleton/AddHostedService, app.Run"
+        },
+        {
+          "node": "AttachmentJanitor",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "ExecuteAsync / SweepOnceAsync / TryDeleteFile"
+        },
+        {
+          "node": "FileSystemAttachmentStore",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "EnumerateTempFiles / EnumerateStoredFiles / TryDelete / Exists"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "Attachments"
+        },
+        {
+          "node": "AttachmentLock",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "HoldAsync / Releaser.DisposeAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F024_FLOW",
+      "type": "flowchart",
+      "title": "AttachmentJanitor 루프와 고아 판정·실패 분기",
+      "summary": "임시 파일 단계와 저장 파일 단계는 각각 열거가 끝날 때까지 도는 루프다. 임시 파일 열거가 끝나야 스코프 생성과 저장 파일 열거로 넘어간다. 55P03만 파일 단위로 건너뛰고, 그 밖의 예외는 스윕 전체를 LogError로 끝낸 뒤 다음 6시간 틱을 기다린다.",
+      "mermaid": "flowchart TD\n    ExecuteAsync[\"AttachmentJanitor.ExecuteAsync\"] --> JanitorEnabled{\"AttachmentOptions.JanitorEnabled\"}\n    JanitorEnabled -->|false| DisabledReturn[\"즉시 반환\"]\n    JanitorEnabled -->|true| SweepOnceAsync[\"SweepOnceAsync now, cutoff 계산\"]\n    SweepOnceAsync --> EnumerateTempFiles[\"foreach EnumerateTempFiles\"]\n    EnumerateTempFiles -->|다음 임시 파일| TempAge{\"임시 파일 mtime이 cutoff 이전\"}\n    TempAge -->|아니오| EnumerateTempFiles\n    TempAge -->|예| TryDeleteFile[\"TryDeleteFile, 실패 시 LogWarning\"]\n    TryDeleteFile --> EnumerateTempFiles\n    EnumerateTempFiles -->|열거 끝| CreateAsyncScope[\"CreateAsyncScope, AppDbContext 해석\"]\n    CreateAsyncScope --> EnumerateStoredFiles[\"foreach EnumerateStoredFiles\"]\n    EnumerateStoredFiles -->|다음 저장 파일| StoredAge{\"저장 파일 mtime이 cutoff 이전\"}\n    StoredAge -->|아니오| EnumerateStoredFiles\n    StoredAge -->|예| FirstAnyAsync{\"Attachments.AnyAsync 행 있음\"}\n    FirstAnyAsync -->|있음| EnumerateStoredFiles\n    FirstAnyAsync -->|없음| HoldAsync[\"AttachmentLock.HoldAsync\"]\n    HoldAsync -->|55P03| LockTimeoutWarning[\"LogWarning 후 건너뜀\"]\n    LockTimeoutWarning --> EnumerateStoredFiles\n    HoldAsync -->|획득| SecondAnyAsync{\"잠금 안 재확인 행 있음\"}\n    SecondAnyAsync -->|있음| ReleaserDispose[\"Releaser.DisposeAsync\"]\n    SecondAnyAsync -->|없음| TryDelete[\"FileSystemAttachmentStore.TryDelete\"]\n    TryDelete --> ReleaserDispose\n    ReleaserDispose --> EnumerateStoredFiles\n    EnumerateStoredFiles -->|열거 끝| MissingScan[\"StoragePath 스트리밍과 Exists\"]\n    MissingScan --> LogInformation[\"SweepResult 반환 후 LogInformation\"]\n    HoldAsync -->|OpenConnectionAsync 등 기타 예외| LogError[\"LogError 후 삼킴\"]\n    SweepOnceAsync -->|기타 예외| LogError\n    SweepOnceAsync -->|OperationCanceledException| LoopStopped[\"루프 종료\"]\n    LogInformation --> WaitForNextTickAsync{\"PeriodicTimer.WaitForNextTickAsync\"}\n    LogError --> WaitForNextTickAsync\n    WaitForNextTickAsync -->|6시간 경과| SweepOnceAsync\n    WaitForNextTickAsync -->|stoppingToken 취소| LoopStopped",
+      "details": "수정 사항: 이전 다이어그램은 임시 파일 하나를 판정한 뒤 곧바로 EnumerateStoredFiles로 넘어가는 것처럼 그려져 있었다. 실제 코드(SweepOnceAsync 87-90행)는 foreach (var file in store.EnumerateTempFiles())로 .tmp의 모든 파일을 돈다. 그래서 TempAge '아니오'와 TryDeleteFile 뒤에는 EnumerateTempFiles로 돌아가는 루프 간선을 두었다. 열거가 끝났을 때만 92행의 CreateAsyncScope를 거쳐 95행의 EnumerateStoredFiles로 넘어간다. 저장 파일 루프도 같은 방식으로 표현했다. mtime이 새 파일, 1차 확인에서 행이 있는 파일, 55P03으로 건너뛴 파일, 잠금 해제를 마친 파일은 모두 다음 저장 파일로 돌아간다. 열거가 끝나면 누락 진단(118-121행)으로 넘어간다. TryDeleteFile의 IO·권한 실패는 LogWarning만 남기고 루프를 계속한다. HoldAsync의 비-55P03 예외(try 밖 OpenConnectionAsync 실패 포함)와 SweepOnceAsync의 기타 예외는 ExecuteAsync의 catch에서 LogError로 끝난다. OperationCanceledException은 catch 필터에서 제외되어 루프를 종료시킨다. 다이어그램의 'SweepOnceAsync -->|기타 예외| LogError' 간선은 스윕 안 어느 단계에서 나든 같은 catch로 모인다는 뜻이다.",
+      "nodes": [
+        {
+          "node": "ExecuteAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.ExecuteAsync"
+        },
+        {
+          "node": "JanitorEnabled",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+          "symbol": "AttachmentOptions.JanitorEnabled"
+        },
+        {
+          "node": "SweepOnceAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.SweepOnceAsync"
+        },
+        {
+          "node": "EnumerateTempFiles",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "FileSystemAttachmentStore.EnumerateTempFiles"
+        },
+        {
+          "node": "TryDeleteFile",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.TryDeleteFile"
+        },
+        {
+          "node": "CreateAsyncScope",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "SweepOnceAsync 92-93행"
+        },
+        {
+          "node": "EnumerateStoredFiles",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "FileSystemAttachmentStore.EnumerateStoredFiles"
+        },
+        {
+          "node": "FirstAnyAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "SweepOnceAsync 100행"
+        },
+        {
+          "node": "HoldAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "AttachmentLock.HoldAsync"
+        },
+        {
+          "node": "LockTimeoutWarning",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "IsLockTimeout / 109-114행"
+        },
+        {
+          "node": "SecondAnyAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "SweepOnceAsync 106행"
+        },
+        {
+          "node": "TryDelete",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "FileSystemAttachmentStore.TryDelete"
+        },
+        {
+          "node": "ReleaserDispose",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "Releaser.DisposeAsync"
+        },
+        {
+          "node": "MissingScan",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "SweepOnceAsync 117-122행"
+        },
+        {
+          "node": "LogInformation",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "ExecuteAsync 59행"
+        },
+        {
+          "node": "LogError",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "ExecuteAsync 61-64행"
+        },
+        {
+          "node": "WaitForNextTickAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "ExecuteAsync 66행"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "55P03 잠금 대기 초과 분기가 실제로 어떻게 동작하는지는 테스트로 확인되지 않았다(코드 주석이 미검증이라고 밝힌다).",
+    "UNLOCK 실패 시 advisory lock이 늦게 풀린다는 설명은 개발 PC에서의 측정과 Npgsql 내부에 대한 추론에 근거한다. 운영 Linux 컨테이너에서의 동작은 확인하지 못했다.",
+    "OpenConnectionAsync가 실패할 때 EF Core·Npgsql이 부분적으로 열린 연결을 내부에서 정리하는지는 라이브러리 내부 동작이라 코드로 확인할 수 없다. HoldAsync 자체는 이 경우 CloseConnectionAsync를 호출하지 않는다.",
+    "운영 환경에서 '파일이 없는 첨부 행' 경고나 '첨부 청소 실패' LogError를 모니터링하거나 알림으로 보내는지는 코드에서 확인할 수 없다.",
+    "운영 볼륨의 파일 수와 스윕 1회 소요 시간(파일마다 동기 I/O와 DB 조회 1회)에 대한 측정 근거가 없다.",
+    "Host의 BackgroundServiceExceptionBehavior 설정은 코드에서 찾지 못했다(기본값으로 추정). 취소가 원인이 아닌 OperationCanceledException이 ExecuteAsync 밖으로 나갈 때 호스트가 어떻게 반응하는지는 확인하지 못했다.",
+    "운영 컨테이너에서 파일 mtime을 기록하는 시계와 TimeProvider.System 사이에 차이가 있는지(볼륨 마운트 등)는 확인할 수 없다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor",
+      "lines": "28-153"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "AttachmentLock.HoldAsync",
+      "lines": "48-101"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "EnumerateTempFiles / EnumerateStoredFiles / TryDelete / Exists / PhysicalPath",
+      "lines": "136-175, 272-335"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+      "symbol": "AttachmentOptions.JanitorEnabled",
+      "lines": "13"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "62-67, 79-85, 126"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "Attachment 매핑",
+      "lines": "147-162"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "lines": "142, 204-209"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "lines": "44"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+      "lines": "33-114"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs",
+      "lines": "118"
+    }
+  ],
+  "history": []
+}

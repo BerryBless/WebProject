@@ -1,0 +1,105 @@
+{
+  "title": "배포",
+  "oneLiner": "단일 호스트 Docker Compose(caddy·api·postgres + 백업/복원용 tools)로 배포하며, 기동은 postgres(healthy) → api(healthy) → caddy 순이고 요청은 caddy → api → postgres로 흐른다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "body": "deploy/docker-compose.yml 하나로 caddy(TLS·정적 SPA·리버스 프록시), api(ASP.NET Core), postgres 3개 서비스를 띄운다. **기동 순서**는 depends_on service_healthy 때문에 postgres(healthy) → api(healthy) → caddy다. caddy → api → postgres는 기동 순서가 아니라 **요청 흐름**이다. 백업·복원은 profile tools 컨테이너가 맡는다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "body": "### 컨테이너\n\n| 서비스 | 이미지/빌드 | 기동 조건 | 비고 |\n|---|---|---|---|\n| caddy | PortfolioBlog.Web/Dockerfile(node:24.21.0-alpine 빌드 → caddy:2.11.4-alpine) | api healthy 이후 | user 1654, read_only, cap_drop ALL + NET_BIND_SERVICE, 80·443 게시, admin off |\n| api | PortfolioBlog.Api/Dockerfile(sdk:10.0.401 → aspnet:10.0.12-noble-chiseled-extra) | postgres healthy 이후 | 셸 없음, uid 1654, read_only, /tmp tmpfs 64m, 8080 평문 |\n| postgres | postgres:17.11-alpine | 없음 | pg_isready 헬스체크(10초 간격, 12회), postgres-init 읽기 전용 마운트 |\n| tools | profile tools | 수동(docker compose run) | network_mode none, read_only, uid 1654, attachments 볼륨만 마운트 |\n\napi 헬스체크는 30초마다(시작 구간 2초) `dotnet PortfolioBlog.Api.dll healthcheck`를 새 프로세스로 실행하고 종료 코드로 답한다.\n\n### 네트워크\n\n| 네트워크 | 구성원 | 역할 |\n|---|---|---|\n| public | caddy | 호스트 포트 게시(HTTP_BIND 기본 0.0.0.0:80, HTTPS_BIND 기본 0.0.0.0:443), ACME 아웃바운드. h1·h2만 사용, h3 미광고 |\n| edge (internal, 172.30.0.0/24) | caddy(172.30.0.2), api | api의 Proxy__TrustedIp가 caddy IP만 신뢰(ForwardLimit=1) |\n| db (internal) | api, postgres | Host=postgres, Command Timeout=30 |\n\n### 볼륨\n\n| 볼륨 | 마운트 | 내용 |\n|---|---|---|\n| pgdata | postgres 데이터 | 테이블 Posts, Series, Tags, PostTags, AdminState(세션 epoch 단일 행; DbSet 이름은 AdminStates), Attachments. 앱 시작 시 Database.Migrate()로 스키마 적용 |\n| attachments | /data/attachments | SHA-256 내용 주소 이미지와 .tmp 업로드 파일, 디렉터리 권한 700 |\n| dpkeys | /data/dpkeys | Data Protection 키(세션 쿠키 암호화) |\n| caddy_data | /data | ACME 인증서 |\n| caddy_config | /config | Caddy 설정 상태 |\n\n### DB 롤\n\n- blog_app(ConnectionStrings:Default): 스키마 소유·쓰기.\n- blog_public(ConnectionStrings:Public): Posts/Series/Tags/PostTags/Attachments에만 SELECT. AdminState 테이블은 부여 대상에서 제외. 공개 연결에는 statement_timeout과 default_transaction_read_only=on이 붙는다.\n\n### 신뢰 경계\n\n- Caddy: 공개 도메인은 /api·/api/*를 404, GET·HEAD 외 메서드를 405로 막고 본문 상한 64KB. 관리 도메인은 ADMIN_ALLOWED_CIDRS 밖이면 404(평문 HTTP 포함), /api/*·/attachments/*만 백엔드로 보내며 본문 상한 11MiB. 두 도메인 밖 Host는 본문 없는 404.\n- 앱: HostFiltering이 PublicOrigin·AdminOrigin 호스트만 허용, /api는 RequireHost와 AdminSurfaceMiddleware로 이중 차단.\n\n### 기타\n\n렌더 캐시(RenderedPostCache)는 프로세스 내 MemoryCache라 재배포하면 비워진다. 외부 캐시 서버는 없다.",
+      "diagrams": [
+        {
+          "id": "DEPLOY_TOPOLOGY",
+          "type": "architecture",
+          "title": "배포 토폴로지(요청 흐름)",
+          "summary": "요청은 caddy → api → postgres로 흐르고 기동은 그 반대 순서다.",
+          "mermaid": "flowchart LR\n  caddy -->|edge 8080| api\n  api -->|db 5432| postgres\n  postgres --- pgdata\n  api --- attachments\n  api --- dpkeys\n  caddy --- caddy_data\n  tools -->|attachments only| attachments",
+          "details": "화살표는 트래픽 흐름이다. 기동은 postgres healthy → api healthy → caddy. tools는 network_mode none이라 어떤 망에도 붙지 않는다.",
+          "nodes": [
+            {
+              "node": "caddy",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "api",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "postgres",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "tools",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "pgdata",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "attachments",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "dpkeys",
+              "code": "deploy/docker-compose.yml"
+            },
+            {
+              "node": "caddy_data",
+              "code": "deploy/docker-compose.yml"
+            }
+          ],
+          "status": "CONFIRMED"
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "id": "procedure",
+      "heading": "절차",
+      "body": "| 작업 | 명령 | 비고 |\n|---|---|---|\n| 기동 | `docker compose -f deploy/docker-compose.yml up -d --build` | 환경값은 deploy/.env.example 참고 |\n| 관리자 해시 생성 | `dotnet PortfolioBlog.Api.dll hash-password` | Admin__PasswordHash용 일회성 CLI |\n| 백업 | `./deploy/backup.sh [백업 루트]` | 서비스 무중단. DB 덤프 후 첨부 묶음. 마지막 줄에 디렉터리 경로 출력. dpkeys·caddy_data는 제외 |\n| 복원 | `./deploy/restore.sh --yes <백업 디렉터리>` | 현재 DB·첨부를 전부 덮어씀. 쓰는 쪽을 먼저 멈춤 |\n| 스모크 | `SMOKE_E2E=1 deploy/smoke/run.sh` | 운영과 같은 이미지·Caddyfile·compose 오버레이(docker-compose.smoke.yml)로 접근 통제·헤더·백업/복원 검증 |\n\n스모크 순서: 기동 → 허용·거부 검사 → api 중단 시 오류 검사 → seed → down -v → 복원 검증. CI는 .github/workflows/ci.yml의 deploy-smoke 잡이 같은 스크립트를 실행한다. 자세한 운영 절차는 deploy/OPERATIONS.md(이 문서에서는 내용을 확인하지 않음).",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "evidence",
+      "heading": "코드 근거",
+      "body": "| 주장 | 파일 |\n|---|---|\n| 서비스·망·볼륨 정의 | deploy/docker-compose.yml |\n| API 이미지 | PortfolioBlog.Api/Dockerfile |\n| Caddy 이미지 | PortfolioBlog.Web/Dockerfile |\n| 프록시 규칙 | deploy/Caddyfile |\n| 스모크 오버레이 | deploy/docker-compose.smoke.yml, deploy/smoke/run.sh |\n| 백업·복원 | deploy/backup.sh, deploy/restore.sh |\n| DB 롤 초기화 | deploy/postgres-init/10-roles.sh |\n| 헬스체크·CLI 분기 | PortfolioBlog.Api/Program.cs |\n| 공개 롤 권한 | PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs |\n| 스키마 | PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs |\n| CI | .github/workflows/ci.yml |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "caveats",
+      "heading": "주의사항",
+      "body": "- 복원은 파괴적이다. 현재 DB와 첨부를 모두 지운다.\n- 백업에는 dpkeys가 없으므로 복원 후 관리자는 다시 로그인해야 하고 인증서는 재발급된다.\n- api는 read_only이고 /tmp가 64m tmpfs다. 업로드 동시성(Admin__UploadConcurrency=2)×11MiB를 전제로 한 크기이니 바꿀 때 함께 조정한다.\n- edge 망의 caddy 고정 IP(172.30.0.2)와 Proxy__TrustedIp는 일치해야 한다.\n- 빈 attachments 볼륨은 api 컨테이너 생성 시 이미지 권한(1654, 0700)으로 초기화된다. restore.sh가 이를 위해 api를 먼저 만든다.\n- api 이미지는 셸이 없어 docker exec로 셸 진입이 불가능하다.\n- 재배포 시 렌더 캐시가 비워진다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "body": "- [04_SETUP_AND_RUN](04_SETUP_AND_RUN.md)\n- [05_CONFIGURATION](05_CONFIGURATION.md)\n- [13_SECURITY](13_SECURITY.md)\n- [15_TESTING](15_TESTING.md)\n- [features/F026_COMPOSE_DEPLOYMENT](features/F026_COMPOSE_DEPLOYMENT.md)\n- [features/F027_BACKUP_RESTORE](features/F027_BACKUP_RESTORE.md)\n- [features/F028_DEPLOY_SMOKE_TEST](features/F028_DEPLOY_SMOKE_TEST.md)",
+      "diagrams": [],
+      "unchanged": false
+    }
+  ],
+  "relatedDocs": [
+    "04_SETUP_AND_RUN.md",
+    "05_CONFIGURATION.md",
+    "13_SECURITY.md",
+    "15_TESTING.md",
+    "features/F026_COMPOSE_DEPLOYMENT.md",
+    "features/F027_BACKUP_RESTORE.md",
+    "features/F028_DEPLOY_SMOKE_TEST.md"
+  ],
+  "unknowns": [
+    "deploy/OPERATIONS.md 내용은 이 단계에서 확인하지 않았다.",
+    "up 명령의 정확한 옵션(.env 필수 키)은 deploy/.env.example로 확인해야 한다."
+  ]
+}

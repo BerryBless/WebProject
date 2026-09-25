@@ -1,0 +1,53 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart LR\n  MarkdownEditor --> DraftFields[\"DraftFields in PostEditorPage\"]\n  TagInput --> DraftFields\n  DraftFields --> UpsertPostRequest\n  UpsertPostRequest --> PostEndpoints\n  PostEndpoints --> PostValidation\n  PostEndpoints -->|contentMarkdown| RenderGate\n  RenderGate --> RenderedMarkdown\n  PostEndpoints -->|TagNames| TagResolver\n  TagResolver -->|\"INSERT ON CONFLICT DO NOTHING\"| Tag\n  TagResolver -->|\"Tag Id 목록\"| PostEndpoints\n  PostEndpoints -->|\"PostTags.Add / RemoveAll\"| PostTag\n  PostEndpoints -->|\"new Post / 필드 갱신\"| Post\n  Post --> PostQueries\n  PostTag --> PostQueries\n  Tag --> PostQueries\n  PostQueries --> PostDetailDto\n  RenderedMarkdown --> RenderedPostCache\n  PostDetailDto -->|\"Id, Version\"| RenderedPostCache\n  PostDetailDto -->|fromServer| DraftFields",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "MarkdownEditor",
+      "code": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+      "symbol": "MarkdownEditor"
+    },
+    {
+      "node": "TagInput",
+      "code": "PortfolioBlog.Web/src/components/TagInput.tsx",
+      "symbol": "TagInput"
+    },
+    {
+      "node": "DraftFields",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor"
+    },
+    {
+      "node": "PostEndpoints",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync/UpdateAsync"
+    },
+    {
+      "node": "PostValidation",
+      "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate"
+    },
+    {
+      "node": "RenderGate",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync"
+    },
+    {
+      "node": "TagResolver",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync"
+    },
+    {
+      "node": "PostQueries",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.GetDetailAsync"
+    },
+    {
+      "node": "RenderedPostCache",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.Store"
+    }
+  ],
+  "reason": "코드 변경이 없고 기존 다이어그램의 저장·태그 해석·렌더 캐시·응답 반영 흐름이 새 분석과 일치한다. 이미지 업로드 흐름은 이 다이어그램의 주제(저장 데이터 흐름) 밖이라 넣지 않는다. 새 후보처럼 TagResolver가 PostTag를 직접 쓰는 것으로 그리면 오히려 틀린다(PostEndpoints가 PostTags를 Add/RemoveAll 한다)."
+}

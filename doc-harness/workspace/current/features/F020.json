@@ -1,0 +1,1316 @@
+{
+  "feature": {
+    "id": "F020",
+    "name": "보안 헤더·오류 응답·과부하 처리·API 본문 제한",
+    "slug": "WEB_PIPELINE_PROTECTION",
+    "summary": "PortfolioBlog.Api 미들웨어 파이프라인에 걸린 공통 방어층이다. SecurityHeadersMiddleware는 OnStarting 콜백으로 앱이 만드는 모든 응답에 nosniff·CSP·Referrer-Policy·Permissions-Policy·X-Frame-Options를 붙이고, Development가 아니면 HSTS도 붙인다. ErrorResponses는 본문 없는 오류를 경로별로 ProblemDetails 또는 고정 HTML로 채운다. OverloadExceptionHandler는 InnerException 체인 어딘가에 PostgresException 57014·55P03이나 RenderBusyException이 있으면 503 + Retry-After: 5로 바꾼다. ApiBodyLimitMiddleware는 인가 뒤에서 자체 상한이 없는 /api 엔드포인트의 본문을 262,144바이트로 제한한다. 익명 허용 엔드포인트(/api/auth/login·/api/auth/me)도 이 검사 대상이다.",
+    "entryPoints": [
+      "전역 미들웨어 SecurityHeadersMiddleware (Program.cs app.UseMiddleware, 앱 미들웨어 맨 앞)",
+      "UseExceptionHandler + OverloadExceptionHandler (AddExceptionHandler로 IExceptionHandler 등록)",
+      "UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)",
+      "ApiBodyLimitMiddleware (UseAuthorization 뒤)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+      "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+      "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs",
+      "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+      "PortfolioBlog.Api.Tests/Features/HostFilteringTests.cs",
+      "deploy/Caddyfile"
+    ],
+    "dependencies": [
+      "F001",
+      "F009",
+      "F010",
+      "F011",
+      "F018",
+      "F021"
+    ],
+    "importance": "INFRA",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F020은 Program.cs 파이프라인에 걸린 방어 요소 네 개이고, 이번 재검증에서 현재 코드 동작은 이전 분석과 같았다. F020 파일(SecurityHeadersMiddleware·ErrorResponses·OverloadExceptionHandler·ApiBodyLimitMiddleware·Program.cs)에는 변경이 없다. 작업 트리의 관련 변경은 F008의 TagEndpoints.cs 5행 주석 한 줄뿐이라 F020 동작에 영향이 없다. 검증에서 지적된 의존 표 문제는 F006·F008 색인 행에 관한 것이라 이 세션 출력으로 고칠 수 없어 unknowns에 남겼다. (1) SecurityHeadersMiddleware는 앱 미들웨어 맨 앞(Program.cs 98)에 있다. Response.OnStarting 콜백으로 보안 헤더를 붙이므로, 예외 처리기가 헤더를 비운 500에도 헤더가 남는다. 기존 CSP가 SandboxCsp일 때만 그 값을 유지하고 다른 값은 모두 PublicCsp로 덮어쓴다. (2) ErrorResponses.WriteAsync는 /api·/attachments·/health·/openapi 경로에 IProblemDetailsService로 ProblemDetails를 쓴다. 그 밖의 경로에는 요청 값을 반사하지 않는 고정 한국어 HTML을 쓰고, HEAD 요청이면 본문을 생략한다. 본문 없이 끝나는 429(RateLimiter OnRejected)·401·404 등도 UseStatusCodePages를 거쳐 여기서 본문을 받는다. (3) OverloadExceptionHandler.IsOverload는 InnerException 체인을 끝까지 훑어 PostgresException(57014·55P03)이나 RenderBusyException을 찾는다. 찾으면 503 + Retry-After: 5를 쓰고, 못 찾으면 false를 돌려줘 프레임워크 기본 500으로 넘긴다. (4) ApiBodyLimitMiddleware는 AdminSurfaceMiddleware(F018)·RateLimiter·Authentication·Authorization 뒤에 있다. 대상은 /api 경로이면서 매칭된 엔드포인트가 있고 IRequestSizeLimitMetadata가 없는 요청이다. 선언된 Content-Length가 262,144를 넘으면 곧바로 413을 쓴다. 넘지 않으면 Kestrel 상한을 설정하고 Request.Body를 LengthLimitedStream으로 감싸, 청크 본문도 읽는 도중에 413으로 끊는다. 세션 없는 요청이 413 검사 전에 401로 끝나는 것은 /api 그룹 기본값 RequireAuthorization이 적용되는 엔드포인트뿐이고, AllowAnonymous인 /api/auth/login·/api/auth/me는 413 검사까지 간다. 알려진 틈: HostFiltering 400과 Kestrel이 앱 도달 전에 거부한 응답에는 보안 헤더가 없다. 에지 Caddy의 접근 로그는 평문 리다이렉트 블록에는 없다. F020은 DB에 직접 접근하지 않지만, 57014·55P03이 제대로 나오려면 PublicDbContext의 statement_timeout, AttachmentLock의 lock_timeout, StartupValidation의 Command Timeout 검사가 먼저 갖춰져 있어야 한다. 관리 풀(AppDbContext)에는 두 타임아웃이 모두 없어서 태그·시리즈 같은 관리 엔드포인트에서는 57014/55P03→503 경로가 현실적으로 생기지 않는다.",
+  "entryPoints": [
+    {
+      "text": "SecurityHeadersMiddleware는 app.UseMiddleware로 앱 미들웨어 맨 앞에 등록된다. 이보다 바깥에서 도는 것은 프레임워크 HostFiltering 시작 필터뿐이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "93-98"
+        }
+      ]
+    },
+    {
+      "text": "OverloadExceptionHandler는 AddExceptionHandler로 DI에 등록된다. app.UseExceptionHandler()가 처리되지 않은 예외를 받으면 이 핸들러를 호출한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100"
+        }
+      ]
+    },
+    {
+      "text": "ErrorResponses.HandleStatusCodeAsync는 UseStatusCodePages의 콜백이다. 상태 코드만 있고 본문이 없는 응답에 본문을 채운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync",
+          "lines": "30-31"
+        }
+      ]
+    },
+    {
+      "text": "ApiBodyLimitMiddleware는 UseAuthorization 바로 뒤, 엔드포인트 실행 직전에 등록된다. 그 앞에 AdminSurfaceMiddleware(F018)·UseRateLimiter(F019)·UseAuthentication이 차례로 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        }
+      ]
+    },
+    {
+      "text": "ErrorResponses.WriteAsync는 파이프라인 콜백 외에도 호출된다. OverloadExceptionHandler(503)와 ApiBodyLimitMiddleware(413)가 직접 부른다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync",
+          "lines": "40"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+          "lines": "47-51"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "(top-level) builder 구성",
+      "description": "서비스 등록 단계에서 다음을 설정한다. Kestrel AddServerHeader=false. HostFilteringOptions.IncludeFailureMessage=false(헤더 없는 400에 본문도 없게 함). AddExceptionHandler<OverloadExceptionHandler>. AddProblemDetails. RouteHandlerOptions.ThrowOnBadRequest=false(바인딩 실패와 BadHttpRequestException을 예외 대신 상태 코드 응답으로 처리)."
+    },
+    {
+      "step": 2,
+      "component": "SecurityHeadersMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "SecurityHeadersMiddleware.InvokeAsync",
+      "description": "요청마다 Response.OnStarting에 static 콜백을 예약하고(state=(Response.Headers, _hsts)) next(context)를 그대로 반환한다. 헤더는 이 시점이 아니라 응답 전송 직전에 쓴다."
+    },
+    {
+      "step": 3,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "UseTrustedForwardedHeaders",
+      "description": "프록시 헤더를 처리한다(F018 영역). 주석에 따르면 자체적으로 400을 내지 않는다."
+    },
+    {
+      "step": 4,
+      "component": "ExceptionHandlerMiddleware",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseExceptionHandler()",
+      "description": "하위 파이프라인 전체를 감싼다. 예외가 나면 등록된 IExceptionHandler(OverloadExceptionHandler)를 호출한다."
+    },
+    {
+      "step": 5,
+      "component": "StatusCodePagesMiddleware",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)",
+      "description": "하위 파이프라인이 본문 없는 오류 상태 코드로 끝나면 ErrorResponses.HandleStatusCodeAsync를 호출한다."
+    },
+    {
+      "step": 6,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware (Reject)",
+      "description": "UseStaticFiles 다음 단계다. F018 관문에서 호스트·IP·CSRF 헤더·Origin을 검사하고, 통과하지 못하면 Reject로 404/403을 직접 쓴다. 이어서 UseRateLimiter(F019)를 지난다. 한도를 넘으면 OnRejected가 Retry-After만 붙인 본문 없는 429를 낸다. 그다음 UseAuthentication·UseAuthorization(F001)을 지난다. /api 그룹은 RequireHost(adminHost)와 RequireAuthorization을 기본으로 요구하므로 RequireAuthorization이 적용되는 /api 엔드포인트는 세션이 없으면 여기서 401로 끝난다. AuthEndpoints가 AllowAnonymous()로 선언한 /api/auth/login(POST)·/api/auth/me(GET)는 세션이 없어도 다음 단계로 간다."
+    },
+    {
+      "step": 7,
+      "component": "ApiBodyLimitMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "description": "다음 경우에는 그대로 통과시킨다: /api 경로가 아니거나, 매칭된 엔드포인트가 없거나(GetEndpoint()==null), IRequestSizeLimitMetadata가 있을 때(업로드). Content-Length가 262,144를 넘으면 StatusCode=413으로 두고 ErrorResponses.WriteAsync(413)를 쓴다. 나머지 경우에는 쓰기 가능한 IHttpMaxRequestBodySizeFeature가 있으면 MaxRequestBodySize를 설정하고, Request.Body를 LengthLimitedStream으로 바꾼 뒤 next를 호출한다. 인증 여부는 보지 않는다."
+    },
+    {
+      "step": 8,
+      "component": "LengthLimitedStream",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "LengthLimitedStream.Count",
+      "description": "PostEndpoints 등 /api 핸들러의 JSON 바인딩이 본문을 읽을 때마다 누적 바이트를 더한다. 누적이 262,144를 넘는 순간 BadHttpRequestException(413)을 던진다. 최소 API가 이 예외의 상태 코드를 그대로 응답으로 쓴다는 근거는 주석의 실측 기록과 테스트 UndeclaredLength_OverLimit_Is413이다."
+    },
+    {
+      "step": 9,
+      "component": "OverloadExceptionHandler",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "description": "예외가 전파되면 IsOverload로 InnerException 체인을 검사한다. PostgresException{SqlState 57014|55P03}이나 RenderBusyException을 찾으면 StatusCode=503, Retry-After=\"5\"로 두고 ErrorResponses.WriteAsync(503)를 쓴 뒤 true를 반환한다. 찾지 못하면 false를 반환해 프레임워크 기본 500 처리로 넘긴다."
+    },
+    {
+      "step": 10,
+      "component": "ErrorResponses",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync",
+      "description": "경로가 MachinePrefixes(/api, /attachments, /health, /openapi)로 시작하면 IProblemDetailsService.TryWriteAsync로 Status만 담은 ProblemDetails를 쓴다. 그 밖의 경로는 Content-Type을 text/html로 설정하고, HEAD 요청이면 거기서 끝낸다. 아니면 Html(status)의 고정 문구 페이지를 쓴다(400·404·405·429·503 전용 문구, 그 밖에는 공통 문구)."
+    },
+    {
+      "step": 11,
+      "component": "SecurityHeadersMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "OnStarting 콜백",
+      "description": "응답 헤더를 보내기 직전에 실행된다. X-Content-Type-Options=nosniff를 쓴다. CSP가 SandboxCsp가 아니면 PublicCsp로 덮어쓴다. Referrer-Policy, Permissions-Policy, X-Frame-Options=DENY를 쓰고, Development가 아니면 HSTS(max-age=31536000; includeSubDomains)도 쓴다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "(top-level) 미들웨어 파이프라인",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "SecurityHeadersMiddleware.InvokeAsync",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "SecurityHeadersMiddleware.PublicCsp / SandboxCsp / PermissionsPolicy",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync / Html",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.LengthLimitedStream",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints (MapGroup(\"/api\").RequireHost.RequireAuthorization)",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.MapAuthEndpoints (/me·/login AllowAnonymous)",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints (JSON 본문 바인딩, RenderBusyException 전파)",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.Reject",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "AddAppRateLimiting (OnRejected: 본문 없는 429 + Retry-After)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderBusyException / RenderGate.RenderAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "symbol": "RenderingOptions.QueueTimeoutMs",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "symbol": "PublicAttachmentEndpoints.GetAsync (SandboxCsp 설정)",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "symbol": "RequestSizeLimitAttribute 메타데이터(업로드)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.CheckConnectionString",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "symbol": "PublicOptions.StatementTimeoutMs",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.BuildConnectionString",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+      "symbol": "AttachmentLock (SET lock_timeout = '10s')",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+      "symbol": "AttachmentJanitor (55P03 전용 판정 헬퍼)",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+      "symbol": "SearchModel.Invalid",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+      "symbol": "ErrorPipelineTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs",
+      "symbol": "SecurityHeadersTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+      "symbol": "ApiBodyLimitTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/HostFilteringTests.cs",
+      "symbol": "HostFilteringTests",
+      "role": "test"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "symbol": "공개/관리 사이트 header·request_body·handle_errors·log 블록",
+      "role": "config"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력은 HttpContext와 파이프라인에서 전파된 Exception이다. HttpContext에서는 요청 경로, 메서드, Content-Length, 본문 스트림, 매칭된 Endpoint 메타데이터를 쓴다. 출력은 응답 상태 코드, 보안 헤더, Retry-After, 그리고 ProblemDetails(JSON)나 고정 HTML 본문이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync",
+          "lines": "45-56"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync",
+          "lines": "35-42"
+        }
+      ]
+    },
+    {
+      "text": "오류 본문에는 요청 값이 들어가지 않는다. ProblemDetails에는 Status만 넣고, HTML에는 정수 status와 switch의 상수 문구만 쓴다(HtmlEncode로 이중 방어). 테스트는 스크립트 경로를 넣어도 본문에 반사되지 않고, 500 본문에 예외 메시지가 없음을 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.Html",
+          "lines": "50, 59-77"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "EmptyStatus_GetsBodyByPath_WithoutReflectingInput",
+          "lines": "84"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "UnhandledException_500_StillCarriesSecurityHeaders",
+          "lines": "57"
+        }
+      ]
+    },
+    {
+      "text": "요청 본문 흐름: LengthLimitedStream이 원본 Request.Body를 복사 없이 감싸 누적 바이트만 센다. 본문은 그대로 최소 API JSON 바인딩(PostEndpoints, AuthEndpoints.LoginAsync 등)에 전달된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "LengthLimitedStream",
+          "lines": "55, 62-87"
+        }
+      ]
+    },
+    {
+      "text": "CSP 값의 흐름: PublicAttachmentEndpoints.GetAsync가 먼저 SecurityHeadersMiddleware.SandboxCsp를 넣으면 OnStarting 콜백이 그 값을 유지한다. 그 밖의 값이나 빈 값은 PublicCsp로 바뀐다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints.GetAsync",
+          "lines": "86"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "lines": "46-48"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "ExistingCsp_OnlySandboxCspSurvives_OthersAreOverwritten",
+          "lines": "120"
+        }
+      ]
+    },
+    {
+      "text": "과부하 신호는 다른 기능에서 온다. 57014는 PublicDbContext 연결 시작 옵션의 statement_timeout(기본 PublicOptions.StatementTimeoutMs=3000)에서, 55P03은 AttachmentLock의 lock_timeout='10s'에서, RenderBusyException은 RenderGate.RenderAsync의 슬롯 대기 초과(기본 QueueTimeoutMs=5000)에서 나온다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext.BuildConnectionString",
+          "lines": "59"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "lines": "30"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "55"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "14, 88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+          "lines": "21"
+        }
+      ]
+    },
+    {
+      "text": "속도 제한 거부 응답도 이 경로를 탄다. RateLimiter OnRejected는 Retry-After 헤더만 붙이고 본문은 쓰지 않으므로 429 본문은 UseStatusCodePages → ErrorResponses가 채운다(HTML이면 429 전용 문구).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "AddAppRateLimiting",
+          "lines": "47-52"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.Html",
+          "lines": "66"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "처리되지 않은 예외(체인에 57014/55P03/RenderBusyException 있음)",
+      "to": "503 + Retry-After: 5 + 경로별 오류 본문",
+      "trigger": "OverloadExceptionHandler.TryHandleAsync에서 IsOverload가 true",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42, 63-70"
+        }
+      ]
+    },
+    {
+      "from": "처리되지 않은 예외(그 밖의 예외)",
+      "to": "500 (프레임워크 기본 처리)",
+      "trigger": "IsOverload가 false라 TryHandleAsync가 false 반환",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "37"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "PostgresOverload_MapsTo503",
+          "lines": "72"
+        }
+      ]
+    },
+    {
+      "from": "상태 코드만 설정된 빈 오류 응답",
+      "to": "ProblemDetails 또는 고정 HTML 본문이 있는 응답",
+      "trigger": "StatusCodePagesMiddleware가 ErrorResponses.HandleStatusCodeAsync 호출",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "30-56"
+        }
+      ]
+    },
+    {
+      "from": "/api 요청 수신(F018 관문·인가 통과. 익명 허용 login·me는 세션 없이도 통과)",
+      "to": "413 Payload Too Large",
+      "trigger": "Content-Length가 262,144를 넘거나, 읽는 도중 누적 바이트가 262,144를 넘음",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "47-51, 80-86"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "46, 48"
+        }
+      ]
+    },
+    {
+      "from": "Request.Body(원본 스트림)",
+      "to": "Request.Body(LengthLimitedStream 래퍼)",
+      "trigger": "ApiBodyLimitMiddleware의 통과 경로(대상 /api 엔드포인트)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "55"
+        }
+      ]
+    },
+    {
+      "from": "응답 헤더 미전송",
+      "to": "보안 헤더가 붙은 응답 전송 시작",
+      "trigger": "Response.OnStarting 콜백 실행",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "lines": "42-54"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [],
+  "externalDependencies": [
+    {
+      "text": "ASP.NET Core의 IExceptionHandler·UseExceptionHandler, UseStatusCodePages(StatusCodeContext), IProblemDetailsService(AddProblemDetails)에 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 47, 100-101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "49-50"
+        }
+      ]
+    },
+    {
+      "text": "Npgsql PostgresException의 SqlState(57014, 55P03)에 의존한다. EF Core가 공급자 예외를 DbUpdateException으로 감싸는 구조에도 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "56-58, 63-70"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "WrappedPostgresOverload_MapsTo503_ButNotOverWidened",
+          "lines": "98"
+        }
+      ]
+    },
+    {
+      "text": "Kestrel의 IHttpMaxRequestBodySizeFeature를 쓴다. TestServer에는 이 기능이 없어(null) 앱 쪽 LengthLimitedStream만으로 제한한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "52-53"
+        }
+      ]
+    },
+    {
+      "text": "에지 Caddy(deploy/Caddyfile)가 앞단 방어를 겹쳐 둔다. 공개 사이트는 request_body 제한과 header·handle_errors로 보안 헤더를 붙이고 reverse_proxy api:8080으로 넘긴다. 관리 사이트의 /api/*·/attachments/*는 보안 헤더를 백엔드에 맡기고(첨부 sandbox CSP 보존) request_body를 제한한 뒤 reverse_proxy api:8080으로 넘긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "20-61"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "90-99"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "Program.cs HostFiltering (앱 미들웨어 바깥)",
+      "condition": "허용되지 않은 Host 헤더",
+      "handling": "프레임워크가 400을 낸다. SecurityHeadersMiddleware보다 바깥이라 보안 헤더가 붙지 않는다. 대신 IncludeFailureMessage=false로 본문을 없애 '헤더 없는 응답에는 본문도 없음'을 지킨다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "34-42, 93-97"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/HostFilteringTests.cs",
+          "symbol": "RejectedHost_400_HasNoBody_AndNoSecurityHeaders",
+          "lines": "43"
+        }
+      ]
+    },
+    {
+      "where": "Kestrel (앱 도달 전)",
+      "condition": "요청 줄 길이 초과 등 서버가 직접 거부하는 요청",
+      "handling": "보안 헤더가 붙지 않는다. 주석에 '이 저장소에서 측정하지는 않았다'고 적혀 있다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "95-96"
+        }
+      ]
+    },
+    {
+      "where": "OverloadExceptionHandler.TryHandleAsync",
+      "condition": "예외 체인에 PostgresException 57014/55P03이나 RenderBusyException이 있음",
+      "handling": "503 + Retry-After: 5를 설정하고 ErrorResponses.WriteAsync(503)로 본문을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "RenderBusy_MapsTo503",
+          "lines": "108"
+        }
+      ]
+    },
+    {
+      "where": "OverloadExceptionHandler.TryHandleAsync",
+      "condition": "과부하가 아닌 예외(예: 23505, InvalidOperationException)",
+      "handling": "false를 반환해 프레임워크 기본 500 처리에 맡긴다. 보안 헤더는 OnStarting 덕분에 남고, 본문에 예외 메시지는 없다(테스트).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "37"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+          "symbol": "UnhandledException_500_StillCarriesSecurityHeaders",
+          "lines": "57"
+        }
+      ]
+    },
+    {
+      "where": "OverloadExceptionHandler.IsOverload",
+      "condition": "AggregateException이 내부 예외를 여러 개 가짐",
+      "handling": "InnerException 체인만 훑으므로 InnerExceptions의 첫 요소만 본다. 주석은 AggregateException을 만드는 코드 경로가 현재 없다고 판단하지만 실측하지는 않았다고 적는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "59-61"
+        }
+      ]
+    },
+    {
+      "where": "OverloadExceptionHandler.IsOverload",
+      "condition": "클라이언트 취소와 겹친 경합에서 57014가 statement_timeout 이외 원인으로 발생",
+      "handling": "과부하로 분류해 503을 낸다. 주석은 이 경우를 미검증으로 표시하고 '500보다 안전한 쪽의 오답'이라고 설명한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "44-45"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.CheckConnectionString (F021)",
+      "condition": "연결 문자열의 Command Timeout(초)×1000이 Public:StatementTimeoutMs 이하(0=무한은 제외)",
+      "handling": "기동 시 InvalidOperationException을 던진다. 클라이언트 취소가 57014보다 먼저 나서 503 매핑이 깨지는 구성을 미리 막는다. Default와 Public 연결 문자열 모두 검사한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.CheckConnectionString",
+          "lines": "90, 94, 161-168"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware.InvokeAsync",
+      "condition": "대상 /api 엔드포인트에서 Content-Length > 262,144",
+      "handling": "본문을 읽지 않고 StatusCode=413을 설정한 뒤 ErrorResponses.WriteAsync(413)로 ProblemDetails를 쓴다. 대상에는 익명 허용 엔드포인트(POST /api/auth/login)도 포함된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "40-51"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+          "symbol": "DeclaredLength_OverLimit_Is413",
+          "lines": "24"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware.LengthLimitedStream.Count",
+      "condition": "길이를 선언하지 않은(chunked) 본문의 누적 바이트가 262,144 초과",
+      "handling": "BadHttpRequestException(413)을 던진다. ThrowOnBadRequest=false 설정 아래에서 최소 API 바인딩이 413으로 응답한다(주석 실측, 테스트).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "54-55, 80-86"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "49"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+          "symbol": "UndeclaredLength_OverLimit_Is413",
+          "lines": "34"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware.LengthLimitedStream",
+      "condition": "최소 API 바인딩 밖에서 본문을 직접 읽는 /api 핸들러가 상한을 넘음",
+      "handling": "처리 없음(예외 전파). BadHttpRequestException이 UseExceptionHandler까지 올라갔을 때 413이 되는지 500이 되는지 코드로 확인하지 못했다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "83-85"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware.InvokeAsync",
+      "condition": "IHttpMaxRequestBodySizeFeature가 없거나 IsReadOnly임",
+      "handling": "Kestrel 상한 설정을 건너뛰고 LengthLimitedStream 계수에만 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "53"
+        }
+      ]
+    },
+    {
+      "where": "ErrorResponses.WriteAsync",
+      "condition": "IProblemDetailsService.TryWriteAsync가 false를 반환함(예: 요청 Accept가 JSON을 허용하지 않아 기록기가 쓰지 못함)",
+      "handling": "반환값을 확인하지 않아 오류 응답 본문이 빈 채로 나갈 수 있다. 기록기 선택 조건은 프레임워크 동작이라 코드로 확인하지 못했다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "49-51"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "첨부 GET 핸들러가 넣은 SandboxCsp만 유지된다. 다른 코드가 느슨한 CSP를 먼저 넣어도 PublicCsp로 덮어쓴다. TryAdd를 쓰지 않아 fail-open을 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "lines": "46-48"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs",
+          "symbol": "AttachmentResponses_KeepTheirOwnSandboxCsp",
+          "lines": "49"
+        }
+      ]
+    },
+    {
+      "text": "HSTS는 Development가 아닐 때만 붙는다(_hsts = !IsDevelopment()).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "lines": "25-26, 52"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs",
+          "symbol": "Hsts_OnlyOutsideDevelopment",
+          "lines": "58"
+        }
+      ]
+    },
+    {
+      "text": "HTML 오류 경로에서 HEAD 요청이면 Content-Type만 설정하고 본문을 쓰지 않는다. ProblemDetails 경로(MachinePrefixes)에는 HEAD 분기가 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "47-55"
+        }
+      ]
+    },
+    {
+      "text": "/feed.xml·/sitemap.xml 같은 비 HTML 공개 경로도 MachinePrefixes에 없어, 본문 없는 오류가 나면 HTML 오류 페이지를 받는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "17, 53-55"
+        }
+      ]
+    },
+    {
+      "text": "Search 페이지의 400처럼 이미 본문을 쓴 오류 응답은 StatusCodePages가 덮어쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+          "symbol": "SearchModel.Invalid"
+        }
+      ]
+    },
+    {
+      "text": "RateLimiter가 거부한 429는 본문 없이 Retry-After만 가지므로 StatusCodePages가 경로별 본문을 채운다. 이 429는 OverloadExceptionHandler의 고정 5초가 아니라 RateLimitingExtensions.RetryAfterSeconds 값(고정 창 1~60초, 동시 실행 제한 5초)을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "47-52, 69-72"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "66"
+        }
+      ]
+    },
+    {
+      "text": "AdminSurfaceMiddleware(F018)가 거부한 404/403은 자체 Reject로 본문을 쓴다. 이 거부는 ApiBodyLimitMiddleware보다 앞이라, 관리 표면 밖의 요청은 본문이 커도 413이 아니라 F018의 응답을 받는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.Reject",
+          "lines": "79-93, 112"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        }
+      ]
+    },
+    {
+      "text": "매칭되는 엔드포인트가 없는 /api 경로는 본문이 커도 413이 아니라 404다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "38-46"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+          "symbol": "NoMatchingEndpoint_Gets404_NotA413",
+          "lines": "66"
+        }
+      ]
+    },
+    {
+      "text": "세션이 없으면 본문 크기와 무관하게 401이 먼저 나는 것은 RequireAuthorization이 적용되는 /api 엔드포인트(글·시리즈·태그·첨부·미리보기·logout 등)에 한정된다. ApiBodyLimitMiddleware가 UseAuthorization 뒤에 있기 때문이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "108"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "symbol": "ApiEndpoints.MapApiEndpoints",
+          "lines": "37-39"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+          "symbol": "NoSession_Gets401_NotA413",
+          "lines": "57"
+        }
+      ]
+    },
+    {
+      "text": "익명 허용 엔드포인트(/api/auth/login POST, /api/auth/me GET)는 AllowAnonymous()라 세션이 없어도 401이 나지 않고 ApiBodyLimitMiddleware 검사까지 간다. 세션 없는 POST /api/auth/login도 F018 관문과 로그인 속도 제한을 통과한 뒤 Content-Length가 262,144를 넘으면 413을 받는다. 코드 순서로 확인했으며 이 경우를 직접 검사하는 테스트는 ApiBodyLimitTests에 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.MapAuthEndpoints",
+          "lines": "40-48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "38"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "40-51"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        }
+      ]
+    },
+    {
+      "text": "정확히 262,144바이트인 본문은 통과한다(> 비교). 테스트에서는 그 뒤 200KB 마크다운 검증에 걸려 400이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "47, 83"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+          "symbol": "ExactlyAtLimit_IsNot413",
+          "lines": "75"
+        }
+      ]
+    },
+    {
+      "text": "업로드처럼 RequestSizeLimitAttribute(IRequestSizeLimitMetadata)를 선언한 엔드포인트는 256KB 제한에서 빠진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "43"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "47"
+        }
+      ]
+    },
+    {
+      "text": "비 ASCII를 \\uXXXX로 이스케이프하는 클라이언트(.NET 기본 인코더)는 같은 내용이라도 본문이 최대 6배 커져 413을 받을 수 있다. 주석에 따르면 브라우저의 JSON.stringify는 해당하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "14-16"
+        }
+      ]
+    },
+    {
+      "text": "관리 풀(AppDbContext)에는 statement_timeout이 없어 관리 경로의 잠금 대기는 57014가 되지 않는다. 관리 쪽에서 55P03으로 503에 매핑되는 경로는 lock_timeout을 거는 AttachmentLock뿐이다. 따라서 TagEndpoints(목록·ExecuteDeleteAsync)나 시리즈 같은 관리 엔드포인트는 OverloadExceptionHandler 파이프라인 안에 있지만 현실적인 503 매핑 경로가 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "71-75"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "13-14, 55"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "symbol": "TagEndpoints.MapTagEndpoints",
+          "lines": "33-42"
+        }
+      ]
+    },
+    {
+      "text": "AttachmentJanitor는 백그라운드 경로라 OverloadExceptionHandler.IsOverload를 재사용하지 않고 55P03만 좁게 판정하는 자체 헬퍼를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "126-134"
+        }
+      ]
+    },
+    {
+      "text": "응답이 이미 시작된 뒤(예: 첨부 스트리밍 중) 예외가 나면 ExceptionHandlerMiddleware가 상태 코드를 바꿀 수 없어 503 매핑이 적용되지 않을 것으로 보인다(프레임워크 동작이라 직접 확인하지 않음).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "F020의 네 파일(SecurityHeadersMiddleware, ErrorResponses, OverloadExceptionHandler, ApiBodyLimitMiddleware)에는 ILogger 주입도 로그 호출도 없다. 503 매핑과 413 거부는 앱 로그를 남기지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "17-71"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "18-88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "lines": "12-57"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "15-78"
+        }
+      ]
+    },
+    {
+      "text": "처리되지 않은 예외는 프레임워크 ExceptionHandlerMiddleware가 기록할 것으로 보인다. IExceptionHandler가 처리한 경우(503)에도 기록되는지는 프레임워크 기본값에 달려 있어 확인하지 못했다.",
+      "status": "UNKNOWN",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100"
+        }
+      ]
+    },
+    {
+      "text": "에지 Caddy의 접근 로그(log 지시어)는 {$DOMAIN}(21행)·{$ADMIN_DOMAIN}(80행)·:80(182행)·:443(190행) 블록에만 있다. 평문 리다이렉트 블록 http://{$DOMAIN}(68행~)과 http://{$ADMIN_DOMAIN}(163행~)에는 log 지시어가 없어 그 블록이 처리한 응답은 Caddy 접근 로그에 남지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "20-21"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "68-76"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "79-80"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "163-173"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "181-195"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F020_SEQUENCE",
+      "type": "sequence",
+      "title": "F020 요청 파이프라인과 오류·과부하·본문 제한 호출 순서",
+      "summary": "요청은 SecurityHeadersMiddleware → ExceptionHandlerMiddleware → StatusCodePagesMiddleware → AdminSurfaceMiddleware(인가 포함) → ApiBodyLimitMiddleware → ApiEndpoints 순서로 흐르고, 오류는 모두 ErrorResponses로 모인 뒤 OnStarting 콜백에서 보안 헤더를 받는다.",
+      "details": "Caddyfile의 reverse_proxy api:8080(47·98행)이 앱으로 넘긴다. SecurityHeadersMiddleware는 헤더를 즉시 쓰지 않고 OnStarting 콜백만 예약한다. 인가 단계(Program.cs 106-107, 다이어그램에서는 AdminSurfaceMiddleware 레인에 묶음)에서 RequireAuthorization 엔드포인트의 무세션 요청은 401 빈 본문으로 끝나고 StatusCodePagesMiddleware가 본문을 채운다. AllowAnonymous인 login·me는 ApiBodyLimitMiddleware까지 간다. 엔드포인트 예외는 ExceptionHandlerMiddleware가 OverloadExceptionHandler에 넘기고, 과부하면 503 + Retry-After 5를 쓴다.",
+      "nodes": [
+        {
+          "node": "Caddyfile",
+          "code": "deploy/Caddyfile"
+        },
+        {
+          "node": "SecurityHeadersMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "symbol": "SecurityHeadersMiddleware.InvokeAsync"
+        },
+        {
+          "node": "ExceptionHandlerMiddleware",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseExceptionHandler()"
+        },
+        {
+          "node": "StatusCodePagesMiddleware",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseStatusCodePages"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs"
+        },
+        {
+          "node": "ApiBodyLimitMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+        },
+        {
+          "node": "ApiEndpoints",
+          "code": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "symbol": "ApiEndpoints.MapApiEndpoints"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        },
+        {
+          "node": "ErrorResponses",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync"
+        }
+      ],
+      "status": "CONFIRMED",
+      "mermaid": "sequenceDiagram\n    participant Caddyfile\n    participant SecurityHeadersMiddleware\n    participant ExceptionHandlerMiddleware\n    participant StatusCodePagesMiddleware\n    participant AdminSurfaceMiddleware\n    participant ApiBodyLimitMiddleware\n    participant ApiEndpoints\n    participant OverloadExceptionHandler\n    participant ErrorResponses\n    Caddyfile->>SecurityHeadersMiddleware: reverse_proxy api:8080\n    SecurityHeadersMiddleware->>SecurityHeadersMiddleware: Response.OnStarting 콜백 예약\n    SecurityHeadersMiddleware->>ExceptionHandlerMiddleware: next - UseTrustedForwardedHeaders 경유\n    ExceptionHandlerMiddleware->>StatusCodePagesMiddleware: next\n    StatusCodePagesMiddleware->>AdminSurfaceMiddleware: next - UseStaticFiles 경유\n    alt RequireAuthorization 엔드포인트이고 세션 없음\n        AdminSurfaceMiddleware-->>StatusCodePagesMiddleware: 인가 단계에서 401 빈 본문\n    else 세션 있음 또는 AllowAnonymous login, me\n        AdminSurfaceMiddleware->>ApiBodyLimitMiddleware: next - RateLimiter, Authentication, Authorization 경유\n    end\n    alt 대상 api 엔드포인트이고 Content-Length 262144 초과\n        ApiBodyLimitMiddleware->>ErrorResponses: WriteAsync 413\n    else 통과\n        ApiBodyLimitMiddleware->>ApiEndpoints: Request.Body를 LengthLimitedStream으로 교체 후 next\n    end\n    alt 엔드포인트 예외\n        ApiEndpoints-->>ExceptionHandlerMiddleware: 예외 전파\n        ExceptionHandlerMiddleware->>OverloadExceptionHandler: TryHandleAsync\n        OverloadExceptionHandler->>ErrorResponses: IsOverload true면 503, Retry-After 5 후 WriteAsync\n    else 본문 없는 오류 상태 코드\n        ApiEndpoints-->>StatusCodePagesMiddleware: 4xx 또는 5xx 빈 본문\n        StatusCodePagesMiddleware->>ErrorResponses: HandleStatusCodeAsync\n    end\n    ErrorResponses-->>SecurityHeadersMiddleware: 응답 시작 시 OnStarting 콜백이 보안 헤더 부착"
+    },
+    {
+      "id": "F020_FLOW",
+      "type": "flowchart",
+      "title": "F020 예외·오류 본문·보안 헤더 분기",
+      "summary": "예외는 IsOverload 판정으로 503 또는 기본 500으로 갈리고, 오류 본문은 경로 접두사와 HEAD 여부로 ProblemDetails·HTML·헤더만으로 갈린다. 모든 경로는 OnStarting 콜백에서 CSP 판정을 거친다.",
+      "details": "IsOverload는 InnerException 체인을 따라 PostgresException(57014·55P03)과 RenderBusyException을 찾는다(OverloadExceptionHandler.cs 63-70). ErrorResponses.WriteAsync는 MachinePrefixes(/api, /attachments, /health, /openapi)면 IProblemDetailsService.TryWriteAsync를, 아니면 HEAD 검사 뒤 Html 고정 문구를 쓴다(ErrorResponses.cs 45-56). OnStarting 콜백은 기존 CSP가 SandboxCsp일 때만 유지한다(SecurityHeadersMiddleware.cs 48).",
+      "nodes": [
+        {
+          "node": "ExceptionHandlerMiddleware",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseExceptionHandler()"
+        },
+        {
+          "node": "IsOverload",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.IsOverload"
+        },
+        {
+          "node": "Overload503",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        },
+        {
+          "node": "StatusCodePagesMiddleware",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseStatusCodePages"
+        },
+        {
+          "node": "ErrorResponses",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync"
+        },
+        {
+          "node": "MachinePrefixes",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.MachinePrefixes"
+        },
+        {
+          "node": "ProblemDetailsService",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "IProblemDetailsService.TryWriteAsync"
+        },
+        {
+          "node": "HtmlBody",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.Html"
+        },
+        {
+          "node": "OnStarting",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "symbol": "SecurityHeadersMiddleware.InvokeAsync"
+        },
+        {
+          "node": "CspCheck",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "symbol": "SandboxCsp / PublicCsp"
+        }
+      ],
+      "status": "CONFIRMED",
+      "mermaid": "flowchart TD\n    ExceptionHandlerMiddleware[ExceptionHandlerMiddleware] --> IsOverload{IsOverload 체인 검사}\n    IsOverload -->|PostgresException 57014 또는 55P03| Overload503[503 과 Retry-After 5]\n    IsOverload -->|RenderBusyException| Overload503\n    IsOverload -->|그 외| Default500[프레임워크 기본 500]\n    Overload503 --> ErrorResponses[ErrorResponses.WriteAsync]\n    StatusCodePagesMiddleware[StatusCodePagesMiddleware] -->|본문 없는 오류| ErrorResponses\n    ErrorResponses --> MachinePrefixes{MachinePrefixes 경로인가}\n    MachinePrefixes -->|api, attachments, health, openapi| ProblemDetailsService[IProblemDetailsService.TryWriteAsync]\n    MachinePrefixes -->|그 외| HeadCheck{HEAD 요청인가}\n    HeadCheck -->|예| HtmlHeaderOnly[Content-Type만 설정]\n    HeadCheck -->|아니오| HtmlBody[Html 고정 문구 페이지]\n    ProblemDetailsService --> OnStarting[SecurityHeadersMiddleware OnStarting 콜백]\n    HtmlHeaderOnly --> OnStarting\n    HtmlBody --> OnStarting\n    Default500 --> OnStarting\n    OnStarting --> CspCheck{기존 CSP가 SandboxCsp인가}\n    CspCheck -->|예| KeepSandbox[SandboxCsp 유지]\n    CspCheck -->|아니오| SetPublicCsp[PublicCsp로 덮어씀]"
+    },
+    {
+      "id": "F020_FLOW_BODYLIMIT",
+      "type": "flowchart",
+      "title": "F020 ApiBodyLimitMiddleware 판정 흐름",
+      "summary": "인가를 통과한 /api 요청 중 매칭 엔드포인트가 있고 자체 상한이 없는 것만 262,144바이트로 제한되며, 선언 길이는 즉시, 미선언 길이는 읽는 도중 413이 된다.",
+      "details": "UseAuthorization(Program.cs 107)에서 RequireAuthorization 엔드포인트의 무세션 요청은 401로 끝난다. ApiBodyLimitMiddleware.InvokeAsync(38-56)는 경로·엔드포인트·IRequestSizeLimitMetadata 순으로 통과 여부를 정하고, Content-Length 초과면 ErrorResponses.WriteAsync(413)를 쓴다. 통과 시 IHttpMaxRequestBodySizeFeature 상한을 설정하고 LengthLimitedStream으로 Body를 바꾼다. 누적 초과 시 LengthLimitedStream.Count(80-86)가 BadHttpRequestException(413)을 던진다.",
+      "nodes": [
+        {
+          "node": "UseAuthorization",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseAuthorization()"
+        },
+        {
+          "node": "ApiBodyLimitMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+        },
+        {
+          "node": "SizeMetaCheck",
+          "code": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "symbol": "RequestSizeLimitAttribute"
+        },
+        {
+          "node": "Reject413",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync"
+        },
+        {
+          "node": "KestrelLimit",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "IHttpMaxRequestBodySizeFeature"
+        },
+        {
+          "node": "LengthLimitedStream",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "LengthLimitedStream"
+        },
+        {
+          "node": "BadHttpRequestException",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "LengthLimitedStream.Count"
+        },
+        {
+          "node": "PostEndpoints",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs"
+        }
+      ],
+      "status": "CONFIRMED",
+      "mermaid": "flowchart TD\n    UseAuthorization[UseAuthorization] -->|RequireAuthorization 엔드포인트, 세션 없음| Unauthorized401[401 빈 본문]\n    UseAuthorization -->|세션 있음 또는 AllowAnonymous login, me| ApiBodyLimitMiddleware[ApiBodyLimitMiddleware.InvokeAsync]\n    ApiBodyLimitMiddleware --> PrefixCheck{경로가 api로 시작하는가}\n    PrefixCheck -->|아니오| PassThrough[next 그대로 호출]\n    PrefixCheck -->|예| EndpointCheck{GetEndpoint 결과가 있는가}\n    EndpointCheck -->|없음| PassThrough\n    EndpointCheck -->|있음| SizeMetaCheck{IRequestSizeLimitMetadata가 있는가}\n    SizeMetaCheck -->|있음 - AttachmentEndpoints 업로드| PassThrough\n    SizeMetaCheck -->|없음| LengthCheck{Content-Length 262144 초과인가}\n    LengthCheck -->|예| Reject413[ErrorResponses.WriteAsync 413]\n    LengthCheck -->|아니오| KestrelLimit[IHttpMaxRequestBodySizeFeature 상한 설정]\n    KestrelLimit --> LengthLimitedStream[LengthLimitedStream으로 Body 교체]\n    LengthLimitedStream --> ModelBinding[최소 API JSON 바인딩]\n    ModelBinding -->|누적 262144 초과| BadHttpRequestException[BadHttpRequestException 413]\n    ModelBinding -->|상한 이내| PostEndpoints[PostEndpoints, AuthEndpoints 등 api 그룹 핸들러 실행]"
+    }
+  ],
+  "unknowns": [
+    "과부하가 아닌 예외로 생긴 500의 본문 형식을 확인하지 못했다. 공개 HTML 경로에서도 ProblemDetails가 되는지는 UseExceptionHandler()와 AddProblemDetails 조합의 프레임워크 기본 동작에 달려 있다. 테스트는 /api/x 경로만 본다.",
+    "ExceptionHandlerMiddleware가 IExceptionHandler가 처리한 예외(503)도 로그로 남기는지 확인하지 못했다.",
+    "IProblemDetailsService.TryWriteAsync가 false를 반환하는 조건(Accept 헤더 협상)에서 오류 응답 본문이 비는지 실측 근거가 없다.",
+    "Kestrel이 앱 도달 전에 거부한 응답에서 보안 헤더가 빠지는 범위는 코드 주석상 측정하지 않았다.",
+    "최소 API 바인딩 밖에서 LengthLimitedStream의 BadHttpRequestException이 전파될 때 최종 상태 코드가 413인지 500인지 확인하지 못했다.",
+    "57014가 statement_timeout 이외 원인(클라이언트 취소 경합)으로 나올 수 있는지는 주석에 '미검증'으로 남아 있다.",
+    "MachinePrefixes 경로의 HEAD 요청에서 ProblemDetails 본문이 어떻게 처리되는지는 프레임워크에 맡겨져 있어 확인하지 못했다.",
+    "익명 POST /api/auth/login의 256KB 초과 본문이 413을 받는다는 점은 코드 순서(AuthEndpoints.cs 48행 AllowAnonymous, Program.cs 104-108, ApiBodyLimitMiddleware.cs 40-51)로 확인했다. 다만 이 경우를 직접 검사하는 테스트는 ApiBodyLimitTests에 없다(테스트 6건 중 해당 없음).",
+    "검증 지적(기능 간 의존 표의 F006 행이 F003만, F008 행이 F001·F029만 싣고 있어 각 기능 문서와 어긋난다는 점, 그리고 F002·F007·F011·F018 행의 같은 종류 불일치)은 색인 표와 다른 기능 문서의 문제라 이 세션(F020) 출력으로는 고칠 수 없다. 코드로 보면 지적의 방향은 맞다. 모든 /api 요청은 Program.cs 104행의 AdminSurfaceMiddleware(F018)를 거치고, Program.cs 100-101행의 UseExceptionHandler·UseStatusCodePages(F020)에 감싸인다. 그래서 F006·F008→F020 의존은 성립한다. 다만 한 가지 보정이 필요하다. TagEndpoints의 목록·삭제는 AppDbContext를 쓰는데, 관리 풀에는 statement_timeout도 lock_timeout도 없다(PublicAttachmentEndpoints.cs 74행 주석, statement_timeout 설정은 PublicDbContext.cs 59행과 DataServiceCollectionExtensions.cs 34행의 공개 연결에만 있음). 그래서 태그 엔드포인트에서 57014/55P03→503 경로는 현실적으로 생기지 않는다. F008의 F020 의존은 과부하 매핑이 아니라 StatusCodePages→ErrorResponses(404 등 ProblemDetails 본문)와 파이프라인 위치에 근거한다. F006은 PostEndpoints 저장 경로의 RenderBusyException(RenderGate)→503 매핑으로 F020에 의존한다(PostEndpoints.cs 314행). 이 보정은 F020 자신의 dependencies(F001·F009·F010·F011·F018·F021)를 바꾸지 않는다. F019는 본문 없는 429를 ErrorResponses에 맡기는 F019→F020 방향의 사용 관계라 F020 의존에 넣지 않았다.",
+    "작업 트리의 TagEndpoints.cs 5행 변경은 '// doc-harness incremental check (temporary, reverted after the test)' 주석 한 줄이다. F020 동작에 영향이 없어 history에 넣지 않았다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "SecurityHeadersMiddleware.InvokeAsync",
+      "lines": "39-56"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync",
+      "lines": "45-77"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "lines": "35-70"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync / LengthLimitedStream",
+      "lines": "36-87"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "31-49, 93-108"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "lines": "37-39"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.MapAuthEndpoints",
+      "lines": "40-48"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints",
+      "lines": "5, 30-43"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "lines": "79-93"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "AddAppRateLimiting",
+      "lines": "47-52"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderBusyException",
+      "lines": "14, 88"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "symbol": "PublicAttachmentEndpoints.GetAsync",
+      "lines": "71-86"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.CheckConnectionString",
+      "lines": "161-168"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.BuildConnectionString",
+      "lines": "59"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/HostFilteringTests.cs"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "lines": "20-61, 68-99, 163-195"
+    }
+  ],
+  "history": []
+}

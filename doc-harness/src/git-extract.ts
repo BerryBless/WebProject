@@ -61,10 +61,19 @@ export async function extractGitHistory(root: string, cfg: HarnessConfig, since:
   let workingTreeDiffExcerpt = '';
   if (includeWorkingTree) {
     try {
-      workingTreeDiffExcerpt = cap(await git(root, ['diff', 'HEAD', '--no-color', '--stat=120', '-p']), cfg.git.max_diff_bytes_per_commit);
+      // 분석 제외 경로(하네스 자신·산출물·빌드 결과)는 diff에서도 뺀다. 안 그러면 하네스 코드를 고칠 때마다 이 프롬프트가 바뀌어 캐시가 깨진다.
+      workingTreeDiffExcerpt = cap(await git(root, ['diff', 'HEAD', '--no-color', '--stat=120', '-p', '--', '.', ...excludePathspecs(cfg)]), cfg.git.max_diff_bytes_per_commit);
     } catch { /* HEAD 없음 */ }
   }
   return { since, commits, markers, workingTreeDiffExcerpt };
+}
+
+/** cfg.project.exclude를 git pathspec 제외 형식으로. `deploy/x/`처럼 경로면 그대로, `bin/`처럼 이름이면 모든 깊이에서 제외. */
+export function excludePathspecs(cfg: HarnessConfig): string[] {
+  return cfg.project.exclude.map((e) => {
+    const trimmed = e.replace(/\/$/, '');
+    return trimmed.includes('/') ? `:(exclude)${trimmed}` : `:(exclude,glob)**/${trimmed}/**`;
+  });
 }
 
 function diffPathFilter(files: string[], cfg: HarnessConfig): string[] {

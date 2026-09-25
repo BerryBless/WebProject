@@ -1,0 +1,37 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "sequenceDiagram\n    participant TagsPage\n    participant request as client.ts request\n    participant AdminSurfaceMiddleware\n    participant TagEndpoints\n    participant AppDbContext\n    participant PostgreSQL\n    TagsPage->>request: tags.list(signal) GET /api/tags\n    request->>AdminSurfaceMiddleware: X-Requested-With, 세션 쿠키\n    AdminSurfaceMiddleware->>TagEndpoints: 호스트·IP·CSRF 통과, 인가 통과\n    TagEndpoints->>AppDbContext: Tags.AsNoTracking().OrderBy(NormalizedName).Select(TagDto)\n    AppDbContext->>PostgreSQL: SELECT Tags + COUNT(PostTags)\n    PostgreSQL-->>TagEndpoints: rows\n    TagEndpoints-->>TagsPage: 200 TagDto[]\n    TagsPage->>TagsPage: window.confirm\n    TagsPage->>request: tags.remove(id) DELETE /api/tags/{id}\n    request->>AdminSurfaceMiddleware: DELETE + Origin\n    AdminSurfaceMiddleware->>TagEndpoints: Origin 일치, 인가 통과\n    TagEndpoints->>AppDbContext: Tags.Where(Id).ExecuteDeleteAsync\n    AppDbContext->>PostgreSQL: DELETE FROM Tags (PostTags ON DELETE CASCADE)\n    alt 삭제 행 0\n        TagEndpoints-->>TagsPage: 404 ProblemDetails\n    else 삭제됨\n        TagEndpoints->>TagEndpoints: Audit 로그 태그 삭제\n        TagEndpoints-->>TagsPage: 204 NoContent\n    end\n    TagsPage->>TagsPage: onSettled invalidateQueries tags",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "TagsPage",
+      "code": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "symbol": "TagsPage"
+    },
+    {
+      "node": "request",
+      "code": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request"
+    },
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+    },
+    {
+      "node": "TagEndpoints",
+      "code": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints"
+    },
+    {
+      "node": "AppDbContext",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext"
+    },
+    {
+      "node": "PostgreSQL",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs"
+    }
+  ],
+  "reason": "코드 변경은 TagEndpoints.cs에 주석 한 줄이 추가된 것뿐이라 호출 순서·분기·데이터 이동이 그대로다. 새 후보는 PostgreSQL 참가자를 'Tags 테이블'로 바꾼 표기 차이일 뿐 실제 흐름 변화가 아니므로, 기존 다이어그램을 그대로 둔다."
+}

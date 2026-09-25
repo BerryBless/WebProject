@@ -15,13 +15,17 @@ describe('checkReferences', () => {
     const docs = new Map<string, string>([
       [name, md],
       ['09_FEATURES.md', '# x\n[F001](features/F001_POST_LIST.md) [없음](features/F009_NOPE.md)'],
-      ['08_API.md', '# api\n`Api/Nope.cs` 와 F999 를 언급'],
+      ['08_API.md', '# api\n`Api/Nope.cs` 와 F999 를 언급. 짧은 표기 `Program.cs`·`Posts/PostEndpoints.cs`는 실존 파일의 접미라 통과'],
       ['07_DATA_MODEL.md', '# d'], ['11_FAILURE_HISTORY.md', '# f'],
     ]);
-    const issues = checkReferences(docs, miniProjectRoot, ws);
+    docs.set('06_DEPENDENCIES.md', '# d\n`packages.lock.json`은 저장소에 없다. `Api/Nope.cs` 파일을 읽는다. 잠금은 `lockfile.json`이 담당한다.');
+    const { issues, warnings } = checkReferences(docs, miniProjectRoot, ws, loadConfig());
     expect(issues.filter((i) => i.document === name)).toEqual([]);
-    expect(issues.map((i) => [i.document, i.type])).toEqual(expect.arrayContaining([['09_FEATURES.md', 'BROKEN_LINK'], ['08_API.md', 'HALLUCINATED_PATH'], ['08_API.md', 'UNKNOWN_FEATURE_ID']]));
-    expect(issues).toHaveLength(3);
+    expect(issues.map((i) => [i.document, i.type])).toEqual(expect.arrayContaining([['09_FEATURES.md', 'BROKEN_LINK'], ['08_API.md', 'HALLUCINATED_PATH'], ['08_API.md', 'UNKNOWN_FEATURE_ID'], ['06_DEPENDENCIES.md', 'HALLUCINATED_PATH']]));
+    expect(issues).toHaveLength(4);
+    // 부정문 언급(packages.lock.json)은 무시, 경로 없는 파일명(lockfile.json)은 경고
+    expect(issues.some((i) => i.description.includes('packages.lock.json'))).toBe(false);
+    expect(warnings.map((w) => w.description)).toEqual([expect.stringContaining('lockfile.json')]);
   });
 });
 
@@ -34,16 +38,28 @@ describe('checkConsistency', () => {
       ['02_ARCHITECTURE.md', '# arch\nPostEndpoints, AuthEndpoints 그리고 AppDbContext'],
       ['features/F001_POST_LIST.md', 'GET /api/posts 와 POST /api/posts'], ['features/F002_ADMIN_LOGIN.md', 'POST /api/auth/login'],
     ]);
-    expect(checkConsistency(docs, ws, truthLists(miniProjectRoot, cfg))).toEqual([]);
+    const clean = checkConsistency(docs, ws, truthLists(miniProjectRoot, cfg));
+    expect(clean.issues).toEqual([]);
+    expect(clean.warnings).toEqual([]);
+
+    // 복합 메서드("GET, HEAD")는 메서드별로 펴서 대조한다
+    ws.api.endpoints[0].method = 'GET, HEAD';
+    const multi = new Map(docs);
+    multi.set('08_API.md', renderApiDoc(ws));
+    multi.set('features/F001_POST_LIST.md', 'GET /api/posts 와 POST /api/posts');
+    const m = checkConsistency(multi, ws, truthLists(miniProjectRoot, cfg));
+    expect(m.issues).toEqual([]);
+    ws.api.endpoints[0].method = 'GET';
 
     ws.api.endpoints.pop(); // api.json에서 로그인 제거 → 코드 정답 목록과 어긋남 + 문서 표에 EXTRA
     ws.data.entities.pop(); // Tag 제거 → 코드 DbSet과 어긋남
     docs.set('02_ARCHITECTURE.md', '# arch\nPostEndpoints만');
     docs.set('features/F001_POST_LIST.md', 'GET /api/posts');
-    const issues = checkConsistency(docs, ws, truthLists(miniProjectRoot, cfg));
-    const types = issues.map((i) => i.type);
-    expect(types).toEqual(expect.arrayContaining(['EXTRA_ENDPOINT_IN_DOC', 'MISSING_ENDPOINT', 'MISSING_ENTITY', 'MISSING_COMPONENT_IN_DOC', 'ENDPOINT_NOT_IN_FEATURE_DOCS']));
-    expect(issues.find((i) => i.type === 'MISSING_ENDPOINT')?.description).toContain('POST /api/auth/login');
-    expect(issues.find((i) => i.type === 'MISSING_ENTITY')?.description).toContain('Tag');
+    const r = checkConsistency(docs, ws, truthLists(miniProjectRoot, cfg));
+    expect(r.issues.map((i) => i.type)).toEqual(expect.arrayContaining(['EXTRA_ENDPOINT_IN_DOC', 'MISSING_ENDPOINT', 'MISSING_ENTITY']));
+    // 컴포넌트·기능 문서 언급 누락은 경고(차단·수정 대상 아님)
+    expect(r.warnings.map((i) => i.type)).toEqual(expect.arrayContaining(['MISSING_COMPONENT_IN_DOC', 'ENDPOINT_NOT_IN_FEATURE_DOCS']));
+    expect(r.issues.find((i) => i.type === 'MISSING_ENDPOINT')?.description).toContain('POST /api/auth/login');
+    expect(r.issues.find((i) => i.type === 'MISSING_ENTITY')?.description).toContain('Tag');
   });
 });

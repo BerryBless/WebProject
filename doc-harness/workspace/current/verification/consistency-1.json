@@ -1,0 +1,72 @@
+{
+  "summary": "모순 4건을 찾았다. (1) 17_TECH_DEBT는 확인된 문제(CONFIRMED_ISSUE)를 0건으로 적었지만, 00_EXECUTIVE_SUMMARY·10_ERROR_HANDLING은 편집기 409 처리(ERR004)를 확정 결함으로 적었다. 코드도 ERR004 쪽과 맞다. (2) 14_PERFORMANCE는 공개 첨부의 ETag·Cache-Control immutable 헤더와 피드·사이트맵의 Cache-Control을 '미확인·추가 권고'로 다룬다. 이 헤더는 08_API와 코드에 이미 있다. (3) 15_TESTING(갱신 안 됨)이 인용한 DEBT001·DEBT011은 번호가 바뀐 17_TECH_DEBT의 항목과 내용이 다르다. (4) 18_GLOSSARY의 RequireAuth 경로 `PortfolioBlog.Web/src/routes.tsx`는 실제 파일에도, 03_DIRECTORY_STRUCTURE 트리에도 없다. 미들웨어 순서, 프록시 신뢰, RequireHost 적용 범위, 실패 이력 ID 등 나머지 교차 항목은 서로 일치한다.",
+  "issues": [
+    {
+      "document": "17_TECH_DEBT.md",
+      "section": "confirmed",
+      "type": "CONTRADICTION",
+      "description": "17_TECH_DEBT는 '확인된 문제 0'이라 적고, 편집기 409 처리를 DEBT004 잠재 위험(POTENTIAL_RISK)으로만 분류했다. 반면 10_ERROR_HANDLING은 같은 내용을 ERR004 확정 결함(CONFIRMED_ISSUE)으로, 00_EXECUTIVE_SUMMARY는 '확정된 알려진 문제는 ERR004 한 건'으로 적었다. 코드를 보면 PostEditorPage.tsx의 save.onError는 원인을 가리지 않고 `error.status === 409 && postId !== null`이면 최신본을 재조회해 ConflictPanel을 띄운다. 패널이 떠 있는 동안에는 ErrorNotice도 숨긴다(307행 `!conflict && ...`). 그러니 원인을 구분하지 않는다는 핵심 동작은 코드로 확정된다. 추론에 머무는 부분은 태그 삭제 cascade가 StaleVersion으로 보고된다는 대목뿐이다. 따라서 17_TECH_DEBT의 '확인된 문제 0' 판정이 다른 두 문서와 코드에 어긋난다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "PostEditorPage save.onError",
+          "lines": "217-225"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "ErrorNotice 조건부 렌더",
+          "lines": "306-307"
+        }
+      ]
+    },
+    {
+      "document": "14_PERFORMANCE.md",
+      "section": "details",
+      "type": "CONTRADICTION",
+      "description": "14_PERFORMANCE의 PERF008은 첨부 서빙에 대해 '캐시 헤더는 코드로 확인하지 못했다'고 적고, 'ETag와 Cache-Control: immutable' 추가를 권고한다. unknowns 절도 첨부 200 응답의 Cache-Control을 미확인으로 남겼다. PERF006은 피드·사이트맵에 'ETag/Cache-Control'을 개선책으로 제시한다. 반면 08_API는 공개 첨부 응답에 강한 ETag(sha256), Last-Modified, `Cache-Control public max-age=31536000 immutable`이 붙고, /feed.xml·/sitemap.xml에는 `Cache-Control public max-age=300`이 붙는다고 CONFIRMED로 적었다. 코드도 08_API와 같다. PublicAttachmentEndpoints.cs 108-110행이 Cache-Control immutable·ETag·Last-Modified를 설정하고, SiteEndpoints.cs 141·179행이 max-age=300을 설정한다. 14_PERFORMANCE가 이미 구현된 헤더를 없는 것처럼 권고하고 있다(피드·사이트맵의 ETag는 실제로 없다).",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints.GetAsync",
+          "lines": "104-110"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.FeedAsync / SitemapAsync",
+          "lines": "141,179"
+        }
+      ]
+    },
+    {
+      "document": "15_TESTING.md",
+      "section": "details",
+      "type": "CONTRADICTION",
+      "description": "15_TESTING의 커버리지 갭 절은 'DEBT001(POTENTIAL_RISK)'을 UpdateAsync의 태그 삭제·저장 경쟁으로 인한 StaleVersion 409로, 'DEBT011(IMPROVEMENT)'을 예외 처리 규약 반복과 전용 테스트 부재로 설명하며 17_TECH_DEBT를 출처로 든다. 그런데 갱신된 17_TECH_DEBT에서 DEBT001은 '57014·55P03 외 DB 예외가 500으로 전파'이고, DEBT011은 'drafts.ts 기본 인자 window.localStorage' 문제다. 태그 경쟁 409는 DEBT004에, 전용 테스트 부재는 DEBT014에 있다. 번호와 내용이 서로 어긋난다. 참조 대상 코드(PostEndpoints.UpdateAsync, TagResolver.ResolveIdsAsync)는 17_TECH_DEBT의 DEBT004·DEBT006 서술과 일치하므로, 15_TESTING의 ID 인용이 낡은 것이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "loadDraft/saveDraft/clearDraft"
+        }
+      ]
+    },
+    {
+      "document": "18_GLOSSARY.md",
+      "section": "terms",
+      "type": "CONTRADICTION",
+      "description": "18_GLOSSARY는 RequireAuth의 코드 경로를 `PortfolioBlog.Web/src/routes.tsx`로 적었다. 03_DIRECTORY_STRUCTURE 트리에는 이 파일이 없고, 라우트는 `PortfolioBlog.Web/src/app/routes.tsx`, RequireAuth는 `PortfolioBlog.Web/src/auth/RequireAuth.tsx`로 나온다. 실제 파일도 03 트리와 같다. 18_GLOSSARY의 경로가 틀렸다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx"
+        }
+      ]
+    }
+  ]
+}

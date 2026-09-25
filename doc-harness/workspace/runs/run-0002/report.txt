@@ -1,0 +1,31 @@
+문서화 완료
+
+모드: INCREMENTAL
+기준: 432327ff0a → 432327ff0a
+
+변경 파일: 6
+영향받은 기능: 2
+신규 기능: 0
+삭제 기능: 0
+
+문서 수정: 15
+Diagram 수정: 3 (유지 9)
+
+발견:
+- 신규 API: 0
+- Data Model 변경: 0
+- 실패/Workaround: 0
+- Technical Debt: 14
+
+Verification:
+- Hallucination: 5
+- Missing: 9
+- Incorrect Relation: 17
+- Diagram: 4
+- Unsupported Claim: 2
+- 경고(보고만): 27
+- 반복: 2회 · Mermaid 파서: VERIFIED · 점수(내부 지표) coverage 88 / accuracy 91
+
+검증 잔여 지적 61건(결정적 차단 이슈 0) → 19_UNKNOWN_AND_TODO.md에 기록하고 발행함
+
+Baseline 갱신 완료 · 비용 $149.00 · Claude 호출 32회

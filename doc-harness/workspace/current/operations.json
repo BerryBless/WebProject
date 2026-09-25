@@ -1,0 +1,1071 @@
+{
+  "errorHandling": {
+    "items": [
+      {
+        "id": "ERR001",
+        "title": "57014·55P03 외 DB 예외는 처리 없이 기본 500으로 전파되고 본문 형식이 경로마다 불확실",
+        "classification": "POTENTIAL_RISK",
+        "description": "OverloadExceptionHandler는 PostgresException 57014·55P03과 RenderBusyException만 503+Retry-After 5로 바꾼다. 그 밖의 DB 예외(연결 실패, 권한 누락, CHECK 위반 23514 등)는 엔드포인트·Razor 페이지·SessionValidator·로그인 어디에도 catch가 없어 UseExceptionHandler 기본 500이 된다. 공개 페이지에서 이 500의 본문이 고정 HTML인지 ProblemDetails인지는 코드로 확정하지 못했다(UseExceptionHandler가 UseStatusCodePages보다 바깥). ErrorPipelineTests는 500 상태만 확인한다. 쿠키가 붙은 모든 관리 요청은 인증 단계(SessionValidator)에서 DB 예외가 나면 실패하고 /me도 500이 될 수 있다.",
+        "recommendation": "DB 일시 장애(NpgsqlException 중 IsTransient, 연결 실패)를 IsOverload에 포함할지 검토하고, 500 응답 본문 형식(HTML/ProblemDetails)을 경로 접두사별로 테스트로 고정한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "symbol": "OverloadExceptionHandler.IsOverload"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+            "symbol": "SessionValidator.ValidateAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "symbol": "PublicQueries.PageAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "symbol": "ErrorResponses.WriteAsync"
+          }
+        ],
+        "featureIds": [
+          "F001",
+          "F002",
+          "F008",
+          "F012",
+          "F013",
+          "F014",
+          "F015",
+          "F016",
+          "F017"
+        ]
+      },
+      {
+        "id": "ERR002",
+        "title": "커밋 이후 재조회 실패 시 저장된 글에 대해 실패 응답",
+        "classification": "POTENTIAL_RISK",
+        "description": "PostEndpoints.CreateAsync/UpdateAsync는 tx.CommitAsync 뒤 PostQueries.GetDetailAsync로 재조회한다. 이 재조회가 예외(연결 끊김·취소)를 던지거나 null을 돌려주면 처리가 없어 행은 저장·공개됐는데 클라이언트는 오류나 빈 본문을 받는다. 생성 재시도는 slug 사전 검사에서 409가 난다.",
+        "recommendation": "재조회 실패 시 저장 성공을 알리는 폴백 응답(예: 생성된 id·Location)을 주거나, 클라이언트가 409를 만나면 slug로 조회해 성공으로 간주하는 흐름을 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.CreateAsync / UpdateAsync"
+          }
+        ],
+        "featureIds": [
+          "F003"
+        ]
+      },
+      {
+        "id": "ERR003",
+        "title": "TagResolver 호출이 catch 블록 밖에 있어 DB 오류가 409 매핑을 받지 못함",
+        "classification": "POTENTIAL_RISK",
+        "description": "UpdateAsync에서 TagResolver.ResolveIdsAsync(213행 부근)는 try(226행)보다 앞이라 태그 SELECT·INSERT의 DB 오류가 DbConflict/StaleVersion 처리에 걸리지 않고 전역 처리로 간다. 트랜잭션은 dispose로 롤백된다.",
+        "recommendation": "태그 해석 단계의 제약 경쟁·타임아웃 처리를 저장 단계와 같은 방식으로 통일할지 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "213-233"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+            "symbol": "TagResolver.ResolveIdsAsync"
+          }
+        ],
+        "featureIds": [
+          "F006",
+          "F008"
+        ]
+      },
+      {
+        "id": "ERR004",
+        "title": "편집기 409 처리가 원인을 구분하지 않아 안내가 부정확",
+        "classification": "CONFIRMED_ISSUE",
+        "description": "Editor.save.onError는 409이면 status만 보고 최신본을 재조회해 ConflictPanel('먼저 수정되었습니다')을 띄우고, 그동안 ErrorNotice(서버 detail)를 숨긴다. 원인이 참조 시리즈·태그 삭제(FK 경쟁)인 경우에도 같아서 '내 내용 유지' 후 재저장이 같은 FK 원인으로 다시 실패할 수 있다. 태그 삭제 cascade로 PostTag가 사라져 DbUpdateConcurrencyException이 나면 Version이 안 바뀌었는데도 StaleVersion 문구가 나간다(추론). 새 글(postId null)의 409는 패널 없이 ErrorNotice만 보인다.",
+        "recommendation": "409 응답에 원인 구분 코드(extensions)를 넣어 클라이언트가 version 충돌과 제약 경쟁을 나눠 표시하게 한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor.save.onError"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "symbol": "DbConflict.Problem"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync"
+          }
+        ],
+        "featureIds": [
+          "F003",
+          "F006",
+          "F008"
+        ]
+      },
+      {
+        "id": "ERR005",
+        "title": "로그아웃이 영향 행 0을 확인하지 않고 204를 반환",
+        "classification": "POTENTIAL_RISK",
+        "description": "LogoutAsync의 ExecuteUpdateAsync가 0행(AdminState 부재)이어도 epoch가 오르지 않은 채 호출 브라우저 쿠키만 지우고 204를 준다. 다른 세션이 폐기되지 않았는데 성공으로 보인다. 로그인은 SingleAsync가 행 부재 시 InvalidOperationException을 던진다.",
+        "recommendation": "0행이면 오류로 처리하거나 최소한 경고 로그를 남긴다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+            "symbol": "AuthEndpoints.LogoutAsync"
+          }
+        ],
+        "featureIds": [
+          "F001"
+        ]
+      },
+      {
+        "id": "ERR006",
+        "title": "예외·폴백을 로그 없이 삼키는 지점들",
+        "classification": "IMPROVEMENT",
+        "description": "AttachmentLock.Releaser.DisposeAsync는 unlock 실패를 로그 없이 삼킨다(같은 sha256 요청이 503을 받을 수 있음). RenderedPostCache.Store는 SizeLimit 초과 시 조용히 거부된다. PostModel.RenderAsync의 MarkdownTooComplexException 폴백과 HighlightingCodeBlockRenderer 타임아웃 폴백도 로그가 없다. 클라이언트 drafts.clearDraft도 예외를 삼킨다(코드 주석이 미검증 잔여 위험으로 인정).",
+        "recommendation": "운영 신호가 되는 지점(잠금 해제 실패, 캐시 거부율, 렌더 폴백)에 저수준 로그나 카운터를 추가한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+            "symbol": "Releaser.DisposeAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "symbol": "RenderedPostCache.Store"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+            "symbol": "PostModel.RenderAsync"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+            "symbol": "clearDraft"
+          }
+        ],
+        "featureIds": [
+          "F005",
+          "F009",
+          "F011",
+          "F013"
+        ]
+      },
+      {
+        "id": "ERR007",
+        "title": "마크다운 렌더에 실행 타임아웃이 없음",
+        "classification": "POTENTIAL_RISK",
+        "description": "슬롯을 얻은 렌더는 취소할 수 없는 동기 CPU 작업이며 타임아웃이 없다. 적대적 입력에서 Markdig가 최대 약 8.5초(문서상)를 쓰는 동안 슬롯과 요청 스레드를 점유한다. 방어는 동시성 제한과 분당 한도뿐이며 대기 초과 시 503이 난다. 슬롯 대기 중 취소는 OperationCanceledException으로 끝난다.",
+        "recommendation": "입력 복잡도 사전 휴리스틱이나 별도 워커·프로세스 격리를 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+            "symbol": "RenderGate.RenderAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+            "symbol": "MarkdownRenderer.RenderDetailed"
+          }
+        ],
+        "featureIds": [
+          "F003",
+          "F004",
+          "F011",
+          "F013"
+        ]
+      },
+      {
+        "id": "ERR008",
+        "title": "첨부 업로드의 보상 없는 고아 파일과 폴백 경로의 500",
+        "classification": "POTENTIAL_RISK",
+        "description": "UploadAsync는 잠금 밖에서 파일을 옮긴 뒤 INSERT 없이 끝나면(잠금 대기 초과, INSERT 실패, 취소) 보상 삭제가 없어 참조 없는 파일이 남는다(AttachmentJanitor가 1시간 경과·6시간 주기로 정리). 23505 폴백은 ChangeTracker.Clear 뒤 SingleAsync로 조회하므로 그사이 행이 사라지면 InvalidOperationException 500이 난다. 23505 외 DbUpdateException은 그대로 전파된다.",
+        "recommendation": "폴백 조회를 SingleOrDefault로 바꿔 재시도 유도 응답(409/503)으로 매핑하고, INSERT 실패 시 새로 옮긴 파일의 보상 삭제를 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "symbol": "AttachmentEndpoints.UploadAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+            "symbol": "AttachmentJanitor"
+          }
+        ],
+        "featureIds": [
+          "F009"
+        ]
+      },
+      {
+        "id": "ERR009",
+        "title": "공개 첨부 제공 경로의 I/O·경로 오류가 500",
+        "classification": "POTENTIAL_RISK",
+        "description": "PublicAttachmentEndpoints.GetAsync는 FileNotFound/DirectoryNotFound만 404로 바꾼다. UnauthorizedAccessException, 기타 IOException, 디스크 오류, PhysicalPath의 저장 루트 이탈 InvalidOperationException(try 밖)은 500이 된다. 헤더 전송 뒤 읽기 오류는 상태 코드를 바꿀 수 없어 동작이 미측정이다. 루트 밖 파일은 읽지 않는다.",
+        "recommendation": "IOException 계열을 503/500으로 명시 매핑하고 로그를 남긴다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+            "symbol": "PublicAttachmentEndpoints.GetAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+            "symbol": "FileSystemAttachmentStore.PhysicalPath"
+          }
+        ],
+        "featureIds": [
+          "F010"
+        ]
+      },
+      {
+        "id": "ERR010",
+        "title": "요청 취소(OperationCanceledException)에 대한 전용 처리 없음",
+        "classification": "IMPROVEMENT",
+        "description": "공개 페이지·API·RenderedPostCache 대기자의 취소는 앱에서 잡지 않는다. OverloadExceptionHandler 주석도 취소와 57014 경합을 미검증으로 남겼다. 최종 상태 코드·로그 수준은 프레임워크 동작이며 저장소에서 확인하지 못했다.",
+        "recommendation": "취소를 오류 로그에서 제외(499 성격 처리)하는 핸들러나 테스트를 추가한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "symbol": "OverloadExceptionHandler.TryHandleAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "symbol": "GetOrRenderAsync"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F010",
+          "F012",
+          "F013",
+          "F014",
+          "F015",
+          "F016"
+        ]
+      },
+      {
+        "id": "ERR011",
+        "title": "프런트엔드 렌더 중 예외 가능 지점(localStorage 기본 인자, previewCsp)",
+        "classification": "POTENTIAL_RISK",
+        "description": "drafts.ts의 기본 인자 window.localStorage는 try 밖에서 평가되어 접근이 차단된 환경에서 Editor 초기화가 실패해 RouteError로 갈 것으로 추론한다. previewCsp는 origin이 ORIGIN_PATTERN에 안 맞으면 useMemo 안에서 Error를 던지고 PreviewPane에 catch가 없어 오류 경계로 전파된다. 둘 다 재현하지 않았다.",
+        "recommendation": "기본 인자를 함수 안 try로 옮기고, previewCsp 실패를 컴포넌트 내부 ErrorNotice로 처리한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+            "symbol": "loadDraft/saveDraft/clearDraft"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/lib/previewDoc.ts",
+            "symbol": "previewCsp"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+            "symbol": "PreviewPane"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F005"
+        ]
+      },
+      {
+        "id": "ERR012",
+        "title": "HighlightCss Lazy가 첫 예외를 캐시",
+        "classification": "POTENTIAL_RISK",
+        "description": "Lazy<string> 기본 모드는 예외를 캐시하므로 첫 Build 실패 시 재시작 전까지 /css/highlight.css가 계속 500이 될 수 있다(추론, 미측정).",
+        "recommendation": "LazyThreadSafetyMode.PublicationOnly 사용 또는 시작 시 Build 검증을 추가한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+            "symbol": "HighlightCss.Value"
+          }
+        ],
+        "featureIds": [
+          "F017"
+        ]
+      },
+      {
+        "id": "ERR013",
+        "title": "저장 경로가 slug 중복 검사 전에 렌더 CPU를 소비",
+        "classification": "IMPROVEMENT",
+        "description": "CreateAsync의 slug 사전 검사(136행)가 렌더(133행) 뒤에 실행되어 중복 slug 요청도 렌더 슬롯을 쓴다.",
+        "recommendation": "저렴한 slug 조회를 렌더 앞으로 옮긴다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.CreateAsync",
+            "lines": "133-136"
+          }
+        ],
+        "featureIds": [
+          "F003"
+        ]
+      },
+      {
+        "id": "ERR014",
+        "title": "오류 응답 형식이 계층별로 다름",
+        "classification": "IMPROVEMENT",
+        "description": "/api·/attachments 등은 ProblemDetails, 공개 페이지는 고정 HTML이다. HostFiltering은 본문 없는 400을 내고 보안 헤더도 붙지 않는다. 바인딩 실패 400(ThrowOnBadRequest=false)은 Render의 errors 키가 없는 프레임워크 형식이다. 검색 q 오류는 400 상태로 Page()를 렌더링한다. 내부 정보 누출은 확인되지 않았다(요청 값 반사 없음, 검증 예외는 설정 키만 노출).",
+        "recommendation": "계약 문서에 형식 차이를 명시하고 SPA가 errors 키 부재를 항상 허용하는지 테스트한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "symbol": "ErrorResponses"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "symbol": "HostFiltering 구성"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/api/errors.ts",
+            "symbol": "describeError"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F012",
+          "F014",
+          "F017"
+        ]
+      },
+      {
+        "id": "ERR015",
+        "title": "MarkdownRenderer 입력 크기·null 검사가 try 밖",
+        "classification": "POTENTIAL_RISK",
+        "description": "RenderDetailed는 null/UTF-8 한도 초과를 MarkdownTooComplexException으로 바꾸지 않고 일반 예외로 던진다. 저장·미리보기는 사전 검증하고 공개 경로는 DB CHECK(CK_Posts_Content_Size)에 의존하므로 제약이 우회되면 공개 글 페이지가 500이 된다.",
+        "recommendation": "공개 경로에서 이 예외를 폴백(null)으로 처리하거나 한도 상수를 단일 출처로 묶는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+            "symbol": "MarkdownRenderer.RenderDetailed",
+            "lines": "138-143"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+            "symbol": "PostModel.RenderAsync"
+          }
+        ],
+        "featureIds": [
+          "F011",
+          "F013"
+        ]
+      }
+    ],
+    "summary": "이미 잘 처리된 부분: (1) UseExceptionHandler에 OverloadExceptionHandler를 두어 statement_timeout(57014)·잠금 대기(55P03)·RenderBusyException을 503+Retry-After 5로 일관 매핑한다. (2) AdminSurfaceMiddleware가 호스트·IP·CSRF 헤더·Origin을 본문 읽기 전에 404/403 ProblemDetails로 거부한다. (3) 낙관적 동시성(xmin)과 23505/23503 제약 경쟁을 409(DbConflict)로 바꾸고 트랜잭션은 dispose로 롤백한다. (4) UseRateLimiter가 대기열 없이 429+Retry-After를 낸다. (5) ApiBodyLimitMiddleware가 413으로 거부한다. (6) 검증 오류는 필드별 ValidationProblem 400이며 요청 값을 반사하지 않는다. (7) StartupValidation이 잘못된 설정을 키 이름만 담아 기동 실패시킨다. (8) 렌더 중첩 초과·강조 타임아웃은 폴백하고 SPA는 낙관적 충돌·임시본 복구·401 전환을 처리한다. 주된 공백은 비-과부하 DB 예외의 기본 500 처리, 커밋 후 재조회 실패, 409 원인 구분, 무로그 폴백, 취소 처리, 렌더 타임아웃 부재다.",
+    "unknowns": [
+      "공개 페이지에서 기본 500 응답 본문이 고정 HTML인지 ProblemDetails인지 UNKNOWN",
+      "OperationCanceledException의 최종 상태 코드와 로그 수준 UNKNOWN",
+      "헤더 전송 뒤 첨부 파일 읽기 오류 시 연결 동작 UNKNOWN",
+      "EF가 cascade로 사라진 PostTag 삭제를 DbUpdateConcurrencyException으로 보고하는지 재현되지 않음",
+      "전역 로깅 구성과 알림 체계는 이 분석 범위에서 확인하지 않음"
+    ]
+  },
+  "security": {
+    "items": [
+      {
+        "id": "SEC001",
+        "title": "미리보기·렌더 CPU 소진(적대적 마크다운)에 대한 방어가 동시성 제한뿐",
+        "classification": "POTENTIAL_RISK",
+        "description": "Markdig 렌더는 취소할 수 없는 동기 CPU 작업이고 실행 시간 타임아웃이 없다. 적대적 입력은 문서 기준 최대 약 8.5초 동안 렌더 슬롯(기본 2개)과 요청 스레드를 점유할 수 있다. 방어는 RenderGate 동시성, 미리보기 분당·동시성 한도, 입력 크기(200KB)·중첩(128) 제한이다. 관리 표면이 IP 허용 목록과 인증 뒤라서 외부 공격 노출은 낮다. 공개 글 렌더는 저장된 글이 대상이라 위험이 낮다.",
+        "recommendation": "렌더를 별도 스레드에서 실행하고 벽시계 타임아웃으로 결과를 버리는 방안, 또는 입력 크기를 더 줄이는 방안을 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+            "symbol": "RenderGate.RenderAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+            "symbol": "PreviewEndpoints.Render"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F011"
+        ]
+      },
+      {
+        "id": "SEC002",
+        "title": "로그아웃이 epoch 갱신 0행을 확인하지 않고 204를 반환",
+        "classification": "POTENTIAL_RISK",
+        "description": "AdminState 행이 없으면 ExecuteUpdateAsync가 0행을 갱신한다. 이때 다른 세션이 폐기되지 않는데도 호출한 브라우저의 쿠키만 지우고 204를 돌려준다. 행 부재는 CHECK 제약과 시드로 막아 두어 정상 운영에서는 발생하기 어렵다.",
+        "recommendation": "갱신된 행 수를 확인하고 0이면 오류로 처리하거나 로그를 남긴다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+            "symbol": "AuthEndpoints.LogoutAsync"
+          }
+        ],
+        "featureIds": [
+          "F001"
+        ]
+      },
+      {
+        "id": "SEC003",
+        "title": "DB 장애 시 SessionValidator 예외로 쿠키가 붙은 모든 요청이 실패",
+        "classification": "POTENTIAL_RISK",
+        "description": "SessionValidator가 AdminStates를 SingleAsync로 조회하는데 예외를 처리하지 않는다. DB 장애나 행 부재 시 쿠키가 있는 요청은 인증 단계에서 예외가 난다. 57014·55P03만 503이 되고 나머지는 500이다. 보안 우회는 아니고 fail-closed로 동작한다. 다만 /me 계약이 깨지고 가용성이 떨어진다.",
+        "recommendation": "DB 예외 시 미인증으로 처리하거나 503으로 일관되게 응답하는 방안을 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+            "symbol": "SessionValidator.ValidateAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "symbol": "OverloadExceptionHandler.IsOverload"
+          }
+        ],
+        "featureIds": [
+          "F001"
+        ]
+      },
+      {
+        "id": "SEC004",
+        "title": "공개 첨부 경로가 손상된 StoragePath나 I/O 오류에서 500이 됨",
+        "classification": "POTENTIAL_RISK",
+        "description": "FileSystemAttachmentStore.PhysicalPath가 저장 루트를 벗어나는 경로를 InvalidOperationException으로 막아 루트 밖 파일은 읽히지 않는다(Path Traversal 방어). 다만 이 예외와 UnauthorizedAccessException·IOException은 처리하지 않아 500이 된다. 응답 본문에 경로가 노출되는지는 코드로 확인하지 못했다.",
+        "recommendation": "예외를 404나 503으로 매핑하고 서버 로그에만 원인을 남긴다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+            "symbol": "FileSystemAttachmentStore.PhysicalPath"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+            "symbol": "PublicAttachmentEndpoints.GetAsync"
+          }
+        ],
+        "featureIds": [
+          "F010"
+        ]
+      },
+      {
+        "id": "SEC005",
+        "title": "업로드 중단 시 참조 없는 파일이 남고 23505 폴백에 무처리 구간이 있음",
+        "classification": "IMPROVEMENT",
+        "description": "잠금 대기 초과·INSERT 실패·요청 취소 뒤에는 보상 삭제가 없어 참조 없는 파일이 남는다. AttachmentJanitor가 1시간 경과 후 6시간 주기로 정리한다. 이미지 시그니처 검사, 메타데이터 제거, 10MB 상한은 이미 적용되어 있다. 저장량 고갈 위험은 낮다.",
+        "recommendation": "실패 경로에서 방금 옮긴 파일을 즉시 보상 삭제하는 방안을 검토한다. 삭제할 때는 동일 내용을 참조하는 다른 행이 없는지 확인한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "symbol": "AttachmentEndpoints.UploadAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs"
+          }
+        ],
+        "featureIds": [
+          "F009"
+        ]
+      },
+      {
+        "id": "SEC006",
+        "title": "미리보기 CSP 생성이 origin 형식 불일치 시 예외를 던짐",
+        "classification": "IMPROVEMENT",
+        "description": "previewCsp가 window.location.origin이 ORIGIN_PATTERN에 맞지 않으면 Error를 던진다. useMemo 안에서 호출되어 React 오류 경계로 전파된다. 보안상 fail-closed이지만 미리보기 화면 전체가 실패한다. 예를 들어 허용 패턴 밖의 호스트 표기에서 발생한다.",
+        "recommendation": "실패 시 미리보기만 비활성화하고 안내 문구를 보여 준다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/lib/previewDoc.ts",
+            "symbol": "previewCsp"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx"
+          }
+        ],
+        "featureIds": [
+          "F004"
+        ]
+      },
+      {
+        "id": "SEC007",
+        "title": "개발 환경에서 https·HSTS 강제가 빠짐",
+        "classification": "IMPROVEMENT",
+        "description": "HSTS는 Development가 아닐 때만 붙는다. Site 원본의 https 강제도 Development에서는 건너뛴다. 세션 쿠키는 __Host- 접두사와 Secure Always라 http에서는 동작하지 않는다. 운영 설정 오류로 Development 환경이 배포되면 이 방어가 빠진다.",
+        "recommendation": "운영 배포 절차에서 ASPNETCORE_ENVIRONMENT 값을 점검한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+            "symbol": "SecurityHeadersMiddleware._hsts"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.Validate"
+          }
+        ],
+        "featureIds": [
+          "F017"
+        ]
+      },
+      {
+        "id": "SEC008",
+        "title": "draft 저장소 접근 예외가 화면 오류로 번짐",
+        "classification": "IMPROVEMENT",
+        "description": "loadDraft·saveDraft·clearDraft의 기본 인자 window.localStorage 접근이 try 밖에서 평가된다. 저장소 접근이 차단된 브라우저에서는 에디터 렌더가 실패할 수 있다. 기밀 노출이 아니라 가용성 문제다.",
+        "recommendation": "저장소 획득을 try 안으로 옮긴다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+            "symbol": "loadDraft"
+          }
+        ],
+        "featureIds": [
+          "F005"
+        ]
+      }
+    ],
+    "summary": "이미 처리된 부분: 관리 표면은 다중 게이트다. 관리 호스트 확인, IP 허용 목록(빈 목록이면 전부 거부), X-Requested-With CSRF 헤더, 비안전 메서드의 Origin 검사가 본문을 읽기 전에 실행된다(AdminSurfaceMiddleware). 세션 쿠키는 __Host- 접두사에 HttpOnly, Secure Always, SameSite=Strict를 쓰고 슬라이딩 만료가 없으며 epoch·지문 검증을 거친다. 로그인은 IP·전역·동시성 속도 제한이 있고 비밀번호 길이를 해싱 전에 제한하며 실패 로그에 IP만 남긴다. 모든 응답에 nosniff, CSP(default-src 'none'), X-Frame-Options DENY, Referrer/Permissions-Policy가 붙고 비개발 환경에서는 HSTS도 붙는다. 첨부는 sandbox CSP, 매직바이트 검사, 메타데이터 제거, 크기 제한, 루트 이탈 차단을 적용한다. 마크다운은 HtmlAllowlist·UrlPolicy 정제, 중첩·입력 크기·강조 시간 상한을 둔다. 공개 DB 롤은 읽기 전용이다. HostFiltering, 기동 시 설정 검증, 요청 값을 반사하지 않는 404, SQL은 EF 파라미터화와 LikePattern 이스케이프로 처리한다. 확인한 CONFIRMED_ISSUE는 없고 남은 항목은 가용성·견고성 성격이다.",
+    "unknowns": [
+      "ClientIp와 ForwardedHeaders가 Caddy 뒤에서 실제 원본 IP를 올바르게 산출하는지는 이번 분석에서 코드를 직접 읽지 않아 확인하지 못했다.",
+      "HtmlAllowlist·UrlPolicy의 정제 규칙 세부(허용 태그·속성·스킴)는 파일을 직접 읽어 검증하지 않았다.",
+      "Caddyfile과 배포 헤더는 입력 목록에 없어 에지 측 방어를 확인하지 못했다.",
+      "500 응답 본문에 예외 세부가 노출되는지는 확인하지 못했다."
+    ]
+  },
+  "performance": {
+    "items": [
+      {
+        "id": "PERF001",
+        "title": "검색이 ILIKE '%term%'로 본문 전체를 선형 스캔한다",
+        "classification": "POTENTIAL_RISK",
+        "description": "공개 검색(PublicQueries.SearchAsync)과 관리 목록 검색(PostEndpoints.ListAsync)은 Title·Summary·ContentMarkdown에 앞뒤 와일드카드 ILIKE를 OR로 건다. 일반 B-tree 인덱스로는 탐색할 수 없어 글 수와 본문 크기에 비례해 풀스캔한다. PageAsync는 같은 조건으로 COUNT와 목록 SELECT를 따로 실행하므로 스캔이 두 번 일어난다. 방어책은 statement_timeout(약 3초), SearchConcurrency(4), 분당 IP 한도, 503 변환이다. 글이 적은 개인 블로그에서는 문제가 되지 않지만 규모가 커지면 타임아웃과 503이 늘어난다.",
+        "recommendation": "글이 늘어나면 pg_trgm GIN 인덱스나 to_tsvector 전문 검색으로 바꾼다. 검색 결과의 총 개수는 상한을 두거나 생략하는 것도 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "lines": "89-92",
+            "symbol": "PublicQueries.SearchAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "lines": "250-258",
+            "symbol": "PublicQueries.PageAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "lines": "78-81",
+            "symbol": "PostEndpoints.ListAsync"
+          }
+        ],
+        "featureIds": [
+          "F014",
+          "F002"
+        ]
+      },
+      {
+        "id": "PERF002",
+        "title": "렌더가 취소·타임아웃이 없는 동기 CPU 작업이라 슬롯을 오래 점유할 수 있다",
+        "classification": "POTENTIAL_RISK",
+        "description": "RenderGate 뒤의 Markdig 렌더는 시작하면 취소할 수 없다. 적대적 입력에서는 문서상 최대 약 8.5초가 걸리며, 그동안 동시성 슬롯(기본 2)과 스레드를 쓴다. 슬롯이 다 차면 다른 렌더는 5초 뒤 RenderBusyException이 되어 503이 된다. 이 503은 공개 글 캐시 미스, 저장, 미리보기에 모두 영향을 준다. 방어는 입력 크기 상한(200KB), 중첩 한도 128, 코드 강조 예산(블록 250ms·문서 2초·60,000자), 미리보기 동시성·분당 한도다.",
+        "recommendation": "파서 단계에 벽시계 상한을 두거나 렌더를 별도 프로세스·워커로 분리하는 것을 검토한다. 공개 렌더와 관리 미리보기의 슬롯을 분리하면 미리보기가 공개 글 렌더를 굶기는 일을 막을 수 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+            "symbol": "RenderGate.RenderAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "lines": "136-151",
+            "symbol": "RenderedPostCache.RenderAndStoreAsync"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F011",
+          "F013",
+          "F003"
+        ]
+      },
+      {
+        "id": "PERF003",
+        "title": "캐시 상한 초과 시 신규 항목이 조용히 거부되어 재렌더가 반복될 수 있다",
+        "classification": "POTENTIAL_RISK",
+        "description": "RenderedPostCache의 MemoryCache는 SizeLimit을 넘으면 축출하지 않고 Set을 거부한다. 압축은 비동기라 지연되므로 그동안 새 글은 요청마다 다시 렌더된다. 로그나 메트릭이 없어 관측할 수 없다. 코드 주석은 비용을 RenderGate가 제한한다고 판단한다. 또 항목 수명이 24시간이고 키에 xmin이 들어가서, 글을 수정하면 옛 버전 항목이 만료까지 남아 상한을 채운다.",
+        "recommendation": "Store가 거부된 경우를 세는 카운터나 로그를 추가한다. 글 수정·삭제 때 이전 (Id, xmin) 항목을 제거하는 것을 검토한다. CacheMegabytes는 글 수 대비 여유 있게 잡는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "lines": "27-35, 115-122",
+            "symbol": "RenderedPostCache.Store"
+          }
+        ],
+        "featureIds": [
+          "F011",
+          "F013"
+        ]
+      },
+      {
+        "id": "PERF004",
+        "title": "저장 경로에서 렌더가 DB 트랜잭션 앞에 있고, 중복 slug 검사는 렌더 뒤에 있다",
+        "classification": "IMPROVEMENT",
+        "description": "글 생성은 slug 중복 검사(409)를 렌더 뒤에 한다. 그래서 slug가 중복된 요청도 렌더 CPU와 렌더 슬롯을 먼저 쓴다. 다행히 렌더는 트랜잭션 밖이라 DB 연결을 붙잡지 않는다. 관리 API는 인증된 관리자만 부르므로 위험은 낮다.",
+        "recommendation": "slug 사전 검사를 렌더 앞으로 옮겨 실패하는 요청이 렌더 슬롯을 쓰지 않게 한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "lines": "128-136",
+            "symbol": "PostEndpoints.CreateAsync"
+          }
+        ],
+        "featureIds": [
+          "F003"
+        ]
+      },
+      {
+        "id": "PERF005",
+        "title": "목록 페이지가 범위를 넘어도 COUNT와 SELECT를 모두 실행한 뒤 404를 낸다",
+        "classification": "IMPROVEMENT",
+        "description": "마지막 쪽을 넘는 page(예: 글 21개일 때 page=3)는 형식 검사(1..500, 검색은 1..50)는 통과한다. 그래서 COUNT와 목록 SELECT를 실행한 뒤에야 404가 된다. 쪽 수 상한 때문에 비용은 한정적이고 IP별 분당 한도도 있다.",
+        "recommendation": "COUNT를 먼저 실행해 범위를 벗어나면 목록 SELECT를 건너뛴다. 또는 COUNT와 목록을 한 쿼리로 합치는 방안도 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "lines": "250-258",
+            "symbol": "PublicQueries.PageAsync"
+          }
+        ],
+        "featureIds": [
+          "F012",
+          "F014",
+          "F016"
+        ]
+      },
+      {
+        "id": "PERF006",
+        "title": "피드·사이트맵·태그 목록이 요청마다 DB를 조회하고 응답 캐시가 없다",
+        "classification": "IMPROVEMENT",
+        "description": "SitemapAsync는 요청마다 SELECT 3회(각 상한 SitemapMax)를 실행한다. 피드도 요청마다 DB를 조회한다. 크롤러가 자주 부르는 경로인데 page-ip 한도(분당 120)만 있다. 공개 글 본문은 RenderedPostCache가 있지만 이 경로들에는 캐시가 없다. 앞단 Caddy에서 캐시하는지는 확인하지 못했다.",
+        "recommendation": "짧은 TTL의 메모리 캐시나 ETag/Cache-Control을 추가하고, 글 변경 때 무효화한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "lines": "210-218",
+            "symbol": "PublicQueries.SitemapAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "symbol": "SiteEndpoints.FeedAsync"
+          }
+        ],
+        "featureIds": [
+          "F017"
+        ]
+      },
+      {
+        "id": "PERF007",
+        "title": "첨부 업로드는 같은 sha256 조회에 advisory lock을 쓰며 전용 연결을 점유한다",
+        "classification": "POTENTIAL_RISK",
+        "description": "AttachmentLock.HoldAsync는 같은 해시의 동시 업로드를 직렬화하려고 전용 DB 연결을 열고 pg_advisory_lock을 건다. 대기는 lock_timeout 10초이고, 초과하면 503이다. 해제(pg_advisory_unlock)가 실패하면 연결만 닫으므로 풀의 물리 연결에서 잠금이 늦게 풀릴 수 있다(코드 주석). 관리자 전용 경로라 동시성이 낮아 실제 위험은 작다. 다만 대기 중에는 풀 연결 하나를 최대 10초 쓴다.",
+        "recommendation": "연결 풀 크기가 관리 동시 업로드 수보다 충분한지 확인한다. 해제 실패 시 연결을 풀로 돌려보내지 말고 폐기(Pooling 우회)하는 방안을 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+            "symbol": "AttachmentLock.HoldAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "symbol": "AttachmentEndpoints.UploadAsync"
+          }
+        ],
+        "featureIds": [
+          "F009"
+        ]
+      },
+      {
+        "id": "PERF008",
+        "title": "첨부 서빙이 요청마다 DB를 조회하고 파일 스트림을 연다",
+        "classification": "IMPROVEMENT",
+        "description": "PublicAttachmentEndpoints.GetAsync는 매 요청마다 Attachments 행을 조회한 뒤 FileStream을 연다. 첨부는 내용 주소(sha256)라 내용이 바뀌지 않는데도 DB 왕복이 필요하다. 조회 한도는 asset-ip 분당 600이고, 없는 id의 404도 그 한도를 쓴다. 캐시 헤더 설정 여부는 이번 조사에서 코드로 확인하지 못했다(404 응답에는 없음).",
+        "recommendation": "(id → 경로·타입) 메타를 짧게 메모리 캐시한다. 정상 응답에는 ETag와 Cache-Control: immutable을 붙여 Caddy와 브라우저가 캐시하게 한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+            "symbol": "PublicAttachmentEndpoints.GetAsync"
+          }
+        ],
+        "featureIds": [
+          "F010"
+        ]
+      },
+      {
+        "id": "PERF009",
+        "title": "로그인·세션 검증이 요청마다 AdminStates를 조회한다",
+        "classification": "IMPROVEMENT",
+        "description": "SessionValidator.ValidateAsync는 쿠키가 붙은 관리 요청마다 AdminStates를 SingleAsync로 조회해 epoch를 비교한다. 이는 로그아웃 시 다른 세션을 즉시 폐기하기 위한 설계로 보인다. 관리자 한 명의 트래픽이라 부하는 작다. 그러나 DB가 느려지면 모든 관리 요청이 이 경로에서 함께 실패한다.",
+        "recommendation": "현재 규모에서는 조치가 필요 없다. 필요하면 epoch를 몇 초 단위 메모리 캐시로 두고 로그아웃 시 즉시 갱신한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+            "symbol": "SessionValidator.ValidateAsync"
+          }
+        ],
+        "featureIds": [
+          "F001"
+        ]
+      },
+      {
+        "id": "PERF010",
+        "title": "클라이언트 미리보기는 디바운스와 취소로 서버 부하를 줄인다",
+        "classification": "IMPROVEMENT",
+        "description": "PreviewPane은 useDebounced로 입력을 모아 보내고, 이전 요청은 AbortController로 취소하며, 실패해도 직전 성공 HTML을 유지한다. 다만 취소는 클라이언트 연결만 끊는다. 서버에서 이미 시작한 렌더는 취소되지 않고 미리보기 슬롯을 계속 점유한다(PERF002). 빠르게 타이핑하면 서버 쪽 슬롯이 밀리고 429·503이 생길 수 있다.",
+        "recommendation": "디바운스 간격을 늘리거나, 응답 대기 중에는 새 요청을 보내지 않고 마지막 입력만 큐에 두는 방식을 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+            "symbol": "PreviewPane"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+            "symbol": "useDebounced"
+          }
+        ],
+        "featureIds": [
+          "F004"
+        ]
+      }
+    ],
+    "summary": "성능 위험은 대부분 이미 방어되어 있다. 잘 처리된 부분은 다음과 같다. 목록 쿼리는 태그를 서브쿼리로 내장해 N+1이 없고, 본문을 뺀 프로젝션만 가져온다. 공개 DB 조회는 statement_timeout과 lock_timeout을 걸고 57014·55P03을 503+Retry-After로 바꾼다. 코드에서 .Result/.Wait 같은 동기 블로킹 호출은 발견되지 않았다. 동기 파일 I/O는 기동 시 probe와 백그라운드 AttachmentJanitor에만 있다. 렌더는 RenderGate로 동시 실행 수를 제한하고, RenderedPostCache가 (PostId, xmin) 키로 캐시하며 같은 키의 동시 미스를 한 번의 렌더로 합친다. 캐시는 SizeLimit이 있어 무한히 자라지 않는다. 코드 강조에는 시간·크기 예산이 있다. 이 밖에 IP별·전역 속도 제한과 검색·미리보기 동시성 제한, 요청 본문 상한(256KB, 미리보기 200KB, 첨부 10MB)이 있다. 남은 위험은 ILIKE 풀스캔 검색, 취소할 수 없는 동기 렌더, 캐시 거부 관측 부재, 공개 경로에 응답 캐시가 없는 점이다. 이 프로젝트 규모에서는 모두 낮거나 중간 수준이다.",
+    "unknowns": [
+      "실제 데이터 규모(글 수·본문 크기)와 DB 인덱스 사용 여부는 코드만으로 측정하지 못했다(EXPLAIN 미실행).",
+      "Caddy가 피드·사이트맵·첨부 응답을 캐시하는지와 첨부 200 응답의 Cache-Control 헤더 설정은 확인하지 못했다.",
+      "DB 연결 풀 크기(Maximum Pool Size)와 Rendering:Concurrency 운영값이 실제 동시 부하에 충분한지 알 수 없다.",
+      "RenderGate.cs와 PublicAttachmentEndpoints.cs는 직접 읽지 않고 기능 분석 결과에 의존했다."
+    ]
+  },
+  "techDebt": {
+    "summary": "코드 마커 검색에서 운영 코드의 TODO/FIXME/HACK은 없었다. 유일한 'TODO'는 MarkdownRendererTests.cs:291의 테스트 입력 문자열이다. 확인된 확정 결함은 적고, 대부분은 '처리하지 않고 전파'하는 실패 경로와 클라이언트 충돌 처리의 문구 불일치다. 잘 되어 있는 부분: (1) 57014·55P03·RenderBusyException을 OverloadExceptionHandler가 503+Retry-After로 일원화한다. (2) 관리 표면은 AdminSurfaceMiddleware가 호스트·IP·CSRF·Origin을 본문 읽기 전에 거부하고 속도 제한 예산도 쓰지 않는다. (3) 동시성 충돌(xmin, 23505, 23503)은 409로 변환하고 트랜잭션은 dispose 롤백에 맡긴다. (4) StartupValidation이 설정 오류로 기동을 막는다. (5) 렌더 슬롯·강조 시간·중첩 깊이·입력 크기에 상한이 있다. (6) 공개 DB 컨텍스트는 읽기 전용이다. 이 분석은 주어진 힌트와 코드 마커에 기반하며 줄 번호는 힌트에 명시된 것만 적었다.",
+    "items": [
+      {
+        "id": "DEBT001",
+        "title": "57014·55P03 외 DB 예외는 엔드포인트 차원의 처리 없이 500으로 전파된다",
+        "classification": "POTENTIAL_RISK",
+        "description": "관리 API(Auth, Posts, Series, Tags, Attachments), 공개 페이지, 피드, sitemap 어디에도 DB 연결 실패나 CHECK 위반(23514) 같은 예외를 잡는 코드가 없다. OverloadExceptionHandler는 57014·55P03과 RenderBusyException만 503으로 바꾼다. 그 밖의 예외는 UseExceptionHandler 기본 처리(500)로 넘어간다. 공개 HTML 경로에서 이 500의 본문이 고정 HTML인지 ProblemDetails인지는 코드로 확정하지 못했다. SessionValidator의 SingleAsync도 같은 성격이라, DB 장애 때 쿠키가 붙은 모든 관리 요청과 /me가 오류 응답이 될 수 있다.",
+        "recommendation": "500 응답의 본문 형식을 경로 종류(HTML/API)별로 테스트로 고정한다. 인증 단계의 DB 장애가 /me 계약(항상 200)을 깨는지 정책을 정하고, 필요하면 SessionValidator에서 명시적으로 처리한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "symbol": "OverloadExceptionHandler.IsOverload"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+            "symbol": "SessionValidator.ValidateAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+            "lines": "67"
+          }
+        ],
+        "featureIds": [
+          "F001",
+          "F002",
+          "F003",
+          "F008",
+          "F009",
+          "F010",
+          "F012",
+          "F013",
+          "F014",
+          "F015",
+          "F016",
+          "F017"
+        ]
+      },
+      {
+        "id": "DEBT002",
+        "title": "렌더 실행은 취소·타임아웃이 없는 동기 CPU 작업이다",
+        "classification": "POTENTIAL_RISK",
+        "description": "RenderGate는 슬롯 획득까지만 시간 제한(QueueTimeoutMs)을 둔다. 슬롯을 얻은 뒤 Markdig 파싱은 취소할 수 없고 타임아웃도 없다. 적대적 입력이면 문서상 최대 약 8.5초 동안 슬롯과 스레드를 점유한다. 방어는 동시성 제한(기본 2)과 분당 한도, 입력 크기·중첩 상한뿐이다. 이 슬롯은 미리보기, 저장, 공개 렌더가 공유하므로 미리보기 남용이 공개 글 렌더 지연으로 번질 수 있다. 캐시 저장이 조용히 거부되는 경우에도 같은 비용이 반복된다.",
+        "recommendation": "미리보기와 공개 렌더의 슬롯 예산을 분리하거나, 렌더 시간 상한을 측정 지표로 남기는 것을 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+            "symbol": "RenderGate.RenderAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+            "symbol": "MarkdownRenderer.RenderDetailed",
+            "lines": "138-143"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F011",
+          "F013"
+        ]
+      },
+      {
+        "id": "DEBT003",
+        "title": "렌더 캐시 저장 거부와 공개 페이지의 렌더 실패 폴백이 로그 없이 조용히 일어난다",
+        "classification": "IMPROVEMENT",
+        "description": "MemoryCache SizeLimit을 넘으면 Set이 예외 없이 거부되며 로그가 없다. PostModel.RenderAsync도 MarkdownTooComplexException을 잡아 null 폴백하지만 로그를 남기지 않는다. 운영자는 캐시가 계속 거부되어 렌더 비용이 반복되는지, 저장된 글이 렌더 불가가 되었는지 알 수 없다.",
+        "recommendation": "캐시 거부와 렌더 폴백에 카운터 또는 경고 로그를 추가한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "symbol": "RenderedPostCache.Store"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+            "symbol": "PostModel.RenderAsync"
+          }
+        ],
+        "featureIds": [
+          "F011",
+          "F013"
+        ]
+      },
+      {
+        "id": "DEBT004",
+        "title": "에디터의 409 처리가 원인과 무관하게 status만 보고 분기해 안내가 어긋날 수 있다",
+        "classification": "POTENTIAL_RISK",
+        "description": "Editor.save.onError는 409이면 원인(version 불일치, 참조 삭제 제약 경쟁, 태그 삭제로 인한 오탐 StaleVersion)을 구분하지 않고 최신본을 재조회해 ConflictPanel을 띄운다. 이때 서버 detail은 숨겨지고, '내 내용 유지' 후 재저장하면 같은 FK 원인으로 다시 실패할 수 있다. 반대로 새 글(postId null)의 409는 ConflictPanel 없이 일반 오류로만 표시된다. 서버 쪽에서도 UpdateAsync가 사라진 PostTag 행 때문에 DbUpdateConcurrencyException을 내면 글 Version이 바뀌지 않았는데 '먼저 수정되었습니다' 문구가 나갈 수 있다(EF 동작 추론, 재현 테스트 없음).",
+        "recommendation": "409 응답에 원인 구분 값(예: 에러 코드)을 넣어 클라이언트가 version 충돌과 참조 경쟁을 나누어 처리하게 한다. 태그 삭제 경쟁은 재현 테스트를 추가해 추론을 확정한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor.save.onError"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "215-233"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "symbol": "DbConflict"
+          }
+        ],
+        "featureIds": [
+          "F003",
+          "F006",
+          "F008"
+        ]
+      },
+      {
+        "id": "DEBT005",
+        "title": "로그아웃이 영향 행 수를 확인하지 않아 실패해도 204를 반환한다",
+        "classification": "POTENTIAL_RISK",
+        "description": "LogoutAsync의 ExecuteUpdateAsync가 0행을 갱신해도(AdminState 행 부재) epoch가 오르지 않아 다른 세션이 폐기되지 않는데 204와 쿠키 삭제만 수행한다. 행 부재는 CHECK 제약과 HasData 시드로 줄여 두었으나 처리 코드는 없다.",
+        "recommendation": "영향 행이 0이면 로그를 남기거나 오류로 처리한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+            "symbol": "AuthEndpoints.LogoutAsync"
+          }
+        ],
+        "featureIds": [
+          "F001"
+        ]
+      },
+      {
+        "id": "DEBT006",
+        "title": "글 저장 경로에서 비싼 렌더가 값싼 검사보다 먼저 실행되고, 커밋 이후 재조회 실패에 대한 처리가 없다",
+        "classification": "POTENTIAL_RISK",
+        "description": "CreateAsync는 slug 중복 사전 검사를 렌더 뒤에 실행하므로 중복 요청도 렌더 CPU를 먼저 쓴다. 또 tx.CommitAsync 이후 GetDetailAsync 재조회가 예외를 던지거나 null이면 행은 이미 저장·공개되었는데 클라이언트는 실패나 빈 본문을 받는다. 생성이라면 재시도가 slug 409가 된다. TagResolver.ResolveIdsAsync 호출은 UpdateAsync의 try 블록 밖이라 엔드포인트의 catch가 적용되지 않는다.",
+        "recommendation": "slug 사전 검사를 렌더 앞으로 옮기고, 커밋 후 재조회 실패를 별도로 다룬다(예: 201/200과 Location만 반환).",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.CreateAsync",
+            "lines": "133-136"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "213-226"
+          }
+        ],
+        "featureIds": [
+          "F003",
+          "F006",
+          "F008"
+        ]
+      },
+      {
+        "id": "DEBT007",
+        "title": "첨부 업로드의 보상 삭제 부재와 잠금 해제 실패의 침묵",
+        "classification": "POTENTIAL_RISK",
+        "description": "잠금 밖에서 내용 주소 파일을 옮긴 뒤 행 INSERT 없이 요청이 끝나면 참조 없는 파일이 남는다. AttachmentJanitor가 1시간 경과 후 6시간 주기로 정리한다. 23505 폴백에서 행이 사라졌다면 SingleAsync가 InvalidOperationException으로 500이 된다. Releaser.DisposeAsync는 pg_advisory_unlock 실패를 로그 없이 삼켜 같은 sha256 요청이 503을 받을 수 있다. 공개 조회 쪽은 StoragePath가 루트 밖이면 try 밖에서 500이 되고, UnauthorizedAccess·기타 IO 예외도 처리가 없다.",
+        "recommendation": "unlock 실패 로그를 남기고, 23505 폴백은 SingleOrDefault로 바꿔 재시도 또는 409로 처리한다. 매직 값(1시간, 6시간, 10초)은 옵션으로 노출 여부를 점검한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "symbol": "AttachmentEndpoints.UploadAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+            "symbol": "AttachmentLock.Releaser.DisposeAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+            "symbol": "AttachmentJanitor"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+            "symbol": "PublicAttachmentEndpoints.GetAsync"
+          }
+        ],
+        "featureIds": [
+          "F009",
+          "F010"
+        ]
+      },
+      {
+        "id": "DEBT008",
+        "title": "MarkdownRenderer의 입력 크기 검사가 try 밖이며 공개 경로는 DB 제약에 의존한다",
+        "classification": "POTENTIAL_RISK",
+        "description": "null이거나 MaxInputBytes를 넘는 입력은 MarkdownTooComplexException이 아닌 일반 예외를 던진다. 저장·미리보기는 사전 검증으로 막고 공개 PostModel은 이를 잡지 않으며, DB CHECK(CK_Posts_Content_Size)가 같은 한도를 강제하는 데 의존한다. 제약이 우회되거나 한도가 어긋나면 공개 글이 500이 된다.",
+        "recommendation": "공개 경로에서도 크기 초과를 렌더 불가 폴백으로 통일하거나, 한도 상수를 코드와 마이그레이션이 공유함을 테스트로 고정한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+            "symbol": "MarkdownRenderer.RenderDetailed"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+            "symbol": "PostModel.RenderAsync"
+          }
+        ],
+        "featureIds": [
+          "F011",
+          "F013"
+        ]
+      },
+      {
+        "id": "DEBT009",
+        "title": "slug·페이지 상한 등 규칙이 .NET·DB·클라이언트에 중복되어 서로 어긋날 수 있다",
+        "classification": "POTENTIAL_RISK",
+        "description": "slug 패턴은 SlugRules(.NET), DB CHECK(CK_Posts_Slug_Format, CK_Series_Slug_Format)에 이중으로 있고, 클라이언트 validation.ts에도 형식 검증이 있을 것으로 보인다. sitemap·피드의 XML 안전성이 이 일치에 의존한다. 페이지 상한은 페이지별로 다르다(홈·태그 500, 검색 50)이고 PublicQueries.PageAsync가 심층 방어로 다시 검사한다. 본문·설명 길이 한도도 서버 TextRules와 클라이언트가 각각 정의한다.",
+        "recommendation": "한도 상수를 한 곳에서 생성·공유하거나, 서버-클라이언트-DB 값 일치를 검증하는 테스트를 둔다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+            "symbol": "SlugRules.IsValid"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+            "symbol": "PageNumber.TryRead"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/lib/validation.ts"
+          },
+          {
+            "file": "PortfolioBlog.Api/Contracts/TextRules.cs"
+          }
+        ],
+        "featureIds": [
+          "F012",
+          "F013",
+          "F014",
+          "F016",
+          "F017"
+        ]
+      },
+      {
+        "id": "DEBT010",
+        "title": "Lazy<string> HighlightCss가 첫 실패를 캐시할 수 있다",
+        "classification": "POTENTIAL_RISK",
+        "description": "Lazy 기본 모드는 예외를 캐시하므로 첫 Build()가 실패하면 재시작 전까지 /css/highlight.css가 계속 500일 수 있다(추론, 미측정).",
+        "recommendation": "실패를 캐시하지 않는 모드(LazyThreadSafetyMode.PublicationOnly)나 기동 시 사전 빌드를 검토한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+            "symbol": "HighlightCss.Value"
+          }
+        ],
+        "featureIds": [
+          "F017"
+        ]
+      },
+      {
+        "id": "DEBT011",
+        "title": "drafts.ts의 기본 인자 window.localStorage가 try 밖이며 clearDraft 실패는 삼켜진다",
+        "classification": "POTENTIAL_RISK",
+        "description": "저장소 접근 자체가 예외를 던지는 브라우저 설정에서는 기본 인자가 try 블록 밖에서 평가되어 Editor 렌더가 실패하고 RouteError로 갈 것으로 추론한다(미재현). clearDraft의 removeItem 실패는 삼켜져 새 글 임시본이 남고, 복원 후 재저장하면 slug 409 중복 생성으로 이어질 수 있다. 코드 주석이 '미검증 잔여 위험'으로 인정한다. flushDraft는 saveDraft 실패 반환값을 무시한다.",
+        "recommendation": "storage 획득을 try 안으로 옮기고, 종료 시점 저장 실패를 사용자에게 알린다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+            "symbol": "loadDraft/saveDraft/clearDraft"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "flushDraft"
+          }
+        ],
+        "featureIds": [
+          "F005"
+        ]
+      },
+      {
+        "id": "DEBT012",
+        "title": "previewCsp가 렌더 중 예외를 던질 수 있다",
+        "classification": "POTENTIAL_RISK",
+        "description": "window.location.origin이 ORIGIN_PATTERN에 맞지 않으면 Error를 던지며, PreviewPane의 useMemo 안이라 렌더 중 예외가 되어 오류 경계로 전파된다.",
+        "recommendation": "예외 대신 안전한 기본 CSP 또는 미리보기 비활성 상태로 폴백한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/lib/previewDoc.ts",
+            "symbol": "previewCsp"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx"
+          }
+        ],
+        "featureIds": [
+          "F004"
+        ]
+      },
+      {
+        "id": "DEBT013",
+        "title": "취소(OperationCanceledException)의 최종 응답이 코드로 확정되지 않았다",
+        "classification": "IMPROVEMENT",
+        "description": "RenderGate 대기, RenderedPostCache 대기, DB 조회 등에서 요청 취소가 전파되지만 앱에는 전용 처리가 없고 OverloadExceptionHandler는 취소와 57014의 경합을 '미검증'으로 남겼다. 최종 상태 코드와 로그 수준을 확인하지 못했다.",
+        "recommendation": "취소 요청이 500으로 기록·집계되지 않는지 테스트로 확인하고 필요하면 예외 처리기에서 명시적으로 분류한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "symbol": "OverloadExceptionHandler.TryHandleAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "symbol": "RenderedPostCache.GetOrRenderAsync"
+          }
+        ],
+        "featureIds": [
+          "F004",
+          "F011",
+          "F013",
+          "F014"
+        ]
+      },
+      {
+        "id": "DEBT014",
+        "title": "일부 경로에 전용 테스트가 없거나 추론에 그친다",
+        "classification": "IMPROVEMENT",
+        "description": "version 쿼리 비숫자 값의 400은 전용 테스트가 없다(F002). PreviewRequest 잘못된 JSON·415 응답 본문 형태는 프레임워크 동작 추론이다. 태그 삭제 경쟁으로 인한 StaleVersion 오탐과 highlight.css의 관리 호스트 404도 재현 테스트가 없다. 429 본문이 HTML인 것도 추론이다(F012).",
+        "recommendation": "해당 경로의 통합 테스트를 추가해 추론을 확정한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+            "symbol": "PreviewEndpoints.Render"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.DeleteAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs"
+          }
+        ],
+        "featureIds": [
+          "F002",
+          "F004",
+          "F008",
+          "F012"
+        ]
+      }
+    ],
+    "unknowns": [
+      "500 응답 본문이 공개 HTML 경로에서 고정 HTML인지 ProblemDetails인지",
+      "요청 취소(OperationCanceledException)가 최종적으로 어떤 상태 코드·로그가 되는지",
+      "응답 헤더 전송 후 파일 읽기 I/O 오류의 동작",
+      "클라이언트 validation.ts와 서버 TextRules·SlugRules의 한도가 실제로 일치하는지(이번 분석에서 파일 본문을 직접 열지 않음)",
+      "테스트 프로젝트의 커버리지 전체 범위(입력에는 일부 테스트 마커만 있음)"
+    ]
+  }
+}

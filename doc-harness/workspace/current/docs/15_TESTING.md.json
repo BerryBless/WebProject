@@ -1,0 +1,59 @@
+{
+  "title": "테스트",
+  "oneLiner": "테스트는 .NET(xUnit+Testcontainers), 웹(Vitest·Playwright), 배포 스택 스모크(node:test) 3계층이며, .github/workflows/ci.yml 한 파일의 4개 잡이 모두 실행한다. 정확한 테스트 개수는 UNKNOWN이다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "details",
+      "heading": "상세 내용",
+      "body": "## 상세 내용\n\n**CI 파이프라인** (`.github/workflows/ci.yml`, push는 master·feature/**, PR은 master 대상)\n\n| 잡 | 선행 | 내용 |\n|---|---|---|\n| test | 없음 | .NET 10.0.x, restore → Release build → `dotnet test`(단위+Testcontainers 통합) |\n| web | 없음 | Node 24, `npm ci`, `npm audit --omit=dev --audit-level=high`, lint, typecheck, `npm test`, build |\n| web-e2e | test, web | postgres:17-alpine 서비스, API 빌드, Playwright 브라우저 설치, `e2e:prepare`, `e2e`. 실패 시 `playwright-traces` 업로드(7일) |\n| deploy-smoke | test, web | timeout 30분, `SMOKE_E2E=1 bash deploy/smoke/run.sh`. 실패 시 `test-results`와 `deploy/smoke/caddy.log`를 `deploy-smoke-traces`로 업로드(7일) |\n\n**커버리지 갭** (17_TECH_DEBT 기준)\n\n- DEBT004(POTENTIAL_RISK): 에디터 `Editor.save.onError`가 409의 원인(version 불일치, 참조 삭제 경쟁, 태그 삭제로 인한 오탐 StaleVersion)을 구분하지 않고 ConflictPanel을 띄운다. 서버 `PostEndpoints.UpdateAsync`(215-233행)도 사라진 PostTag 행 때문에 `DbUpdateConcurrencyException`이 나면 Version이 바뀌지 않았는데 '먼저 수정되었습니다'가 나갈 수 있다. EF 동작 추론이며 재현 테스트가 없다. 제안: 409에 원인 구분 값을 넣고 태그 삭제 경쟁 재현 테스트를 추가한다.\n- DEBT014(IMPROVEMENT): 전용 테스트가 없거나 추론에 그친 경로가 있다. version 쿼리 비숫자 값의 400, `PreviewRequest` 잘못된 JSON·415 응답 본문 형태, 태그 삭제 경쟁 StaleVersion 오탐, highlight.css의 관리 호스트 404, 429 본문이 HTML이라는 점이다. 제안: 해당 경로의 통합 테스트를 추가해 추론을 확정한다.\n\n**불안정 테스트**: 워크스페이스 산출물에 기록된 flaky 테스트는 없다(UNKNOWN: 실제 CI 이력은 확인하지 못함). 스모크 주석은 허용 IP가 러너에서 다르게 나오는 \"첫 Linux 실행\" 실패 모드를 예상하며, 이때 `caddy.log`로 원인을 읽는다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "evidence",
+      "heading": "코드 근거",
+      "body": "## 코드 근거\n\n| 파일 | 근거 내용 |\n|---|---|\n| `.github/workflows/ci.yml` | 4개 잡, 명령, 아티팩트 업로드 |\n| `PortfolioBlog.Web/package.json` | `lint`, `typecheck`, `test`, `build` 스크립트 |\n| `PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj` | .NET 테스트 프로젝트 |\n| `PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs` | 엔드포인트 테스트 예 |\n| `PortfolioBlog.Api.Tests/Infrastructure/DatabaseSchemaTests.cs` | 인프라 테스트 예 |\n| `PortfolioBlog.Web/vitest.config.ts`, `PortfolioBlog.Web/src/test/editor.test.tsx` | Vitest 설정과 예 |\n| `PortfolioBlog.Web/e2e/admin.spec.ts`, `playwright.config.ts`, `playwright.stack.config.ts` | Playwright E2E |\n| `deploy/smoke/smoke.test.mjs`, `deploy/smoke/run.sh` | 배포 스모크 |\n| `PortfolioBlog.Web/src/pages/PostEditorPage.tsx` (`Editor.save.onError`) | DEBT004 |\n| `PortfolioBlog.Api/Features/Posts/PostEndpoints.cs` (`UpdateAsync` 215-233) | DEBT004 |\n| `PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs` (`DbConflict`) | DEBT004 |\n| `PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs` (`Render`) | DEBT014 |\n| `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` | DEBT014 |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "caveats",
+      "heading": "주의사항",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    }
+  ],
+  "relatedDocs": [
+    "04_SETUP_AND_RUN.md",
+    "16_DEPLOYMENT.md",
+    "17_TECH_DEBT.md",
+    "features/F028_DEPLOY_SMOKE_TEST.md"
+  ],
+  "unknowns": [
+    "테스트 개수(.NET·Vitest·Playwright·smoke 각각)는 확인하지 못함",
+    "불안정(flaky) 테스트의 실제 CI 이력은 확인하지 못함",
+    "커버리지 측정·임계값 설정 여부는 확인하지 못함"
+  ]
+}

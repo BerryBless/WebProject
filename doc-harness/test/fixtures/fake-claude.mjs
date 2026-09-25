@@ -25,6 +25,8 @@ function emit(structured, extra = {}) {
 
 if (mode === 'badjson') {
   process.stdout.write('this is not json');
+} else if (mode === 'limit') {
+  process.stdout.write(JSON.stringify({ is_error: true, result: "You've hit your session limit · resets 1am", total_cost_usd: 0, session_id: 'fake-limit' }));
 } else if (mode === 'error') {
   process.stdout.write(JSON.stringify({ is_error: true, result: 'simulated failure', total_cost_usd: 0.002, session_id: 'fake-err' }));
 } else if (mode === 'invalid_schema' || (mode === 'invalid_then_ok' && calls === 0)) {

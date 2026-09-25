@@ -93,6 +93,11 @@ describe('Run', () => {
     const r1 = await Run.create(paths, 'INITIAL', 'fp');
     expect((await Run.latestIncomplete(paths))?.name).toBe('run-0001');
     await r1.fail('x');
+    expect((await Run.latestIncomplete(paths))?.name).toBe('run-0001');
+    await r1.reopen();
+    expect(r1.state.status).toBe('RUNNING');
+    expect(r1.state.abandonReason).toBeUndefined();
+    await r1.commit();
     expect(await Run.latestIncomplete(paths)).toBeNull();
     const r2 = await Run.create(paths, 'INCREMENTAL', 'fp');
     await r2.abandon('newer changes');

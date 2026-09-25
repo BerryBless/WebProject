@@ -1,0 +1,53 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart TD\n  Incoming[\"관리 호스트 /api 요청\"] --> AdminSurfaceMiddleware{\"호스트·IP·CSRF·Origin 통과?\"}\n  AdminSurfaceMiddleware -->|아니오| Reject4xx[\"404 또는 403\"]\n  AdminSurfaceMiddleware -->|예| RateLimitingExtensions{\"Login 정책이면 한도 이내?\"}\n  RateLimitingExtensions -->|아니오| TooMany[\"429 + Retry-After\"]\n  RateLimitingExtensions -->|예| CookieTicket{\"__Host-AdminSession 복호화 성공?\"}\n  CookieTicket -->|아니오 또는 쿠키 없음| Anonymous[\"미인증 주체\"]\n  CookieTicket -->|예| SessionValidator[\"SessionValidator.ValidateAsync\"]\n  SessionValidator --> AppDbContext[\"AppDbContext.AdminStates SessionEpoch 조회\"]\n  AppDbContext -->|예외| OverloadExceptionHandler[\"UseExceptionHandler / OverloadExceptionHandler\"]\n  AppDbContext --> SessionRules{\"SessionRules.IsValid\"}\n  SessionRules -->|거짓| RejectAndSignOut[\"RejectPrincipal + SignOutAsync\"]\n  RejectAndSignOut --> Anonymous\n  SessionRules -->|참| Authenticated[\"인증된 주체\"]\n  Anonymous --> AllowAnonymous{\"AllowAnonymous 엔드포인트?\"}\n  AllowAnonymous -->|예| AuthEndpoints[\"AuthEndpoints /me 또는 /login\"]\n  AllowAnonymous -->|아니오| OnRedirectToLogin[\"Admin 정책 챌린지 OnRedirectToLogin 401\"]\n  OnRedirectToLogin --> ErrorResponses[\"ErrorResponses ProblemDetails 본문\"]\n  Authenticated --> LogoutAsync[\"AuthEndpoints.LogoutAsync 등 보호 엔드포인트\"]",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+    },
+    {
+      "node": "RateLimitingExtensions",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs"
+    },
+    {
+      "node": "SessionValidator",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync"
+    },
+    {
+      "node": "AppDbContext",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs"
+    },
+    {
+      "node": "SessionRules",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "symbol": "SessionRules.IsValid"
+    },
+    {
+      "node": "OverloadExceptionHandler",
+      "code": "PortfolioBlog.Api/Program.cs"
+    },
+    {
+      "node": "AuthEndpoints",
+      "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs"
+    },
+    {
+      "node": "LogoutAsync",
+      "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LogoutAsync"
+    },
+    {
+      "node": "OnRedirectToLogin",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "Events.OnRedirectToLogin"
+    },
+    {
+      "node": "ErrorResponses",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs"
+    }
+  ],
+  "reason": "기존 다이어그램은 새 분석의 실행 흐름과 일치한다. 검증 실패 시 RejectPrincipal 후 미인증 처리, DB 예외 시 503 핸들러, AllowAnonymous 분기, OnRedirectToLogin 401과 ErrorResponses 본문이 모두 맞다. 관련 파일에 코드 변경도 없어 그대로 둔다."
+}

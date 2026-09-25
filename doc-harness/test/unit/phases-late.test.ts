@@ -34,6 +34,19 @@ describe('phase 04 features', () => {
     expect(fake.calls.filter((c) => c.id === 'feature:F001')).toHaveLength(2);
   });
 
+  it('사용량 한도가 나면 남은 기능을 시도하지 않고 PENDING으로 남긴다', async () => {
+    const feats = [sampleFeatureSummary('F001'), sampleFeatureSummary('F002', 'B'), sampleFeatureSummary('F003', 'C')];
+    const fake = new FakeClaudeRunner({ 'feature:F001': new Error("QUOTA: claude reported is_error: You've hit your session limit · resets 1am"), '*': (req: { id: string }) => sampleFeatureAnalysis(feats.find((f) => `feature:${f.id}` === req.id)!) });
+    const cfg = loadConfig();
+    cfg.analysis.feature_parallelism = 1;
+    const { ctx, logs } = await makeTestContext(fake, { cfg });
+    const r = await runFeatures(ctx, feats, sampleArchitecture(), new Map(), null);
+    expect(r.failed.map((f) => f.id)).toEqual(['F001']);
+    expect(r.analyses.size).toBe(0);
+    expect(ctx.run.item('feature:F002')).toBe('PENDING');
+    expect(logs.some((l) => l.includes('사용량 한도'))).toBe(true);
+  });
+
   it('병렬 2에서도 id별 결과가 정확하다', async () => {
     const feats = sampleFeatures().features;
     const fake = new FakeClaudeRunner({ '*': (req: { id: string }) => sampleFeatureAnalysis(feats.find((f) => `feature:${f.id}` === req.id)!) });

@@ -1,0 +1,43 @@
+Documentation Complete
+
+Project: PortfolioBlog
+Commit: 432327ff0a
+
+Features discovered: 29
+Features analyzed: 29
+
+Documents generated: 61
+
+Diagrams:
+  Architecture: 4
+  Sequence: 30
+  Flowchart: 43
+  Data Flow: 11
+  ER: 2
+  State: 10
+  Class: 1
+
+Failures discovered: 12
+
+Issues:
+  Confirmed: 1
+  Potential: 31
+  Improvement: 10
+
+Verification:
+- Hallucination: 4
+- Missing: 17
+- Incorrect Relation: 13
+- Diagram: 7
+- Unsupported Claim: 5
+- 경고(보고만): 18
+- 반복: 1회 · Mermaid 파서: VERIFIED · 점수(내부 지표) coverage 92 / accuracy 96
+
+Unknowns: 177
+
+검증 잔여 지적 87건(결정적 차단 이슈 0) → 19_UNKNOWN_AND_TODO.md "검증 잔여 지적" 절에 기록하고 발행함
+
+Documentation:
+docs/generated/README.md
+
+비용: $346.55 · Claude 호출 0회 · Baseline 생성 완료

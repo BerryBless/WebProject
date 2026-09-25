@@ -1,0 +1,212 @@
+{
+  "score": {
+    "coverage": 94,
+    "accuracy": 93
+  },
+  "hallucinations": [
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "NONEXISTENT_SYMBOL",
+      "description": "`/series/{slug}` 행의 코드 심볼이 `SeriesModel.OnGetAsync`로 적혀 있지만, 코드에는 `SeriesModel` 클래스가 없다. 실제 페이지 모델은 `SeriesPageModel`(Series.cshtml.cs 20행)이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+          "symbol": "SeriesPageModel.OnGetAsync",
+          "lines": "20,37-46"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "NONEXISTENT_SYMBOL",
+      "description": "`/tags/{tag}` 행의 코드 심볼이 `TagModel.OnGetAsync`로 적혀 있지만, 코드에는 `TagModel` 클래스가 없다. 실제 페이지 모델은 `TagPageModel`(Tag.cshtml.cs 21행)이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "21,57-72"
+        }
+      ]
+    }
+  ],
+  "missingItems": [
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_FAILURE_PATH",
+      "description": "/api/* 엔드포인트 전부의 오류 열에 AdminSurfaceMiddleware의 거부 코드가 빠져 있다. 문서는 이를 unknowns로 미뤘지만 코드에서 확인된다. 관리 호스트가 아니면 404, IP 허용 목록 밖이면 403, `X-Requested-With` 헤더가 없으면 403, GET·HEAD가 아닌 요청의 Origin이 관리 origin과 다르면 403이며, 모두 ProblemDetails 형식이고 `Cache-Control: no-store`가 붙는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_FAILURE_PATH",
+      "description": "공개 Razor 페이지(/, /posts/{slug}, /search, /series/{slug}, /tags/{tag})와 /sitemap.xml은 모두 PublicDbContext를 쓴다. 이 컨텍스트의 연결에는 statement_timeout이 걸려 있어 시간을 넘기면 SqlState 57014가 나고, OverloadExceptionHandler가 이를 503 + Retry-After로 바꾼다. 그런데 오류 열에는 이 경로가 없다. /feed.xml에만 INFERRED로 적혀 있는데, 이 경로는 코드로 확인할 수 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.IsOverload",
+          "lines": "38-40,67"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+          "symbol": "IndexModel",
+          "lines": "19"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "details",
+      "type": "MISSING_FAILURE_PATH",
+      "description": "/posts/{slug}의 실패 경로가 문서에 없다. (1) 캐시 미스 때 RenderedPostCache.GetOrRenderAsync가 RenderGate 슬롯 대기에서 RenderBusyException을 내면 503이 된다. (2) MarkdownTooComplexException이 나거나 메타 조회 직후 글이 삭제되면, 404가 아니라 본문 없는(BodyHtml=null) 200을 돌려준다. 문서는 이 부분을 'Post.cshtml.cs 세부는 미확인 — INFERRED'로 두었지만 코드에서 확인된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.OnGetAsync / RenderAsync",
+          "lines": "43-74"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "lines": "88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "GetOrRenderAsync",
+          "lines": "95,143"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_DETAIL",
+      "description": "/search의 인증 열은 'RateLimitPolicy.Search(Search 전용)'이라고만 적었다. 실제로 Search 요청에는 search-concurrency와 search-ip 창만 걸리는 것이 아니라 PublicPage와 같은 page-ip 창도 함께 걸려, 공개 페이지 IP 한도를 같이 소모한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "AddAppRateLimiting",
+          "lines": "93,99-100"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "WRONG_HOST_SCOPE",
+      "description": "`/attachments/{id:guid}/{fileName}`의 Host가 'public'으로 적혀 있지만 실제로는 두 호스트 모두에서 응답한다(/health처럼 'both'여야 한다). 근거: 이 엔드포인트에는 RequireHost가 없다. AdminSurfaceMiddleware는 /api 경로만 검사한다. 호스트 필터는 공개·관리 두 호스트를 모두 허용한다. 코드 주석도 '공개 호스트의 글 본문과, 관리 호스트의 미리보기 iframe이 쓴다'고 사용 의도를 밝히므로, unknowns의 '의도 여부는 UNKNOWN'도 코드와 어긋난다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints",
+          "lines": "9,50-54"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "InvokeAsync",
+          "lines": "70-73"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "34-38"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "`/series/{slug}` 행의 심볼을 `SeriesPageModel.OnGetAsync`로, `/tags/{tag}` 행의 심볼을 `TagPageModel.OnGetAsync`로 고친다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+          "lines": "20"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "lines": "21"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "`/attachments/{id:guid}/{fileName}`의 Host를 'both'로 바꾸고 호출자에 '관리 SPA 미리보기 iframe'을 추가한다. unknowns의 '의도 여부 UNKNOWN' 항목은 코드 주석을 근거로 해소한다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "9,52"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "/api/* 행의 오류 열에 AdminSurfaceMiddleware의 거부 코드(비관리 호스트 404, IP·X-Requested-With·Origin 위반 403)를 추가하고, unknowns의 해당 항목을 지운다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "75-94"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "PublicDbContext를 쓰는 공개 페이지(/, /posts/{slug}, /search, /series/{slug}, /tags/{tag})와 /sitemap.xml의 오류 열에 503+Retry-After(statement_timeout 57014)를 추가하고, /feed.xml의 INFERRED 표기를 CONFIRMED로 바꾼다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "67"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "details",
+      "issue": "/posts/{slug} 상세에 두 가지를 적고 INFERRED 표기를 지운다. 캐시 미스 때 RenderGate 대기 초과는 503이고, 렌더러 거부(MarkdownTooComplexException)나 경쟁 삭제 때는 본문 없는 200이다. section=details",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "lines": "51-74"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "lines": "88"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "/search의 속도 제한 설명을 고친다. Search 정책 요청은 search 창에 더해 PublicPage와 같은 page-ip 창에도 계산된다는 점을 적는다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "99-100"
+        }
+      ]
+    }
+  ]
+}

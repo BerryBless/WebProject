@@ -1,0 +1,58 @@
+{
+  "decision": "UPDATED",
+  "mermaid": "flowchart TD\n    StartupValidation[StartupValidation.Validate] --> HostOfCheck{SiteOptions.HostOf 형식 검사 모든 환경}\n    HostOfCheck -- FormatException --> StartFail[InvalidOperationException 시작 실패]\n    HostOfCheck -- 통과 --> HttpsRequire{Development 아님이면 Require https}\n    HttpsRequire -- https 아님 --> StartFail\n    HttpsRequire -- 통과 또는 Development --> MapPublicSiteEndpoints[MapPublicSiteEndpoints 등록]\n    MapPublicSiteEndpoints --> HostCheck{RequireHost publicHost 매칭?}\n    HostCheck -- 아니오 --> UseStaticFiles{UseStaticFiles wwwroot 파일 존재}\n    UseStaticFiles -- css/site.css --> SiteCssOk[200 text/css max-age=3600 속도 제한 없음]\n    UseStaticFiles -- 없음 --> NotFound404[404 HTML]\n    HostCheck -- 예 --> PolicyCheck{RateLimitMetadata 정책}\n    PolicyCheck -- 한도 초과 --> TooMany429[429 Retry-After]\n    PolicyCheck -- 통과 --> PathSwitch{경로}\n    PathSwitch -- /css/highlight.css --> HighlightCss[HighlightCss.Value Lazy 캐시]\n    HighlightCss --> CssOk[200 text/css max-age=86400]\n    PathSwitch -- /robots.txt --> SiteOptions[SiteOptions.PublicOrigin]\n    SiteOptions --> RobotsOk[200 text/plain 캐시 헤더 없음]\n    PathSwitch -- /feed.xml --> FeedAsync[PublicQueries.FeedAsync]\n    PathSwitch -- /sitemap.xml --> SitemapAsync[PublicQueries.SitemapAsync]\n    FeedAsync --> DbResult{DB 결과}\n    SitemapAsync --> DbResult\n    DbResult -- 57014 또는 55P03 --> OverloadExceptionHandler[OverloadExceptionHandler 503 Retry-After 5]\n    DbResult -- 기타 예외 --> Error500[UseExceptionHandler 500]\n    DbResult -- 성공 --> XmlWriter[XmlWriter to MemoryStream]\n    XmlWriter -- 무효 XML 문자 ArgumentException --> Error500\n    XmlWriter -- 성공 --> XmlOk[200 XML max-age=300]",
+  "changedEdges": [
+    "HostCheck --> NotFound404: 삭제(아니오 분기를 UseStaticFiles로 경유)",
+    "HostCheck --> UseStaticFiles: 추가",
+    "UseStaticFiles --> SiteCssOk: 추가 (css/site.css)",
+    "UseStaticFiles --> NotFound404: 추가 (파일 없음)"
+  ],
+  "nodes": [
+    {
+      "node": "StartupValidation",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate"
+    },
+    {
+      "node": "MapPublicSiteEndpoints",
+      "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints"
+    },
+    {
+      "node": "UseStaticFiles",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseStaticFiles"
+    },
+    {
+      "node": "SiteCssOk",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "StaticFileOptions.OnPrepareResponse"
+    },
+    {
+      "node": "PolicyCheck",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain"
+    },
+    {
+      "node": "HighlightCss",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "symbol": "HighlightCss.Cached"
+    },
+    {
+      "node": "FeedAsync",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.FeedAsync"
+    },
+    {
+      "node": "SitemapAsync",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.SitemapAsync"
+    },
+    {
+      "node": "XmlWriter",
+      "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.FeedAsync / SitemapAsync"
+    }
+  ],
+  "reason": "새 분석에 따르면 엔드포인트 매칭이 없는 요청 중 wwwroot 파일(/css/site.css)은 UseStaticFiles에서 200으로 끝나고 속도 제한을 거치지 않는다. 기존 다이어그램은 매칭 실패를 곧바로 404로 그려 이 경로가 빠져 있었다. 시작 검증 부분과 나머지 분기는 그대로 두었다."
+}

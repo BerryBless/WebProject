@@ -1,0 +1,45 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 98
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [],
+  "diagramIssues": [
+    {
+      "document": "features/F029_ADMIN_SPA_SHELL.md",
+      "diagram": "F029_FLOW",
+      "section": "F029_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "Caddy 분기에서 @backend가 불일치하면 곧바로 Caddy_static{@asset_miss @dot @wellknown}로 가고, '그 밖'이면 try_files index.html을 거쳐 RootRoute(SPA 라우트)로 이어진다. 그런데 실제 Caddyfile에서는 @asset_miss보다 앞에 @asset_hit(path /assets/* + file) 분기가 있다. 이 분기는 file_server가 immutable 캐시로 파일을 직접 서빙하므로 index.html·SPA 라우터에 도달하지 않는다. 다이어그램대로라면 존재하는 /assets/* 파일이 try_files index.html → routes 루트 라우트로 가는 것처럼 읽힌다. 같은 문서의 본문과 data 절에는 @asset_hit이 올바르게 서술돼 있다.",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "symbol": "@asset_hit / handle @asset_hit / @asset_miss",
+          "lines": "116-125"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "symbol": "try_files {path} /index.html",
+          "lines": "139-142"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F029_ADMIN_SPA_SHELL.md",
+      "section": "F029_FLOW",
+      "issue": "Caddy_backend 불일치 뒤에 @asset_hit(/assets/* 파일 존재 → file_server immutable 서빙, SPA 미도달) 분기를 추가하거나, Caddy_static의 '그 밖' 간선이 존재하는 /assets/* 파일에는 해당하지 않음을 명시한다. section=F029_FLOW",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "symbol": "@asset_hit",
+          "lines": "116-123"
+        }
+      ]
+    }
+  ]
+}

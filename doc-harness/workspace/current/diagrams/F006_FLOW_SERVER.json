@@ -1,0 +1,51 @@
+{
+  "decision": "UPDATED",
+  "mermaid": "flowchart TD\n  UpdateAsync[UpdateAsync SELECT Posts] --> found{post 존재?}\n  found -- 아니오 --> NotFound[404]\n  found -- 예 --> ValidateSeriesAsync[PostValidation, slug, version, ValidateSeriesAsync]\n  ValidateSeriesAsync -- 오류 --> ValidationProblem[400 ValidationProblem]\n  ValidateSeriesAsync -- 통과 --> versionCheck{post.Version == req.Version?}\n  versionCheck -- 아니오 --> StaleVersion[StaleVersion 409]\n  versionCheck -- 예 --> RenderOrAddErrorAsync[RenderOrAddErrorAsync RenderGate]\n  RenderOrAddErrorAsync -- MarkdownTooComplex --> ValidationProblem\n  RenderOrAddErrorAsync -- RenderBusyException --> OverloadExceptionHandler[OverloadExceptionHandler 503 Retry-After]\n  RenderOrAddErrorAsync -- 성공 --> TagResolver[BeginTransaction, TagResolver.ResolveIdsAsync]\n  TagResolver -- PostgresException 57014 55P03 --> OverloadExceptionHandler\n  TagResolver -- 그 밖의 DB 예외 --> UseExceptionHandler[UseExceptionHandler 일반 처리]\n  TagResolver --> SaveChangesAsync[PostTags 차집합, 필드 갱신, SaveChangesAsync]\n  SaveChangesAsync -- DbUpdateConcurrencyException --> StaleVersion\n  SaveChangesAsync -- 23505 23503 --> DbConflict[DbConflict.Problem 409 참조 삭제]\n  SaveChangesAsync -- 57014 55P03 --> OverloadExceptionHandler\n  SaveChangesAsync -- 그 밖의 DbUpdateException --> UseExceptionHandler\n  SaveChangesAsync -- 성공 --> GetDetailAsync[Commit, Audit 로그, GetDetailAsync]\n  GetDetailAsync --> CanCacheRenderedResult{CanCacheRenderedResult?}\n  CanCacheRenderedResult -- 예 --> RenderedPostCache[RenderedPostCache.Store]\n  CanCacheRenderedResult -- 아니오 --> Ok[200 PostDetailDto]\n  RenderedPostCache --> Ok",
+  "changedEdges": [
+    "SaveChangesAsync --> OverloadExceptionHandler: 추가 (57014 55P03)",
+    "SaveChangesAsync --> UseExceptionHandler: 추가 (그 밖의 DbUpdateException)"
+  ],
+  "nodes": [
+    {
+      "node": "UpdateAsync",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "UpdateAsync"
+    },
+    {
+      "node": "ValidateSeriesAsync",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "ValidateSeriesAsync"
+    },
+    {
+      "node": "RenderOrAddErrorAsync",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "RenderOrAddErrorAsync"
+    },
+    {
+      "node": "TagResolver",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync"
+    },
+    {
+      "node": "SaveChangesAsync",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "UpdateAsync"
+    },
+    {
+      "node": "DbConflict",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.Problem"
+    },
+    {
+      "node": "OverloadExceptionHandler",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler"
+    },
+    {
+      "node": "RenderedPostCache",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "RenderedPostCache.Store"
+    }
+  ],
+  "reason": "OverloadExceptionHandler는 InnerException 체인에서 PostgresException 57014/55P03을 찾으므로(OverloadExceptionHandler.cs:57-67), SaveChangesAsync의 DbUpdateException이 이를 감싸면 503이 된다. PostEndpoints.cs:230-234의 catch는 동시성·제약 경합만 처리하고 나머지는 전파되어 일반 처리로 간다. 새 후보가 이 두 간선을 더한 것이 맞고, 나머지는 기존 그대로다."
+}

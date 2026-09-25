@@ -1,0 +1,46 @@
+{
+  "decision": "UPDATED",
+  "mermaid": "flowchart LR\n    Posts[(Posts)] --> PublicQueries\n    TagsPostTags[(Tags + PostTags)] --> PublicQueries\n    Series[(Series)] --> PublicQueries\n    PublicQueries --> PublicFeedEntry\n    PublicQueries --> PublicSitemap\n    SiteOptions --> SiteEndpoints\n    PublicFeedEntry --> SiteEndpoints\n    PublicSitemap --> SiteEndpoints\n    SiteEndpoints -- 제목 요약 --> XmlText\n    SiteEndpoints -- slug 태그 --> PublicUrls\n    SiteEndpoints -- 시각 --> PublicFormat\n    XmlText --> MemoryStream\n    PublicUrls --> MemoryStream\n    PublicFormat --> MemoryStream\n    MemoryStream -- ToArray --> TypedResultsBytes[TypedResults.Bytes 응답]\n    StyleDictionary[ColorCode StyleDictionary] --> HighlightCss\n    HighlightCss --> TypedResultsText[TypedResults.Text text/css]\n    SiteCssFile[wwwroot/css/site.css] --> UseStaticFiles\n    UseStaticFiles --> StaticResponse[정적 파일 응답 max-age=3600]",
+  "changedEdges": [
+    "StyleDictionary --> HighlightCss: 추가",
+    "HighlightCss --> TypedResultsText: 추가",
+    "SiteCssFile --> UseStaticFiles: 추가",
+    "UseStaticFiles --> StaticResponse: 추가"
+  ],
+  "nodes": [
+    {
+      "node": "Posts",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs"
+    },
+    {
+      "node": "PublicQueries",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.FeedAsync / SitemapAsync"
+    },
+    {
+      "node": "SiteEndpoints",
+      "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints"
+    },
+    {
+      "node": "HighlightCss",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "symbol": "HighlightCss.Build"
+    },
+    {
+      "node": "StyleDictionary",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "symbol": "HighlightCss.Build"
+    },
+    {
+      "node": "UseStaticFiles",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseStaticFiles"
+    },
+    {
+      "node": "SiteCssFile",
+      "code": "PortfolioBlog.Api/wwwroot/css/site.css"
+    }
+  ],
+  "reason": "새 분석의 데이터 흐름에 highlight.css(HighlightCss)와 site.css(정적 파일) 흐름이 있는데 기존 다이어그램에는 없다. 기존 간선은 모두 그대로 두고 두 흐름만 추가했다. 노드는 25개, 간선은 40개를 넘지 않는다."
+}

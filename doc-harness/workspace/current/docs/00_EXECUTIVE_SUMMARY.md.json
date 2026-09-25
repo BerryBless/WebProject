@@ -1,0 +1,130 @@
+{
+  "title": "경영진 요약(Executive Summary)",
+  "oneLiner": "PortfolioBlog는 단일 작성자용 보안 중심 기술 블로그로, JS 없는 SSR 공개 사이트와 IP 허용 목록·세션 뒤의 React 관리 SPA를 ASP.NET Core 10 + PostgreSQL 17 + Caddy(Docker Compose)로 분리 운영한다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "architecture",
+      "heading": "전체 Architecture",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "dataflow",
+      "heading": "핵심 Data Flow",
+      "body": "## 핵심 Data Flow\n\n**가장 중요한 흐름은 '글 저장 → 렌더 가능성 확인 → DB 저장 → 재조회 → 조건부 렌더 캐시 선채움 → 공개 열람'이다.** 이 조율은 `PostEndpoints.CreateAsync`/`UpdateAsync`가 각 단계를 차례로 직접 호출하는 방식이다. 렌더된 HTML은 DB에 저장되지 않고(DB에는 마크다운 원문만 저장), 지역 변수 `rendered`로 들고 있다가 캐시에만 넣는다.\n\n| 단계 | 동작 | 근거 |\n|---|---|---|\n| 1 | 관리자가 SPA에서 저장하면 Caddy 관리 도메인이 `/api/*`를 api로 전달한다 | [F003](features/F003_ADMIN_POST_EDITOR.md), [F025](features/F025_EDGE_PROXY_TLS.md) |\n| 2 | `AdminSurfaceMiddleware`가 호스트·IP·CSRF 헤더·Origin을 검사한다 | [F018](features/F018_ADMIN_SURFACE_ACCESS_CONTROL.md) |\n| 3 | `PostEndpoints`가 `RenderGate.RenderAsync`(내부에서 `MarkdownRenderer.RenderDetailed`)로 렌더 가능성을 확인하고 결과를 `rendered`에 보관한다. 수정 시에는 이에 앞서 version 검사를 하며 불일치면 409다 | [F006](features/F006_POST_EDIT_CONFLICT.md), [F011](features/F011_MARKDOWN_RENDERING_CACHE.md) |\n| 4 | `AppDbContext.SaveChangesAsync`로 마크다운 원문만 저장한다(수정은 version=xmin 낙관적 동시성) | [F003](features/F003_ADMIN_POST_EDITOR.md) |\n| 5 | `PostQueries.GetDetailAsync`로 재조회하고, `CanCacheRenderedResult`가 참일 때만 `RenderedPostCache.Store`를 호출한다(그 사이 다른 요청이 같은 글을 저장했다면 캐시하지 않음) | [F011](features/F011_MARKDOWN_RENDERING_CACHE.md) |\n| 6 | 방문자가 `/posts/{slug}`를 열면 `PublicDbContext`로 조회하고 캐시 미스일 때만 렌더한다 | [F013](features/F013_PUBLIC_POST_DETAIL.md) |",
+      "diagrams": [
+        {
+          "id": "EXEC_DATAFLOW",
+          "type": "flowchart",
+          "title": "글 저장과 렌더 캐시 흐름 (Data Flow Diagram)",
+          "summary": "PostEndpoints가 RenderGate 렌더, AppDbContext 저장, PostQueries 재조회, 조건부 RenderedPostCache 저장을 차례로 직접 호출한다.",
+          "mermaid": "flowchart LR\n  Caddyfile --> AdminSurfaceMiddleware\n  AdminSurfaceMiddleware --> PostEndpoints\n  PostEndpoints --> RenderGate\n  RenderGate --> MarkdownRenderer\n  PostEndpoints --> AppDbContext\n  PostEndpoints --> PostQueries\n  PostEndpoints --> RenderedPostCache",
+          "details": "Caddyfile이 관리 도메인 요청을 api로 넘기고 AdminSurfaceMiddleware가 본문을 읽기 전에 접근을 거른다. PostEndpoints(CreateAsync/UpdateAsync)가 조율자다. 먼저 RenderGate.RenderAsync가 MarkdownRenderer.RenderDetailed로 HTML을 만들고 결과는 지역 변수로 보관된다. 이어 AppDbContext.SaveChangesAsync가 마크다운 원문만 저장한다. 그다음 PostQueries.GetDetailAsync로 재조회하고, CanCacheRenderedResult가 참일 때만 (PostId, xmin) 키로 RenderedPostCache.Store를 호출한다. 렌더 HTML은 DB로 가지 않으며 AppDbContext는 캐시를 호출하지 않는다.",
+          "nodes": [
+            {
+              "node": "Caddyfile",
+              "code": "deploy/Caddyfile"
+            },
+            {
+              "node": "AdminSurfaceMiddleware",
+              "code": "PortfolioBlog.Api/Infrastructure/Access",
+              "symbol": "AdminSurfaceMiddleware"
+            },
+            {
+              "node": "PostEndpoints",
+              "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+              "symbol": "PostEndpoints.CreateAsync / UpdateAsync"
+            },
+            {
+              "node": "RenderGate",
+              "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+              "symbol": "RenderGate.RenderAsync"
+            },
+            {
+              "node": "MarkdownRenderer",
+              "code": "PortfolioBlog.Api/Infrastructure/Markdown",
+              "symbol": "MarkdownRenderer.RenderDetailed"
+            },
+            {
+              "node": "AppDbContext",
+              "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+              "symbol": "AppDbContext"
+            },
+            {
+              "node": "PostQueries",
+              "code": "PortfolioBlog.Api/Features/Posts",
+              "symbol": "PostQueries.GetDetailAsync"
+            },
+            {
+              "node": "RenderedPostCache",
+              "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+              "symbol": "RenderedPostCache.Store"
+            }
+          ],
+          "status": "CONFIRMED"
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "id": "status",
+      "heading": "현재 상태",
+      "body": "## 현재 상태\n\n**1~4단계 기능(공개 열람, 관리 SPA, 첨부, 배포·스모크)이 코드에 구현돼 있고, 알려진 확정 문제는 검색 성능 한 건이다.**\n\n| 구분 | 내용 |\n|---|---|\n| 동작 | 관리자 인증·글/시리즈/태그/첨부 관리, 미리보기, 공개 홈·상세·검색·시리즈·태그·피드·사이트맵, 백업·복원, 배포 스모크 |\n| 알려진 문제 | PERF001: 검색이 `ContentMarkdown`까지 `ILIKE '%term%'`로 전표 스캔한다([14_PERFORMANCE](14_PERFORMANCE.md)) |\n| 기술 부채 | [17_TECH_DEBT](17_TECH_DEBT.md) 참고 |\n| 주요 workaround | FAIL005: `deploy/docker-compose.yml`의 `public` 네트워크에 ipam 설정이 없어 서브넷이 자동 할당되므로 호스트 LAN과 겹치면 기동이 실패할 수 있다(이 겹침 서술은 `docs/worklog.md`·`plan/tech_blog_4_report_0923.md` 기록에서 옮긴 것이며 `deploy/OPERATIONS.md`에는 없다). FAIL007: 이 PC의 Hyper-V 포트 예약 때문에 `SMOKE_HTTP_BIND`로 로컬만 치환하고 최종 판정은 CI(Linux). FAIL008: Firefox 첨부 이미지 로드 전 새로고침 레이스는 후속 과제 |\n\n실패 이력 전체는 [11_FAILURE_HISTORY](11_FAILURE_HISTORY.md), 미확인 항목은 [19_UNKNOWN_AND_TODO](19_UNKNOWN_AND_TODO.md)에 있다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "before-you-change",
+      "heading": "수정 전 반드시 알아야 하는 것",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    }
+  ],
+  "relatedDocs": [
+    "01_PROJECT_OVERVIEW.md",
+    "02_ARCHITECTURE.md",
+    "04_SETUP_AND_RUN.md",
+    "05_CONFIGURATION.md",
+    "07_DATA_MODEL.md",
+    "08_API.md",
+    "09_FEATURES.md",
+    "10_ERROR_HANDLING.md",
+    "11_FAILURE_HISTORY.md",
+    "13_SECURITY.md",
+    "14_PERFORMANCE.md",
+    "15_TESTING.md",
+    "16_DEPLOYMENT.md",
+    "17_TECH_DEBT.md",
+    "18_GLOSSARY.md",
+    "19_UNKNOWN_AND_TODO.md"
+  ],
+  "unknowns": [
+    "코드에서 확인된 외부 서비스 연동은 ACME 외에 없음(이메일·분석·결제 등은 확인 못 함)",
+    "ApiBodyLimitMiddleware의 구체적 한도 값은 이 단계에서 확인하지 않음",
+    "확인함: 글 수정(UpdateAsync)은 version 검사 → RenderGate 렌더 → 트랜잭션 저장(xmin) → 재조회 → 조건부 캐시 저장 순서이고, 생성(CreateAsync)은 version 검사 없이 같은 순서(렌더 → 저장 → 재조회 → 조건부 캐시 저장)다",
+    "프로젝트 목적 서술은 README 기준이라 INFERRED"
+  ]
+}

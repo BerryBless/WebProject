@@ -35,7 +35,13 @@ retry:
 
 verification:
   enabled: true
-  max_iterations: 3
+  # 검증 → 수정 → 재검증 반복 상한. INITIAL 실전(2026-09-24)에서 회차당 $30~60·1시간이라 한도 창 안에 3회를 못 끝냈다 → 1로 마무리 후 2로 운용.
+  max_iterations: 2
+  # 기능 문서군 검증 조각의 문서 수(0 = 누적 크기 기준). 고정 개수가 캐시에 안전하다. run-0001이 끝난 뒤 4로 올린다.
+  feature_chunk_docs: 4
+  # 최대 반복 후에도 LLM 검증자의 지적이 남으면(결정적 차단 이슈는 0일 때) 잔여 지적을 19_UNKNOWN_AND_TODO에 적고 발행한다.
+  # false면 잔여 지적이 하나라도 있으면 Run FAILED(정본 미갱신).
+  publish_on_residual: true
 
 git:
   analyze_history: true

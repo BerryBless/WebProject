@@ -34,13 +34,23 @@ export interface CallOptions {
   extraHash?: string;
 }
 
+const ISO_DATE_RE = /\b20\d{2}-\d{2}-\d{2}\b/g;
+
+/**
+ * 입력 해시. 프롬프트의 오늘 날짜는 실행일마다 바뀌므로 ISO 날짜(YYYY-MM-DD)를 전부 자리표시자로 치환해 계산한다.
+ * 특정 날짜만 치환하면 다른 날짜 문자열(파일명·커밋 날짜)이 섞인 프롬프트에서 실행일에 따라 해시가 달라진다(2026-09-24 실측).
+ */
+export function stableInputHash(prompt: string, extraHash?: string): string {
+  return sha256(prompt.replace(ISO_DATE_RE, '{{date}}') + '\n' + (extraHash ?? ''));
+}
+
 /**
  * 항목 하나를 Claude에 물어 결과를 staging/current/<outFile>에 쓴다.
  * 같은 입력으로 이미 SUCCESS면 저장된 결과를 다시 읽는다(resume).
  */
 export async function callClaude<T>(ctx: PhaseContext, opts: CallOptions): Promise<T> {
   const outAbs = path.join(ctx.run.staging.current, opts.outFile);
-  const inputHash = sha256(opts.prompt + '\n' + (opts.extraHash ?? ''));
+  const inputHash = stableInputHash(opts.prompt, opts.extraHash);
   return ctx.run.runItem<T>(
     opts.itemId,
     inputHash,
@@ -102,7 +112,7 @@ export async function loadWorkspace(dir: string): Promise<CurrentWorkspace> {
   };
 }
 
-export function sessionContextBlock(ctx: PhaseContext): string {
+export function sessionContextBlock(ctx: Pick<PhaseContext, 'sessionContext'>): string {
   if (!ctx.sessionContext.trim()) return '(세션 맥락 없음)';
   return `다음은 직전 개발 세션의 요약이다. **최하위 근거**이며 코드로 확인되지 않은 내용은 사실로 쓰지 않는다.\n\n${ctx.sessionContext.trim()}`;
 }

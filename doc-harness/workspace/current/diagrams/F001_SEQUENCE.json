@@ -1,0 +1,53 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "sequenceDiagram\n  participant LoginPage\n  participant request\n  participant AdminSurfaceMiddleware\n  participant RateLimitingExtensions\n  participant ApiBodyLimitMiddleware\n  participant AuthEndpoints\n  participant AdminCredential\n  participant AppDbContext\n  participant safeNext\n  LoginPage->>request: auth.login(password)\n  request->>AdminSurfaceMiddleware: POST /api/auth/login + X-Requested-With\n  alt 호스트 또는 IP 또는 CSRF 또는 Origin 불일치\n    AdminSurfaceMiddleware-->>request: 404 또는 403\n  else 통과\n    AdminSurfaceMiddleware->>RateLimitingExtensions: Login 정책 임대 요청\n    alt 동시 또는 IP당 또는 전역 한도 초과\n      RateLimitingExtensions-->>request: 429 + Retry-After\n    else 허용\n      RateLimitingExtensions->>ApiBodyLimitMiddleware: 인증 인가 통과 후\n      alt 본문 262144바이트 초과\n        ApiBodyLimitMiddleware-->>request: 413\n      else 이내\n        ApiBodyLimitMiddleware->>AuthEndpoints: LoginAsync(LoginRequest)\n        alt Password null 또는 256자 초과\n          AuthEndpoints-->>request: 400 ValidationProblem\n        else 형식 정상\n          AuthEndpoints->>AdminCredential: Verify(password)\n          alt 불일치 또는 해시 미설정\n            AuthEndpoints-->>request: 401 로그인 실패\n          else 일치\n            AuthEndpoints->>AppDbContext: AdminStates SessionEpoch SingleAsync\n            AppDbContext-->>AuthEndpoints: epoch\n            AuthEndpoints-->>request: 204 + Set-Cookie __Host-AdminSession\n            request-->>LoginPage: onSuccess\n            LoginPage->>safeNext: safeNext(next)\n            safeNext-->>LoginPage: 같은 출처 경로 또는 /\n          end\n        end\n      end\n    end\n  end",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "LoginPage",
+      "code": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+      "symbol": "LoginPage.submit"
+    },
+    {
+      "node": "request",
+      "code": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request"
+    },
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+    },
+    {
+      "node": "RateLimitingExtensions",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions"
+    },
+    {
+      "node": "ApiBodyLimitMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+    },
+    {
+      "node": "AuthEndpoints",
+      "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync"
+    },
+    {
+      "node": "AdminCredential",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+      "symbol": "AdminCredential.Verify"
+    },
+    {
+      "node": "AppDbContext",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.AdminStates"
+    },
+    {
+      "node": "safeNext",
+      "code": "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "symbol": "safeNext"
+    }
+  ],
+  "reason": "코드 변경 없음. 새 후보의 차이는 표기뿐이다(요청 줄의 Origin 헤더 추가는 브라우저가 자동으로 붙이는 값이고 client.ts에서 설정하지 않음, \"형식 통과\"·\"검증된 경로 또는 루트\"는 문구 차이). 기존 다이어그램이 실행 흐름과 여전히 일치해 그대로 둔다."
+}

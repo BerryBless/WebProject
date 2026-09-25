@@ -70,6 +70,14 @@ describe('CliClaudeRunner', () => {
     expect(lines[1].status).toBe('SUCCESS');
   });
 
+  it('사용량 한도 오류는 재시도하지 않고 QUOTA로 즉시 실패한다', async () => {
+    const req = await makeReq('limit');
+    const r = await runner('limit').run(req);
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.error).toMatch(/^QUOTA:/); expect(r.attempts).toBe(1); }
+    expect(readFileSync(path.join(req.logDir, 'limit.log'), 'utf8').trim().split('\n')).toHaveLength(1);
+  });
+
   it('없는 실행 파일이면 spawn 오류를 실패로 돌려준다', async () => {
     const cfg = loadConfig();
     const r = await new CliClaudeRunner(cfg, { bin: 'definitely-not-a-real-binary-xyz', backoffMs: [0, 0] }).run(await makeReq('nobin'));

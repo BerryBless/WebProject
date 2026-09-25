@@ -1,0 +1,38 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart TD\n    PostEndpoints[PostEndpoints.CreateAsync / UpdateAsync] --> Validate[TagResolver.Validate]\n    Validate -->|오류| ValidationProblem[400 ValidationProblem]\n    Validate -->|통과| BeginTransaction[BeginTransactionAsync]\n    BeginTransaction --> ResolveIdsAsync[TagResolver.ResolveIdsAsync]\n    ResolveIdsAsync --> Normalize[Display + ToLowerInvariant, 공백 이름 건너뜀, 먼저 나온 표기 우선]\n    Normalize -->|wanted 0개| EmptyList[빈 목록 반환]\n    Normalize --> SelectExisting[SELECT NormalizedName FROM Tags]\n    SelectExisting --> OrdinalLoop[Ordinal 순으로 반복]\n    OrdinalLoop -->|이미 있음| OrdinalLoop\n    OrdinalLoop -->|없음| InsertOnConflict[INSERT Tags ON CONFLICT NormalizedName DO NOTHING]\n    InsertOnConflict --> OrdinalLoop\n    OrdinalLoop -->|끝| SelectIds[SELECT Id FROM Tags WHERE NormalizedName IN keys]\n    SelectIds --> AddPostTags[PostTag 추가, 수정이면 차집합 RemoveAll]\n    EmptyList --> AddPostTags\n    AddPostTags --> SaveChangesAsync[SaveChangesAsync]\n    SaveChangesAsync -->|23503/23505| DbConflict[DbConflict.Problem 409]\n    SaveChangesAsync -->|UpdateAsync 동시성 예외| StaleVersion[StaleVersion 409]\n    SaveChangesAsync -->|성공| Commit[tx.CommitAsync]",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "PostEndpoints",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync"
+    },
+    {
+      "node": "Validate",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Validate"
+    },
+    {
+      "node": "BeginTransaction",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "BeginTransactionAsync (138/212행)"
+    },
+    {
+      "node": "ResolveIdsAsync",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync"
+    },
+    {
+      "node": "InsertOnConflict",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync (107-114행)"
+    },
+    {
+      "node": "SaveChangesAsync",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync"
+    }
+  ],
+  "reason": "기존 다이어그램은 태그 해석 흐름(Validate → 트랜잭션 → ResolveIdsAsync → SaveChanges → 409/커밋)에 초점을 둔 것이고, 새 분석의 실행 흐름과 모순되지 않는다. 새 후보가 더하는 Update 글 조회 404, 버전 사전 비교, 렌더 400/503, Create slug 사전 검사는 태그 처리 이전의 글 저장 분기라서 반영하지 않았다. 다이어그램 노드의 파일에는 직접 변경도 없어 그대로 두었다."
+}

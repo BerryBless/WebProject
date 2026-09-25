@@ -63,7 +63,7 @@ describe('verificationLoop', () => {
     const docs = baseDocs(ws);
     const fake = new FakeClaudeRunner({
       'verify:features:1': sampleVerification({ incorrectRelations: [{ document: 'features/F001_POST_LIST.md', section: 'F001_SEQUENCE', type: 'WRONG_ORDER', description: '순서 오류', evidence: [] }] }),
-      '*': sampleVerification(),
+      '*': (req: { schemaName: string }) => (req.schemaName === 'consistency' ? { issues: [], summary: '모순 없음' } : sampleVerification()),
     });
     const { ctx } = await makeTestContext(fake);
     const fixerCalls: Map<string, string[]>[] = [];
@@ -74,12 +74,14 @@ describe('verificationLoop', () => {
     expect(r.passed).toBe(true);
     expect(r.iterations).toBe(2);
     expect(fixerCalls).toHaveLength(1);
+    // 2회차는 고친 문서(features 군)만 LLM 검증하고 일관성 검사를 더한다
+    expect(fake.calls.filter((c) => c.id.endsWith(':2')).map((c) => c.id).sort()).toEqual(['consistency:2', 'verify:features:2']);
     expect(r.overridden).toEqual([{ document: 'features/F001_POST_LIST.md', section: 'F001_SEQUENCE', reason: expect.stringContaining('순서 오류') }]);
   }, 60_000);
 
   it('3회 내내 이슈면 passed=false로 끝난다', async () => {
     const ws = sampleWorkspace();
-    const fake = new FakeClaudeRunner({ '*': (req: { id: string }) => req.id.startsWith('verify:features') ? sampleVerification({ hallucinations: [{ document: 'features/F001_POST_LIST.md', type: 'X', description: '계속 틀림', evidence: [] }] }) : sampleVerification() });
+    const fake = new FakeClaudeRunner({ '*': (req: { id: string; schemaName: string }) => req.schemaName === 'consistency' ? { issues: [], summary: '' } : req.id.startsWith('verify:features') ? sampleVerification({ hallucinations: [{ document: 'features/F001_POST_LIST.md', type: 'X', description: '계속 틀림', evidence: [] }] }) : sampleVerification() });
     const { ctx } = await makeTestContext(fake);
     const r = await verificationLoop(ctx, { ws, docs: baseDocs(ws), changed: null, truth, manualKept: new Map(), maxIterations: 3, fixer: async () => ({ docs: new Map(), overridden: [] }) });
     expect(r.passed).toBe(false);

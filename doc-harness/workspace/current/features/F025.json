@@ -1,0 +1,1040 @@
+{
+  "feature": {
+    "id": "F025",
+    "name": "에지 프록시·TLS·관리 SPA 정적 서빙",
+    "slug": "EDGE_PROXY_TLS",
+    "summary": "caddy 컨테이너가 TLS 종단, ACME 인증서, HTTP→HTTPS 308 리다이렉트를 맡는다. 이 이미지는 PortfolioBlog.Web/Dockerfile이 관리 SPA 빌드 결과(/srv)와 deploy/Caddyfile을 함께 구워 만든다. 공개 도메인은 /api·/api/*를 404로, GET·HEAD가 아닌 메서드를 405로 끊고, 나머지 요청은 api:8080으로 프록시한다. 관리 도메인은 remote_ip가 ADMIN_ALLOWED_CIDRS 밖이면 평문을 포함한 모든 경로를 404로 끊는다. 허용된 요청 중 /api/*·/attachments/*만 api:8080으로 보내고(본문 상한 11MiB), 나머지는 /srv의 정적 SPA로 서빙한다. 해시 자산은 영구 캐시하고, 점 경로와 /.well-known은 404, 그 밖의 경로는 index.html로 폴백한다. 두 도메인 밖의 Host는 :80·:443 캐치올 블록이 본문 없는 404로 떨어뜨린다.",
+    "entryPoints": [
+      "Caddy {$DOMAIN} (TLS 443)",
+      "Caddy http://{$DOMAIN} (80)",
+      "Caddy {$ADMIN_DOMAIN} (TLS 443)",
+      "Caddy http://{$ADMIN_DOMAIN} (80)",
+      "Caddy :80 / :443 캐치올",
+      "docker build -f PortfolioBlog.Web/Dockerfile ."
+    ],
+    "relatedFiles": [
+      "deploy/Caddyfile",
+      "PortfolioBlog.Web/Dockerfile",
+      "deploy/docker-compose.yml",
+      "PortfolioBlog.Web/admin-headers.ts",
+      "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+      "PortfolioBlog.Web/vite.config.ts",
+      "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/ProxyOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "deploy/smoke/smoke.test.mjs",
+      "deploy/smoke/run.sh",
+      "deploy/docker-compose.smoke.yml",
+      "deploy/.env.example",
+      "deploy/OPERATIONS.md"
+    ],
+    "dependencies": [
+      "F018",
+      "F020",
+      "F026",
+      "F029",
+      "F009",
+      "F010"
+    ],
+    "importance": "INFRA",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: 이 기능은 애플리케이션 코드가 아니다. 선언형 Caddy 설정(deploy/Caddyfile)과, 그 설정을 관리 SPA 빌드 산출물과 함께 굽는 멀티스테이지 이미지(PortfolioBlog.Web/Dockerfile)로 구현된다. 재검증 결과 이전 분석의 구조·동작·줄 범위는 현재 코드와 일치했다. 이 기능의 파일에는 직접 변경이 없어 history 항목은 추가하지 않는다.\n\nCaddy는 사이트 블록 5종({$DOMAIN}, http://{$DOMAIN}, {$ADMIN_DOMAIN}, http://{$ADMIN_DOMAIN}, :80/:443 캐치올)으로 Host별 라우팅을 한다. 전역 옵션은 관리 API 비활성(admin off), 프로토콜 h1·h2만, 타임아웃 read_header 10s·read_body 120s·idle 2m이다.\n- 공개 도메인: /api·/api/*는 404, GET·HEAD가 아닌 메서드는 405다. 64KB request_body 상한과 zstd/gzip 인코딩을 거쳐 reverse_proxy api:8080으로 보낸다.\n- 관리 도메인: 먼저 remote_ip 허용 목록 게이트를 거친다(평문 포함). 통과하면 /api/*·/attachments/*만 11MiB 상한으로 api:8080에 보낸다. 그 밖의 경로는 /srv 정적 SPA가 받는다. 정적 응답에는 CSP 등 보안 헤더 7개가 붙는다. /assets/*는 파일이 있으면 immutable 캐시, 없으면 404다. 점 경로와 /.well-known/*는 404다. 나머지는 try_files {path} /index.html로 폴백하고 Cache-Control은 no-cache다.\n- 모든 사이트는 Server·Via 헤더를 지운다. route를 거치지 않는 오류 경로(413·502·file_server의 405)는 handle_errors가 같은 보안 헤더와 빈 본문으로 응답한다.\n- 백엔드는 Proxy__TrustedIp=172.30.0.2(caddy 고정 IP)만 X-Forwarded-For 송신자로 신뢰하고(ForwardLimit=1) 원본 IP를 복원한다.\n- 관리 SPA 헤더 값의 정본은 admin-headers.ts다. caddyfile.test.ts가 Caddyfile의 사본과 글자 단위로 비교하고, 실제 응답은 deploy/smoke가 컨테이너 스택에서 검증한다.\n- 이미지 빌드 중 npm audit(high 이상)이나 caddy validate가 실패하면 이미지가 만들어지지 않는다.",
+  "entryPoints": [
+    {
+      "text": "공개 HTTPS 사이트 블록 {$DOMAIN}: 누구나 접근할 수 있는 읽기 전용 표면이다. /api는 이 호스트에 존재하지 않는다(404).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "19-62",
+          "symbol": "{$DOMAIN}"
+        }
+      ]
+    },
+    {
+      "text": "공개 평문 사이트 블록 http://{$DOMAIN}: Server 헤더를 지운 뒤 https://{host}{uri}로 308 리다이렉트한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "64-76",
+          "symbol": "http://{$DOMAIN}"
+        }
+      ]
+    },
+    {
+      "text": "관리 HTTPS 사이트 블록 {$ADMIN_DOMAIN}: IP 허용 목록 게이트를 거친 뒤 백엔드로 프록시하거나 정적 SPA를 서빙한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "78-160",
+          "symbol": "{$ADMIN_DOMAIN}"
+        }
+      ]
+    },
+    {
+      "text": "관리 평문 사이트 블록 http://{$ADMIN_DOMAIN}: 허용 IP 밖이면 404, 허용 IP면 308 리다이렉트한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "162-173",
+          "symbol": "http://{$ADMIN_DOMAIN}"
+        }
+      ]
+    },
+    {
+      "text": "알 수 없는 Host용 폴백 :80·:443 블록: Server 헤더를 지우고 본문 없는 404를 낸다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "175-195",
+          "symbol": ":80 / :443"
+        }
+      ]
+    },
+    {
+      "text": "이미지 빌드 진입점은 docker build -f PortfolioBlog.Web/Dockerfile . 이다. compose의 caddy 서비스 build 설정도 같은 Dockerfile과 저장소 루트 컨텍스트를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "1-21"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "16-20",
+          "symbol": "services.caddy.build"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "PortfolioBlog.Web/Dockerfile (build 스테이지)",
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "symbol": "FROM node:24.21.0-alpine AS build",
+      "description": "package.json·package-lock.json을 복사한 뒤 npm ci를 실행하고 소스를 복사한다. NPM_AUDIT=on(기본)이면 npm audit --omit=dev --audit-level=high를 거친다. 마지막으로 npm run build로 /web/dist를 만든다."
+    },
+    {
+      "step": 2,
+      "component": "PortfolioBlog.Web/Dockerfile (final 스테이지)",
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "symbol": "FROM caddy:2.11.4-alpine AS final",
+      "description": "deploy/Caddyfile을 /etc/caddy/Caddyfile로, /web/dist를 /srv로 복사한다. 이어서 검사용 환경변수 값(blog.example.test 등)으로 caddy validate를 실행해 문법 오류를 빌드 시점에 잡는다."
+    },
+    {
+      "step": 3,
+      "component": "docker-compose.yml caddy 서비스",
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.caddy",
+      "description": "api가 service_healthy가 된 뒤 기동한다. 비루트(1654:1654), read_only, cap_drop ALL + NET_BIND_SERVICE로 실행된다. DOMAIN·ADMIN_DOMAIN·ADMIN_ALLOWED_CIDRS·ACME_EMAIL을 필수 환경변수로 받고 80·443을 게시한다. public 네트워크와 edge 네트워크(고정 IP 172.30.0.2)에 모두 연결되고, 인증서·설정은 caddy_data·caddy_config 볼륨에 저장한다."
+    },
+    {
+      "step": 4,
+      "component": "Caddyfile 전역 옵션",
+      "file": "deploy/Caddyfile",
+      "symbol": "global options",
+      "description": "admin off, ACME email 설정, 프로토콜 h1·h2, 타임아웃 read_header 10s·read_body 120s·idle 2m을 건다."
+    },
+    {
+      "step": 5,
+      "component": "Caddyfile 사이트 매칭",
+      "file": "deploy/Caddyfile",
+      "symbol": "site blocks",
+      "description": "요청의 스킴과 Host에 따라 {$DOMAIN}, http://{$DOMAIN}, {$ADMIN_DOMAIN}, http://{$ADMIN_DOMAIN}, :80·:443 캐치올 중 한 블록을 고른다."
+    },
+    {
+      "step": 6,
+      "component": "{$DOMAIN} route",
+      "file": "deploy/Caddyfile",
+      "symbol": "{$DOMAIN} route",
+      "description": "defer header로 Server·Via 제거와 HSTS·nosniff·XFO·Referrer-Policy 부착을 예약한다. 이어서 @api(path /api /api/*)는 404, @nonread(GET·HEAD가 아님)는 405로 끊는다. 통과한 요청은 request_body 64KB, encode zstd gzip을 거쳐 reverse_proxy api:8080으로 간다."
+    },
+    {
+      "step": 7,
+      "component": "{$ADMIN_DOMAIN} route (게이트·백엔드)",
+      "file": "deploy/Caddyfile",
+      "symbol": "{$ADMIN_DOMAIN} route",
+      "description": "defer header로 Server·Via 제거를 예약한다. @denied(not remote_ip {$ADMIN_ALLOWED_CIDRS})는 404로 끊는다. @backend(path /api/* /attachments/*)면 request_body 11MiB를 적용한 뒤 reverse_proxy api:8080으로 보낸다. 이 응답의 보안 헤더는 백엔드가 붙인 값을 그대로 둔다."
+    },
+    {
+      "step": 8,
+      "component": "{$ADMIN_DOMAIN} route (정적 SPA)",
+      "file": "deploy/Caddyfile",
+      "symbol": "{$ADMIN_DOMAIN} route",
+      "description": "CSP·nosniff·XFO·Referrer-Policy·Permissions-Policy·HSTS·COOP을 붙이고 root * /srv, encode를 적용한다. @asset_hit면 immutable 캐시로 file_server가 서빙하고, @asset_miss·@dot·@wellknown은 각각 404다. 나머지는 Cache-Control no-cache를 붙이고 try_files {path} /index.html 뒤 file_server로 응답한다."
+    },
+    {
+      "step": 9,
+      "component": "handle_errors",
+      "file": "deploy/Caddyfile",
+      "symbol": "handle_errors",
+      "description": "route 밖의 오류(413·502·file_server의 405 등)를 처리한다. Server·Via를 지우고 사이트별 보안 헤더를 route와 같은 값으로 붙인 뒤 빈 본문으로 {err.status_code}를 응답한다."
+    },
+    {
+      "step": 10,
+      "component": "AccessServiceCollectionExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "AddAdminAccess / UseTrustedForwardedHeaders",
+      "description": "api 측 처리다. Proxy:TrustedIp가 비어 있지 않으면(compose에서 172.30.0.2) UseForwardedHeaders를 등록한다. KnownProxies는 그 IP 하나이고, ForwardLimit=1이라 caddy가 붙인 X-Forwarded-For·X-Forwarded-Proto 중 맨 오른쪽 항목만 반영한다."
+    },
+    {
+      "step": 11,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인",
+      "description": "SecurityHeadersMiddleware(98행) 다음에 UseTrustedForwardedHeaders(99행)가 실행된다. 이후 AdminSurfaceMiddleware(104행) 등은 복원된 원본 IP로 판정한다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "deploy/Caddyfile",
+      "role": "entry",
+      "symbol": "사이트 블록 5종·전역 옵션"
+    },
+    {
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "role": "config",
+      "symbol": "build / final 스테이지"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "role": "config",
+      "symbol": "services.caddy, networks.edge"
+    },
+    {
+      "file": "PortfolioBlog.Web/admin-headers.ts",
+      "role": "config",
+      "symbol": "ADMIN_SECURITY_HEADERS / ADMIN_CSP"
+    },
+    {
+      "file": "PortfolioBlog.Web/vite.config.ts",
+      "role": "config",
+      "symbol": "proxy('^/api/', '^/attachments/')"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "role": "service",
+      "symbol": "AddAdminAccess / UseTrustedForwardedHeaders"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/ProxyOptions.cs",
+      "role": "config",
+      "symbol": "ProxyOptions.TrustedIp"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "role": "validation",
+      "symbol": "Proxy:TrustedIp 검사"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "role": "validation",
+      "symbol": "CidrList.Parse (Caddy remote_ip와 같은 공백 구분 CIDR 문법)"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "role": "service",
+      "symbol": "app.UseTrustedForwardedHeaders()"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+      "role": "test",
+      "symbol": "deploy/Caddyfile의 관리 사이트 헤더"
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "role": "test"
+    },
+    {
+      "file": "deploy/smoke/run.sh",
+      "role": "test"
+    },
+    {
+      "file": "deploy/docker-compose.smoke.yml",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "빌드 데이터 흐름: PortfolioBlog.Web 소스가 npm run build로 /web/dist가 되고, 이것이 caddy 이미지의 /srv(관리 SPA, F029)로 복사된다. deploy/Caddyfile은 /etc/caddy/Caddyfile로 들어간다. 따라서 Caddyfile이나 SPA를 바꾸면 이미지를 다시 빌드해야 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "6-18"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "2"
+        }
+      ]
+    },
+    {
+      "text": "설정 값 흐름: deploy/.env의 값이 compose 환경변수(DOMAIN·ADMIN_DOMAIN·ADMIN_ALLOWED_CIDRS·ACME_EMAIL, 모두 :? 필수)로 들어가고, Caddyfile의 {$VAR} 자리에 치환된다. ADMIN_ALLOWED_CIDRS는 api의 Admin__AllowedCidrs(F018)에도 같은 값으로 들어간다. 두 계층이 한 변수를 공유하며, CidrList도 Caddy remote_ip와 같은 공백 구분 CIDR 문법을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "31-35,68"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+          "lines": "5"
+        },
+        {
+          "file": "deploy/.env.example",
+          "lines": "11-12"
+        }
+      ]
+    },
+    {
+      "text": "원본 IP 흐름: 클라이언트의 TCP 피어 주소를 Caddy remote_ip 매처가 관리 게이트에서 본다. reverse_proxy는 X-Forwarded-For/Proto를 붙여 api:8080으로 전달한다. api의 ForwardedHeadersMiddleware는 KnownProxies=172.30.0.2, ForwardLimit=1로 원본 IP를 복원한다(F018 접근 통제의 입력). 클라이언트가 직접 보낸 X-Forwarded-For는 Caddy가 버린다(스모크 주석·단언).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "37-51,68-75"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "42-45,70"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "214-215"
+        }
+      ]
+    },
+    {
+      "text": "응답 헤더 흐름: 공개 사이트에서는 Caddy가 defer로 HSTS·nosniff·XFO·Referrer-Policy를 덮어쓰고 Server·Via를 지운다. CSP는 건드리지 않으므로 백엔드의 CSP(F020 SecurityHeadersMiddleware)와 공개 첨부의 sandbox CSP(F010)가 유지된다. 관리 사이트의 백엔드 응답(/api/*, /attachments/*: F009·F010)은 보안 헤더 블록보다 앞에서 처리되므로 백엔드 헤더를 그대로 두고 Server·Via만 지운다. 관리 정적 응답에는 admin-headers.ts 사본 5개와 HSTS, COOP이 붙는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "26-35,82-111"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+          "lines": "70-82"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "185-194,234-239"
+        }
+      ]
+    },
+    {
+      "text": "인증서·ACME 상태는 caddy_data(/data)·caddy_config(/config) 볼륨에 저장된다. 이 볼륨은 백업 대상이 아니며 복원 후 인증서는 다시 발급된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "36-38"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "7"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [],
+  "databaseAccess": [],
+  "externalDependencies": [
+    {
+      "text": "Caddy 2.11.4(caddy:2.11.4-alpine 이미지): TLS 종단, 자동 HTTPS, ACME 인증서 발급·갱신, 리버스 프록시, 정적 파일 서버를 맡는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "16"
+        }
+      ]
+    },
+    {
+      "text": "ACME CA(Caddy 기본 발급자): ACME_EMAIL로 계정을 등록한다. 주석에 따르면 HTTP-01 챌린지는 Caddy가 포트 80 서버 앞단에서 처리한다. 실제 발급자 종류는 Caddyfile에 명시돼 있지 않아 Caddy 기본값에 의존한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "6,66-67"
+        },
+        {
+          "file": "deploy/.env.example",
+          "lines": "4"
+        }
+      ]
+    },
+    {
+      "text": "Node 24.21.0(node:24.21.0-alpine)과 npm 레지스트리: 이미지 빌드 중 npm ci와 npm audit을 수행한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "4-14"
+        }
+      ]
+    },
+    {
+      "text": "업스트림 api:8080(PortfolioBlog.Api 컨테이너, edge 내부망).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "47,98"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "74-76"
+        }
+      ]
+    },
+    {
+      "text": "DNS: 공개·관리 도메인의 A/AAAA 레코드가 이 서버를 가리켜야 인증서가 발급된다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/.env.example",
+          "lines": "4"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "27"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "PortfolioBlog.Web/Dockerfile RUN npm audit",
+      "condition": "배포 의존성에 high 이상 취약점 권고가 있음",
+      "handling": "빌드가 실패해 이미지를 만들지 않는다. --build-arg NPM_AUDIT=off로만 우회할 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "10-13"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "73"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/Dockerfile RUN caddy validate",
+      "condition": "Caddyfile 문법·어댑트 오류",
+      "handling": "빌드가 실패한다. 검증은 검사용 더미 환경변수(blog.example.test, 192.0.2.0/24 등)를 치환해 수행한다. 따라서 실제 운영 값(예: 잘못된 CIDR)에서 나는 오류는 이 단계에서 잡히지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "19-21"
+        }
+      ]
+    },
+    {
+      "where": "deploy/docker-compose.yml services.caddy.environment",
+      "condition": "DOMAIN·ADMIN_DOMAIN·ADMIN_ALLOWED_CIDRS·ACME_EMAIL 중 하나라도 비어 있음",
+      "handling": "${VAR:?} 구문 때문에 compose가 기동을 거부한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "31-35"
+        }
+      ]
+    },
+    {
+      "where": "deploy/docker-compose.yml services.caddy.depends_on",
+      "condition": "api 헬스체크가 healthy가 되지 않음",
+      "handling": "caddy가 기동되지 않는다(condition: service_healthy).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "46-48"
+        }
+      ]
+    },
+    {
+      "where": "{$DOMAIN}·{$ADMIN_DOMAIN} reverse_proxy api:8080",
+      "condition": "api 컨테이너 중단·연결 실패",
+      "handling": "Caddy가 502를 내고, handle_errors가 빈 본문에 사이트별 보안 헤더를 붙여 응답한다(Server·Via 제거). 재시도·폴백 업스트림 설정은 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "49-61,144-159"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "321-343"
+        }
+      ]
+    },
+    {
+      "where": "{$ADMIN_DOMAIN} handle @backend request_body 11MiB",
+      "condition": "업로드 본문이 11MiB를 넘음(Content-Length가 있든 chunked든)",
+      "handling": "handle_errors 경로로 413을 반환한다. 본문은 비어 있고 관리 SPA 보안 헤더 7종이 붙는다. 10MiB 초과·11MiB 이하는 앱이 설명이 담긴 413으로 거부한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "93-99"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "249-268"
+        }
+      ]
+    },
+    {
+      "where": "{$DOMAIN} @nonread",
+      "condition": "GET·HEAD가 아닌 메서드(본문 크기 무관)",
+      "handling": "respond 405로 끊는다. route 안에서 만든 응답이라 defer 헤더가 적용된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "38-40"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "132-140"
+        }
+      ]
+    },
+    {
+      "where": "{$ADMIN_DOMAIN} file_server",
+      "condition": "정적 경로에 OPTIONS처럼 file_server가 거부하는 메서드로 요청",
+      "handling": "handle_errors가 405를 처리한다(Server 제거, 보안 헤더 부착).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "144-159"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "158-163"
+        }
+      ]
+    },
+    {
+      "where": "{$ADMIN_DOMAIN} @asset_miss",
+      "condition": "배포 후 옛 해시 청크처럼 /srv/assets에 없는 파일을 요청",
+      "handling": "index.html로 폴백하지 않고 404를 낸다(Cache-Control 없음).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "115-125"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "179-182"
+        }
+      ]
+    },
+    {
+      "where": "Caddy 자동 HTTPS(ACME)",
+      "condition": "DNS 미설정, 80/443 미개방 등으로 인증서 발급 실패",
+      "handling": "Caddyfile에는 명시적 처리가 없다. Caddy 내장 재시도 동작에 의존하며, 운영 문서는 로그 확인(grep acme)만 안내한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "154"
+        }
+      ]
+    },
+    {
+      "where": "{$ADMIN_DOMAIN} @denied remote_ip",
+      "condition": "Docker 사용자 공간 프록시 등으로 remote_ip가 게이트웨이(172.30.0.1)로 보임",
+      "handling": "Caddyfile 안에는 처리가 없다. 이 경우 허용 목록이 무의미해지거나 작성자가 잠길 수 있어, 운영 문서가 사전 확인 절차를 둔다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "50,55-61"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "87-88"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Api StartupValidation Proxy:TrustedIp",
+      "condition": "TrustedIp가 단일 IP 형식이 아니거나, 운영 환경에서 비어 있음",
+      "handling": "api가 기동을 거부한다. 그러면 caddy도 depends_on 때문에 기동되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "52-56,119"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs UseTrustedForwardedHeaders",
+      "condition": "Proxy:TrustedIp가 빈 값(개발 기본값)",
+      "handling": "ForwardedHeaders 미들웨어를 아예 등록하지 않는다. KnownProxies가 비어 있으면 모든 X-Forwarded-For를 신뢰하게 되므로 이를 막기 위한 것이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "65-75"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "공개 사이트의 /api 차단은 표기 변형을 가리지 않는다. /API/posts, /Api/auth/login, /%61pi/posts, /api%2fposts, //api/posts, /x/../api/posts, /./api/posts 모두 GET·POST 양쪽에서 404이며, 스모크가 이를 단언한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "96-110"
+        }
+      ]
+    },
+    {
+      "text": "공개 사이트의 request_body 64KB 상한은 핸들러가 본문을 실제로 읽을 때만 걸린다. 그래서 GET 경로에서는 사실상 작동하지 않는다. 상태 변경 메서드는 앞의 @nonread가 먼저 405로 막으므로, 100KB POST도 413이 아니라 405가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "41-45"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "133-135"
+        }
+      ]
+    },
+    {
+      "text": "요청 줄이 긴 경우(9000자 쿼리)는 5xx 없이 414 또는 431로 거부된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "141-142"
+        }
+      ]
+    },
+    {
+      "text": "관리 사이트의 백엔드 매처는 접두사(/attachments*)가 아니라 /attachments/*다. 그래서 SPA 화면 주소 /attachments는 정적 SPA(index.html)로 간다. 개발 Vite 프록시도 같은 경계(^/api/, ^/attachments/)를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "90-92"
+        },
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "15-21"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+          "lines": "96-99"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "165-171"
+        }
+      ]
+    },
+    {
+      "text": "/.well-known/*는 @dot 차단에서는 제외되지만, 바로 다음 @wellknown이 무조건 404로 끊는다(서빙 준비만 된 상태). 주석에 따르면 이 제외가 없을 때는 SPA 폴백으로 200이 샌다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "127-137"
+        }
+      ]
+    },
+    {
+      "text": "허용 IP 밖에서 온 관리 도메인 요청은 X-Forwarded-For·X-Real-IP·Forwarded를 위조해도, 평문 HTTP여도 모든 경로가 본문 없는 404다(308로 새지 않는다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "87-88,169-170"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "276-291"
+        }
+      ]
+    },
+    {
+      "text": "공개 도메인 SNI로 TLS를 맺은 뒤 Host만 관리 도메인으로 바꾸면 본문 없는 404가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "293-297"
+        }
+      ]
+    },
+    {
+      "text": "Caddy를 건너뛰고 api:8080에 직접 붙어 X-Forwarded-For를 위조해도, 송신자가 신뢰 프록시가 아니므로 헤더가 무시되어 403이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "304-308"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "37-51"
+        }
+      ]
+    },
+    {
+      "text": ":80·:443 캐치올 블록 자체는 새 인증서 발급을 일으키지 않는다. 그러나 TLS 자동화 정책의 subjects 제한을 지워 캐치올 정책으로 만든다. 주석은 나중에 on_demand_tls나 와일드카드를 추가하면 이 정책이 임의의 이름에 걸릴 수 있다고 경고한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "175-180"
+        }
+      ]
+    },
+    {
+      "text": "Caddy의 자동 HTTPS 리다이렉트는 사이트 블록 밖에서 만들어져 Server 헤더를 지울 수 없다. 그래서 http:// 블록을 명시해 308 리다이렉트를 직접 만든다. 평문 블록(http://)에는 log 지시어가 없어 리다이렉트 요청은 접근 로그에 남지 않는 것으로 보인다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "64-76,162-173"
+        }
+      ]
+    },
+    {
+      "text": "공개 사이트에서 Caddy가 직접 만드는 404·405·오류 응답에는 CSP·Permissions-Policy가 붙지 않는다. route의 header 블록과 handle_errors 블록이 HSTS·nosniff·XFO·Referrer-Policy 4개만 붙이기 때문이다. 이 응답들은 본문이 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "26-35,51-61"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "324-332"
+        }
+      ]
+    },
+    {
+      "text": "admin off 때문에 런타임에 설정을 바꿀 수 없다. 설정 변경은 이미지 재빌드와 컨테이너 재시작으로만 가능하다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "2,4-5"
+        }
+      ]
+    },
+    {
+      "text": "관리 사이트의 /assets 적중 응답은 Accept-Encoding: gzip 요청에 gzip으로 압축되고, immutable 캐시와 관리 CSP가 함께 붙는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "172-178"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "113-123"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "{$DOMAIN}·{$ADMIN_DOMAIN}·:80·:443 블록에는 log 지시어가 있어 접근 로그를 남긴다. http://{$DOMAIN}·http://{$ADMIN_DOMAIN} 블록에는 log가 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "21,80,182,190"
+        }
+      ]
+    },
+    {
+      "text": "컨테이너 로그는 json-file 드라이버로 10m × 5개 파일을 순환한다(x-hardening 공통 설정).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "9-13"
+        }
+      ]
+    },
+    {
+      "text": "스모크 실행이 실패하면 run.sh의 cleanup 트랩이 docker compose logs caddy를 smoke/caddy.log로 남기고, CI가 이를 아티팩트로 올린다. 성공하면 이 파일을 지운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "47-58"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "123-132"
+        }
+      ]
+    },
+    {
+      "text": "운영 문서는 Caddy 접근 로그가 Cookie·Set-Cookie·Authorization 값을 REDACTED로 남긴다고 적는다. 이는 Caddy 기본 동작이며 저장소 코드로는 확인할 수 없다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "146"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F025_FLOW",
+      "type": "flowchart",
+      "title": "Caddyfile 요청 라우팅 분기",
+      "summary": "Caddy는 스킴과 Host로 사이트 블록을 고른 뒤 매처 순서대로 404·405·프록시·정적 서빙을 결정한다. route 밖의 오류는 모두 handle_errors로 모인다.",
+      "mermaid": "flowchart TD\n  Request[\"클라이언트 요청\"] --> SiteMatch{\"Caddyfile 사이트 매칭(스킴·Host)\"}\n  SiteMatch -->|\"http://{$DOMAIN}\"| PublicRedir[\"redir https 308\"]\n  SiteMatch -->|\"http://{$ADMIN_DOMAIN}\"| AdminHttpGate{\"@denied not remote_ip\"}\n  AdminHttpGate -->|\"허용 밖\"| Caddy404[\"respond 404 (본문 없음)\"]\n  AdminHttpGate -->|\"허용\"| AdminRedir[\"redir https 308\"]\n  SiteMatch -->|\"그 밖 Host\"| CatchAll[\":80 / :443 respond 404\"]\n  SiteMatch -->|\"{$DOMAIN}\"| PublicApi{\"@api path /api /api/*\"}\n  PublicApi -->|\"일치\"| Caddy404\n  PublicApi -->|\"불일치\"| PublicMethod{\"@nonread not method GET HEAD\"}\n  PublicMethod -->|\"일치\"| Caddy405[\"respond 405\"]\n  PublicMethod -->|\"GET/HEAD\"| ReverseProxy[\"reverse_proxy api:8080\"]\n  SiteMatch -->|\"{$ADMIN_DOMAIN}\"| AdminGate{\"@denied not remote_ip ADMIN_ALLOWED_CIDRS\"}\n  AdminGate -->|\"허용 밖\"| Caddy404\n  AdminGate -->|\"허용\"| AdminBackend{\"@backend path /api/* /attachments/*\"}\n  AdminBackend -->|\"일치(11MiB 상한)\"| ReverseProxy\n  AdminBackend -->|\"불일치\"| AssetHit{\"@asset_hit /assets/* 파일 존재\"}\n  AssetHit -->|\"존재\"| AssetServe[\"file_server + immutable 캐시\"]\n  AssetHit -->|\"없음\"| DotCheck{\"@asset_miss / @dot / @wellknown\"}\n  DotCheck -->|\"일치\"| Caddy404\n  DotCheck -->|\"불일치\"| SpaFallback[\"try_files {path} /index.html + file_server\"]\n  ReverseProxy -->|\"413·502\"| HandleErrors[\"handle_errors 빈 본문 + 보안 헤더\"]\n  SpaFallback -->|\"405 등\"| HandleErrors",
+      "details": "공개 HTTPS 블록은 @api → @nonread → request_body 64KB → encode → reverse_proxy 순이다. 관리 HTTPS 블록은 @denied(IP 게이트)가 가장 먼저다(caddyfile.test.ts가 순서를 단언한다). 그다음 @backend(/api/*, /attachments/*)는 11MiB 상한으로 프록시하고, 보안 헤더 블록은 그 뒤, 정적 처리(root * /srv)보다 앞에 온다. 정적 경로 처리 순서는 @asset_hit(immutable) → @asset_miss 404 → @dot 404 → @wellknown 404 → Cache-Control no-cache + try_files 폴백이다. 평문 관리 블록도 같은 IP 게이트를 먼저 태우므로 허용 밖이면 308 대신 404가 나온다. 두 도메인에 속하지 않는 Host는 :80·:443 블록이 404로 받는다. request_body 초과(413), 업스트림 다운(502), file_server 메서드 거부(405)는 route 밖 오류 경로라 handle_errors가 빈 본문과 사이트별 보안 헤더로 응답한다.",
+      "nodes": [
+        {
+          "node": "SiteMatch",
+          "code": "deploy/Caddyfile",
+          "symbol": "site blocks"
+        },
+        {
+          "node": "PublicRedir",
+          "code": "deploy/Caddyfile",
+          "symbol": "http://{$DOMAIN}"
+        },
+        {
+          "node": "AdminHttpGate",
+          "code": "deploy/Caddyfile",
+          "symbol": "http://{$ADMIN_DOMAIN} @denied"
+        },
+        {
+          "node": "CatchAll",
+          "code": "deploy/Caddyfile",
+          "symbol": ":80 / :443"
+        },
+        {
+          "node": "PublicApi",
+          "code": "deploy/Caddyfile",
+          "symbol": "{$DOMAIN} @api"
+        },
+        {
+          "node": "PublicMethod",
+          "code": "deploy/Caddyfile",
+          "symbol": "{$DOMAIN} @nonread"
+        },
+        {
+          "node": "ReverseProxy",
+          "code": "deploy/Caddyfile",
+          "symbol": "reverse_proxy api:8080"
+        },
+        {
+          "node": "AdminGate",
+          "code": "deploy/Caddyfile",
+          "symbol": "{$ADMIN_DOMAIN} @denied"
+        },
+        {
+          "node": "AdminBackend",
+          "code": "deploy/Caddyfile",
+          "symbol": "@backend"
+        },
+        {
+          "node": "AssetHit",
+          "code": "deploy/Caddyfile",
+          "symbol": "@asset_hit"
+        },
+        {
+          "node": "DotCheck",
+          "code": "deploy/Caddyfile",
+          "symbol": "@asset_miss / @dot / @wellknown"
+        },
+        {
+          "node": "SpaFallback",
+          "code": "deploy/Caddyfile",
+          "symbol": "try_files {path} /index.html"
+        },
+        {
+          "node": "HandleErrors",
+          "code": "deploy/Caddyfile",
+          "symbol": "handle_errors"
+        },
+        {
+          "node": "Caddy404",
+          "code": "deploy/Caddyfile",
+          "symbol": "respond 404"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F025_SEQUENCE",
+      "type": "sequence",
+      "title": "관리 API 요청이 Caddy를 거쳐 api에 닿는 순서",
+      "summary": "관리 API 요청은 Caddy의 IP 게이트와 본문 상한을 통과해야 api:8080에 도달한다. api는 신뢰 프록시(172.30.0.2)가 붙인 X-Forwarded-For로 원본 IP를 복원한 뒤 AdminSurfaceMiddleware에서 다시 판정한다.",
+      "mermaid": "sequenceDiagram\n  participant Browser\n  participant Caddyfile as Caddyfile ADMIN_DOMAIN\n  participant SecurityHeadersMiddleware\n  participant UseTrustedForwardedHeaders\n  participant AdminSurfaceMiddleware\n  Browser->>Caddyfile: HTTPS /api/* (TLS 종단)\n  Caddyfile->>Caddyfile: @denied not remote_ip 검사\n  alt 허용 목록 밖\n    Caddyfile-->>Browser: 404 빈 본문\n  else 허용\n    Caddyfile->>Caddyfile: request_body max_size 11MiB\n    Caddyfile->>SecurityHeadersMiddleware: reverse_proxy api:8080 (X-Forwarded-For, X-Forwarded-Proto)\n    SecurityHeadersMiddleware->>UseTrustedForwardedHeaders: 보안 헤더 예약 후 다음 미들웨어\n    UseTrustedForwardedHeaders->>AdminSurfaceMiddleware: KnownProxies 172.30.0.2, ForwardLimit 1로 원본 IP 복원\n    AdminSurfaceMiddleware-->>Caddyfile: 앱 응답(백엔드 보안 헤더 포함)\n    Caddyfile-->>Browser: Server·Via 제거 후 응답\n  end\n  opt api 중단 또는 본문 초과\n    Caddyfile-->>Browser: handle_errors 502 또는 413 + 보안 헤더\n  end",
+      "details": "Program.cs의 미들웨어 순서는 SecurityHeadersMiddleware(98행) → UseTrustedForwardedHeaders(99행) → UseExceptionHandler·UseStatusCodePages → AdminSurfaceMiddleware(104행)다. UseTrustedForwardedHeaders는 Proxy:TrustedIp가 비어 있지 않을 때만 ForwardedHeadersMiddleware를 등록한다. compose는 api에 Proxy__TrustedIp=172.30.0.2를 주고 caddy를 edge 네트워크의 같은 고정 IP에 배치한다. Caddy는 백엔드 응답의 CSP를 덮어쓰지 않고 Server·Via만 지운다. 업스트림이 없으면 Caddy가 직접 502를, 11MiB를 넘는 본문이면 413을 만들며, 둘 다 handle_errors가 관리 SPA 보안 헤더 7종을 붙인다.",
+      "nodes": [
+        {
+          "node": "Caddyfile",
+          "code": "deploy/Caddyfile",
+          "symbol": "{$ADMIN_DOMAIN}"
+        },
+        {
+          "node": "SecurityHeadersMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "symbol": "SecurityHeadersMiddleware"
+        },
+        {
+          "node": "UseTrustedForwardedHeaders",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "symbol": "AccessServiceCollectionExtensions.UseTrustedForwardedHeaders"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseMiddleware<AdminSurfaceMiddleware>()"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F025_ARCHITECTURE",
+      "type": "architecture",
+      "title": "caddy 이미지 빌드와 네트워크 배치",
+      "summary": "caddy 이미지는 SPA 빌드 결과와 Caddyfile을 함께 구워 만든다. caddy는 public과 edge 두 네트워크에 연결되며, api는 edge 내부망으로만 caddy와 통신한다.",
+      "mermaid": "flowchart LR\n  WebSource[\"PortfolioBlog.Web 소스\"] --> NodeBuild[\"Dockerfile build 스테이지 (npm ci, npm audit, npm run build)\"]\n  NodeBuild --> SrvDir[\"/srv (dist)\"]\n  CaddyfileSrc[\"deploy/Caddyfile\"] --> CaddyImage[\"Dockerfile final 스테이지 (caddy validate)\"]\n  SrvDir --> CaddyImage\n  CaddyImage --> CaddyService[\"docker-compose.yml caddy 서비스\"]\n  PublicNet[\"networks.public (80·443 게시, ACME)\"] --- CaddyService\n  CaddyService --- EdgeNet[\"networks.edge 172.30.0.2\"]\n  EdgeNet --- ApiService[\"docker-compose.yml api 서비스 :8080\"]\n  CaddyService --> CaddyData[\"caddy_data / caddy_config 볼륨\"]\n  AdminHeaders[\"admin-headers.ts\"] -.-> CaddyfileTest[\"caddyfile.test.ts\"]\n  CaddyfileSrc -.-> CaddyfileTest",
+      "details": "Dockerfile은 두 단계로 이미지를 만든다. build 단계(node:24.21.0-alpine)에서 SPA를 빌드하고, final 단계(caddy:2.11.4-alpine)에서 dist를 /srv로 복사한 뒤 caddy validate로 문법을 검사한다. compose에서 caddy는 public 네트워크(포트 게시·ACME 아웃바운드)와 edge 네트워크(internal, 172.30.0.0/24, 고정 IP 172.30.0.2)에 동시에 붙는다. api는 edge·db 네트워크에만 있어 인터넷에 직접 노출되지 않는다. 인증서는 caddy_data·caddy_config 볼륨에 저장되며 백업 대상이 아니다. admin-headers.ts와 Caddyfile의 헤더 사본이 같은지는 caddyfile.test.ts가 매 커밋마다 비교한다(점선).",
+      "nodes": [
+        {
+          "node": "NodeBuild",
+          "code": "PortfolioBlog.Web/Dockerfile",
+          "symbol": "build 스테이지"
+        },
+        {
+          "node": "CaddyImage",
+          "code": "PortfolioBlog.Web/Dockerfile",
+          "symbol": "final 스테이지"
+        },
+        {
+          "node": "CaddyfileSrc",
+          "code": "deploy/Caddyfile"
+        },
+        {
+          "node": "CaddyService",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.caddy"
+        },
+        {
+          "node": "EdgeNet",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "networks.edge"
+        },
+        {
+          "node": "PublicNet",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "networks.public"
+        },
+        {
+          "node": "ApiService",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.api"
+        },
+        {
+          "node": "CaddyData",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "volumes.caddy_data"
+        },
+        {
+          "node": "AdminHeaders",
+          "code": "PortfolioBlog.Web/admin-headers.ts",
+          "symbol": "ADMIN_SECURITY_HEADERS"
+        },
+        {
+          "node": "CaddyfileTest",
+          "code": "PortfolioBlog.Web/src/test/caddyfile.test.ts"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "ACME 발급이 실패했을 때 Caddy가 재시도하는 간격·횟수와 실제 발급자(Let's Encrypt/ZeroSSL 등)는 Caddyfile에 명시돼 있지 않다. Caddy 기본값에 의존하므로 저장소 코드로는 확인할 수 없다.",
+    "관리 도메인의 ACME HTTP-01 챌린지가 @denied IP 게이트보다 먼저 처리되는지는 확인하지 못했다. 근거는 Caddyfile 주석(66-67행)과 운영 문서의 확인 절차(deploy/OPERATIONS.md 51행)뿐이다. 스모크는 *.localhost 내부 CA를 쓰므로 이 경로를 검증하지 않는다.",
+    "reverse_proxy에는 헬스체크·재시도(lb_try_duration 등)·타임아웃 옵션이 없다. 업스트림 응답이 지연될 때의 동작은 Caddy 기본값을 따르며, 구체적인 값은 확인하지 못했다.",
+    "IPv6 클라이언트에 대한 remote_ip 판정은 확인되지 않았다. deploy/.env.example 12행의 예시 값에 2001:db8::/64가 있어 IPv6 사용을 의도한 것으로 보이지만, compose 네트워크는 IPv4 서브넷만 정의한다. 실제 IPv6 경로에서의 동작은 검증되지 않았다.",
+    "encode zstd gzip이 공개 첨부 이미지 등 어떤 Content-Type까지 압축하는지는 Caddy 기본 매처에 달려 있어 확인하지 못했다.",
+    "검증에서 지적된 항목(F002·F006·F007·F008·F011·F018의 의존 표 행 불일치)은 모두 다른 기능의 색인 행에 관한 것이다. F025의 dependencies(F018·F020·F026·F029·F009·F010)는 이 세션에서 코드로 다시 확인했고 그대로 둔다."
+  ],
+  "evidence": [
+    {
+      "file": "deploy/Caddyfile",
+      "lines": "1-195"
+    },
+    {
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "lines": "1-21"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "lines": "16-48,127-147"
+    },
+    {
+      "file": "PortfolioBlog.Web/admin-headers.ts",
+      "lines": "9-33"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+      "lines": "1-100"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "lines": "30-75"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "93-108"
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "lines": "96-343"
+    },
+    {
+      "file": "deploy/docker-compose.smoke.yml",
+      "lines": "1-66"
+    },
+    {
+      "file": "PortfolioBlog.Web/vite.config.ts",
+      "lines": "12-21"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "lines": "52-56,119"
+    }
+  ],
+  "history": []
+}

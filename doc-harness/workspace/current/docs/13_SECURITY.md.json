@@ -1,0 +1,98 @@
+{
+  "title": "보안",
+  "oneLiner": "신뢰 경계는 Caddy(호스트·IP·메서드 제한)와 앱(HostFiltering, AdminSurfaceMiddleware, 세션 epoch 검증) 두 겹이며, 확인된 잔여 위험은 대부분 가용성·견고성 성격이다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "body": "## 한 줄 요약\n\n신뢰 경계는 Caddy와 앱의 두 겹이다. 관리 표면은 호스트·IP 허용 목록·CSRF 헤더·Origin 검사로 막고, 세션은 `__Host-` 쿠키와 서버측 epoch로 폐기한다. 확인된 CONFIRMED_ISSUE는 없고, 남은 항목은 렌더 CPU 소모, DB 장애 시 오류 처리, 업로드 실패 잔여물 같은 가용성·견고성 문제다.\n\n요청은 Caddy에서 1차, 앱 파이프라인에서 2차로 걸러진다. Caddyfile은 공개 도메인의 /api 404와 GET·HEAD 외 405, 관리 도메인의 CIDR 밖 404를 처리한다. 앱에서는 HostFiltering과 관리 표면 게이트가 적용되고 SecurityHeadersMiddleware가 응답 헤더를 붙인다.",
+      "diagrams": [
+        {
+          "id": "SECURITY_TRUST_BOUNDARY",
+          "type": "flowchart",
+          "title": "신뢰 경계 흐름",
+          "summary": "요청은 Caddy에서 1차, 앱 파이프라인에서 2차로 걸러지고 응답에는 보안 헤더가 붙는다.",
+          "mermaid": "flowchart LR\n  Caddyfile --> HostFiltering\n  HostFiltering --> AdminSurfaceMiddleware\n  AdminSurfaceMiddleware --> SessionValidator\n  SessionValidator --> SecurityHeadersMiddleware",
+          "details": "Caddyfile이 호스트·CIDR·메서드·본문 크기를 제한한다. 앱에서 HostFiltering이 허용 호스트만 통과시키고, AdminSurfaceMiddleware가 호스트·IP·X-Requested-With·Origin을 검사한다. 세션 쿠키가 있으면 SessionValidator가 epoch·지문을 검증한다. 다이어그램은 개념적 흐름이며 미들웨어의 정확한 등록 순서는 Program.cs에서 별도로 확인해야 한다.",
+          "nodes": [
+            {
+              "node": "Caddyfile",
+              "code": "deploy/Caddyfile"
+            },
+            {
+              "node": "HostFiltering",
+              "code": "PortfolioBlog.Api/Program.cs"
+            },
+            {
+              "node": "AdminSurfaceMiddleware",
+              "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs"
+            },
+            {
+              "node": "SessionValidator",
+              "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs"
+            },
+            {
+              "node": "SecurityHeadersMiddleware",
+              "code": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs"
+            }
+          ],
+          "status": "INFERRED"
+        }
+      ],
+      "unchanged": false
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "body": "## 핵심 내용\n\n| 영역 | 구현 | 코드 |\n|---|---|---|\n| 에지(Caddy) | 공개 도메인 /api 404, GET·HEAD 외 405, 본문 64KB. 관리 도메인은 ADMIN_ALLOWED_CIDRS 밖 404, 본문 11MiB. 두 도메인 밖 Host는 본문 없는 404 | deploy/Caddyfile |\n| 호스트 제한 | HostFiltering이 PublicOrigin·AdminOrigin만 허용. /api는 RequireHost(관리 호스트), 공개 페이지·SiteEndpoints는 RequireHost(공개 호스트) | PortfolioBlog.Api/Program.cs, PortfolioBlog.Api/Features/ApiEndpoints.cs, PortfolioBlog.Api/Pages/PublicPageConvention.cs |\n| 관리 표면 | 호스트·IP 허용 목록(빈 목록=전부 거부)·X-Requested-With·비안전 메서드 Origin 검사 | AdminSurfaceMiddleware |\n| 세션 | `__Host-` 접두사, HttpOnly, Secure Always, SameSite=Strict, 슬라이딩 만료 없음, epoch·지문 검증 | SessionValidator, AuthEndpoints |\n| 로그인 | IP·전역·동시성 속도 제한, 해싱 전 비밀번호 길이 제한, 실패 로그에 IP만 기록 | AuthEndpoints |\n| 응답 헤더 | nosniff, CSP default-src 'none', X-Frame-Options DENY, Referrer/Permissions-Policy, 비개발 HSTS | SecurityHeadersMiddleware |\n| 마크다운 | HtmlAllowlist·UrlPolicy 정제, 중첩·입력 크기·강조 시간 상한, RenderGate | RenderGate, previewDoc.ts |\n| 첨부 | sandbox CSP, 매직바이트 검사, 메타데이터 제거, 10MB 상한, 저장 루트 이탈 차단 | FileSystemAttachmentStore |\n| DB | 공개 롤 읽기 전용(default_transaction_read_only=on), statement_timeout | PublicDbContext |\n| 프록시 신뢰 | KnownProxies는 Caddy 172.30.0.2 하나, ForwardLimit=1 | AccessServiceCollectionExtensions.cs |\n| 네트워크 | public(caddy), edge(internal, caddy↔api), db(internal, api↔postgres) 분리 | deploy/docker-compose.yml |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "details",
+      "heading": "상세 내용",
+      "body": "## 상세 내용\n\n### 이미 잘 처리된 것\n- 관리 표면 게이트(호스트·IP·CSRF 헤더·Origin)가 본문을 읽기 전에 실행된다.\n- 로그아웃 시 epoch를 올려 다른 세션도 폐기한다(단, SEC002 참고).\n- 보안 헤더가 모든 응답에 붙고, 비개발 환경에서는 HSTS도 붙는다.\n- SQL은 EF 파라미터화와 LikePattern 이스케이프로 처리한다. 404는 요청 값을 반사하지 않는다.\n- 네트워크는 public·edge(internal)·db(internal)로 분리되고, api는 edge와 db에만 붙는다. 기동 시 설정 검증이 있다.\n- 개발 Vite 프록시는 '^/api/'·'^/attachments/'만 BLOG_API_ORIGIN으로 넘긴다.\n\n### 잔여 위험(POTENTIAL_RISK)\n| ID | 내용 | 권고 |\n|---|---|---|\n| SEC001 | Markdig 렌더는 취소 불가 동기 CPU 작업이고 타임아웃이 없다. 적대적 입력이 렌더 슬롯(기본 2개)을 문서 기준 최대 약 8.5초 점유할 수 있다. 방어는 RenderGate, 미리보기 분당·동시성 한도, 입력 200KB·중첩 128 제한이다. 관리 표면이 IP 허용 목록과 인증 뒤라 노출은 낮다 | 별도 스레드 실행과 벽시계 타임아웃, 또는 입력 크기 축소 검토 |\n| SEC002 | LogoutAsync가 epoch 갱신(ExecuteUpdateAsync) 0행을 확인하지 않고 204를 반환한다. 행 부재는 CHECK 제약과 시드로 막혀 있다 | 갱신 행 수 확인, 0이면 오류·로그 |\n| SEC003 | SessionValidator가 AdminStates를 SingleAsync로 조회하며 예외를 처리하지 않는다. 57014·55P03만 503이고 나머지는 500이다. fail-closed지만 /me 계약이 깨지고 가용성이 떨어진다 | 미인증 처리 또는 503으로 일관화 |\n| SEC004 | PhysicalPath가 루트 이탈을 InvalidOperationException으로 막아 루트 밖 파일은 읽히지 않는다. 이 예외와 UnauthorizedAccessException·IOException은 처리되지 않아 500이 된다. 500 본문에 경로가 노출되는지는 확인하지 못했다 | 404·503 매핑, 원인은 서버 로그에만 |\n\n### 개선 여지(IMPROVEMENT)\n| ID | 내용 | 권고 |\n|---|---|---|\n| SEC005 | 잠금 대기 초과·INSERT 실패·요청 취소 뒤 보상 삭제가 없어 참조 없는 파일이 남는다. AttachmentJanitor가 1시간 경과 후 6시간 주기로 정리한다. 시그니처 검사·메타데이터 제거·10MB 상한은 적용되어 있다 | 즉시 보상 삭제(동일 내용을 참조하는 다른 행이 없는지 확인) |\n| SEC006 | previewCsp가 window.location.origin이 ORIGIN_PATTERN에 맞지 않으면 Error를 던져 미리보기 화면 전체가 실패한다. 보안상 fail-closed다 | 미리보기만 비활성화하고 안내 표시 |\n| SEC007 | HSTS와 Site 원본 https 강제는 Development에서 빠진다. 운영에 Development 환경이 배포되면 방어가 빠진다. 세션 쿠키는 `__Host-`·Secure라 http에서 동작하지 않는다 | 배포 절차에서 ASPNETCORE_ENVIRONMENT 점검 |\n| SEC008 | loadDraft·saveDraft·clearDraft의 기본 인자 window.localStorage 접근이 try 밖에서 평가되어 저장소가 차단된 브라우저에서 에디터 렌더가 실패할 수 있다. 기밀 노출이 아닌 가용성 문제다 | 저장소 획득을 try 안으로 이동 |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "evidence",
+      "heading": "코드 근거",
+      "body": "## 코드 근거\n\n| 파일 | 심볼·줄 | 근거 대상 |\n|---|---|---|\n| deploy/Caddyfile | 7-9, 36-45, 87-99, 163-173, 181-195 | 에지 제한, h1·h2 |\n| deploy/docker-compose.yml | 28-30, 42-45, 61-62, 70, 74-76, 104-105, 127-140 | 네트워크 분리·포트·연결 문자열 |\n| PortfolioBlog.Api/Program.cs | 34-42 | HostFiltering |\n| PortfolioBlog.Api/Features/ApiEndpoints.cs | 39 | /api RequireHost(관리 호스트) |\n| PortfolioBlog.Api/Features/SiteEndpoints.cs | 71-80 | 사이트 엔드포인트 RequireHost(공개 호스트) |\n| PortfolioBlog.Api/Pages/PublicPageConvention.cs | 37-39 | 공개 페이지 호스트 제약 |\n| PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs | 37-51 | 프록시 신뢰 |\n| PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs | AdminSurfaceMiddleware | 관리 표면 게이트 |\n| PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs | SessionValidator.ValidateAsync | 세션 검증 |\n| PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs | StartupValidation.Validate | 기동 검증 |\n| PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs | AuthEndpoints.LogoutAsync | 로그인·로그아웃 |\n| PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs | SecurityHeadersMiddleware._hsts | 보안 헤더 |\n| PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs | OverloadExceptionHandler.IsOverload | 57014·55P03 처리 |\n| PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs | RenderGate.RenderAsync | 렌더 게이트 |\n| PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs | PreviewEndpoints.Render | 미리보기 |\n| PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs | AttachmentEndpoints.UploadAsync | 업로드 |\n| PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs | 52-53, PublicAttachmentEndpoints.GetAsync | 공개 첨부(호스트 제약 없음) |\n| PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs | FileSystemAttachmentStore.PhysicalPath | 경로 이탈 검사 |\n| PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs | AttachmentJanitor | 잔여 파일 정리 |\n| PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs | 59 | 공개 DB 설정 |\n| PortfolioBlog.Web/src/lib/previewDoc.ts | previewCsp | 미리보기 CSP |\n| PortfolioBlog.Web/src/components/PreviewPane.tsx | PreviewPane | 미리보기 화면 |\n| PortfolioBlog.Web/src/lib/drafts.ts | loadDraft | 임시본 |\n| PortfolioBlog.Web/vite.config.ts | 8-35 | 개발 프록시 |",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "caveats",
+      "heading": "주의사항",
+      "body": "## 주의사항\n\n- 직접 확인하지 못한 항목: ClientIp·ForwardedHeaders가 Caddy 뒤에서 원본 IP를 올바르게 산출하는지, HtmlAllowlist·UrlPolicy의 허용 태그·속성·스킴 세부, Caddyfile 외 에지 헤더, 500 응답 본문의 예외 세부 노출 여부. 이 문서는 이들이 안전하다고 주장하지 않는다.\n- Development 환경에서는 https·HSTS 강제가 빠지므로 운영에서 환경 값이 바뀌지 않게 주의한다(SEC007).\n- /health와 공개 첨부 엔드포인트에는 RequireHost가 없고 HostFiltering만 적용된다.\n- 개발 Vite 프록시는 changeOrigin false로 Host를 SPA 출처 그대로 넘기므로 이 설정을 바꾸면 HostFiltering·RequireHost 동작이 달라질 수 있다.\n- 공개 도메인·관리 도메인 밖 Host는 :80·:443 폴백에서 본문 없는 404를 받는다.",
+      "diagrams": [],
+      "unchanged": false
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "body": "## 관련 문서\n\n- [08_API](08_API.md)\n- [10_ERROR_HANDLING](10_ERROR_HANDLING.md)\n- [16_DEPLOYMENT](16_DEPLOYMENT.md)\n- [17_TECH_DEBT](17_TECH_DEBT.md)\n- [F001 관리자 인증·세션](features/F001_ADMIN_AUTH_SESSION.md)\n- [F009 첨부 관리](features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md)\n- [F018 관리 표면 접근 제어](features/F018_ADMIN_SURFACE_ACCESS_CONTROL.md)\n- [F019 속도 제한](features/F019_RATE_LIMITING.md)\n- [F025 에지 프록시·TLS](features/F025_EDGE_PROXY_TLS.md)",
+      "diagrams": [],
+      "unchanged": false
+    }
+  ],
+  "relatedDocs": [
+    "08_API.md",
+    "10_ERROR_HANDLING.md",
+    "16_DEPLOYMENT.md",
+    "17_TECH_DEBT.md",
+    "features/F001_ADMIN_AUTH_SESSION.md",
+    "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+    "features/F018_ADMIN_SURFACE_ACCESS_CONTROL.md",
+    "features/F019_RATE_LIMITING.md",
+    "features/F025_EDGE_PROXY_TLS.md"
+  ],
+  "unknowns": [
+    "ClientIp와 ForwardedHeaders가 Caddy 뒤에서 실제 원본 IP를 올바르게 산출하는지 확인하지 못했다.",
+    "HtmlAllowlist·UrlPolicy의 정제 규칙 세부(허용 태그·속성·스킴)를 검증하지 못했다.",
+    "Caddyfile 외 에지 헤더·TLS 세부는 확인하지 못했다.",
+    "500 응답 본문에 예외 세부가 노출되는지 확인하지 못했다.",
+    "미들웨어 등록 순서(HostFiltering과 SecurityHeadersMiddleware의 상대 위치)를 이번에 다시 확인하지 못했다."
+  ]
+}

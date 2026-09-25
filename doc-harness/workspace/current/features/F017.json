@@ -1,0 +1,1482 @@
+{
+  "feature": {
+    "id": "F017",
+    "name": "피드·사이트맵·robots·코드 강조 CSS 제공",
+    "slug": "PUBLIC_SITE_FEEDS",
+    "summary": "공개 사이트의 HTML이 아닌 자원 5개를 GET/HEAD로 제공한다. SiteEndpoints.MapPublicSiteEndpoints가 공개 호스트 전용(RequireHost) 엔드포인트 4개를 등록한다. /feed.xml(Atom 1.0, 최신 20건)과 /sitemap.xml(글·태그·시리즈, 종류별 최대 10,000건)은 PublicQueries로 PublicDbContext를 조회해 XmlWriter로 직렬화하고 Cache-Control: public, max-age=300을 붙인다. /robots.txt는 Site:PublicOrigin을 끼운 고정 텍스트이고 캐시 헤더가 없다. /css/highlight.css는 ColorCode 스타일 사전으로 만든 CSS를 Lazy로 한 번만 계산해 max-age=86400으로 낸다. 여기에 더해 /css/site.css는 엔드포인트가 아니라 Program.cs의 UseStaticFiles가 wwwroot/css/site.css를 max-age=3600으로 서빙한다. 이 경로에는 호스트 제한과 속도 제한이 없다.",
+    "entryPoints": [
+      "GET|HEAD /feed.xml",
+      "GET|HEAD /sitemap.xml",
+      "GET|HEAD /robots.txt",
+      "GET|HEAD /css/highlight.css",
+      "GET|HEAD /css/site.css (UseStaticFiles, wwwroot/css/site.css)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+      "PortfolioBlog.Api/wwwroot/css/site.css",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+      "PortfolioBlog.Api/Dockerfile",
+      "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+      "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+      "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+      "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/PreviewCssSnapshotTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/HighlightCssTests.cs",
+      "PortfolioBlog.Web/public/preview/highlight.css",
+      "PortfolioBlog.Web/public/preview/site.css",
+      "deploy/Caddyfile",
+      "deploy/smoke/smoke.test.mjs"
+    ],
+    "dependencies": [
+      "F019",
+      "F020",
+      "F021"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F017은 공개 사이트가 HTML 말고 내보내는 자원 5개다. 등록 방식은 두 가지로 나뉜다. (1) 정적 클래스 SiteEndpoints가 GET/HEAD 엔드포인트 4개(/feed.xml·/sitemap.xml·/robots.txt·/css/highlight.css)를 등록한다. 넷 다 RequireHost(publicHost)로 공개 호스트에서만 받고, 속도 제한 메타데이터(PublicPage 또는 PublicAsset)가 붙는다. (2) /css/site.css는 엔드포인트가 아니다. Program.cs의 UseStaticFiles가 wwwroot/css/site.css를 Cache-Control: public, max-age=3600으로 서빙한다. 이 미들웨어는 AdminSurfaceMiddleware·UseRateLimiter보다 앞에 있고 호스트 조건도 없다. 그래서 속도 제한이 걸리지 않고, 앱 수준에서는 관리 호스트에서도 응답한다. 피드와 sitemap은 요청마다 PublicDbContext(읽기 전용, statement_timeout 기본 3000ms)로 조회한다. 피드는 PublicQueries.FeedAsync가 SELECT 1회, sitemap은 PublicQueries.SitemapAsync가 SELECT 3회를 순차 실행한다. 결과는 BOM 없는 UTF-8 XmlWriter로 MemoryStream에 직렬화해 TypedResults.Bytes로 반환하며 max-age=300을 붙인다. 서버 측 출력 캐시는 없다. robots.txt는 Site:PublicOrigin을 끼운 고정 문자열이고 캐시 헤더가 없다. highlight.css는 ColorCode HtmlClassFormatter 출력에서 클래스 규칙만 남겨 Lazy<string>으로 한 번 계산하고 max-age=86400을 붙인다. 사용자 문자열은 XmlText.Clean이 XML 무효 문자를 제거한다. 실패 경로는 다음과 같다. DB 시간 초과(57014)·잠금 대기 초과(55P03)는 503과 Retry-After: 5, 그 밖의 예외는 UseExceptionHandler 기본 경로(500)로 간다. 한도 초과는 429, 관리 호스트 요청은 404이며, 이 오류 본문은 ErrorResponses가 HTML로 쓴다(이 HTML도 /css/site.css를 참조한다). 시작 시 PublicOrigin 형식 오류나 운영 환경의 비 https 값은 앱 기동 실패로 끝난다. 기능 코드에는 명시적 로깅이 없다.",
+  "entryPoints": [
+    {
+      "text": "GET|HEAD /css/highlight.css: 정적 람다가 Cache-Control: public, max-age=86400을 설정하고 HighlightCss.Value를 text/css(UTF-8)로 반환한다. RequireHost(publicHost), AllowAnonymous, RateLimitPolicy.PublicAsset이 붙고 이름은 GetHighlightCss다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+          "lines": "66-72"
+        }
+      ]
+    },
+    {
+      "text": "GET|HEAD /feed.xml: SiteEndpoints.FeedAsync가 처리한다. RequireHost(publicHost), AllowAnonymous, RateLimitPolicy.PublicPage가 붙고 이름은 GetFeed다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+          "lines": "74-75"
+        }
+      ]
+    },
+    {
+      "text": "GET|HEAD /sitemap.xml: SiteEndpoints.SitemapAsync가 처리한다. RequireHost(publicHost), AllowAnonymous, RateLimitPolicy.PublicPage가 붙고 이름은 GetSitemap이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+          "lines": "76-77"
+        }
+      ]
+    },
+    {
+      "text": "GET|HEAD /robots.txt: 정적 람다가 \"User-agent: *\\nAllow: /\\nSitemap: {PublicOrigin}/sitemap.xml\\n\"을 text/plain으로 반환한다. RequireHost(publicHost), AllowAnonymous, RateLimitPolicy.PublicAsset이 붙고 이름은 GetRobots다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+          "lines": "78-81"
+        }
+      ]
+    },
+    {
+      "text": "GET|HEAD /css/site.css: 라우트 엔드포인트가 아니라 정적 파일 미들웨어가 처리한다. Program.cs 103행의 UseStaticFiles가 wwwroot/css/site.css를 서빙하고, OnPrepareResponse에서 Cache-Control: public, max-age=3600을 붙인다. 주석대로 wwwroot의 정적 파일은 이것 하나뿐이다. 테스트는 wwwroot에 css/site.css만 있는지와, 이 파일이 200 text/css로 서빙되는지를 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "102-103"
+        },
+        {
+          "file": "PortfolioBlog.Api/wwwroot/css/site.css"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "symbol": "PublicPagesTests.Stylesheets_AreServed_SiteCssHasNoIdSelectors_AndWwwrootIsClosed",
+          "lines": "196-211"
+        }
+      ]
+    },
+    {
+      "text": "등록 지점: Program.cs는 먼저 StartupValidation.Validate(76행)를 실행하고, MapRazorPages() 다음에 app.MapPublicSiteEndpoints()(124행)를 호출한다. 정적 파일 미들웨어는 파이프라인 103행에 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76,103,123-124"
+        }
+      ]
+    },
+    {
+      "text": "참조 지점: 공개 레이아웃은 <link rel=\"alternate\" type=\"application/atom+xml\" href=\"/feed.xml\">, /css/site.css와 /css/highlight.css 스타일시트 링크, 내비게이션의 피드 링크로 이 자원들을 참조한다. 공개 오류 HTML(ErrorResponses.Html)도 /css/site.css를 참조한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+          "lines": "20,29-30,35"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.Html",
+          "lines": "71-76"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "lines": "90"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "Caddyfile",
+      "file": "deploy/Caddyfile",
+      "description": "운영 배포 경로: 공개 도메인 블록은 에지에서 /api·/api/* 요청에 404, GET·HEAD 외 메서드에 405로 응답한다. 나머지 요청은 encode zstd gzip을 거쳐 reverse_proxy api:8080으로 넘긴다."
+    },
+    {
+      "step": 2,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "[앱 시작 시 1회] PublicOrigin 검사는 두 단계다. 첫째, 모든 환경에서 Check(\"Site:PublicOrigin\", () => SiteOptions.HostOf(...))(48행)가 형식을 검사한다. 둘째, Development가 아닌 환경에서만 Require(Scheme == https)(126행)가 https를 강제한다. 이 검증은 MapPublicSiteEndpoints보다 먼저 실행된다."
+    },
+    {
+      "step": 3,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "HostFilteringOptions / 미들웨어 파이프라인",
+      "description": "호스트 필터는 PublicOrigin·AdminOrigin의 호스트만 받고, 그 밖의 호스트에는 본문 없는 400을 준다. 통과한 요청은 SecurityHeadersMiddleware → UseTrustedForwardedHeaders → UseExceptionHandler → UseStatusCodePages → UseStaticFiles → AdminSurfaceMiddleware → UseRateLimiter → UseAuthentication/UseAuthorization → ApiBodyLimitMiddleware 순으로 지난다. 라우팅(엔드포인트 매칭)은 WebApplication이 사용자 미들웨어보다 앞에서 이미 끝낸다."
+    },
+    {
+      "step": 4,
+      "component": "UseStaticFiles (StaticFileOptions)",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseStaticFiles",
+      "description": "[site.css] 매칭된 엔드포인트가 없는 요청 가운데 wwwroot에 파일이 있는 경로(/css/site.css)는 여기서 응답이 끝난다. OnPrepareResponse가 Cache-Control: public, max-age=3600을 붙인다. 뒤쪽의 AdminSurfaceMiddleware·UseRateLimiter에는 도달하지 않는다. 엔드포인트가 매칭된 네 경로는 이 미들웨어가 건드리지 않는다(102행 주석)."
+    },
+    {
+      "step": 5,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "description": "경로가 /api로 시작하지 않으면 검사 없이 다음 미들웨어로 넘긴다. 그래서 F017의 경로는 이 미들웨어의 영향을 받지 않는다."
+    },
+    {
+      "step": 6,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "description": "엔드포인트의 RateLimitMetadata를 보고 정책을 고른다. feed·sitemap(PublicPage)은 'page-ip:{IP}' 고정 창(기본 분당 120)을, CSS·robots(PublicAsset)는 'asset-ip:{IP}' 고정 창(기본 분당 600)을 쓴다. 한도를 넘으면 429와 Retry-After를 준다."
+    },
+    {
+      "step": 7,
+      "component": "SiteEndpoints",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+      "description": "라우팅이 RequireHost(publicHost) 조건과 GET/HEAD 메서드로 핸들러를 고른다. publicHost는 앱 시작 시 SiteOptions.HostOf(PublicOrigin)로 한 번만 계산한다."
+    },
+    {
+      "step": 8,
+      "component": "PublicQueries",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.FeedAsync",
+      "description": "[feed] db.Posts를 CreatedAt DESC, Id 순으로 정렬해 20건(FeedSize)을 가져온다. Id·Slug·Title·Summary·CreatedAt·UpdatedAt을 투영하는 SELECT 1회다."
+    },
+    {
+      "step": 9,
+      "component": "SiteEndpoints",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.FeedAsync",
+      "description": "MemoryStream 위의 동기 XmlWriter로 Atom을 쓴다. feed에는 title·subtitle·id·link(self, alternate)·updated·author를, entry마다 id(urn:uuid)·title·link·published·updated·summary(요약이 있을 때만)를 쓴다. 이어서 Cache-Control: public, max-age=300을 설정하고 application/atom+xml 바이트를 반환한다."
+    },
+    {
+      "step": 10,
+      "component": "PublicQueries",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.SitemapAsync",
+      "description": "[sitemap] 세 번 순차로 조회한다. 글은 Slug·UpdatedAt을 CreatedAt DESC 순으로 최대 10000건, 태그는 글이 연결된 것만 NormalizedName 순으로 최대 10000건, 시리즈는 Slug 순으로 최대 10000건을 가져온다."
+    },
+    {
+      "step": 11,
+      "component": "SiteEndpoints",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.SitemapAsync",
+      "description": "urlset에 url을 '/' → 글(lastmod 포함) → 태그 → 시리즈 순으로 쓴다. PublicUrls.Tag가 null을 반환한 태그는 건너뛴다. 이어서 Cache-Control: public, max-age=300을 설정하고 application/xml 바이트를 반환한다."
+    },
+    {
+      "step": 12,
+      "component": "HighlightCss",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "symbol": "HighlightCss.Build / ClassRules",
+      "description": "[highlight.css] 처음 접근할 때 Lazy가 Build를 한 번 실행한다. 결과는 DefaultLight 클래스 규칙 뒤에 @media (prefers-color-scheme: dark){DefaultDark 규칙}을 붙인 것이다. '.'로 시작하는 규칙만 남기고 '.plainText{' 규칙은 버린다."
+    },
+    {
+      "step": 13,
+      "component": "SiteEndpoints",
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints (robots 람다)",
+      "description": "[robots] IOptions<SiteOptions>에서 PublicOrigin을 읽어 고정 텍스트를 만든다. DB나 파일 I/O는 없다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseStaticFiles (site.css 서빙)",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.FeedAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.SitemapAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints.WriteLink / WriteUrl",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "symbol": "HighlightCss.Value",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/wwwroot/css/site.css",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+      "symbol": "XmlText.Clean",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "symbol": "PublicUrls.Post / Tag / Series",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+      "symbol": "PublicFormat.Rfc3339",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.FeedAsync / SitemapAsync / FeedSize / SitemapMax",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+      "symbol": "PublicFeedEntry / PublicSitemap",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.SlugPattern / CK_Posts_Slug_Format / CK_Series_Slug_Format",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "symbol": "SlugRules",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+      "symbol": "SiteOptions (PublicOrigin, Title, Description, Author, HostOf)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate / Check / Require",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync / Html",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "SecurityHeadersMiddleware.InvokeAsync",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "symbol": "PublicOptions.PagePerIpPerMinute / AssetPerIpPerMinute / StatementTimeoutMs",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.MapPublicSiteEndpoints()",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+      "symbol": "CompressionEnabled=false",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "symbol": "wwwroot 파일 목록 검사(RUN test)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+      "role": "render"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+      "symbol": "FeedAndSitemapTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+      "symbol": "AccessMatrixTests.PublicAllowlist",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "symbol": "PublicPagesTests.Stylesheets_AreServed_SiteCssHasNoIdSelectors_AndWwwrootIsClosed",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PreviewCssSnapshotTests.cs",
+      "symbol": "PreviewCssSnapshotTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/HighlightCssTests.cs",
+      "symbol": "HighlightCssTests",
+      "role": "test"
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/public/preview/highlight.css",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/public/preview/site.css",
+      "role": "render"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "피드 흐름: PublicQueries.FeedAsync가 \"Posts\" 행을 투영해 PublicFeedEntry 목록(최대 20건)을 만든다. SiteEndpoints.FeedAsync가 이를 Atom 요소로 쓴다. 제목·요약·사이트 설정 문자열은 XmlText.Clean을 거치고, 시각은 PublicFormat.Rfc3339가 UTC 'Z' 형식으로 바꾸며, 링크는 PublicOrigin 뒤에 PublicUrls.Post(slug)를 붙여 만든다. 완성된 문서는 MemoryStream.ToArray()로 byte[]가 되어 응답 본문이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.FeedAsync",
+          "lines": "191-196"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.FeedAsync",
+          "lines": "99-143"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+          "symbol": "PublicFormat.Rfc3339",
+          "lines": "27"
+        }
+      ]
+    },
+    {
+      "text": "sitemap 흐름: \"Posts\"(Slug, UpdatedAt), \"Tags\"(NormalizedName, 연결된 글이 있는 태그만), \"Series\"(Slug)를 읽어 PublicSitemap을 만들고 url/loc XML로 쓴다. lastmod는 글에만 붙는다. 태그 경로는 Uri.EscapeDataString으로 인코딩한다(예: C# → /tags/c%23).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.SitemapAsync",
+          "lines": "210-218"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.SitemapAsync",
+          "lines": "160-181"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Tag",
+          "lines": "52-53"
+        }
+      ]
+    },
+    {
+      "text": "절대 URL은 요청의 Host 헤더가 아니라 설정값 Site:PublicOrigin으로 만든다. 테스트는 Host: blog.test:8443으로 요청해도 응답에 ':8443'이 들어가지 않음을 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "113-115,127,162-176"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+          "lines": "56-80,118-125"
+        }
+      ]
+    },
+    {
+      "text": "highlight.css 흐름: HtmlClassFormatter.GetCSSString()이 ColorCode StyleDictionary.DefaultLight/DefaultDark를 CSS 문자열로 만든다. 이 문자열을 '}' 기준으로 나눠 클래스 규칙만 남기고 다시 잇는다. 결과는 Lazy<string>에 캐시해 text/css로 응답한다. 파일 시스템은 쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "symbol": "HighlightCss.Build / ClassRules",
+          "lines": "23-45"
+        }
+      ]
+    },
+    {
+      "text": "site.css 흐름: 디스크 파일 wwwroot/css/site.css를 정적 파일 미들웨어가 그대로 읽어 응답한다(가공 없음). 응답 헤더는 OnPrepareResponse가 설정하는 Cache-Control: public, max-age=3600이다. 테스트는 이 CSS에 id 선택자가 없음을 검사한다. 제목 id가 작성자 텍스트에서 나오기 때문이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "102-103"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "lines": "196-219"
+        }
+      ]
+    },
+    {
+      "text": "관리 SPA 미리보기가 쓰는 PortfolioBlog.Web/public/preview/highlight.css와 preview/site.css는 공개 CSS의 사본이다. PreviewCssSnapshotTests가 highlight.css는 HighlightCss.Value와, site.css는 wwwroot/css/site.css와 내용이 같은지(줄 끝 무시) 검증한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PreviewCssSnapshotTests.cs",
+          "lines": "23-35"
+        },
+        {
+          "file": "PortfolioBlog.Web/public/preview/highlight.css"
+        },
+        {
+          "file": "PortfolioBlog.Web/public/preview/site.css"
+        }
+      ]
+    },
+    {
+      "text": "피드·sitemap 조회에는 공개 여부 필터가 없다. 저장된 글은 모두 피드와 sitemap에 실린다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Domain/Post.cs",
+          "symbol": "Post",
+          "lines": "12-45"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "193,212"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "HighlightCss.Cached 미계산",
+      "to": "계산 완료(문자열 캐시)",
+      "trigger": "프로세스에서 HighlightCss.Value를 처음 읽을 때(예: 첫 /css/highlight.css 요청) Build가 실행된다. Lazy 기본 모드(ExecutionAndPublication)라 동시 요청이 있어도 Build는 한 번만 실행된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "symbol": "HighlightCss.Cached",
+          "lines": "21-34"
+        }
+      ]
+    },
+    {
+      "from": "HighlightCss.Cached 미계산",
+      "to": "예외가 캐시된 상태(faulted), 추론",
+      "trigger": "첫 Build()가 예외를 던진 경우다. 팩토리를 받은 Lazy<T>는 이 모드에서 예외를 캐시한다(.NET 동작이며 이 저장소에서 측정하지 않았다). 시작 워밍업은 MarkdownRenderer.Render만 부르고 HighlightCss.Value는 부르지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "lines": "23"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "90-91"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Post (\"Posts\")",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.FeedAsync"
+    },
+    {
+      "entity": "Post (\"Posts\")",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.SitemapAsync"
+    },
+    {
+      "entity": "Tag + PostTag (\"Tags\", \"PostTags\": EXISTS 하위 질의)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.SitemapAsync"
+    },
+    {
+      "entity": "Series (\"Series\")",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.SitemapAsync"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL: PublicDbContext는 연결 옵션 '-c statement_timeout={StatementTimeoutMs} -c default_transaction_read_only=on'과 ApplicationName=PortfolioBlog.Public으로 접속한다. StatementTimeoutMs 기본값은 3000이다. Development가 아닌 환경에서는 StartupValidation이 ConnectionStrings:Public을 필수로 요구한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext.BuildConnectionString",
+          "lines": "46-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "lines": "30"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate",
+          "lines": "132"
+        }
+      ]
+    },
+    {
+      "text": "ColorCode 라이브러리(StyleDictionary, HtmlClassFormatter)가 강조 CSS의 원천이다. CSS를 런타임에 만들기 때문에 클래스 이름이 라이브러리 버전과 항상 맞는다. HighlightCssTests가 렌더러가 내는 클래스가 CSS에 있는지 검사한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "lines": "1-2,6,36-45"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/HighlightCssTests.cs",
+          "symbol": "HighlightCssTests.Css_CoversTheClassesTheRendererEmits",
+          "lines": "32-39"
+        }
+      ]
+    },
+    {
+      "text": "System.Xml: XmlWriter로 XML을 직렬화한다. CheckCharacters는 기본값 true이고 Async는 꺼져 있다. 문자 유효성은 XmlConvert.IsXmlChar로 판정한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "47-50"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+          "symbol": "XmlText.IndexOfInvalid",
+          "lines": "48-62"
+        }
+      ]
+    },
+    {
+      "text": "ASP.NET Core 정적 파일 미들웨어(UseStaticFiles)가 site.css를 서빙한다. 빌드 설정 CompressionEnabled=false로 publish 산출물에 site.css.gz·site.css.br가 생기지 않게 막는다. Dockerfile은 이미지의 wwwroot가 ./css/site.css 하나뿐인지 빌드 중에 검사한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "103"
+        },
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "7-11"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "15-17"
+        }
+      ]
+    },
+    {
+      "text": "Caddy 에지(운영): 공개 도메인에서 GET/HEAD 외 메서드에는 405, /api에는 404로 응답한다. 나머지 요청은 압축해 api:8080으로 프록시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "20-48"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "PublicQueries.FeedAsync / SitemapAsync (PublicDbContext)",
+      "condition": "statement_timeout 초과(PostgresException SqlState 57014) 또는 잠금 대기 초과(55P03)",
+      "handling": "OverloadExceptionHandler.IsOverload가 InnerException 체인에서 이 예외를 찾는다. 찾으면 503과 Retry-After: 5를 설정하고 ErrorResponses.WriteAsync로 본문을 쓴다. 이 경로들은 MachinePrefixes(/api·/attachments·/health·/openapi)에 속하지 않으므로 본문은 text/html이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+          "lines": "35-70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync",
+          "lines": "17,45-56"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,100"
+        }
+      ]
+    },
+    {
+      "where": "SiteEndpoints.FeedAsync / SitemapAsync",
+      "condition": "DB 연결 실패처럼 과부하로 분류되지 않는 DB 예외",
+      "handling": "처리 없음(예외 전파). 핸들러에 try/catch가 없어 UseExceptionHandler 기본 처리(500)로 넘어간다. 재시도나 폴백은 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "99-181"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "47,100"
+        }
+      ]
+    },
+    {
+      "where": "SiteEndpoints.SitemapAsync / FeedAsync (XmlWriter, CheckCharacters=true)",
+      "condition": "Clean을 거치지 않는 값(PublicOrigin, slug)에 XML 무효 문자가 들어간 경우",
+      "handling": "처리 없음(예외 전파). XmlWriter가 ArgumentException을 던져 문서 전체가 500이 된다. 다만 입력은 세 겹으로 제한된다. slug는 API 저장 경로의 SlugRules와 DB CHECK 제약(CK_Posts_Slug_Format·CK_Series_Slug_Format)이 문자 집합을 막고, PublicOrigin은 시작 시 SiteOptions.HostOf가 정규 origin 형식을 강제한다. 태그는 Uri.EscapeDataString으로 인코딩된다. 그래서 정상 데이터에서는 사실상 발생하지 않는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "47-50,145-146,194-199"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.SlugPattern / OnModelCreating",
+          "lines": "48,102-104,117-119"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+          "lines": "5-17"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+          "symbol": "SiteOptions.HostOf",
+          "lines": "44-48"
+        }
+      ]
+    },
+    {
+      "where": "SiteEndpoints.FeedAsync (제목·요약·사이트 설정 텍스트)",
+      "condition": "C0 제어 문자, U+FFFE, 짝 없는 서로게이트가 포함된 경우",
+      "handling": "XmlText.Clean이 해당 문자를 제거해 XmlWriter 예외를 막는다. 테스트 Feed_IsValidAtom_EvenWithHostileTitles_AndUsesPublicOrigin이 이를 검증한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+          "symbol": "XmlText.Clean",
+          "lines": "17-45"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+          "lines": "44-81"
+        }
+      ]
+    },
+    {
+      "where": "전역 속도 제한기(UseRateLimiter)",
+      "condition": "IP별 분당 한도 초과. page-ip(기본 120)는 피드·sitemap·Razor 페이지·검색이 함께 쓰고, asset-ip(기본 600)는 highlight.css·robots·첨부·/health가 함께 쓴다.",
+      "handling": "429와 Retry-After(1~60초)를 반환한다. QueueLimit이 0이라 대기 없이 즉시 거부한다. 본문은 ErrorResponses가 HTML로 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "45-54,69-72,100-101,144-150"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "lines": "18-21"
+        }
+      ]
+    },
+    {
+      "where": "라우팅(RequireHost)",
+      "condition": "관리 호스트(AdminOrigin)로 네 엔드포인트를 요청한 경우",
+      "handling": "엔드포인트가 매칭되지 않는다. wwwroot에도 같은 파일이 없으므로 404가 되고, UseStatusCodePages가 HTML 본문을 쓴다. feed·sitemap·robots는 테스트로 검증했고, highlight.css는 코드로만 확인했다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "71,74,76,80"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+          "lines": "136-151"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "30-56"
+        }
+      ]
+    },
+    {
+      "where": "UseStaticFiles (/css/site.css)",
+      "condition": "배포 이미지의 wwwroot에서 site.css가 빠졌거나, 압축 산출물(.gz·.br)이 다시 생긴 경우",
+      "handling": "런타임 처리는 없다. 파일이 없으면 요청이 다음 단계로 넘어가 404 HTML이 된다. 대신 빌드 단계에서 막는다. csproj의 CompressionEnabled=false가 압축 산출물을 막고, Dockerfile의 RUN test가 wwwroot 목록이 ./css/site.css 하나가 아니면 이미지 빌드를 실패시킨다. 배포 스모크는 /css/site.css가 200이고 .gz·.br가 404인지 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "7-11"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "15-17"
+        },
+        {
+          "file": "deploy/smoke/smoke.test.mjs",
+          "lines": "89-93"
+        }
+      ]
+    },
+    {
+      "where": "HostFiltering(Program.cs)",
+      "condition": "Host 헤더가 PublicOrigin·AdminOrigin 어느 호스트와도 맞지 않는 경우",
+      "handling": "프레임워크 호스트 필터가 본문 없는 400을 반환한다(IncludeFailureMessage=false).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "34-42"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate → Check(\"Site:PublicOrigin\", SiteOptions.HostOf) (모든 환경, 앱 시작 시)",
+      "condition": "Site:PublicOrigin이 HostOf 조건을 어기는 경우다. HostOf는 절대 URI, http/https 스킴, 경로·사용자 정보 없음, 원문이 GetLeftPart(UriPartial.Authority)와 같을 것을 요구한다. https는 강제하지 않는다.",
+      "handling": "HostOf가 FormatException을 던지면 Check가 설정 키가 든 InvalidOperationException으로 다시 던져 앱 시작이 실패한다. Validate(76행)가 MapPublicSiteEndpoints(124행)보다 먼저 실행되므로 엔드포인트 등록까지 가지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+          "symbol": "SiteOptions.HostOf",
+          "lines": "44-48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate / Check",
+          "lines": "48,185-189"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76,124"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate → Require(Scheme == https, \"Site:PublicOrigin\") (Development가 아닌 환경, 앱 시작 시)",
+      "condition": "HostOf는 통과했지만 PublicOrigin 스킴이 https가 아닌 경우",
+      "handling": "Require가 InvalidOperationException을 던지고 앱 시작이 실패한다. Development에서는 이 검사를 건너뛰므로 http origin으로도 기동하고, 그때 피드·sitemap·robots의 절대 URL은 http로 나간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate / Require",
+          "lines": "116,125-126,203-206"
+        }
+      ]
+    },
+    {
+      "where": "HighlightCss.Value (Lazy<string>)",
+      "condition": "첫 Build()가 예외를 던지는 경우(ColorCode 출력 이상 등)",
+      "handling": "처리 없음(예외 전파). Lazy 기본 모드는 예외를 캐시하므로, 프로세스를 재시작할 때까지 /css/highlight.css 요청이 계속 500이 될 수 있다. .NET 동작에서 추론했고 측정하지 않았다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "lines": "23,34-37"
+        }
+      ]
+    },
+    {
+      "where": "Caddy 공개 도메인 route",
+      "condition": "GET/HEAD 외 메서드, /api 경로",
+      "handling": "에지에서 405 또는 404로 응답하고 백엔드로 전달하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "36-40"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "글이 하나도 없으면 피드의 updated에 고정값 DateTimeOffset.UnixEpoch를 쓴다. 현재 시각을 쓰면 요청마다 값이 바뀌기 때문이다. entry가 없어도 유효한 Atom이며 테스트로 검증된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "116-118"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+          "lines": "84-99"
+        }
+      ]
+    },
+    {
+      "text": "피드 전체의 updated는 CreatedAt 기준 최신 20건의 UpdatedAt 중 최댓값이다. 상위 20건 밖의 글을 수정해도 이 값은 바뀌지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "193"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "118"
+        }
+      ]
+    },
+    {
+      "text": "피드 항목 id는 글 Id 기반 URN(urn:uuid:{Id:D})이다. slug나 도메인이 바뀌어도 구독기가 같은 항목으로 인식하게 하려는 설계이며, 구독기별 실제 동작은 검증하지 않았다고 주석에 적혀 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "84-85,125"
+        }
+      ]
+    },
+    {
+      "text": "Site:Author가 비어 있으면 author/name에 Site:Title을 쓴다. Description이 비어 있으면 subtitle을, Summary가 빈 문자열이면 summary를 생략한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "112,120,130-136"
+        }
+      ]
+    },
+    {
+      "text": "sitemap에는 종류별로 최대 10,000건만 실린다. 초과분은 sitemap index나 경고 없이 잘리며, 글은 가장 오래된 것부터 빠진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "29,212-216"
+        }
+      ]
+    },
+    {
+      "text": "태그가 sitemap에서 빠지는 경우는 두 가지다. 정규화명이 '.' 또는 '..'이면 PublicUrls.Tag가 null을 반환해 빠지고, 연결된 글이 없는 태그도 빠진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "lines": "52-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "215"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+          "lines": "103-133"
+        }
+      ]
+    },
+    {
+      "text": "시리즈에는 '글이 있는 것만' 조건이 없어 빈 시리즈도 sitemap에 실린다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "216"
+        }
+      ]
+    },
+    {
+      "text": "lastmod는 글 URL에만 붙고 '/', 태그, 시리즈 URL에는 붙지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "170-176,194-199"
+        }
+      ]
+    },
+    {
+      "text": "HEAD 요청도 GET과 같은 델리게이트로 처리되므로 DB 조회와 직렬화를 GET과 똑같이 수행한다. 본문 생략은 프레임워크가 맡으며 측정하지 않았다. 상태 코드 오류 응답에서는 ErrorResponses.WriteAsync가 HEAD일 때 본문을 쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "45,157"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "54"
+        }
+      ]
+    },
+    {
+      "text": "캐시 헤더가 자원마다 다르다. highlight.css는 86400, site.css는 3600, 피드·sitemap은 300이고, robots에는 없다. 피드·sitemap의 헤더는 직렬화가 끝난 뒤 설정되므로 예외 응답에는 붙지 않는다. 서버 측 출력 캐시는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "68,78-79,141,179"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "103"
+        }
+      ]
+    },
+    {
+      "text": "highlight.css와 site.css URL에는 버전이나 지문이 없다. 그래서 ColorCode 업그레이드나 site.css 수정 뒤에도 이전 CSS가 브라우저 캐시에 남을 수 있다고 추론한다(highlight.css는 최대 하루, site.css는 최대 1시간).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+          "lines": "29-30"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "26,68"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "103"
+        }
+      ]
+    },
+    {
+      "text": "site.css는 속도 제한을 받지 않는다. UseStaticFiles(103행)가 UseRateLimiter(105행)보다 앞에서 응답을 끝내고, 이 경로에는 RateLimitMetadata를 가진 엔드포인트도 없다. highlight.css가 PublicAsset 한도(asset-ip)를 받는 것과 대조된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "103-105"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.Matches",
+          "lines": "128-129"
+        }
+      ]
+    },
+    {
+      "text": "site.css에는 RequireHost 같은 호스트 조건이 없다. 호스트 필터를 통과한 관리 호스트(AdminOrigin) 요청에도 앱이 site.css를 응답할 것으로 추론한다(테스트 없음). 운영에서는 Caddy 관리 도메인이 /api/*·/attachments/*만 백엔드로 보내므로, 관리 도메인의 /css/site.css는 백엔드까지 가지 않고 SPA 정적 루트의 try_files 폴백으로 처리된다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "34-37,103"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "92-99,139-142"
+        }
+      ]
+    },
+    {
+      "text": "SecurityHeadersMiddleware가 UseStaticFiles보다 앞(98행)에 있으므로, site.css 응답에도 OnStarting 콜백으로 기준 보안 헤더가 붙는다(코드 순서로 확인, site.css 헤더를 직접 검사하는 테스트는 찾지 못함).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "98,103"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "symbol": "SecurityHeadersMiddleware.InvokeAsync",
+          "lines": "39-42"
+        }
+      ]
+    },
+    {
+      "text": "site.css는 AccessMatrixTests.PublicAllowlist에 없다. 이 목록은 라우트 엔드포인트만 대상으로 하고, site.css는 엔드포인트가 아니라 정적 파일이기 때문이다. 대신 wwwroot가 닫혀 있는지는 PublicPagesTests와 Dockerfile 검사가 별도로 보장한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+          "symbol": "AccessMatrixTests.PublicAllowlist",
+          "lines": "206-222"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "lines": "208-211"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "15-17"
+        }
+      ]
+    },
+    {
+      "text": "HighlightCss는 ColorCode가 내는 body{...} 규칙과 .plainText{...} 규칙을 의도적으로 버린다. .plainText 규칙에는 밝은 테마에서 글자가 흰색이 되는 버그가 있다(실측, 주석).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "lines": "39-45"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/HighlightCssTests.cs",
+          "lines": "18-29"
+        }
+      ]
+    },
+    {
+      "text": "RequireHost는 포트가 붙은 Host(blog.test:8443)도 매칭한다. 이때도 절대 URL은 설정값으로 만든다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+          "lines": "56-59,80"
+        }
+      ]
+    },
+    {
+      "text": "Development 환경에서는 PublicOrigin과 AdminOrigin이 같아도 되고 http 스킴도 허용된다. 두 origin이 같으면 관리 호스트 요청도 RequireHost(publicHost)에 매칭되어 이 엔드포인트들이 응답할 것으로 추론한다. 운영에서는 124행의 Require가 두 origin이 같은 설정을 막는다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "116,122-127"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "64"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "SiteEndpoints, HighlightCss, XmlText, PublicQueries에는 ILogger 호출 같은 명시적 로깅이 없다. site.css 서빙 경로에도 앱 코드의 로깅은 없다. 요청 로그와 예외 로그는 ASP.NET Core 프레임워크와 UseExceptionHandler의 기본 로깅이 남긴다고 추론한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100-103"
+        }
+      ]
+    },
+    {
+      "text": "운영에서는 Caddy 공개 도메인 블록의 'log' 지시어가 접근 로그를 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "20-21"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F017_SEQUENCE",
+      "type": "sequence",
+      "title": "/feed.xml·/sitemap.xml 요청 처리 순서",
+      "summary": "피드 요청은 속도 제한을 통과한 뒤 SiteEndpoints.FeedAsync → PublicQueries → PublicDbContext 순으로 조회하고, XML로 직렬화해 max-age=300으로 응답한다. DB 시간 초과는 OverloadExceptionHandler가 503으로 바꾼다.",
+      "mermaid": "sequenceDiagram\n    participant Caddyfile\n    participant RateLimitingExtensions\n    participant SiteEndpoints\n    participant PublicQueries\n    participant PublicDbContext\n    participant XmlText\n    participant PublicUrls\n    participant PublicFormat\n    participant OverloadExceptionHandler\n    Caddyfile->>RateLimitingExtensions: GET /feed.xml (reverse_proxy api:8080)\n    RateLimitingExtensions-->>Caddyfile: 429 + Retry-After (page-ip 한도 초과 시)\n    RateLimitingExtensions->>SiteEndpoints: FeedAsync (RequireHost publicHost 매칭)\n    SiteEndpoints->>PublicQueries: FeedAsync(db, ct)\n    PublicQueries->>PublicDbContext: Posts ORDER BY CreatedAt DESC, Id LIMIT 20\n    PublicDbContext-->>PublicQueries: rows\n    PublicDbContext-->>OverloadExceptionHandler: PostgresException 57014 (시간 초과 시)\n    OverloadExceptionHandler-->>Caddyfile: 503 + Retry-After 5\n    PublicQueries-->>SiteEndpoints: List of PublicFeedEntry\n    SiteEndpoints->>XmlText: Clean(title, summary, site 설정)\n    SiteEndpoints->>PublicUrls: Post(slug)\n    SiteEndpoints->>PublicFormat: Rfc3339(CreatedAt, UpdatedAt)\n    SiteEndpoints-->>Caddyfile: 200 application/atom+xml, Cache-Control public max-age=300\n    Note over SiteEndpoints,PublicDbContext: /sitemap.xml은 PublicQueries.SitemapAsync가 Posts, Tags, Series를 순차 SELECT 3회",
+      "details": "운영에서는 Caddyfile의 공개 도메인 블록이 요청을 api:8080으로 넘긴다. 속도 제한기(RateLimitingExtensions.BuildChain)는 엔드포인트의 RateLimitPolicy.PublicPage 메타데이터를 보고 'page-ip:{IP}' 창을 적용한다. 핸들러 SiteEndpoints.FeedAsync는 PublicQueries.FeedAsync로 Posts를 한 번 조회한다. 이 조회는 PublicDbContext를 쓰며, 연결은 읽기 전용이고 statement_timeout이 걸려 있다. 조회 결과(PublicFeedEntry)는 XmlText.Clean·PublicUrls.Post·PublicFormat.Rfc3339를 거쳐 Atom 요소로 쓰인다. 시간 초과(57014)나 잠금 대기 초과(55P03)가 나면 핸들러에 catch가 없으므로 예외가 올라가고, UseExceptionHandler에 등록된 OverloadExceptionHandler가 503과 Retry-After: 5로 응답한다. sitemap도 같은 구조이며, 조회만 SELECT 3회(Posts, Tags+PostTags, Series)로 늘어난다.",
+      "nodes": [
+        {
+          "node": "Caddyfile",
+          "code": "deploy/Caddyfile"
+        },
+        {
+          "node": "RateLimitingExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.BuildChain"
+        },
+        {
+          "node": "SiteEndpoints",
+          "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.FeedAsync"
+        },
+        {
+          "node": "PublicQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.FeedAsync"
+        },
+        {
+          "node": "PublicDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs"
+        },
+        {
+          "node": "XmlText",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+          "symbol": "XmlText.Clean"
+        },
+        {
+          "node": "PublicUrls",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Post"
+        },
+        {
+          "node": "PublicFormat",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+          "symbol": "PublicFormat.Rfc3339"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F017_FLOW",
+      "type": "flowchart",
+      "title": "공개 자원 5개의 요청 분기와 응답",
+      "summary": "엔드포인트가 매칭되지 않은 요청 가운데 /css/site.css만 UseStaticFiles가 서빙한다. 나머지 네 경로는 RequireHost 매칭과 속도 제한을 거쳐 SiteEndpoints의 각 핸들러로 간다.",
+      "mermaid": "flowchart TD\n    Request[공개 호스트 GET 또는 HEAD 요청] --> RoutingMatch{엔드포인트 매칭 RequireHost publicHost}\n    RoutingMatch -- 매칭 없음 --> UseStaticFiles{UseStaticFiles wwwroot 파일 존재}\n    UseStaticFiles -- css/site.css --> SiteCssOk[200 text/css max-age=3600 속도 제한 없음]\n    UseStaticFiles -- 없음 --> NotFound404[404 ErrorResponses HTML]\n    RoutingMatch -- 매칭 --> RateLimitingExtensions{RateLimitMetadata 정책 한도}\n    RateLimitingExtensions -- 한도 초과 --> TooMany429[429 Retry-After]\n    RateLimitingExtensions -- 통과 --> PathSwitch{경로}\n    PathSwitch -- /css/highlight.css --> HighlightCss[HighlightCss.Value Lazy 캐시]\n    HighlightCss --> HighlightOk[200 text/css max-age=86400]\n    PathSwitch -- /robots.txt --> SiteOptions[SiteOptions.PublicOrigin]\n    SiteOptions --> RobotsOk[200 text/plain 캐시 헤더 없음]\n    PathSwitch -- /feed.xml --> FeedAsync[PublicQueries.FeedAsync]\n    PathSwitch -- /sitemap.xml --> SitemapAsync[PublicQueries.SitemapAsync]\n    FeedAsync --> DbResult{DB 결과}\n    SitemapAsync --> DbResult\n    DbResult -- 57014 또는 55P03 --> OverloadExceptionHandler[OverloadExceptionHandler 503 Retry-After 5]\n    DbResult -- 기타 예외 --> Error500[UseExceptionHandler 500]\n    DbResult -- 성공 --> XmlWriter[XmlWriter to MemoryStream]\n    XmlWriter -- 무효 XML 문자 ArgumentException --> Error500\n    XmlWriter -- 성공 --> XmlOk[200 XML max-age=300]",
+      "details": "WebApplication은 사용자 미들웨어보다 앞에서 라우팅을 수행한다. SiteEndpoints의 네 엔드포인트는 RequireHost(publicHost)가 걸려 있어 관리 호스트 요청에는 매칭되지 않는다. 매칭이 없는 요청은 UseStaticFiles(Program.cs 103행)로 간다. wwwroot에 있는 유일한 파일 css/site.css면 max-age=3600으로 응답하고 파이프라인을 끝낸다. 이 응답은 뒤쪽의 UseRateLimiter에 도달하지 않는다. 파일이 없으면 404가 되고 ErrorResponses가 HTML 본문을 쓴다. 매칭된 요청은 RateLimitingExtensions 체인에서 PublicPage(피드·sitemap) 또는 PublicAsset(highlight.css·robots) 한도를 확인받고, 초과하면 429를 받는다. 피드·sitemap은 DB 결과에 따라 세 갈래로 나뉜다. 과부하 예외는 503, 기타 예외는 500, 성공하면 XML 직렬화로 간다. XmlWriter는 CheckCharacters=true라 무효 문자를 만나면 ArgumentException으로 500이 된다.",
+      "nodes": [
+        {
+          "node": "RoutingMatch",
+          "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints"
+        },
+        {
+          "node": "UseStaticFiles",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseStaticFiles"
+        },
+        {
+          "node": "SiteCssOk",
+          "code": "PortfolioBlog.Api/wwwroot/css/site.css"
+        },
+        {
+          "node": "NotFound404",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync"
+        },
+        {
+          "node": "RateLimitingExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.BuildChain"
+        },
+        {
+          "node": "HighlightCss",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+          "symbol": "HighlightCss.Value"
+        },
+        {
+          "node": "SiteOptions",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs"
+        },
+        {
+          "node": "FeedAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.FeedAsync"
+        },
+        {
+          "node": "SitemapAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.SitemapAsync"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        },
+        {
+          "node": "XmlWriter",
+          "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.XmlSettings"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F017_FLOW_STARTUP",
+      "type": "flowchart",
+      "title": "시작 시 PublicOrigin 검증과 엔드포인트 등록",
+      "summary": "PublicOrigin은 모든 환경에서 HostOf 형식 검사를 거치고, Development가 아닌 환경에서는 https까지 강제된다. 둘 중 하나라도 실패하면 엔드포인트 등록 전에 앱 시작이 멈춘다.",
+      "mermaid": "flowchart TD\n    StartupValidation[StartupValidation.Validate] --> HostOfCheck{SiteOptions.HostOf 형식 검사 모든 환경}\n    HostOfCheck -- FormatException --> StartFail[InvalidOperationException 시작 실패]\n    HostOfCheck -- 통과 --> HttpsRequire{Development 아님이면 Require https}\n    HttpsRequire -- https 아님 --> StartFail\n    HttpsRequire -- 통과 또는 Development --> MapPublicSiteEndpoints[MapPublicSiteEndpoints 등록 publicHost 계산]\n    MapPublicSiteEndpoints --> UseStaticFiles[UseStaticFiles 파이프라인 site.css]",
+      "details": "Program.cs 76행에서 StartupValidation.Validate가 실행된다. 48행의 Check가 SiteOptions.HostOf로 PublicOrigin 형식(절대 URI, http/https, 경로·사용자 정보 없음, 정규 origin)을 검사하고, 실패하면 설정 키가 든 InvalidOperationException을 던진다. Development가 아니면 126행의 Require가 https 스킴을 추가로 강제한다. 둘 다 통과해야 124행의 MapPublicSiteEndpoints가 publicHost를 계산하고 엔드포인트를 등록한다. UseStaticFiles(103행)는 미들웨어 등록이며 PublicOrigin 값에 의존하지 않는다. 이 다이어그램에서는 등록 순서를 보이려고 함께 그렸다.",
+      "nodes": [
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate"
+        },
+        {
+          "node": "HostOfCheck",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+          "symbol": "SiteOptions.HostOf"
+        },
+        {
+          "node": "HttpsRequire",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Require"
+        },
+        {
+          "node": "MapPublicSiteEndpoints",
+          "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints"
+        },
+        {
+          "node": "UseStaticFiles",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseStaticFiles"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F017_DATAFLOW",
+      "type": "dataflow",
+      "title": "DB 행과 파일에서 응답 본문까지의 데이터 변환",
+      "summary": "피드·sitemap은 DB 행을 PublicFeedEntry/PublicSitemap으로 투영한 뒤 XML 바이트로 바꾼다. 두 CSS는 DB 없이 ColorCode 스타일 사전과 wwwroot 파일에서 나온다.",
+      "mermaid": "flowchart LR\n    Posts[(Posts)] --> PublicQueries\n    TagsPostTags[(Tags + PostTags)] --> PublicQueries\n    Series[(Series)] --> PublicQueries\n    PublicQueries --> PublicFeedEntry\n    PublicQueries --> PublicSitemap\n    SiteOptions --> SiteEndpoints\n    PublicFeedEntry --> SiteEndpoints\n    PublicSitemap --> SiteEndpoints\n    SiteEndpoints -- 제목 요약 --> XmlText\n    SiteEndpoints -- slug 태그 --> PublicUrls\n    SiteEndpoints -- 시각 --> PublicFormat\n    XmlText --> MemoryStream\n    PublicUrls --> MemoryStream\n    PublicFormat --> MemoryStream\n    MemoryStream -- ToArray --> TypedResultsBytes[TypedResults.Bytes 응답]\n    StyleDictionary[ColorCode StyleDictionary] --> HighlightCss\n    HighlightCss --> TypedResultsText[TypedResults.Text text/css]\n    SiteCssFile[wwwroot/css/site.css] --> UseStaticFiles\n    UseStaticFiles --> StaticResponse[정적 파일 응답 max-age=3600]",
+      "details": "PublicQueries는 Posts·Tags(+PostTags)·Series에서 필요한 열만 투영해 PublicFeedEntry 목록과 PublicSitemap을 만든다. SiteEndpoints는 이 DTO와 SiteOptions를 받아 문자열 정리(XmlText), 경로 생성(PublicUrls), 시각 형식화(PublicFormat)를 거쳐 MemoryStream에 XML을 쓰고, ToArray로 복사한 바이트를 TypedResults.Bytes로 반환한다. highlight.css는 ColorCode StyleDictionary에서 HighlightCss가 만든 문자열을 TypedResults.Text로 낸다. site.css는 디스크의 wwwroot/css/site.css를 UseStaticFiles가 가공 없이 전송한다.",
+      "nodes": [
+        {
+          "node": "PublicQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs"
+        },
+        {
+          "node": "PublicFeedEntry",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs"
+        },
+        {
+          "node": "PublicSitemap",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs"
+        },
+        {
+          "node": "SiteOptions",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs"
+        },
+        {
+          "node": "SiteEndpoints",
+          "code": "PortfolioBlog.Api/Pages/SiteEndpoints.cs"
+        },
+        {
+          "node": "XmlText",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs"
+        },
+        {
+          "node": "PublicUrls",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs"
+        },
+        {
+          "node": "PublicFormat",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs"
+        },
+        {
+          "node": "HighlightCss",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs"
+        },
+        {
+          "node": "SiteCssFile",
+          "code": "PortfolioBlog.Api/wwwroot/css/site.css"
+        },
+        {
+          "node": "UseStaticFiles",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseStaticFiles"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "클라이언트가 요청을 취소해 ct가 취소될 때 발생하는 OperationCanceledException이 어떤 상태 코드와 로그로 처리되는지 확인하지 못했다. 이 기능 코드에는 해당 처리가 없다.",
+    "HighlightCss.Build가 실제로 예외를 던질 수 있는 조건과, 예외가 캐시되는 상태(faulted Lazy)가 이 앱에서 재현되는지는 측정되지 않았다.",
+    "최대 규모(URL 30,001개)에서 sitemap 문서의 실제 크기, 메모리 사용량, 직렬화 시간은 측정되지 않았다. 코드 주석도 '수 MB 추정'이라고만 적고 있다.",
+    "UseExceptionHandler 기본 경로가 내는 500 응답의 본문 형식은 확인하지 않았다. Program.cs가 AddProblemDetails를 등록하므로 ProblemDetails일 가능성이 있지만 실측하지 않았다.",
+    "HEAD 요청에서 프레임워크가 본문 전송을 실제로 생략하는지는 측정되지 않았다(코드 주석에도 미측정이라고 적혀 있다).",
+    "관리 호스트로 /css/site.css를 요청했을 때 앱이 200을 주는지는 테스트로 확인되지 않았다. 코드상 호스트 조건이 없어서 200으로 추론했을 뿐이다.",
+    "site.css 응답에 SecurityHeadersMiddleware의 헤더(CSP·nosniff 등)가 실제로 붙는지를 직접 검사하는 테스트는 찾지 못했다.",
+    "검증 지적 반영: 이전 분석은 /css/site.css(UseStaticFiles, wwwroot/css/site.css, max-age=3600)를 빠뜨렸다. 코드(Program.cs 102-103행)로 확인해 진입점·실행 순서·엣지 케이스·다이어그램에 추가했다. 이 기능 코드 자체가 바뀐 것은 아니어서 history 항목은 추가하지 않았다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "symbol": "SiteEndpoints",
+      "lines": "1-201"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "34-43,76,98-108,123-124"
+    },
+    {
+      "file": "PortfolioBlog.Api/wwwroot/css/site.css"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+      "symbol": "HighlightCss",
+      "lines": "19-46"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+      "symbol": "XmlText.Clean",
+      "lines": "30-62"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "symbol": "PublicUrls",
+      "lines": "12-54"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+      "symbol": "PublicFormat.Rfc3339",
+      "lines": "27"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.FeedAsync / SitemapAsync",
+      "lines": "26-29,191-218"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.BuildConnectionString",
+      "lines": "46-62"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate / Check / Require",
+      "lines": "41-49,116-135,185-189,203-206"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+      "symbol": "SiteOptions.HostOf",
+      "lines": "44-48"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync / Html",
+      "lines": "17,30-76"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "lines": "35-70"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "lines": "45-54,69-72,100-101,128-129,144-150"
+    },
+    {
+      "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+      "lines": "7-11"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "lines": "15-17"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+      "lines": "20,29-30,35"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+      "symbol": "FeedAndSitemapTests",
+      "lines": "44-151"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "symbol": "PublicPagesTests.Stylesheets_AreServed_SiteCssHasNoIdSelectors_AndWwwrootIsClosed",
+      "lines": "196-219"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+      "symbol": "AccessMatrixTests.PublicAllowlist",
+      "lines": "206-222"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PreviewCssSnapshotTests.cs",
+      "lines": "23-35"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "lines": "20-48,92-99,139-142"
+    },
+    {
+      "file": "deploy/smoke/smoke.test.mjs",
+      "lines": "89-93"
+    }
+  ],
+  "history": []
+}

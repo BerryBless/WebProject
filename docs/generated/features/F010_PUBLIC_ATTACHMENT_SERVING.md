@@ -1,0 +1,274 @@
+# F010 첨부 이미지 공개 제공
+
+<!-- doc-harness:section id="summary" hash="7e12ef4e5f776e40160ef3bd0eaf49de51335c964d8be21f3624829914c61a14" -->
+## 한 줄 요약
+
+결론: F010은 상태 없는 정적 최소 API 핸들러 하나(PublicAttachmentEndpoints.GetAsync)로 구현된 공개 첨부 읽기 전용 경로이며, 두 호스트 모두에서 열린다. 처리 순서는 다음과 같다. ① Program.cs가 app 루트(/api 그룹 밖)에 MapMethods(GET, HEAD)로 등록하고 AllowAnonymous와 RateLimitMetadata(PublicAsset)를 붙인다. ② 요청은 SecurityHeadersMiddleware(OnStarting 예약)를 거친다. 이어 UseTrustedForwardedHeaders·UseExceptionHandler·UseStatusCodePages·UseStaticFiles·AdminSurfaceMiddleware를 통과한다. 그다음 프레임워크 RateLimitingMiddleware(app.UseRateLimiter)가 시작 시 RateLimitingExtensions.BuildChain으로 조립된 GlobalLimiter를 호출하고, 그 체인의 asset-ip 창에서 임대를 받는다. ③ 핸들러는 먼저 nosniff와 SandboxCsp를 넣는다. ④ PublicDbContext로 Attachments에서 Id가 일치하는 행 1개를 SELECT하며, StoragePath·ContentType·Sha256·CreatedAt 4필드만 프로젝션한다. ⑤ FileSystemAttachmentStore.PhysicalPath로 루트 봉쇄를 검사한다. ⑥ FileStream을 직접 열어 FileNotFound/DirectoryNotFound를 404로 바꾼다(TOCTOU 없음). ⑦ Cache-Control immutable과 강한 ETag(\"sha256\")·Last-Modified(CreatedAt)를 붙여 TypedResults.Stream으로 보낸다(Range 끔). 조건부 요청(If-None-Match)의 304는 프레임워크가 처리한다. 실패 경로 중 statement_timeout(57014)만 OverloadExceptionHandler가 503 + Retry-After 5로 바꾼다. 손상된 StoragePath(InvalidOperationException), 권한·기타 I/O 예외, DB 접속 실패(NpgsqlException)는 잡지 않아 500이 된다. sandbox CSP는 핸들러가 만든 응답(200·304·핸들러 404)에만 남는다. 라우트 제약 실패 404·429·405·500/503에는 전역 PublicCsp가 붙는다. 캐시 헤더는 파일을 연 뒤의 경로(200·HEAD 200·304)에 실린다. 핸들러 자체는 로그를 남기지 않는다.
+
+| 항목 | 값 |
+|---|---|
+| 중요도 | CORE |
+| 상태 | ACTIVE |
+| 진입점 | `GET /attachments/{id:guid}/{fileName}`, `HEAD /attachments/{id:guid}/{fileName}` |
+| 의존 기능 | [F009](../09_FEATURES.md#f009), [F019](../09_FEATURES.md#f019), [F020](../09_FEATURES.md#f020), [F021](../09_FEATURES.md#f021), [F025](../09_FEATURES.md#f025) |
+
+### 진입점 근거
+
+| 내용 | 상태 | 근거 |
+|---|---|---|
+| GET·HEAD /attachments/{id:guid}/{fileName} — MapMethods(Pattern, ["GET","HEAD"], GetAsync).AllowAnonymous().WithName("GetAttachment").WithMetadata(new RateLimitMetadata(RateLimitPolicy.PublicAsset)). 주석에 따르면 MapGet만 쓰면 HEAD가 405가 되어 MapMethods를 썼다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` PublicAttachmentEndpoints.MapPublicAttachmentEndpoints (36-54) |
+| Program.cs가 MapApiEndpoints 다음, MapRazorPages 앞에서 app.MapPublicAttachmentEndpoints()를 호출해 /api 그룹 밖 루트에 등록한다. | CONFIRMED | `PortfolioBlog.Api/Program.cs` (121-123) |
+| 호출 주체 1: 공개 글 본문의 <img src>. MarkdownRenderer의 UrlPolicy.IsAllowedImage가 /attachments/{guid}/{파일명} 형태만 이미지 src로 허용한다. 공개 페이지의 og:image도 PublicOrigin + /attachments/... 경로를 쓴다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs` UrlPolicy.IsAllowedImage (20-21,55-57), `PortfolioBlog.Api/Pages/PublicPageModel.cs` PublicPageModel.SetHead (29-43) |
+| 호출 주체 2: 관리 SPA 첨부 화면의 썸네일과 관리 호스트의 미리보기. 서버 AttachmentEndpoints.ToDto가 url을 /attachments/{id}/{EscapeDataString(FileName)}로 만든다. Caddy 관리 사이트는 허용 IP에게만 @backend(/api/* /attachments/*)를 백엔드로 넘긴다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs` AttachmentEndpoints.ToDto (65), `PortfolioBlog.Web/src/pages/AttachmentsPage.tsx` (13-17,86), `deploy/Caddyfile` (87-99) |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="flow" hash="79e3da0f405301d7d66d58ea09499543e21e10046a515a9281dc81d95016ad36" -->
+## 처리 흐름
+
+| 단계 | 컴포넌트 | 코드 | 설명 |
+|---|---|---|---|
+| 1 | Caddyfile | `deploy/Caddyfile` {$DOMAIN} route / {$ADMIN_DOMAIN} @backend | 공개 도메인은 /api와 /api/*를 404로, GET·HEAD가 아닌 메서드를 405로 끊는다. 나머지(/attachments/* 포함)는 request_body 64KB 상한과 encode zstd gzip을 거쳐 reverse_proxy api:8080으로 보낸다. 관리 도메인은 ADMIN_ALLOWED_CIDRS 밖이면 404이고, 안이면 @backend(/api/* /attachments/*)만 백엔드로 보낸다. |
+| 2 | SecurityHeadersMiddleware | `PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs` SecurityHeadersMiddleware.InvokeAsync | 앱 미들웨어 중 맨 앞이다. OnStarting 콜백을 예약해 전송 직전에 nosniff·Referrer-Policy·Permissions-Policy·X-Frame-Options(DENY)·HSTS(비 Development)를 붙인다. CSP는 값이 SandboxCsp일 때만 유지하고, 그 밖의 값은 PublicCsp로 덮어쓴다. |
+| 3 | Program | `PortfolioBlog.Api/Program.cs` 미들웨어 파이프라인(UseTrustedForwardedHeaders → UseExceptionHandler → UseStatusCodePages → UseStaticFiles → AdminSurfaceMiddleware) | 속도 제한 전에 다섯 미들웨어를 통과한다. UseTrustedForwardedHeaders, UseExceptionHandler, UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync), UseStaticFiles(엔드포인트가 매칭된 요청은 건드리지 않음), AdminSurfaceMiddleware(/api만 게이트하므로 통과) 순서다. |
+| 4 | RateLimitingMiddleware (UseRateLimiter) | `PortfolioBlog.Api/Program.cs` app.UseRateLimiter / RateLimiterOptions.GlobalLimiter | 프레임워크 RateLimitingMiddleware가 요청마다 GlobalLimiter를 호출한다. GlobalLimiter는 시작 시 RateLimitingExtensions.AddAppRateLimiting이 BuildChain(admin, pub)으로 조립한 체인이다. 엔드포인트 메타데이터가 PublicAsset이면 체인의 마지막 창 'asset-ip:{IP}'(1분 고정 창, 기본 600회/분, 대기열 0)가 적용된다. 한도를 넘으면 OnRejected가 Retry-After(1~60초)를 붙여 429를 주고 핸들러는 실행되지 않는다. |
+| 5 | Program | `PortfolioBlog.Api/Program.cs` UseAuthentication → UseAuthorization → ApiBodyLimitMiddleware | 인증·인가·API 본문 제한 미들웨어를 지난다. 엔드포인트가 AllowAnonymous라 인가에 막히지 않는다. 기본 쿠키 스킴이 등록되어 있어 조작된 세션 쿠키가 오면 세션 검증 조회가 일어날 수 있다(주석). |
+| 6 | PublicAttachmentEndpoints | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` PublicAttachmentEndpoints.GetAsync | 응답 헤더에 X-Content-Type-Options=nosniff와 Content-Security-Policy=SecurityHeadersMiddleware.SandboxCsp("default-src 'none'; sandbox")를 먼저 넣는다. 이 헤더는 이후 200·304·핸들러 404에 모두 실린다. |
+| 7 | PublicDbContext | `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` db.Attachments.AsNoTracking().Where(a => a.Id == id).Select(...).SingleOrDefaultAsync(ct) | 공개 전용 풀 연결로 Attachments 행 1개를 SELECT한다. 연결 문자열에는 시작 옵션 '-c statement_timeout={Public:StatementTimeoutMs} -c default_transaction_read_only=on'과 ApplicationName=PortfolioBlog.Public이 붙는다. 프로젝션은 StoragePath·ContentType·Sha256·CreatedAt 4필드이고, 행이 없으면 TypedResults.NotFound()를 반환한다. |
+| 8 | FileSystemAttachmentStore | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` FileSystemAttachmentStore.PhysicalPath | StoragePath의 '/'를 OS 구분자로 바꿔 저장 루트와 결합하고 GetFullPath로 정규화한다. 결과가 '루트+구분자'로 시작하지 않으면 InvalidOperationException('첨부 경로가 저장 루트를 벗어난다.')을 던진다. I/O는 없다. |
+| 9 | PublicAttachmentEndpoints | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` new FileStream(...) | FileMode.Open, FileAccess.Read, FileShare.Read\|FileShare.Delete, 64KB 버퍼, FileOptions.Asynchronous\|SequentialScan으로 파일을 직접 연다. FileNotFoundException·DirectoryNotFoundException은 404로 바꾸고, 다른 예외는 전파한다. |
+| 10 | PublicAttachmentEndpoints | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` GetAsync try 블록 | Cache-Control을 'public, max-age=31536000, immutable'로 설정한다. 강한 ETag "{Sha256}"를 만들고 TypedResults.Stream(stream, ContentType, lastModified: CreatedAt, entityTag)을 반환한다. 이 구간에서 예외가 나면 stream.DisposeAsync 후 다시 던진다. Range 처리는 기본값(false)이다. |
+| 11 | FileStreamHttpResult(프레임워크) | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` TypedResults.Stream | If-None-Match가 ETag와 같으면 빈 본문의 304를 보낸다(테스트로 확인). 아니면 200과 Content-Length를 보내고 본문을 CopyToAsync로 스트리밍한다. HEAD는 헤더만 보낸다. 응답이 끝나면 스트림 핸들이 해제된다(테스트로 확인). |
+| 12 | ErrorResponses | `PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs` ErrorResponses.WriteAsync | 본문 없는 404·429 등은 UseStatusCodePages가 받는다. /attachments가 MachinePrefixes에 있으므로 HTML이 아니라 IProblemDetailsService로 ProblemDetails 본문을 쓴다. |
+| 13 | OverloadExceptionHandler | `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` OverloadExceptionHandler.TryHandleAsync | 예외 체인(InnerException)에 PostgresException(SqlState 57014 또는 55P03)이나 RenderBusyException이 있으면 503, Retry-After: 5, ProblemDetails 본문으로 응답한다. 아니면 false를 반환해 기본 500 처리로 넘긴다. |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="F010_SEQUENCE" hash="b44cf9f071500a24de5f09dbbeeeee66ae0d805a3b3582b1cbf1fd9cb78b1e6a" -->
+## 공개 첨부 GET 정상 경로 (Sequence Diagram)
+
+결론: Caddy를 지난 요청은 SecurityHeadersMiddleware에서 헤더 콜백을 예약한다. 이어 프레임워크 RateLimitingMiddleware(UseRateLimiter)가 BuildChain으로 조립된 GlobalLimiter의 asset-ip 창에서 임대를 받는다. 그 뒤 PublicAttachmentEndpoints가 PublicDbContext 조회 → FileSystemAttachmentStore 경로 변환 → FileStream 스트리밍으로 200 또는 304를 돌려준다.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Caddyfile
+    participant SecurityHeadersMiddleware
+    participant RateLimitingMiddleware as RateLimitingMiddleware (UseRateLimiter)
+    participant PublicAttachmentEndpoints
+    participant PublicDbContext
+    participant FileSystemAttachmentStore
+    Browser->>Caddyfile: GET /attachments/id/fileName
+    Caddyfile->>SecurityHeadersMiddleware: reverse_proxy api:8080 (GET·HEAD만)
+    SecurityHeadersMiddleware->>SecurityHeadersMiddleware: OnStarting 헤더 콜백 예약
+    Note over SecurityHeadersMiddleware,RateLimitingMiddleware: 생략된 통과 단계 UseTrustedForwardedHeaders, UseExceptionHandler, UseStatusCodePages, UseStaticFiles, AdminSurfaceMiddleware
+    SecurityHeadersMiddleware->>RateLimitingMiddleware: next (중간 미들웨어 통과 후)
+    RateLimitingMiddleware->>RateLimitingMiddleware: GlobalLimiter(BuildChain) asset-ip 창 임대
+    RateLimitingMiddleware->>PublicAttachmentEndpoints: 임대 성공 시 인증·인가 거쳐 GetAsync 실행
+    PublicAttachmentEndpoints->>PublicAttachmentEndpoints: nosniff + SandboxCsp 설정
+    PublicAttachmentEndpoints->>PublicDbContext: Attachments SELECT (Id == id)
+    PublicDbContext-->>PublicAttachmentEndpoints: StoragePath, ContentType, Sha256, CreatedAt
+    PublicAttachmentEndpoints->>FileSystemAttachmentStore: PhysicalPath(StoragePath)
+    FileSystemAttachmentStore-->>PublicAttachmentEndpoints: 루트 봉쇄 검사된 절대 경로
+    PublicAttachmentEndpoints->>PublicAttachmentEndpoints: new FileStream (FileShare Read + Delete)
+    PublicAttachmentEndpoints->>PublicAttachmentEndpoints: Cache-Control immutable + ETag sha256
+    PublicAttachmentEndpoints-->>SecurityHeadersMiddleware: TypedResults.Stream 200 또는 304
+    SecurityHeadersMiddleware-->>Caddyfile: OnStarting 기준 보안 헤더 추가 (CSP는 sandbox 유지)
+    Caddyfile-->>Browser: 이미지 바이트 (Server·Via 제거)
+```
+
+participant 7개로 정상 경로만 그린다. 1) Caddyfile의 공개 사이트 route는 /api를 404, GET·HEAD 외 메서드를 405로 끊고 나머지를 api:8080으로 프록시한다. 2) SecurityHeadersMiddleware는 앱 미들웨어 중 맨 앞(Program.cs 98행)이다. OnStarting 콜백만 예약하고 next를 호출하며, 실제 헤더는 응답 전송 직전에 붙는다. 3) SecurityHeadersMiddleware와 속도 제한 사이의 UseTrustedForwardedHeaders·UseExceptionHandler·UseStatusCodePages·UseStaticFiles·AdminSurfaceMiddleware(Program.cs 99-104행)는 이 경로에서 요청을 그대로 통과시키므로 Note로만 표시했다. UseExceptionHandler와 UseStatusCodePages는 실패 경로(503/500, 본문 없는 404·429)에서만 개입하며 F010_FLOW에 나온다. 4) 요청 시점에 속도 제한을 집행하는 주체는 프레임워크 RateLimitingMiddleware(Program.cs 105행 app.UseRateLimiter)다. RateLimitingExtensions는 시작 시 AddAppRateLimiting에서 BuildChain(admin, pub)으로 GlobalLimiter를 한 번 조립하는 정적 등록 클래스일 뿐 요청 경로의 participant가 아니다. 체인 안에서 엔드포인트 메타데이터가 PublicAsset인 요청만 'asset-ip:{IP}' 1분 고정 창(기본 600, 대기열 0)에 걸린다. 5) UseAuthentication·UseAuthorization·ApiBodyLimitMiddleware(106-108행)는 AllowAnonymous 엔드포인트라 통과하며, 화살표 라벨로만 요약했다. 6) 핸들러는 조회 전에 nosniff·SandboxCsp를 넣고, PublicDbContext(statement_timeout·read-only 연결)로 4필드를 프로젝션한다. 7) PhysicalPath는 I/O 없는 경로 계산과 루트 봉쇄 검사다. 8) FileStream을 직접 연 뒤에만 Cache-Control·ETag를 설정하고 TypedResults.Stream을 반환한다. If-None-Match가 일치하면 프레임워크가 304를 보낸다. 9) 응답 전송 직전 OnStarting 콜백이 기준 보안 헤더를 붙이는데, 값이 SandboxCsp이면 CSP는 덮어쓰지 않는다.
+
+### 코드 근거
+
+| 구성 요소 | 코드 |
+|---|---|
+| Caddyfile | `deploy/Caddyfile` ({$DOMAIN} route) |
+| SecurityHeadersMiddleware | `PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs` (SecurityHeadersMiddleware.InvokeAsync) |
+| RateLimitingMiddleware | `PortfolioBlog.Api/Program.cs` (app.UseRateLimiter (GlobalLimiter는 RateLimitingExtensions.BuildChain이 조립)) |
+| PublicAttachmentEndpoints | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (PublicAttachmentEndpoints.GetAsync) |
+| PublicDbContext | `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` (PublicDbContext) |
+| FileSystemAttachmentStore | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` (FileSystemAttachmentStore.PhysicalPath) |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="F010_FLOW" hash="70212081f80f0f6d7753d8b2d3db66acfa0ab1557595924bfdf5b7f53cc28788" -->
+## 공개 첨부 GET 분기와 실패 경로 (Flowchart)
+
+결론: 핸들러가 직접 404로 바꾸는 실패는 '행 없음'과 '파일·디렉터리 없음' 두 가지다. statement_timeout만 503으로 바뀌고, 나머지 DB·경로·I/O 예외는 잡지 않아 500이 된다.
+
+```mermaid
+flowchart TD
+    Request["GET or HEAD /attachments/id/fileName"] --> GuidCheck{"id가 guid 형식인가"}
+    GuidCheck -- 아니오 --> RouteNotFound["404 (PublicCsp)"]
+    GuidCheck -- 예 --> RateLimitingMiddleware{"UseRateLimiter: BuildChain asset-ip 창 여유"}
+    RateLimitingMiddleware -- 초과 --> TooMany["429 + Retry-After"]
+    RateLimitingMiddleware -- 통과 --> PublicAttachmentEndpoints["nosniff + SandboxCsp 설정"]
+    PublicAttachmentEndpoints --> PublicDbContext{"Attachments 행 조회"}
+    PublicDbContext -- 57014 --> OverloadExceptionHandler["503 + Retry-After 5"]
+    PublicDbContext -- 기타 DB 예외 --> ServerError["500 (처리 없음)"]
+    PublicDbContext -- 행 없음 --> HandlerNotFound["404 (sandbox CSP, 캐시 헤더 없음)"]
+    PublicDbContext -- 행 있음 --> FileSystemAttachmentStore{"PhysicalPath 루트 봉쇄"}
+    FileSystemAttachmentStore -- 루트 밖 --> ServerError
+    FileSystemAttachmentStore -- 정상 --> OpenFile{"FileStream 열기"}
+    OpenFile -- FileNotFound or DirectoryNotFound --> HandlerNotFound
+    OpenFile -- 권한 or 기타 IOException --> ServerError
+    OpenFile -- 성공 --> CacheHeaders["Cache-Control immutable + ETag + Last-Modified"]
+    CacheHeaders --> Conditional{"If-None-Match 일치"}
+    Conditional -- 예 --> NotModified["304 빈 본문"]
+    Conditional -- 아니오 --> StreamOk["200 스트리밍 (HEAD는 본문 없음)"]
+    HandlerNotFound --> ErrorResponses["ErrorResponses ProblemDetails 본문"]
+    RouteNotFound --> ErrorResponses
+    TooMany --> ErrorResponses
+```
+
+1) {id:guid} 라우트 제약이 실패하면 엔드포인트가 매칭되지 않아 404가 되고 전역 PublicCsp를 받는다(SecurityHeadersTests). 2) 속도 제한 판정은 프레임워크 RateLimitingMiddleware(app.UseRateLimiter)가 GlobalLimiter를 호출해 수행한다. 창 정의는 RateLimitingExtensions.BuildChain의 asset-ip 창이다. 초과하면 429와 Retry-After(1~60초)가 된다. 3) 핸들러에 들어오면 먼저 nosniff·SandboxCsp를 넣는다. 4) PublicDbContext 조회에서 PostgresException 57014(또는 55P03)가 나면 OverloadExceptionHandler가 503 + Retry-After 5로 바꾼다. 그 외 DB 예외는 500이다. 5) 행이 없으면 핸들러가 NotFound를 반환한다. 6) PhysicalPath가 루트 밖을 가리키면 InvalidOperationException으로 500이 된다. 7) FileStream 열기에서 FileNotFound/DirectoryNotFound는 404, 권한·기타 IOException은 500이다. 8) 파일을 연 뒤에만 캐시 헤더를 설정하고, If-None-Match가 일치하면 304, 아니면 200 스트리밍이다. 9) 본문 없는 404·429는 UseStatusCodePages → ErrorResponses가 /attachments를 MachinePrefixes로 보고 ProblemDetails를 쓴다.
+
+### 코드 근거
+
+| 구성 요소 | 코드 |
+|---|---|
+| RateLimitingMiddleware | `PortfolioBlog.Api/Program.cs` (app.UseRateLimiter) |
+| PublicAttachmentEndpoints | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (GetAsync) |
+| PublicDbContext | `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` (PublicDbContext) |
+| OverloadExceptionHandler | `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` (TryHandleAsync) |
+| FileSystemAttachmentStore | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` (PhysicalPath) |
+| OpenFile | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (new FileStream) |
+| CacheHeaders | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (GetAsync try 블록) |
+| ErrorResponses | `PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs` (WriteAsync) |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="data" hash="2357c94bdb0302c80a93ade22fbd836743c30bdfaf5f925ad761e9a84dc1d8ce" -->
+## 데이터
+
+### 데이터 흐름
+
+| 내용 | 상태 | 근거 |
+|---|---|---|
+| 입력은 라우트 값 id(Guid, {id:guid} 제약)와 fileName(문자열)이다. 조회 키는 id뿐이다. 핸들러 시그니처가 fileName을 받지 않으므로 경로나 조회에 쓰이지 않는다. 테스트는 '..%2F..%2Fappsettings.json' 같은 이름으로 요청해도 같은 바이트가 200으로 나오는 것을 확인한다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` GetAsync (81), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` FileName_IsDisplayOnly_NeverAPath (196-214) |
+| DB → 핸들러: Attachments 행에서 익명 타입 { StoragePath, ContentType, Sha256, CreatedAt } 1개를 프로젝션한다. 엔티티 전체나 FileName·SizeBytes는 읽지 않는다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` GetAsync (88-89) |
+| 서버가 만든 상대 경로인 StoragePath('ab/abcdef….png')는 FileSystemAttachmentStore.PhysicalPath에서 저장 루트 밑의 절대 경로가 되고, FileStream으로 열린다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` PhysicalPath (136-147), `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (91-101) |
+| 출력 헤더 매핑: ContentType → Content-Type, Sha256 → 강한 ETag "{sha}", CreatedAt → Last-Modified, 파일 스트림 → 본문(GET만). DB CHECK 제약상 Content-Type은 image/png·jpeg·gif·webp 네 값 중 하나다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (108-112), `PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs` OnModelCreating Attachment (147-161) |
+| 캐시 헤더(Cache-Control immutable·ETag·Last-Modified)는 파일을 연 뒤에만 설정되므로 404에는 없다. HEAD 200에는 실린다(테스트). 304도 같은 코드 경로를 지나므로 Cache-Control이 실릴 것으로 보이지만, 304 테스트는 Cache-Control을 단언하지 않는다. | INFERRED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (106-112), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicGet_Head_ReturnsHeadersWithoutBody_AndReleasesHandle (320-344) |
+| 본문 전송: TypedResults.Stream이 만든 FileStreamHttpResult가 Response.Body로 버퍼 복사(CopyToAsync)한다. 주석에 따르면 파일 전체를 메모리에 올리지 않고, 커널 sendfile 경로도 쓰지 않는다. | INFERRED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (16-17) |
+| 캐시: 서버 쪽 캐시는 없다. 매 요청이 DB 조회 1회와 파일 열기 1회를 한다. 클라이언트·프록시 캐시는 Cache-Control 'public, max-age=31536000, immutable'과 ETag/Last-Modified 조건부 재검증(304)에 맡긴다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (108-112), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicGet_HasEtagAndLastModified_AndConditionalGetReturns304 (290-314) |
+| 속도 제한 판정 데이터: RateLimitingMiddleware가 GetEndpoint()의 RateLimitMetadata(PublicAsset)와 ClientIp.PartitionKey(RemoteIpAddress, IPv6는 /64)로 파티션 키 'asset-ip:{IP}'를 만든다. 이 판정 함수(Matches·Window)는 BuildChain이 시작 시 한 번 조립한 체인 안에 있다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` BuildChain / Matches / Ip (42-56,88-101,114,128-129) |
+
+### DB 접근
+
+| 엔티티 | 작업 | 코드 |
+|---|---|---|
+| Attachments (Attachment) | SELECT | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` PublicAttachmentEndpoints.GetAsync — PublicDbContext.Attachments.AsNoTracking().Where(Id==id).Select(StoragePath, ContentType, Sha256, CreatedAt).SingleOrDefaultAsync |
+
+### 상태 전이
+
+_(상태 없음)_
+
+### 외부 의존
+
+| 내용 | 상태 | 근거 |
+|---|---|---|
+| PostgreSQL(공개 조회 연결): ConnectionStrings:Public이 있으면 그 롤로, 없으면 Default 연결로 접속한다(Development·테스트 편의). 운영에서는 StartupValidation이 Public을 필수로 요구한다. 어느 쪽이든 BuildConnectionString이 statement_timeout과 default_transaction_read_only=on 시작 옵션을 붙이므로, 관리 풀과 별도의 Npgsql 풀이 생긴다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs` AddBlogData / PublicOrDefaultConnectionString (30-49), `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` BuildConnectionString (46-62), `PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs` (79-94) |
+| 공개 DB 롤 권한: 시작 시 ConnectionStrings:Public이 있으면 PublicRoleGrants.Apply가 공개 롤에 SELECT를 부여한다. 허용 테이블 목록(ReadableTables)에 'Attachments'가 있어 이 조회가 가능하다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs` ReadableTables (20-21), `PortfolioBlog.Api/Program.cs` (82-88) |
+| 로컬 파일 시스템(Attachments:RootPath 볼륨): 내용 주소 경로 {sha[..2]}/{sha}.{ext}의 파일을 비동기 FileStream으로 읽는다. 저장 루트는 시작 시 EnsureRootIsWritable로 검증된다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` (55-78,93-122), `PortfolioBlog.Api/Program.cs` (79) |
+| Caddy 에지: 공개 도메인은 GET·HEAD만 통과시키고 /api를 404로 끊은 뒤 api:8080으로 프록시하며 Server·Via를 지운다. 관리 도메인은 허용 CIDR에게만 /attachments/*를 백엔드로 넘긴다. 주석에 따르면 @backend 핸들을 정적 SPA 헤더 블록보다 앞에 두어 첨부의 sandbox CSP를 덮어쓰지 않게 했다. | CONFIRMED | `deploy/Caddyfile` (20-48,79-99) |
+| ASP.NET Core 프레임워크 RateLimitingMiddleware(app.UseRateLimiter)가 요청 시점의 속도 제한을 집행한다. 앱 코드(RateLimitingExtensions)는 시작 시 RateLimiterOptions의 GlobalLimiter·OnRejected·RejectionStatusCode(429)만 구성한다. | CONFIRMED | `PortfolioBlog.Api/Program.cs` (56,105), `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` AddAppRateLimiting (42-56) |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="failures" hash="2cfd7a508920c3e60ccf65e0792c50e550f3bc7496266ab222795dd527cb34c3" -->
+## 실패 지점
+
+| 위치 | 조건 | 처리 | 상태 | 근거 |
+|---|---|---|---|---|
+| RateLimitingMiddleware(UseRateLimiter) — BuildChain이 조립한 GlobalLimiter의 asset-ip 창 | 같은 IP(IPv6는 /64)가 1분에 Public:AssetPerIpPerMinute(기본 600)을 넘게 요청한 경우. 없는 id의 404도 계산된다. | 핸들러를 실행하지 않고 429를 준다. OnRejected가 Retry-After(창 종료까지 1~60초)를 붙이고, 본문은 ErrorResponses가 ProblemDetails로 쓴다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` (44-53,69-72,101), `PortfolioBlog.Api/Program.cs` (105), `PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs` AttachmentGet_CountsTowardTheAssetLimit_EvenWhen404 (37-46) |
+| 라우팅 ({id:guid} 제약) | id가 GUID 형식이 아닌 경우(/attachments/not-a-guid/x.png). | 핸들러에 도달하지 않고 404가 된다. 이 응답에는 sandbox CSP가 아니라 전역 PublicCsp가 붙는다. | CONFIRMED | `PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs` EveryResponse_CarriesBaselineHeaders (23-39) |
+| PublicAttachmentEndpoints.GetAsync — DB 조회 결과 | id에 해당하는 Attachments 행이 없는 경우(삭제 경쟁에서 DB 행이 먼저 지워진 경우 포함). | TypedResults.NotFound()를 반환한다. nosniff와 sandbox CSP는 유지되고 캐시 헤더는 없다. 본문은 UseStatusCodePages → ErrorResponses가 ProblemDetails로 쓴다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (84-90), `PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs` (17,45-52), `PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs` AttachmentResponses_KeepTheirOwnSandboxCsp (47-54) |
+| PublicAttachmentEndpoints.GetAsync — PublicDbContext 조회 | Attachments가 잠겨 있는 등으로 조회가 statement_timeout을 넘긴 경우(PostgresException SqlState 57014). | OverloadExceptionHandler가 503, Retry-After: 5, ProblemDetails 본문으로 응답한다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` TryHandleAsync / IsOverload (35-70), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter (396-430) |
+| PublicAttachmentEndpoints.GetAsync — PublicDbContext 조회 | DB 접속 실패·네트워크 오류 등 PostgresException이 아닌 NpgsqlException이거나, SqlState가 57014·55P03이 아닌 서버 오류인 경우. | 처리 없음(예외 전파). IsOverload가 false를 반환하므로 기본 예외 처리로 500이 된다(503 아님). | POTENTIAL_ISSUE | `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` IsOverload (63-70) |
+| FileSystemAttachmentStore.PhysicalPath | DB의 StoragePath가 손상돼 정규화 경로가 저장 루트 밖을 가리키는 경우. | 처리 없음(예외 전파). 핸들러 try 블록 밖에서 InvalidOperationException('첨부 경로가 저장 루트를 벗어난다.')이 던져져 500이 된다. 루트 밖 파일은 읽지 않는다. | POTENTIAL_ISSUE | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` PhysicalPath (136-147), `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (91) |
+| PublicAttachmentEndpoints.GetAsync — new FileStream | DB 행은 있으나 파일이나 버킷 디렉터리가 없는 경우(볼륨에서 직접 삭제, 삭제 경쟁). | FileNotFoundException과 DirectoryNotFoundException을 잡아 404로 바꾼다. nosniff와 sandbox CSP는 유지된다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (93-101), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicGet_WhenFileIsMissingOnDisk_Returns404 (347-367) |
+| PublicAttachmentEndpoints.GetAsync — new FileStream | UnauthorizedAccessException(권한), 공유 위반 등 기타 IOException, 디스크 오류. | 처리 없음(예외 전파). 500이 된다. | POTENTIAL_ISSUE | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (94-101) |
+| PublicAttachmentEndpoints.GetAsync — 결과 생성 try 블록 | 스트림을 연 뒤 헤더 설정이나 TypedResults.Stream 생성 중 예외가 나는 경우. | catch에서 stream.DisposeAsync()로 핸들을 정리하고 예외를 다시 던진다(롤백 성격의 자원 정리). 그 뒤는 예외 처리 파이프라인이 맡는다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (103-118) |
+| PublicAttachmentEndpoints.GetAsync — SingleOrDefaultAsync(ct) / 본문 전송 | 클라이언트가 연결을 끊어 RequestAborted 취소 토큰이 발동한 경우. | OperationCanceledException이 전파되며 핸들러에 별도 처리는 없다. 최종 상태 코드와 로깅은 프레임워크 기본 동작에 따르며, 이 저장소에서 확인하지 않았다. | INFERRED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (81,89) |
+| FileStreamHttpResult 본문 복사(프레임워크) | 응답 헤더를 보낸 뒤 파일 읽기 중 I/O 오류가 나는 경우. | 핸들러 코드에는 처리가 없다. 헤더가 이미 나가 상태 코드를 바꿀 수 없으므로 연결이 중단될 것으로 추정한다(미측정). | UNKNOWN | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (112) |
+| Caddyfile 공개 사이트 route | GET·HEAD가 아닌 메서드로 /attachments/*를 요청한 경우. | Caddy가 405로 끊는다. 앱에 직접 보내면(테스트) 라우팅이 405를 준다. | CONFIRMED | `deploy/Caddyfile` (38-40), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicSurface_IsReadOnly (247-257) |
+| StartupValidation.Validate (시작 시) | Public:StatementTimeoutMs가 100~60000 밖이거나, Public·Default 연결 문자열에 Options가 있거나, 연결의 Command Timeout이 statement_timeout보다 크지 않은 경우. | InvalidOperationException으로 기동을 막는다. 서버 쪽 57014가 클라이언트 쪽 명령 시간 초과(500으로 이어질 수 있음)보다 먼저 나게 하려는 의도로 보인다(의도는 추론). | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs` (30-31,79-81,87-94,166) |
+
+### 엣지 케이스
+
+| 내용 | 상태 | 근거 |
+|---|---|---|
+| fileName 세그먼트는 어떤 값이든(경로 조각, 인코딩된 '../', 'x') 무시된다. 같은 id면 같은 바이트가 200으로 나온다. | CONFIRMED | `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` FileName_IsDisplayOnly_NeverAPath (196-214) |
+| 삭제와 경쟁하는 경우: 파일을 FileShare.Delete로 열므로 스트리밍 중에도 TryDelete가 성공한다. 이미 연 핸들은 원래 바이트를 끝까지 읽고, 이후 요청은 404다. DeleteAsync가 DB 행을 먼저 지우므로 대부분은 행 조회 단계에서 404가 된다. 주석에 따르면 Windows에서만 실측했고 Linux unlink 동작은 측정하지 않았다. | INFERRED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (76,96-98), `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` TryDelete (157-163), `PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs` DeleteAsync (198-213) |
+| sandbox CSP는 핸들러가 만든 응답(200·304·핸들러 404)에만 남는다. 라우트 제약 실패 404, 429, 405는 핸들러를 거치지 않으므로 전역 PublicCsp를 받는다. 500·503은 예외 처리 과정에서 헤더가 비워진 뒤 OnStarting이 PublicCsp로 채우는 것으로 추론한다. 입력 요약의 '모든 응답에 sandbox CSP'는 핸들러 응답으로 좁혀 읽어야 한다. | INFERRED | `PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs` InvokeAsync (36-55), `PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs` (23-39,47-54) |
+| 조건부 GET: If-None-Match가 ETag("sha256")와 같으면 빈 본문의 304를 준다. nosniff와 sandbox CSP는 유지되고 파일 핸들도 해제된다. If-Modified-Since·If-Match 같은 다른 조건부 헤더는 프레임워크 FileResult 로직이 처리하며, 이 저장소에서 테스트하지는 않았다. | CONFIRMED | `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicGet_HasEtagAndLastModified_AndConditionalGetReturns304 (290-314) |
+| HEAD: 200과 함께 GET과 같은 Content-Type·Content-Length·nosniff·CSP·Cache-Control(public)·ETag를 주고 본문은 비어 있다. 핸들도 해제된다. | CONFIRMED | `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` PublicGet_Head_ReturnsHeadersWithoutBody_AndReleasesHandle (319-344) |
+| Range 요청은 지원하지 않는다(enableRangeProcessing 기본값 false). 프레임워크 동작상 Range 헤더가 와도 전체 본문을 준다. | INFERRED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (112) |
+| Attachments:RootPath가 구분자('/' 또는 '\')로 끝나도 생성자가 TrimEndingDirectorySeparator로 정리하므로 공개 GET이 200이다(회귀 테스트). | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` (62-67), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` Upload_RootPathEndsWithDirectorySeparator_StillWorks (369-390) |
+| 이 엔드포인트에는 호스트 제한이 없어 공개·관리 두 호스트 모두에서 응답한다. AdminSurfaceMiddleware는 /api만 게이트하고, AccessMatrixTests는 이 라우트를 SharedBetweenHosts로 둔다. 관리 호스트에서는 Caddy의 IP 허용 목록이 앞단 게이트다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs` (67-73), `PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs` (208-222,321), `deploy/Caddyfile` (87-99) |
+| 조작된 관리 세션 쿠키가 실려 오면 기본 쿠키 스킴 때문에 이 공개 엔드포인트에서도 세션 검증 DB 조회가 일어날 수 있다. 주석에 따르면 __Host- 접두사 쿠키라 브라우저가 공개 호스트로 보내지 않고, 비용 상한은 PublicAsset 한도다. | INFERRED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (18-21) |
+| 삭제된 id를 나중에 다시 요청해도 404에는 Cache-Control이 없다. 주석에 따르면 캐시된 404가 이후 업로드를 가리는 일을 막으려는 것이다. 같은 id의 내용은 바뀌지 않는다는 전제로 200에 immutable을 준다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (83,108) |
+| 코드와 주석이 어긋난다: GetAsync remarks(Memory Policy)는 'StoragePath·ContentType 두 필드만 프로젝션한다'고 쓰지만, 실제 코드는 Sha256·CreatedAt을 더해 4필드를 프로젝션한다. 코드를 기준으로 삼는다. | POTENTIAL_ISSUE | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` (70,88-89) |
+| Development에서 ConnectionStrings:Public이 없으면 공개 컨텍스트가 관리(Default) 연결 문자열로 접속한다. 그래도 statement_timeout과 read-only 옵션은 붙으며, DB 롤 분리만 빠진다. | CONFIRMED | `PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs` (33-36,44-49) |
+| GUID 형식이 아닌 id는 엔드포인트가 매칭되지 않는다. 그래서 RateLimitingMiddleware가 GetEndpoint()에서 PublicAsset 메타데이터를 찾지 못해 asset-ip 창에 계산되지 않고 NoLimiter 파티션('none')으로 빠질 것으로 추론한다. 이 경우를 직접 확인한 테스트는 없다. | INFERRED | `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` Matches / Window (128-129,144-150) |
+
+### 로깅
+
+| 내용 | 상태 | 근거 |
+|---|---|---|
+| PublicAttachmentEndpoints.GetAsync에는 ILogger 주입도 로그 호출도 없다. 200·404·예외 어느 경로에서도 앱 로그를 직접 남기지 않는다. | CONFIRMED | `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` GetAsync (81-119) |
+| 요청 단위 접근 로그는 Caddy 사이트 블록의 'log' 지시어(공개·관리 도메인 모두)에서 나온다. 앱 쪽 500 예외 로그는 UseExceptionHandler의 프레임워크 기본 로깅에 의존하며, 이 저장소에서 별도 설정은 확인하지 못했다. | INFERRED | `deploy/Caddyfile` (21,80), `PortfolioBlog.Api/Program.cs` (100) |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="code" hash="2d05f6023cba1723c2f8160b3693c93a733d234308e9969986e4787b66c6500c" -->
+## 관련 코드
+
+| 파일 | 심볼 | 역할 |
+|---|---|---|
+| `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` | PublicAttachmentEndpoints.MapPublicAttachmentEndpoints | entry |
+| `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` | PublicAttachmentEndpoints.GetAsync | entry |
+| `PortfolioBlog.Api/Program.cs` | app.MapPublicAttachmentEndpoints / 미들웨어 순서 / app.UseRateLimiter | config |
+| `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` | FileSystemAttachmentStore.PhysicalPath | service |
+| `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` | FileSystemAttachmentStore(생성자: RootPath 정규화) | config |
+| `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` | PublicDbContext.BuildConnectionString | data |
+| `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` | PublicDbContext.SaveChanges/SaveChangesAsync(항상 예외) | data |
+| `PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs` | DataServiceCollectionExtensions.AddBlogData / PublicOrDefaultConnectionString | config |
+| `PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs` | AppDbContext.Attachments / Attachment 모델 구성 | data |
+| `PortfolioBlog.Api/Domain/Attachment.cs` | Attachment | data |
+| `PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs` | PublicRoleGrants.ReadableTables | config |
+| `PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs` | SecurityHeadersMiddleware.SandboxCsp / InvokeAsync | validation |
+| `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` | OverloadExceptionHandler.TryHandleAsync / IsOverload | service |
+| `PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs` | ErrorResponses.MachinePrefixes / WriteAsync | render |
+| `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` | RateLimitingExtensions.AddAppRateLimiting / BuildChain(asset-ip 창, 시작 시 GlobalLimiter 조립) | config |
+| `PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs` | RateLimitPolicy.PublicAsset / RateLimitMetadata | config |
+| `PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs` | PublicOptions.AssetPerIpPerMinute / StatementTimeoutMs | config |
+| `PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs` | StartupValidation.Validate (StatementTimeoutMs 범위·Command Timeout 검사) | config |
+| `PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs` | AdminSurfaceMiddleware.InvokeAsync(/api만 게이트) | validation |
+| `deploy/Caddyfile` | {$DOMAIN} route / {$ADMIN_DOMAIN} @backend | config |
+| `PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs` | UrlPolicy.IsAllowedImage | render |
+| `PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs` | AttachmentEndpoints.ToDto / DeleteAsync | service |
+| `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` | PublicGet_* / FileName_IsDisplayOnly_NeverAPath / PublicSurface_IsReadOnly | test |
+| `PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs` | EveryResponse_CarriesBaselineHeaders / AttachmentResponses_KeepTheirOwnSandboxCsp | test |
+| `PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs` | AttachmentGet_CountsTowardTheAssetLimit_EvenWhen404 | test |
+| `PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs` | PublicAllowlist / SharedBetweenHosts | test |
+
+근거: `PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs` PublicAttachmentEndpoints (30-120), `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` FileSystemAttachmentStore.PhysicalPath (55-78,136-147), `PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs` PublicDbContext.BuildConnectionString (29-62), `PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs` AddBlogData (30-49), `PortfolioBlog.Api/Program.cs` (43,55-63,98-108,122), `PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs` SecurityHeadersMiddleware (14-56), `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` OverloadExceptionHandler (17-70), `PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs` ErrorResponses.WriteAsync (17,45-56), `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` AddAppRateLimiting / BuildChain (42-56,88-101), `PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs` (20-30), `PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs` ReadableTables (20-21), `PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs` (147-161), `deploy/Caddyfile` (20-62,79-99), `PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs` (196-257,286-430), `PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs` (22-54), `PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs` (37-46), `PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs` (208-236,321)
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="unknowns" hash="e46a6bf3af1c3709e9c46f658b42f5597e279e05dcb67960eb39758e4bb4c4c3" -->
+## 확인하지 못한 것
+
+- Linux(운영 컨테이너)에서 FileShare.Delete로 연 파일을 스트리밍하는 도중 TryDelete가 실행될 때의 동작은 측정하지 않았다. 코드 주석이 Windows에서만 실측했다고 밝힌다.
+- Caddy 공개 사이트의 'encode zstd gzip'이 image/* 응답에 적용되어 Content-Length나 ETag에 영향을 주는지는 확인하지 못했다(Caddy 기본 MIME 매처에 의존).
+- 응답 헤더 전송 뒤 본문 복사 중 I/O 오류가 나거나 클라이언트가 연결을 끊었을 때의 최종 상태와 로깅은 프레임워크 동작에 의존하며, 이 저장소에서 검증하지 않았다.
+- If-Modified-Since, If-Match/If-Unmodified-Since(412) 같은 ETag 외 조건부 헤더의 처리는 FileStreamHttpResult의 프레임워크 동작으로 추정할 뿐, 테스트로 확인하지 않았다.
+- 304 응답에 Cache-Control이 실리는지는 코드 순서상 그럴 것이라고 추론만 했다. 해당 테스트는 이를 단언하지 않는다.
+- 500·503 응답의 CSP가 PublicCsp로 바뀌는지는 SecurityHeadersMiddleware 주석(예외 처리의 Response.Clear 후 OnStarting 재실행)에 근거한 추론이며, 첨부 경로에서 직접 측정하지 않았다.
+- GUID 형식이 아닌 id 요청(엔드포인트 미매칭)이 asset-ip 창에 계산되지 않는지는 Matches 코드로 추론했을 뿐 테스트로 확인하지 않았다.
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="related" hash="e6b04ee08cc1bd1a2625cbb81ca24992b9da0467258ba6539a8ab5b4aeff04d8" -->
+## 관련 문서
+
+- [../09_FEATURES](../09_FEATURES.md)
+- [../08_API](../08_API.md)
+- [../07_DATA_MODEL](../07_DATA_MODEL.md)
+- [../11_FAILURE_HISTORY](../11_FAILURE_HISTORY.md)
+<!-- /doc-harness:section -->

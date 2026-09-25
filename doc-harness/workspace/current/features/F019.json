@@ -1,0 +1,1058 @@
+{
+  "feature": {
+    "id": "F019",
+    "name": "요청 속도 제한",
+    "slug": "RATE_LIMITING",
+    "summary": "라우팅이 고른 엔드포인트의 RateLimitMetadata(Login·Preview·Upload·Search·PublicPage·PublicAsset)를 기준으로 전역 PartitionedRateLimiter 체인을 적용한다. 체인은 동시 실행 제한기 4개를 앞에, 1분 고정 창 제한기 7개를 뒤에 두고, 모든 요청이 11개를 차례로 지난다. 각 제한기는 자기 정책인 요청에만 실제 제한기 파티션을 주고 나머지에는 NoLimiter 파티션을 준다. 거부하면 429와 Retry-After(고정 창 1~60초, 동시 실행 5초)를 낸다. 메타데이터가 없는 요청은 제한되지 않는다.",
+    "entryPoints": [
+      "전역 미들웨어 app.UseRateLimiter() (PortfolioBlog.Api/Program.cs:105)",
+      "서비스 등록 builder.Services.AddAppRateLimiting() (PortfolioBlog.Api/Program.cs:56)",
+      "메타데이터 부착: PublicPageConvention.Apply, AuthEndpoints(/api/auth/login), PreviewEndpoints, AttachmentEndpoints(업로드), PublicAttachmentEndpoints, SiteEndpoints, /health"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+      "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+      "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+      "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/ClientIpTests.cs"
+    ],
+    "dependencies": [
+      "F018",
+      "F020",
+      "F021"
+    ],
+    "importance": "INFRA",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: 속도 제한은 ASP.NET Core 기본 RateLimiter 미들웨어의 GlobalLimiter 하나로 구현된다. RateLimitingExtensions.BuildChain이 PartitionedRateLimiter.CreateChained로 제한기 11개를 묶고, 모든 요청이 11개를 순서대로 지난다. 앞의 4개는 동시 실행 제한기다(login·preview·upload·search, 정책별 상수 키 파티션, QueueLimit 0). 뒤의 7개는 1분 고정 창이다(login IP별·login 전역·preview 전역·upload 전역·search IP별·page IP별(Search 포함)·asset IP별). 제한기마다 파티션 선택 람다 안에서 Matches(ctx, policy)로 ctx.GetEndpoint()의 RateLimitMetadata.Policy를 따로 확인한다. 자기 정책이면 실제 제한기 파티션을, 아니면 GetNoLimiter(\"none\")를 고른다. IP 파티션 키는 ClientIp.PartitionKey가 만든다(IPv4-mapped는 IPv4로 접고, IPv6는 /64로 자른다). 거부 상태는 429다. OnRejected는 lease의 RetryAfter 메타데이터를 올림해 1~60초로 자르고, 메타데이터가 없으면(동시 실행 거부) 5초를 Retry-After에 쓴다. 본문은 바깥의 UseStatusCodePages → ErrorResponses가 쓰는 것으로 보인다. 미들웨어는 AdminSurfaceMiddleware 뒤, UseAuthentication 앞에 있다. 한도 값은 AdminOptions·PublicOptions에서 오고, 기동 시 StartupValidation이 모두 1 이상인지 검증한다. IP 파티션이 의미를 가지려면 Proxy:TrustedIp가 필요하다. Development가 아닌 환경에서는 이 값이 비면 기동이 실패한다. DB 접근·외부 API·앱 수준 로깅은 없다. 이번 재검증에서 이전 분석과 현재 코드의 차이는 발견되지 않았다.",
+  "entryPoints": [
+    {
+      "text": "Program.cs가 AddAppRateLimiting()으로 RateLimiterOptions를 등록한다. UseRateLimiter()는 AdminSurfaceMiddleware 뒤, UseAuthentication 앞에 둔다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "56",
+          "symbol": "AddAppRateLimiting"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-106",
+          "symbol": "UseRateLimiter"
+        }
+      ]
+    },
+    {
+      "text": "PublicPageConvention.Apply가 모든 Razor 페이지 선택자에 RateLimitMetadata를 단다. ViewEnginePath가 \"/Search\"이면 Search 정책이고, 아니면 PublicPage 정책이다. 규약은 RazorPagesOptions 지연 구성으로 등록된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "lines": "32-41",
+          "symbol": "PublicPageConvention.Apply"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "70-71"
+        }
+      ]
+    },
+    {
+      "text": "최소 API 엔드포인트는 WithMetadata로 정책을 지정한다. /api/auth/login은 Login, 미리보기는 Preview, 첨부 업로드는 Upload다. 공개 첨부 GET·/health·highlight.css·robots.txt는 PublicAsset, feed.xml·sitemap.xml은 PublicPage다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "72-81"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "115-120"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "AddAppRateLimiting",
+      "description": "기동 시 AddRateLimiter를 호출한다. RateLimiterOptions는 IOptions<AdminOptions>·IOptions<PublicOptions>에 의존하는 지연 구성으로 등록한다. 내용은 RejectionStatusCode=429, OnRejected, GlobalLimiter=BuildChain(...)이다."
+    },
+    {
+      "step": 2,
+      "component": "PublicPageConvention",
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "symbol": "PublicPageConvention.Apply",
+      "description": "라우트 모델을 구성할 때 Razor 페이지 선택자마다 HttpMethodMetadata(GET/HEAD)·HostAttribute·RateLimitMetadata(Search 또는 PublicPage)를 추가한다."
+    },
+    {
+      "step": 3,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "app.Build() 직후 로그인·미리보기·업로드·공개 페이지·자산·검색의 한도와 동시성 값이 모두 1 이상인지 확인한다(62-78행). Development가 아니면 Proxy:TrustedIp도 필수로 요구한다(116-119행). 조건을 어기면 InvalidOperationException이 나고 기동이 실패한다."
+    },
+    {
+      "step": 4,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseMiddleware<AdminSurfaceMiddleware>",
+      "description": "요청이 들어오면 제한기보다 먼저 실행된다(104행). /api 요청이 호스트·허용 IP·CSRF 헤더·Origin 검사에 실패하면 404/403으로 끝나므로 제한기 허용량을 쓰지 않는다."
+    },
+    {
+      "step": 5,
+      "component": "UseRateLimiter",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseRateLimiter",
+      "description": "프레임워크 RateLimiter 미들웨어가 현재 HttpContext로 GlobalLimiter(체인)에서 임대를 얻으려 한다. 대기열이 0이라 기다리지 않는다."
+    },
+    {
+      "step": 6,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "BuildChain / Concurrency / Matches",
+      "description": "체인 앞쪽의 동시 실행 제한기 4개(login·preview·upload·search)를 차례로 평가한다. 각 제한기는 Matches(ctx, policy)가 참이면 상수 키 파티션의 ConcurrencyLimiter(QueueLimit 0)를, 거짓이면 GetNoLimiter(\"none\")를 골라 임대를 얻는다."
+    },
+    {
+      "step": 7,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "BuildChain / Window / Ip",
+      "description": "이어서 고정 창 7개(1분, AutoReplenishment)를 평가한다. 순서는 login-ip, login-global, preview-global, upload-global, search-ip, page-ip(PublicPage 또는 Search), asset-ip다. 각 창은 applies 람다로 적용 여부를 따로 판정하고, 해당하지 않으면 NoLimiter 파티션을 받는다."
+    },
+    {
+      "step": 8,
+      "component": "ClientIp",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+      "symbol": "ClientIp.PartitionKey",
+      "description": "IP별 창의 키를 만든다. null이면 빈 문자열을 반환한다. IPv4-mapped IPv6는 IPv4로 바꾼다. IPv6는 하위 64비트를 0으로 지우고 \"/64\"를 붙인다."
+    },
+    {
+      "step": 9,
+      "component": "UseRateLimiter",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseRateLimiter",
+      "description": "11개가 모두 허용하면 다음 미들웨어로 진행한다(UseAuthentication → UseAuthorization → ApiBodyLimitMiddleware → 엔드포인트). 동시 실행 임대는 요청 파이프라인이 끝날 때 반납된다."
+    },
+    {
+      "step": 10,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "AddAppRateLimiting.OnRejected / RetryAfterSeconds",
+      "description": "어느 제한기든 거부하면 앞에서 빌린 임대가 Dispose되고 응답 상태가 429가 된다. OnRejected는 lease의 MetadataName.RetryAfter를 올림해 1~60으로 자른 값을 Retry-After 헤더에 쓴다. 메타데이터가 없으면 ConcurrencyRetryAfterSeconds(5)를 쓴다."
+    },
+    {
+      "step": 11,
+      "component": "ErrorResponses",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync",
+      "description": "본문 없는 429 응답에 UseStatusCodePages가 본문을 쓴다. /api·/attachments·/health·/openapi 경로는 ProblemDetails를 받는다. 그 밖의 공개 페이지는 '요청이 너무 많습니다…' 고정 HTML을 받고, HEAD 요청이면 본문을 쓰지 않는다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "AddAppRateLimiting / UseRateLimiter",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.AddAppRateLimiting",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.Window",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.Concurrency",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.Matches",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.RetryAfterSeconds",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+      "symbol": "RateLimitPolicy",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+      "symbol": "RateLimitMetadata",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+      "symbol": "ClientIp.PartitionKey",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "symbol": "AdminOptions",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "symbol": "PublicOptions",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "symbol": "PublicPageConvention.Apply",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "auth.MapPost(\"/login\")",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "UseTrustedForwardedHeaders",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+      "symbol": "RateLimitChainTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+      "symbol": "LoginOverLimit_Returns429_WithRetryAfterSeconds",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+      "symbol": "PublicRateLimitTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "symbol": "Login_IsRateLimitedPerIp / Login_GlobalLimit_AppliesAcrossIps / Login_FromOutsiderIp_Returns403_AndDoesNotConsumeRateLimit / Login_RateLimit_CannotBeBypassedWithPathVariants",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PreviewEndpointsTests.cs",
+      "symbol": "Preview_IsRateLimited_AndPathVariantsShareTheBudget",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/ClientIpTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SearchPageTests.cs",
+      "symbol": "Search_HasItsOwnRateLimit",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "parseRetryAfter",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+      "role": "render"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력은 HttpContext다. 제한기마다 ctx.GetEndpoint().Metadata의 RateLimitMetadata.Policy로 적용 여부를 판정한다. IP별 창은 ctx.Connection.RemoteIpAddress를 ClientIp.PartitionKey로 정규화하고 접두사(login-ip:, search-ip:, page-ip:, asset-ip:)를 붙여 키로 쓴다. 전역 파티션 키는 상수 문자열이다(login-global, preview-global, upload-global, *-concurrency). 해당하지 않는 요청은 상수 키 \"none\"의 NoLimiter 파티션으로 간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "88-129, 144-170"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+          "lines": "33-44"
+        }
+      ]
+    },
+    {
+      "text": "한도 값은 설정 섹션 Admin과 Public에서 온다. Admin 기본값은 LoginPerIpPerMinute 5, LoginGlobalPerMinute 20, LoginConcurrency 2, PreviewPerMinute 60, PreviewConcurrency 2, UploadPerMinute 30, UploadConcurrency 2다. Public 기본값은 PagePerIpPerMinute 120, AssetPerIpPerMinute 600, SearchPerIpPerMinute 20, SearchConcurrency 4다. 숫자는 코드 기본값이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+          "lines": "24-45"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "lines": "18-27"
+        }
+      ]
+    },
+    {
+      "text": "스모크 배포 오버레이는 환경 변수 Admin__LoginPerIpPerMinute·Admin__LoginGlobalPerMinute로 로그인 한도를 덮어쓴다. 운영 compose는 주석에서 UploadConcurrency를 메모리 한도 산정 근거로 든다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.smoke.yml",
+          "lines": "6-7"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "56"
+        }
+      ]
+    },
+    {
+      "text": "거부 출력은 상태 코드 429와 Retry-After 헤더(정수 초)다. 고정 창 거부는 lease의 RetryAfter 메타데이터를 올림해 1~60으로 자른다. 동시 실행 거부는 메타데이터가 없어 5가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "47-52, 69-72"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "37-52"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+          "lines": "21-33"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+          "lines": "19-35"
+        }
+      ]
+    },
+    {
+      "text": "429 본문은 UseStatusCodePages가 ErrorResponses.WriteAsync로 채운다. /api 같은 기계용 경로는 ProblemDetails를, 공개 페이지는 429 문구가 든 고정 HTML을 받는다. 본문 형식을 단언하는 테스트는 찾지 못했다(테스트는 상태 코드와 Retry-After만 확인한다).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "45-56, 66"
+        }
+      ]
+    },
+    {
+      "text": "관리 SPA는 Retry-After를 정수 초로 해석해 1~3600으로 제한한다. 미리보기 창은 그 시간 동안 요청을 보내지 않는다. 로그인·일반 오류 안내는 대기 시간을 문구로 보여 준다(이번 세션에서 재확인하지 않은 이전 분석 내용).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "29-80",
+          "symbol": "parseRetryAfter / describeError"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+          "lines": "43-70"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "고정 창 파티션: 허용량 남음",
+      "to": "고정 창 파티션: 소진(거부)",
+      "trigger": "1분 창 안에서 PermitLimit만큼 임대를 획득한다. 요청이 뒤 제한기에 거부돼도 이미 빌린 창 허용량은 돌아오지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "85-86, 144-150"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "50-52"
+        }
+      ]
+    },
+    {
+      "from": "고정 창 파티션: 소진(거부)",
+      "to": "고정 창 파티션: 허용량 남음",
+      "trigger": "1분 창이 끝나면 AutoReplenishment = true에 따라 자동 보충된다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "146-149"
+        }
+      ]
+    },
+    {
+      "from": "동시 실행 파티션: 여유 있음",
+      "to": "동시 실행 파티션: 가득 참(거부)",
+      "trigger": "같은 정책의 요청 PermitLimit개가 동시에 처리 중이다. QueueLimit이 0이라 즉시 거부한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "167-170"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "35-42"
+        }
+      ]
+    },
+    {
+      "from": "동시 실행 임대: 보유",
+      "to": "동시 실행 임대: 반납",
+      "trigger": "요청 파이프라인이 끝나거나, 체인 뒤쪽 고정 창이 거부해 앞의 임대가 Dispose된다",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "55-68",
+          "symbol": "WindowRejection_ReturnsTheConcurrencyPermit"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "85-86"
+        }
+      ]
+    },
+    {
+      "from": "IP 파티션: 존재",
+      "to": "IP 파티션: 제거",
+      "trigger": "10초 이상 쓰이지 않은 파티션을 프레임워크 내부 타이머가 정리한다. 근거는 코드 주석의 실측 기록뿐이고 저장소 코드로는 확인할 수 없다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "14-17"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [],
+  "externalDependencies": [
+    {
+      "text": "프레임워크의 System.Threading.RateLimiting(PartitionedRateLimiter.CreateChained·Create, RateLimitPartition.GetFixedWindowLimiter/GetConcurrencyLimiter/GetNoLimiter)과 Microsoft.AspNetCore.RateLimiting(AddRateLimiter, UseRateLimiter, RateLimiterOptions)을 쓴다. 외부 서비스·저장소는 쓰지 않고, 상태는 프로세스 메모리에만 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "1-4, 44-54, 88-170"
+        }
+      ]
+    },
+    {
+      "text": "IP별 파티션이 제대로 동작하려면 ForwardedHeaders가 RemoteIpAddress를 실제 클라이언트 IP로 바꿔야 한다. UseTrustedForwardedHeaders는 Proxy:TrustedIp가 있을 때만 UseForwardedHeaders를 등록하고, KnownProxies에는 그 IP 하나만 넣는다(ForwardLimit=1). 운영 compose는 Proxy__TrustedIp에 Caddy 고정 IP를 설정한다. Development가 아닌 환경에서 값이 비면 StartupValidation이 기동을 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "37-51, 68-75"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "43, 70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "99"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "116-119"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "StartupValidation.Validate",
+      "condition": "Admin 또는 Public의 속도 제한 관련 값(PerMinute·Concurrency)이 1 미만이다",
+      "handling": "InvalidOperationException을 던져 앱 기동이 실패한다. 테스트 ZeroLimit_FailsStartup이 이를 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "62-78"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+          "lines": "60-66",
+          "symbol": "ZeroLimit_FailsStartup"
+        }
+      ]
+    },
+    {
+      "where": "RateLimitingExtensions.Concurrency (UseRateLimiter)",
+      "condition": "정책별 동시 실행 수가 PermitLimit에 도달했다",
+      "handling": "QueueLimit이 0이라 기다리지 않고 즉시 거부한다. 429와 Retry-After 5초를 낸다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "26, 69-72, 167-170"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "29-53"
+        }
+      ]
+    },
+    {
+      "where": "RateLimitingExtensions.Window (UseRateLimiter)",
+      "condition": "1분 고정 창의 허용량이 소진됐다",
+      "handling": "즉시 거부한다. 429와 창 종료까지 남은 초(1~60)를 Retry-After로 낸다. 앞에서 빌린 동시 실행 임대는 반납된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "69-72, 144-150"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "55-68"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+          "lines": "21-33"
+        }
+      ]
+    },
+    {
+      "where": "AddAppRateLimiting.OnRejected",
+      "condition": "거부 응답을 만든다",
+      "handling": "Retry-After 헤더만 설정하고 본문은 쓰지 않는다. 본문은 UseStatusCodePages → ErrorResponses가 채우는 것으로 보이지만, 이를 단언하는 테스트는 없다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "48-52"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate / UseTrustedForwardedHeaders / ClientIp.PartitionKey",
+      "condition": "Proxy:TrustedIp가 비어 있다",
+      "handling": "Development가 아닌 모든 환경에서는 Require(proxy.TrustedIp.Length > 0, \"Proxy:TrustedIp\")가 기동을 막는다. 따라서 값이 빈 상태는 Development에서만 생긴다. 그때는 UseForwardedHeaders가 등록되지 않아 RemoteIpAddress가 직접 연결한 상대의 IP가 된다. Development를 프록시 뒤에서 돌리면 모든 방문자가 IP 파티션 하나를 공유하며, 이를 막는 별도 처리는 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "116-119"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "68-75"
+        }
+      ]
+    },
+    {
+      "where": "ClientIp.PartitionKey",
+      "condition": "RemoteIpAddress가 null이다",
+      "handling": "빈 문자열 키를 반환한다. 그래서 IP를 모르는 요청은 모두 같은 파티션(예: \"login-ip:\")을 공유한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+          "lines": "35"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/ClientIpTests.cs",
+          "lines": "36"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "RateLimitMetadata가 없는 엔드포인트도 제한기 11개를 모두 지나지만, 모든 제한기에서 NoLimiter 파티션을 받아 제한되지 않는다. 메타데이터는 로그인·미리보기·업로드·공개 첨부·SiteEndpoints·/health·Razor 페이지에만 붙는다. 그래서 관리 글/시리즈/태그/첨부 목록·삭제 API는 속도 제한이 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "95-105",
+          "symbol": "RequestWithoutPolicy_IsNeverLimited"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "128-129, 144-150, 167-170"
+        }
+      ]
+    },
+    {
+      "text": "UseStaticFiles가 UseRateLimiter보다 앞이라 /css/site.css 같은 정적 파일은 제한되지 않는다. Development의 /openapi(MapOpenApi)도 메타데이터가 없어 제한되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "103-105, 110-113"
+        }
+      ]
+    },
+    {
+      "text": "라우팅이 만드는 405(Razor 페이지에 POST)나 호스트 불일치 404 같은 합성 엔드포인트, 매칭에 실패한 요청에는 RateLimitMetadata가 없다. 그래서 제한되지 않을 것으로 보인다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "lines": "16-18, 37-39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "128-129"
+        }
+      ]
+    },
+    {
+      "text": "공개 첨부 GET은 없는 id라서 404를 내도 asset 창에 계산된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+          "lines": "38-46",
+          "symbol": "AttachmentGet_CountsTowardTheAssetLimit_EvenWhen404"
+        }
+      ]
+    },
+    {
+      "text": "검색 요청은 search-ip 창과 page-ip 창 양쪽에 계산된다. search-ip가 page-ip보다 앞이라, 검색 창이 거부한 요청은 페이지 허용량을 쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "98-100"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "70-93"
+        }
+      ]
+    },
+    {
+      "text": "반대 방향은 보호되지 않는다. page-ip 창이 검색을 거부해도 이미 빌린 search-ip 허용량은 소모된다. login-global 창이 거부해도 이미 빌린 login-ip 허용량은 소모된다. 고정 창 임대는 Dispose해도 허용량이 돌아오지 않기 때문이다(코드 주석). 이를 검증하는 테스트는 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "85-86, 94-100"
+        }
+      ]
+    },
+    {
+      "text": "동시 실행 제한기가 고정 창보다 앞이라 동시 실행 거부는 분당 허용량을 쓰지 않는다. 창이 거부하면 동시 실행 임대는 반납된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+          "lines": "28-68"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "85-93"
+        }
+      ]
+    },
+    {
+      "text": "IPv4-mapped IPv6(::ffff:a.b.c.d)는 IPv4와 같은 키로 접힌다. 로그인 한도 통합 테스트도 이를 확인한다. IPv6는 같은 /64 안이면 같은 파티션이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+          "lines": "33-44"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/ClientIpTests.cs",
+          "lines": "20-41"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "275-287"
+        }
+      ]
+    },
+    {
+      "text": "파티션 판정은 원시 경로가 아니라 선택된 엔드포인트의 메타데이터로 한다. 그래서 /api/auth/login/ 이나 /API/Auth/LOGIN 같은 변형으로도 우회할 수 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+          "lines": "25-39"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "350-368",
+          "symbol": "Login_RateLimit_CannotBeBypassedWithPathVariants"
+        }
+      ]
+    },
+    {
+      "text": "제한기가 AdminSurfaceMiddleware 뒤라서 허용 IP 밖의 /api 요청은 403으로 끝나고 로그인 한도를 소진하지 못한다(테스트로 확인). 반면 인증보다 앞이라 허용 IP 안의 세션 없는 요청도 preview·upload 전역 창을 소모할 수 있다. 이 뒷부분은 코드 순서에서 추론한 것이다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+          "lines": "322-337",
+          "symbol": "Login_FromOutsiderIp_Returns403_AndDoesNotConsumeRateLimit"
+        }
+      ]
+    },
+    {
+      "text": "Razor 페이지에 RateLimitMetadata가 빠지면 AccessMatrixTests의 닫힌 세계 검사가 잡는다. SearchPageTests는 /search 엔드포인트에 Search 정책이 붙었는지 확인한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "lines": "16-18"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+          "lines": "324-344"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SearchPageTests.cs",
+          "lines": "105-110"
+        }
+      ]
+    },
+    {
+      "text": "제한기가 실행될 때 GetEndpoint()가 이미 채워져 있다는 전제가 있다(WebApplication이 라우팅을 사용자 미들웨어보다 앞에 둔다). 근거는 코드 주석이고, 로그인·/health·업로드 429 통합 테스트가 실제로 성립함을 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "20-21"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+          "lines": "21-33"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+          "lines": "19-57"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "OnRejected는 Retry-After 헤더만 설정하고 로그를 남기지 않는다. 속도 제한 거부에 대한 앱 수준 로깅 코드는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "48-52"
+        }
+      ]
+    },
+    {
+      "text": "프레임워크 RateLimiter 미들웨어가 자체 로그를 내는지, 낸다면 어떤 레벨인지는 저장소 코드로 확인할 수 없다.",
+      "status": "UNKNOWN",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "105"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F019_SEQUENCE",
+      "type": "sequence",
+      "title": "요청 파이프라인에서의 속도 제한 순서(로그인 요청 예)",
+      "summary": "로그인 요청은 AdminSurfaceMiddleware를 통과해야 제한기 체인에 들어가고, 체인이 거부하면 OnRejected가 Retry-After를 붙이고 ErrorResponses가 429 본문을 쓴다.",
+      "mermaid": "sequenceDiagram\n    participant Client\n    participant AdminSurfaceMiddleware\n    participant UseRateLimiter\n    participant RateLimitingExtensions\n    participant ClientIp\n    participant AuthEndpoints\n    participant ErrorResponses\n    Client->>AdminSurfaceMiddleware: POST /api/auth/login\n    AdminSurfaceMiddleware->>AdminSurfaceMiddleware: 호스트 IP CSRF Origin 검사\n    alt 검사 실패\n        AdminSurfaceMiddleware-->>Client: 404/403 한도 소모 없음\n    else 통과\n        AdminSurfaceMiddleware->>UseRateLimiter: next\n        UseRateLimiter->>RateLimitingExtensions: GlobalLimiter AttemptAcquire ctx\n        RateLimitingExtensions->>RateLimitingExtensions: 제한기 11개가 각자 Matches로 파티션 선택\n        RateLimitingExtensions->>ClientIp: PartitionKey RemoteIpAddress\n        ClientIp-->>RateLimitingExtensions: 정규화된 IP 키\n        alt 모든 제한기 허용\n            RateLimitingExtensions-->>UseRateLimiter: 임대 획득\n            UseRateLimiter->>AuthEndpoints: 인증 인가 후 LoginAsync 실행\n            AuthEndpoints-->>Client: 204/401 동시 실행 임대 반납\n        else 어느 제한기든 거부\n            RateLimitingExtensions-->>UseRateLimiter: 거부 임대 앞 임대 Dispose\n            UseRateLimiter->>RateLimitingExtensions: OnRejected RetryAfterSeconds lease\n            UseRateLimiter->>ErrorResponses: 상태 429 본문 없음 HandleStatusCodeAsync\n            ErrorResponses-->>Client: 429 Retry-After ProblemDetails\n        end\n    end",
+      "details": "Program.cs의 미들웨어 순서(104-108행)를 따른다. AdminSurfaceMiddleware가 먼저 거부하면 제한기는 실행되지 않는다. UseRateLimiter는 AddAppRateLimiting이 등록한 GlobalLimiter(BuildChain 결과)에서 임대를 얻는다. 체인의 각 제한기는 Matches로 엔드포인트 메타데이터를 보고, IP별 창은 ClientIp.PartitionKey로 키를 만든다. 거부 시 OnRejected가 RetryAfterSeconds로 헤더를 쓰고, 본문은 UseStatusCodePages(101행)에 연결된 ErrorResponses.HandleStatusCodeAsync가 쓰는 것으로 보인다(본문 형식을 단언하는 테스트는 없음). 로그인 이외의 정책도 흐름은 같다.",
+      "nodes": [
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseMiddleware<AdminSurfaceMiddleware>"
+        },
+        {
+          "node": "UseRateLimiter",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseRateLimiter"
+        },
+        {
+          "node": "RateLimitingExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "BuildChain / OnRejected"
+        },
+        {
+          "node": "ClientIp",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+          "symbol": "ClientIp.PartitionKey"
+        },
+        {
+          "node": "AuthEndpoints",
+          "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "LoginAsync"
+        },
+        {
+          "node": "ErrorResponses",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "HandleStatusCodeAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F019_FLOW",
+      "type": "flowchart",
+      "title": "BuildChain 제한기 체인 평가 순서와 Retry-After 분기",
+      "summary": "동시 실행 제한기 4개 다음에 고정 창 7개가 순서대로 평가되고, 어느 하나라도 거부하면 429가 된다. Retry-After는 lease 메타데이터 유무로 1~60초 또는 5초로 갈린다.",
+      "mermaid": "flowchart TD\n    Start[UseRateLimiter AttemptAcquire ctx] --> LoginConc[login-concurrency]\n    LoginConc -->|허용| PreviewConc[preview-concurrency]\n    PreviewConc -->|허용| UploadConc[upload-concurrency]\n    UploadConc -->|허용| SearchConc[search-concurrency]\n    SearchConc -->|허용| LoginIp[login-ip IP별 1분 창]\n    LoginIp -->|허용| LoginGlobal[login-global 전역 1분 창]\n    LoginGlobal -->|허용| PreviewGlobal[preview-global 전역 1분 창]\n    PreviewGlobal -->|허용| UploadGlobal[upload-global 전역 1분 창]\n    UploadGlobal -->|허용| SearchIp[search-ip IP별 1분 창]\n    SearchIp -->|허용| PageIp[page-ip PublicPage 또는 Search]\n    PageIp -->|허용| AssetIp[asset-ip PublicAsset]\n    AssetIp -->|허용| Acquired[임대 획득 다음 미들웨어]\n    LoginConc -.->|거부| Rejected[429 OnRejected]\n    PreviewConc -.->|거부| Rejected\n    UploadConc -.->|거부| Rejected\n    SearchConc -.->|거부| Rejected\n    LoginIp -.->|거부| Rejected\n    LoginGlobal -.->|거부| Rejected\n    PreviewGlobal -.->|거부| Rejected\n    UploadGlobal -.->|거부| Rejected\n    SearchIp -.->|거부| Rejected\n    PageIp -.->|거부| Rejected\n    AssetIp -.->|거부| Rejected\n    Rejected --> RetryAfterSeconds{lease RetryAfter 메타데이터}\n    RetryAfterSeconds -->|있음 고정 창| Clamp[Ceiling 후 1~60초]\n    RetryAfterSeconds -->|없음 동시 실행| Five[ConcurrencyRetryAfterSeconds 5초]",
+      "details": "BuildChain(88-101행)의 인자 순서 그대로다. 각 노드는 자기 정책(Matches)이 아니면 NoLimiter(\"none\") 파티션을 받아 항상 허용한다. 따라서 메타데이터 없는 요청은 끝까지 통과한다. 동시 실행 제한기를 앞에 둔 이유는 코드 주석(85-86행)에 있다. 뒤의 창이 거부하면 앞의 동시 실행 임대는 Dispose로 반납되지만, 고정 창 허용량은 반납되지 않는다. RetryAfterSeconds(69-72행)는 lease에 RetryAfter 메타데이터가 있으면 올림 후 1~60으로 자르고, 없으면 5를 쓴다.",
+      "nodes": [
+        {
+          "node": "Start",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.UseRateLimiter"
+        },
+        {
+          "node": "LoginConc",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "Concurrency"
+        },
+        {
+          "node": "LoginIp",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "Window"
+        },
+        {
+          "node": "PageIp",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "BuildChain"
+        },
+        {
+          "node": "Rejected",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "AddAppRateLimiting.OnRejected"
+        },
+        {
+          "node": "RetryAfterSeconds",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RetryAfterSeconds"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F019_CLASS",
+      "type": "class",
+      "title": "정책 메타데이터 부착과 체인 구성 관계",
+      "summary": "RateLimitMetadata는 엔드포인트 쪽(PublicPageConvention 등)이 달고 RateLimitingExtensions가 읽는다. 한도는 AdminOptions·PublicOptions에서 오고 StartupValidation이 검증한다.",
+      "mermaid": "classDiagram\n    class RateLimitPolicy {\n        <<enumeration>>\n        Login\n        Preview\n        PublicPage\n        PublicAsset\n        Search\n        Upload\n    }\n    class RateLimitMetadata {\n        +RateLimitPolicy Policy\n    }\n    class RateLimitingExtensions {\n        +int ConcurrencyRetryAfterSeconds\n        +AddAppRateLimiting(services)\n        ~BuildChain(admin, pub)\n        ~RetryAfterSeconds(lease)\n        ~Matches(ctx, policy)\n        ~Window(applies, key, permitsPerMinute)\n        ~Concurrency(policy, key, permits)\n    }\n    class ClientIp {\n        +PartitionKey(ip) string\n    }\n    class AdminOptions\n    class PublicOptions\n    class PublicPageConvention {\n        +Apply(model)\n    }\n    class StartupValidation {\n        +Validate(services, environment)\n    }\n    RateLimitMetadata --> RateLimitPolicy\n    PublicPageConvention ..> RateLimitMetadata : 부착\n    RateLimitingExtensions ..> RateLimitMetadata : 조회\n    RateLimitingExtensions ..> ClientIp : IP 키\n    RateLimitingExtensions ..> AdminOptions : 관리 한도\n    RateLimitingExtensions ..> PublicOptions : 공개 한도\n    StartupValidation ..> AdminOptions : 1 이상 검증\n    StartupValidation ..> PublicOptions : 1 이상 검증",
+      "details": "RateLimitPolicy enum 6개 값과 불변 record RateLimitMetadata(RateLimitPolicy.cs)가 정책을 표시하는 유일한 수단이다. PublicPageConvention 외에도 AuthEndpoints·PreviewEndpoints·AttachmentEndpoints·PublicAttachmentEndpoints·SiteEndpoints·Program.cs(/health)가 WithMetadata로 붙인다(그림에서는 생략). RateLimitingExtensions의 internal 멤버는 RateLimitChainTests가 직접 호출한다.",
+      "nodes": [
+        {
+          "node": "RateLimitPolicy",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs"
+        },
+        {
+          "node": "RateLimitMetadata",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs"
+        },
+        {
+          "node": "RateLimitingExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs"
+        },
+        {
+          "node": "ClientIp",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs"
+        },
+        {
+          "node": "AdminOptions",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs"
+        },
+        {
+          "node": "PublicOptions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs"
+        },
+        {
+          "node": "PublicPageConvention",
+          "code": "PortfolioBlog.Api/Pages/PublicPageConvention.cs"
+        },
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F019_STATE",
+      "type": "state",
+      "title": "고정 창 파티션과 동시 실행 임대의 상태",
+      "summary": "고정 창 파티션은 허용량 소진 후 1분 창이 끝나면 자동 보충되고, 동시 실행 파티션은 임대가 Dispose될 때 슬롯이 돌아온다.",
+      "mermaid": "stateDiagram-v2\n    state FixedWindowRateLimiter {\n        Available --> Exhausted: PermitLimit 도달\n        Exhausted --> Available: 1분 창 종료 AutoReplenishment\n        Exhausted --> Exhausted: 요청 거부 429 Retry-After 1~60\n    }\n    state ConcurrencyLimiter {\n        HasSlot --> Full: PermitLimit개 동시 보유\n        Full --> HasSlot: 임대 Dispose 요청 종료 또는 뒤 창 거부\n        Full --> Full: 요청 거부 429 Retry-After 5\n    }",
+      "details": "Window는 FixedWindowRateLimiterOptions(PermitLimit, Window=1분, QueueLimit=0, AutoReplenishment=true)로 파티션을 만든다(144-150행). Concurrency는 ConcurrencyLimiterOptions(PermitLimit, QueueLimit=0)를 쓴다(167-170행). 동시 실행 임대가 뒤 창의 거부로 반납되는 동작은 WindowRejection_ReturnsTheConcurrencyPermit 테스트로 확인된다. 상태는 프로세스 메모리에만 있어 재시작하면 초기화된다(추론).",
+      "nodes": [
+        {
+          "node": "FixedWindowRateLimiter",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "Window"
+        },
+        {
+          "node": "ConcurrencyLimiter",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "Concurrency"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "프레임워크 RateLimiter 미들웨어가 거부 시 남기는 로그가 있는지, 있다면 어떤 레벨인지(앱 코드에는 거부 로깅이 없다)",
+    "IP 파티션 10초 유휴 정리, ConcurrencyLimiter 내부 락 같은 프레임워크 내부 동작은 코드 주석의 실측 기록에만 근거한다. 저장소 안에서 재현 코드를 확인할 수 없다.",
+    "429 응답 본문(ProblemDetails/HTML)이 실제로 UseStatusCodePages로 채워지는지 단언하는 테스트를 찾지 못했다(테스트는 상태 코드와 Retry-After만 확인한다)",
+    "운영 환경(appsettings·.env)이 기본값과 다른 한도를 쓰는지 여부. 스모크 오버레이의 로그인 한도 외에는 확인하지 않았다.",
+    "앞쪽 고정 창 허용량이 뒤쪽 고정 창 거부로 소모되는 방향(login-global 거부 → login-ip 소모, page-ip 거부 → search-ip 소모)의 실제 영향은 테스트로 검증되지 않았다",
+    "검증 지적(F001·F002·F003의 의존 목록과 기능 간 의존 표 불일치)은 다른 기능의 문서와 색인 표에 관한 것이라, 이 F019 분석 출력에서 고칠 대상이 없다. F019의 dependencies(F018·F020·F021)는 코드로 다시 확인했다. F018 근거는 AdminSurfaceMiddleware 순서(Program.cs 104-105)와 UseTrustedForwardedHeaders다. F020 근거는 UseStatusCodePages → ErrorResponses(Program.cs 101)다. F021 근거는 StartupValidation 한도 검증(62-78)이다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "lines": "42-170",
+      "symbol": "RateLimitingExtensions"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+      "lines": "4-39",
+      "symbol": "RateLimitPolicy / RateLimitMetadata"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "lines": "32-41",
+      "symbol": "PublicPageConvention.Apply"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+      "lines": "33-44",
+      "symbol": "ClientIp.PartitionKey"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "56, 98-108, 115-120"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "lines": "62-78, 116-119"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "lines": "37-51, 68-75"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "lines": "24-45"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "lines": "18-27"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "lines": "45-77"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+      "lines": "28-105"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+      "lines": "19-33"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+      "lines": "19-66"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+      "lines": "245-368"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "lines": "70"
+    }
+  ],
+  "history": []
+}

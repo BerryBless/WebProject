@@ -1,0 +1,81 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 97
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [
+    {
+      "document": "features/F024_ATTACHMENT_JANITOR.md",
+      "section": "failures",
+      "type": "INCORRECT_FAILURE_HANDLING",
+      "description": "실패 지점 표의 'AttachmentLock.HoldAsync (try 블록 53-62행)' 행은 조건에 '연결 끊김, 취소 등'을 넣고, 처리에서 모두 'ExecuteAsync가 LogError를 남긴다'고 적었다. 그런데 취소로 생긴 OperationCanceledException은 CloseConnectionAsync 뒤 다시 던져진다. 이 예외는 ExecuteAsync의 catch 필터 `when (ex is not OperationCanceledException)`에 걸리지 않고 그대로 전파되므로 LogError 없이 루프가 끝난다. 같은 표의 OpenConnectionAsync 행은 이 차이를 올바르게 적었다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "AttachmentLock.HoldAsync",
+          "lines": "53-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.ExecuteAsync",
+          "lines": "56-66"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "features/F028_DEPLOY_SMOKE_TEST.md",
+      "diagram": "F028_FLOW_CLEANUP",
+      "section": "F028_FLOW_CLEANUP",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "코드 근거 표는 exitStatus 노드의 근거를 `.github/workflows/ci.yml`(deploy-smoke upload-artifact if failure())로 적었다. 하지만 다이어그램의 'exit status'는 run.sh cleanup 함수의 `exit $status`(57행)다. ci.yml의 upload-artifact는 이 트랩과 별개인 CI 단계라 이 노드의 코드 근거가 될 수 없다.",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "symbol": "cleanup",
+          "lines": "47-58"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "symbol": "deploy-smoke",
+          "lines": "125-132"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F024_ATTACHMENT_JANITOR.md",
+      "section": "failures",
+      "issue": "HoldAsync try 블록 행에서 취소(OperationCanceledException)는 LogError로 가지 않고 catch 필터를 통과하지 못해 전파되어 루프가 끝난다고 고친다. section=failures",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.ExecuteAsync",
+          "lines": "61"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "AttachmentLock.HoldAsync",
+          "lines": "53-62"
+        }
+      ]
+    },
+    {
+      "doc": "features/F028_DEPLOY_SMOKE_TEST.md",
+      "section": "F028_FLOW_CLEANUP",
+      "issue": "코드 근거 표에서 exitStatus 노드의 근거를 ci.yml upload-artifact가 아니라 `deploy/smoke/run.sh` cleanup의 `exit $status`(57행)로 바꾼다. section=F028_FLOW_CLEANUP",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "symbol": "cleanup",
+          "lines": "57"
+        }
+      ]
+    }
+  ]
+}

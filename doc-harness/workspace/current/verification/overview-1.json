@@ -1,0 +1,174 @@
+{
+  "score": {
+    "coverage": 85,
+    "accuracy": 92
+  },
+  "hallucinations": [],
+  "missingItems": [
+    {
+      "document": "03_DIRECTORY_STRUCTURE.md",
+      "section": "tree",
+      "type": "MISSING_FILE",
+      "description": "파일 트리에 저장소가 추적하는 실제 Git 훅 `scripts/git-hooks/commit-msg`와 배포 설정 샘플 `deploy/.env.example`가 없다. 트리는 `scripts/`를 auto-commit.ps1·harness-audit.ps1·hooks/guard-write-scope.ps1만으로, `deploy/`는 .env.example 없이 나열한다. `.gitignore`는 `!.env.example`로 샘플 파일을 명시적으로 허용하고, README·CLAUDE.md는 `Copy-Item scripts/git-hooks/commit-msg .git/hooks/`로 설치하라고 안내한다.",
+      "evidence": [
+        {
+          "file": "scripts/git-hooks/commit-msg"
+        },
+        {
+          "file": "deploy/.env.example"
+        },
+        {
+          "file": ".gitignore",
+          "lines": "501-503"
+        },
+        {
+          "file": "README.md",
+          "lines": "51"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [
+    {
+      "document": "03_DIRECTORY_STRUCTURE.md",
+      "section": "roles",
+      "type": "WRONG_ROLE",
+      "description": "`scripts` 행이 `hooks/guard-write-scope.ps1`을 'Git 훅 스크립트'라고 부르지만, 이 파일은 Claude Code의 PreToolUse 훅이다. 감사·리뷰 서브에이전트의 Write/Edit 범위를 제한하며 `.claude/settings.json`에서 `-Mode map`으로 호출된다. 실제 Git 훅은 `scripts/git-hooks/commit-msg`(커밋 메시지 접두사 강제)다.",
+      "evidence": [
+        {
+          "file": "scripts/hooks/guard-write-scope.ps1",
+          "lines": "1-8"
+        },
+        {
+          "file": ".claude/settings.json",
+          "lines": "19"
+        },
+        {
+          "file": "CLAUDE.md",
+          "lines": "21-25"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "diagram": "EXEC_DATAFLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "section": "EXEC_DATAFLOW",
+      "description": "`MarkdownRenderer --> AppDbContext`와 `AppDbContext --> RenderedPostCache` 간선은 코드와 맞지 않는다. 렌더된 HTML은 DB에 저장되지 않는다. `AppDbContext`는 `RenderedPostCache`를 호출하지 않는다. 실제 흐름은 `PostEndpoints.CreateAsync`/`UpdateAsync`가 세 단계를 차례로 직접 호출하는 구조다. ① `RenderGate.RenderAsync`(내부에서 `MarkdownRenderer.RenderDetailed`) 결과를 지역 변수 `rendered`에 보관한다. ② `AppDbContext.SaveChangesAsync`로 마크다운 원문만 저장한다. ③ `PostQueries.GetDetailAsync`로 다시 조회한 뒤 `CanCacheRenderedResult`가 참일 때만 `cache.Store(id, version, rendered)`를 호출한다. 이 조율을 맡는 `PostEndpoints` 노드가 다이어그램에 없고, 두 간선이 잘못된 데이터 이동(HTML→DB, DB→캐시)을 나타낸다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "124-164"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "187-245"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate..ctor",
+          "lines": "36-47"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store",
+          "lines": "115"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "section": "status",
+      "type": "UNSUPPORTED_SOURCE",
+      "description": "FAIL005를 두고 '운영 public 서브넷이 자동 할당이라 호스트 LAN과 겹치면 기동 실패(운영 문서에 기재)'라고 쓰지만, `deploy/OPERATIONS.md`에는 서브넷·ipam·LAN 겹침에 관한 내용이 없다(`서브넷|subnet|LAN|대역|겹|ipam|overlap` 검색 결과 0건, 172.30.x 고정 IP 관련 항목만 있음). '운영 문서에 기재'라는 표현은 docs/worklog.md와 plan/tech_blog_4_report_0923.md의 서술을 옮긴 것이다. 코드로 확인되는 사실은 docker-compose.yml에서 `public` 네트워크에 ipam 설정이 없다는 점(자동 할당)뿐이다.",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "127-129"
+        },
+        {
+          "file": "docs/worklog.md",
+          "lines": "778"
+        },
+        {
+          "file": "plan/tech_blog_4_report_0923.md",
+          "lines": "85"
+        }
+      ]
+    }
+  ],
+  "fixRequired": [
+    {
+      "doc": "00_EXECUTIVE_SUMMARY.md",
+      "section": "EXEC_DATAFLOW",
+      "issue": "PostEndpoints(CreateAsync/UpdateAsync)가 RenderGate→AppDbContext 저장→RenderedPostCache.Store를 차례로 직접 호출하는 구조로 다이어그램을 고친다. MarkdownRenderer→AppDbContext 간선과 AppDbContext→RenderedPostCache 간선을 없애고, 캐시 선채움이 CanCacheRenderedResult 조건부라는 점을 적는다. section=EXEC_DATAFLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "124-245"
+        }
+      ]
+    },
+    {
+      "doc": "00_EXECUTIVE_SUMMARY.md",
+      "section": "status",
+      "issue": "FAIL005의 '운영 문서에 기재'는 deploy/OPERATIONS.md에 해당 내용이 없으므로 출처를 docs/worklog.md·plan/tech_blog_4_report_0923.md로 바꾸거나 표현을 고친다. section=status",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md"
+        },
+        {
+          "file": "docs/worklog.md",
+          "lines": "778"
+        }
+      ]
+    },
+    {
+      "doc": "00_EXECUTIVE_SUMMARY.md",
+      "section": "unknowns",
+      "issue": "'글 저장 엔드포인트의 세부 호출 순서는 재확인하지 않음' 항목은 코드로 확인할 수 있다. 확인한 순서로 바꾼다: UpdateAsync는 version 검사→RenderGate 렌더→트랜잭션 저장(xmin)→재조회→조건부 캐시 저장. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "187-245"
+        }
+      ]
+    },
+    {
+      "doc": "03_DIRECTORY_STRUCTURE.md",
+      "section": "roles",
+      "issue": "scripts 행의 hooks/guard-write-scope.ps1은 Git 훅이 아니라 Claude Code PreToolUse 훅이다. 실제 Git 훅 scripts/git-hooks/commit-msg를 함께 적는다. section=roles",
+      "evidence": [
+        {
+          "file": "scripts/hooks/guard-write-scope.ps1",
+          "lines": "1"
+        },
+        {
+          "file": "scripts/git-hooks/commit-msg"
+        }
+      ]
+    },
+    {
+      "doc": "03_DIRECTORY_STRUCTURE.md",
+      "section": "tree",
+      "issue": "파일 트리에 scripts/git-hooks/commit-msg와 deploy/.env.example(추적되는 샘플 파일)을 추가한다. section=tree",
+      "evidence": [
+        {
+          "file": "scripts/git-hooks/commit-msg"
+        },
+        {
+          "file": "deploy/.env.example"
+        }
+      ]
+    }
+  ]
+}

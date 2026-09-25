@@ -143,6 +143,8 @@ export class CliClaudeRunner implements ClaudeRunner {
         return { ok: true, output: parsed.json.structured_output, costUsd: totalCost, sessionId: parsed.json.session_id ?? '', durationMs: Date.now() - started, attempts: attempt };
       }
       lastError = failure ?? 'unknown';
+      // 사용량 한도·속도 제한은 곧바로 재시도해도 같은 결과다. 즉시 실패로 돌려 호출자가 실행을 멈추고 나중에 resume하게 한다.
+      if (isQuotaError(failure)) return { ok: false, error: `QUOTA: ${failure}`, attempts: attempt, costUsd: totalCost };
       if (attempt < maxAttempts) {
         const wait = this.backoffMs[Math.min(attempt - 1, this.backoffMs.length - 1)] ?? 0;
         if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -175,6 +177,13 @@ export class CliClaudeRunner implements ClaudeRunner {
       child.stdin.end(prompt);
     });
   }
+}
+
+const QUOTA_RE = /session limit|usage limit|rate limit|rate_limit|quota|overloaded|too many requests|\b429\b|resets (at|in) /i;
+
+/** 사용량 한도·속도 제한 계열 오류인가(재시도 무의미, 실행 중단 후 resume 대상). */
+export function isQuotaError(message: string | null | undefined): boolean {
+  return !!message && QUOTA_RE.test(message);
 }
 
 export function parseCliOutput(stdout: string): { json: CliJson | null } {

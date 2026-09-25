@@ -27,6 +27,16 @@ describe('impact', () => {
     expect(impact.candidateNewFeatureFiles).toEqual([]);
   });
 
+  it('변경이 전부 TRIVIAL이면 의존 확장 없이 직접 기능만 대상이다', () => {
+    const ws = sampleWorkspace();
+    const g = buildDepgraph(ws);
+    const cs = changeSet([changed('Api/Features/Posts/PostEndpoints.cs')]);
+    const cls: Classification = { items: [{ file: cs.files[0].file, classifications: ['DOCUMENTATION_ONLY'], significance: 'TRIVIAL', possibleFeatures: [], rationale: '주석' }], summary: 's', changelogCandidates: [] };
+    const impact = analyzeImpact(cs, cls, g, ws.features.features, ws.architecture);
+    expect(impact.affectedFeatures).toEqual(['F001']);
+    expect(impact.widenReason.some((w) => w.includes('TRIVIAL'))).toBe(true);
+  });
+
   it('구조 변경이면 같은 컴포넌트의 기능으로 넓히고, 매핑 없는 파일은 신규 후보, 전부 삭제된 기능은 삭제 후보', () => {
     const ws = sampleWorkspace();
     ws.features.features.push({ ...sampleFeatureSummary('F003', 'ORPHAN', ['Api/Features/Posts/Orphan.cs']), dependencies: [] });

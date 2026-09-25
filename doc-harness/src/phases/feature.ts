@@ -1,14 +1,13 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { isQuotaError } from '../claude.js';
 import { pathList } from '../context.js';
-import { hashFile } from '../fsx.js';
+import { hashFile, today } from '../fsx.js';
 import { buildPrompt } from '../prompts.js';
 import type { Architecture, ChangeSet, FeatureAnalysis, FeatureSummary } from '../types.js';
 import { callClaude, sessionContextBlock, type PhaseContext } from './common.js';
 
-export function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+export { today } from '../fsx.js';
 
 function relatedFilesHash(root: string, files: string[]): string {
   return files.map((f) => {
@@ -55,28 +54,28 @@ export function fixTail(fix?: FixHint): { tail?: string; suffix: string } {
   };
 }
 
-export async function analyzeFeature(ctx: PhaseContext, summary: FeatureSummary, architecture: Architecture, previous: FeatureAnalysis | null, changes: ChangeSet | null, fix?: FixHint, featureIndex: FeatureSummary[] = [summary]): Promise<FeatureAnalysis> {
+/** 기능 분석 프롬프트와 입력 해시 재료. 해시 재계산 스크립트도 이 함수를 써야 런타임과 같은 값을 얻는다. */
+export function buildFeaturePrompt(ctx: Pick<PhaseContext, 'cfg' | 'paths' | 'sessionContext'>, summary: FeatureSummary, architecture: Architecture, previous: FeatureAnalysis | null, changes: ChangeSet | null, fix: FixHint | undefined, featureIndex: FeatureSummary[]): { prompt: string; suffix: string; extraHash: string } {
   const { tail, suffix } = fixTail(fix);
   const prompt = buildPrompt('04_feature_analysis', {
     featureId: summary.id,
     featureName: summary.name,
     today: today(),
     featureIndex: featureIndex.filter((f) => f.status !== 'REMOVED').map((f) => `- ${f.id} ${f.name} (${f.slug})`).join('\n') || '(없음)',
-    feature: JSON.stringify(summary, null, 1),
+    // analysisStatus는 실행 중 바뀌는 값이라 프롬프트(=입력 해시)에서 뺀다. 그대로 두면 resume마다 캐시가 깨져 전 기능을 다시 분석한다(2026-09-24 실측).
+    feature: JSON.stringify({ ...summary, analysisStatus: 'PENDING' }, null, 1),
     relatedFiles: pathList(summary.relatedFiles, ctx.cfg) || '(없음 — Glob/Grep으로 찾는다)',
     components: JSON.stringify(architecture.components.map((c) => ({ id: c.id, name: c.name, path: c.path })), null, 1),
     previous: previous ? JSON.stringify({ ...previous, diagrams: previous.diagrams.map((d) => ({ id: d.id, type: d.type, title: d.title, mermaid: d.mermaid })) }, null, 1).slice(0, 50_000) : '(없음 — 최초 분석)',
     changeHints: changeHintsFor(summary, changes),
     sessionContext: sessionContextBlock(ctx),
   }, { tail });
-  const out = await callClaude<FeatureAnalysis>(ctx, {
-    itemId: `feature:${summary.id}${suffix}`,
-    phase: 'feature',
-    schemaName: 'feature',
-    prompt,
-    outFile: `features/${summary.id}.json`,
-    extraHash: relatedFilesHash(ctx.paths.projectRoot, summary.relatedFiles),
-  });
+  return { prompt, suffix, extraHash: relatedFilesHash(ctx.paths.projectRoot, summary.relatedFiles) };
+}
+
+export async function analyzeFeature(ctx: PhaseContext, summary: FeatureSummary, architecture: Architecture, previous: FeatureAnalysis | null, changes: ChangeSet | null, fix?: FixHint, featureIndex: FeatureSummary[] = [summary]): Promise<FeatureAnalysis> {
+  const { prompt, suffix, extraHash } = buildFeaturePrompt(ctx, summary, architecture, previous, changes, fix, featureIndex);
+  const out = await callClaude<FeatureAnalysis>(ctx, { itemId: `feature:${summary.id}${suffix}`, phase: 'feature', schemaName: 'feature', prompt, outFile: `features/${summary.id}.json`, extraHash });
   return normalizeFeatureAnalysis(out, summary, previous);
 }
 
@@ -86,14 +85,19 @@ export async function runFeatures(ctx: PhaseContext, features: FeatureSummary[],
   const failed: { id: string; error: string }[] = [];
   const queue = [...features];
   const parallelism = Math.max(1, ctx.cfg.analysis.feature_parallelism);
+  let aborted = false;
   const worker = async () => {
     for (;;) {
+      if (aborted) return;
       const f = queue.shift();
       if (!f) return;
       try {
         analyses.set(f.id, await analyzeFeature(ctx, f, architecture, previous.get(f.id) ?? null, changes, undefined, featureIndex));
       } catch (e) {
-        failed.push({ id: f.id, error: (e as Error).message });
+        const message = (e as Error).message;
+        failed.push({ id: f.id, error: message });
+        // 사용량 한도면 남은 기능을 시도하지 않는다(전부 같은 이유로 실패한다). 미시작 항목은 PENDING으로 남아 resume 대상이 된다.
+        if (isQuotaError(message)) { aborted = true; ctx.log(`사용량 한도 감지 — 남은 기능 ${queue.length}개는 시도하지 않고 중단한다. 한도가 풀리면 resume.`); }
       }
     }
   };

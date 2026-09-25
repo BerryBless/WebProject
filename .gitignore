@@ -522,3 +522,12 @@ doc-harness/node_modules/
 doc-harness/workspace/runs/*/staging/
 doc-harness/workspace/runs/*/logs/
 doc-harness/workspace/inbox/
+# Run 진행 상태·중간 판정은 실행 중 계속 바뀌므로 커밋하지 않는다(run.json·report.txt만 남긴다)
+doc-harness/workspace/runs/*/state.json
+doc-harness/workspace/runs/*/changes.json
+doc-harness/workspace/runs/*/classification.json
+doc-harness/workspace/runs/*/impact.json
+doc-harness/workspace/runs/*/feature_delta.json
+doc-harness/workspace/runs/*/session_context.md
+doc-harness/workspace/harness-run.log*
+doc-harness/workspace/det-check/

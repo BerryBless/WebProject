@@ -1,0 +1,1431 @@
+{
+  "feature": {
+    "id": "F021",
+    "name": "앱 기동 부트스트랩(설정 검증·마이그레이션·공개 DB 롤 권한)",
+    "slug": "STARTUP_BOOTSTRAP",
+    "summary": "Program.cs 최상위 문장은 builder.Build() 직후 다음 단계를 동기로 차례차례 실행한다. StartupValidation.Validate(I/O 없는 설정 검증) → FileSystemAttachmentStore.EnsureRootIsWritable(첨부 루트 쓰기 확인) → AppDbContext.Database.Migrate() → PublicRoleGrants.Apply(ConnectionStrings:Public이 있을 때만) → MarkdownRenderer.Render 워밍업 → app.Run(). Apply는 관리 롤이 소유한 테이블의 권한을 전부 회수한 뒤, 허용 테이블 5개에만 SELECT를 다시 부여한다. 어느 단계에서 예외가 나도 잡지 않고 전파하므로 기동이 실패한다. PublicDbContext(statement_timeout·default_transaction_read_only=on 연결)는 기동 중에 만들어지지 않고 처음 해석될 때 지연 구성된다. 그 연결 문자열 규칙은 StartupValidation이 기동 시점에 미리 검사한다.",
+    "entryPoints": [
+      "CLI dotnet PortfolioBlog.Api.dll (인자 없음, 또는 hash-password/healthcheck 단일 인자가 아닌 경우)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+      "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "PortfolioBlog.Api/Dockerfile",
+      "deploy/docker-compose.yml",
+      "deploy/postgres-init/10-roles.sh",
+      "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs"
+    ],
+    "dependencies": [
+      "F009",
+      "F011",
+      "F018",
+      "F026"
+    ],
+    "importance": "INFRA",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: 기동 부트스트랩은 fail-fast로 설계됐다. Program.cs는 builder.Build()(73행) 뒤, app.Run()(126행) 전에 다섯 단계를 동기로 실행한다.\n① StartupValidation.Validate(76행)가 설정을 I/O 없이 검증한다. 순서는 Site·Admin·Proxy 형식 → Admin·Public 한도 → StatementTimeoutMs → 연결 문자열(Default·Public, RoleOf, 동일 사용자 금지) → Rendering → Attachments:RootPath 공백 여부·FileSystemAttachmentStore 해석 → 비 Development 필수값이다.\n② FileSystemAttachmentStore.EnsureRootIsWritable(79행)이 probe 파일을 써서 쓰기 가능 여부를 확인한다.\n③ AppDbContext.Database.Migrate()(85행)가 마이그레이션 2개(InitialCreate, AddAttachments)를 적용한다.\n④ ConnectionStrings:Public이 있을 때만 PublicRoleGrants.Apply(87행)를 실행한다. 트랜잭션 밖에서 RoleOf를 재검증하고 두 롤이 같은지 비교한다. 그다음 한 트랜잭션 안에서 관리 롤(current_user)이 소유한 public 테이블마다 PUBLIC과 공개 롤의 권한을 회수한다. 이어 스키마 USAGE를 주고 Posts·Series·Tags·PostTags·Attachments에만 SELECT를 준다.\n⑤ MarkdownRenderer.Render(91행)로 코드 강조 초기화를 미리 치른다(워밍업).\n어느 단계에서 예외가 나도 잡지 않으므로 프로세스가 종료된다. 운영에서는 compose의 restart: unless-stopped가 컨테이너를 다시 띄우는 것으로 보인다(INFERRED).\n실패 처리 세부:\n- 롤 검증 실패와 롤 동일은 BeginTransaction 전에 던져지므로 롤백할 것이 없다. 트랜잭션 롤백은 문장 실행 중 PostgresException이 날 때만 일어난다.\n- FileSystemAttachmentStore 생성자의 실패는 두 갈래다. RootPath가 공백이면 InnerException 없이 바로 던진다. Path.GetFullPath가 실패하면 InnerException을 남긴 채 감싸서 던진다. 공백 경로는 StartupValidation 109행이 먼저 거른다.\n공개 조회 전용 PublicDbContext는 기동 중에 만들어지지 않는다. 처음 해석될 때 연결 문자열이 조립된다(statement_timeout, default_transaction_read_only=on, ApplicationName).\n관찰된 한계:\n- 마이그레이션과 권한 적용은 트랜잭션이 따로라서 부분 적용 상태가 남을 수 있다.\n- 관리 롤이 소유하지 않은 테이블은 권한 회수에서 빠진다(fail-open).\n- pg_tables만 조회하므로 뷰·시퀀스·함수는 대상이 아니다.\n- 부트스트랩 코드가 직접 남기는 로그는 probe 정리 실패 경고 1건뿐이다.\n재검증 결과(2026-09-25): Program.cs, StartupValidation.cs, PublicRoleGrants.cs, DataServiceCollectionExtensions.cs, PublicDbContext.cs, FileSystemAttachmentStore.cs, docker-compose.yml, 10-roles.sh, Dockerfile을 다시 읽었다. 이전 분석의 줄 범위·심볼·테스트 이름은 현재 코드와 일치하고, 동작 변경은 없다. 그래서 history에는 항목을 추가하지 않았다. 이번 검증 지적은 F002·F006·F007·F008·F011·F018 행의 의존 표 불일치다. F021의 코드나 dependencies와는 관계가 없으므로 F021 쪽에서는 바꾸지 않았다(unknowns에 근거를 남김).",
+  "entryPoints": [
+    {
+      "text": "프로세스 진입점은 Program.cs 최상위 문장이다. args가 정확히 [HashPasswordCommand.Name]이나 [HealthCheckCommand.Name]이면 웹 호스트를 만들지 않고 해당 CLI를 실행한 뒤 종료하므로 부트스트랩을 거치지 않는다. 그 밖의 경우에는 WebApplication.CreateBuilder → builder.Build()를 거쳐 부트스트랩 시퀀스(75-91행)를 실행한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "15-28"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "73-91"
+        }
+      ]
+    },
+    {
+      "text": "운영 컨테이너는 ENTRYPOINT [\"dotnet\", \"PortfolioBlog.Api.dll\"]로 기동한다. Dockerfile의 ENV가 ASPNETCORE_ENVIRONMENT=Production, Attachments__RootPath=/data/attachments, DataProtection__KeysPath=/data/dpkeys를 지정한다. compose의 api 서비스는 postgres가 service_healthy 상태가 된 뒤에 기동한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "27-33"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "84-86"
+        }
+      ]
+    },
+    {
+      "text": "통합 테스트는 WebApplicationFactory<Program>으로 같은 시작 시퀀스를 실행하는 것으로 보인다. 이를 위해 public partial class Program을 공개해 두었다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "143-144"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "top-level statements",
+      "description": "CLI 인자를 분기한다. hash-password 또는 healthcheck 단일 인자이면 웹 호스트 없이 실행하고 종료 코드를 반환한다(부트스트랩 생략)."
+    },
+    {
+      "step": 2,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "builder.Services.*",
+      "description": "서비스를 등록한다. HostFilteringOptions와 RazorPagesOptions는 IOptions<SiteOptions>로 지연 구성한다. PublicOptions·RenderingOptions·AttachmentOptions를 바인딩한다. AddBlogData가 두 DbContext를 지연 람다로 등록한다. FileSystemAttachmentStore·MarkdownRenderer 싱글턴과 AttachmentJanitor(hosted service)도 등록한다."
+    },
+    {
+      "step": 3,
+      "component": "DataServiceCollectionExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "symbol": "AddBlogData",
+      "description": "AppDbContext는 UseNpgsql(RequireConnectionString)로 등록한다. PublicDbContext는 UseNpgsql(PublicDbContext.BuildConnectionString(PublicOrDefaultConnectionString, StatementTimeoutMs))에 NoTracking을 붙여 등록한다. 두 람다는 각 컨텍스트가 처음 해석될 때 실행된다."
+    },
+    {
+      "step": 4,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "builder.Build",
+      "description": "WebApplication을 만든다. 이 시점에는 아직 DB에 연결하지 않는다."
+    },
+    {
+      "step": 5,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "모든 환경에서 형식을 검증한다. 대상은 두 origin(SiteOptions.HostOf), Site:Title 공백 여부, Admin:AllowedCidrs(CidrList.Parse), Proxy:TrustedIp(단일 IP), Admin:PasswordHash(Base64)다."
+    },
+    {
+      "step": 6,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "모든 환경에서 한도를 검증한다. Admin의 Login/Session/Preview/Upload 값과 Public의 Page/Asset/Search 한도는 1 이상이어야 한다. Public:StatementTimeoutMs는 100~60000이어야 한다."
+    },
+    {
+      "step": 7,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.CheckConnectionString",
+      "description": "Default와 Public 연결 문자열 가운데 값이 있는 것마다 NpgsqlConnectionStringBuilder로 파싱한다. Options가 있으면 거부한다. Command Timeout(초)×1000이 StatementTimeoutMs 이하여도 거부한다(0은 무제한이라 통과)."
+    },
+    {
+      "step": 8,
+      "component": "PublicRoleGrants",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.RoleOf",
+      "description": "StartupValidation이 호출한다. Public 연결의 Username이 ^[a-z_][a-z0-9_]{0,62}\\z에 맞는지 검증한다. 이어서 StartupValidation이 이 값을 Default의 Username과 비교하고, 같으면 거부한다."
+    },
+    {
+      "step": 9,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "Rendering 범위를 검증한다. Concurrency는 1~64, QueueTimeoutMs는 1~60000, CacheMegabytes는 1~1024여야 한다."
+    },
+    {
+      "step": 10,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "Attachments:RootPath가 비어 있지 않은지 확인한다(109-112행). 이어서 FileSystemAttachmentStore 싱글턴을 해석해, 생성자가 경로를 계산할 때 나는 오류(GetFullPath 실패)를 이 시점에 드러낸다(114행)."
+    },
+    {
+      "step": 11,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Require",
+      "description": "Development가 아닌 환경에서만 검사한다. Proxy:TrustedIp·Admin:AllowedCidrs·Admin:PasswordHash가 있어야 한다. 두 origin이 서로 달라야 하고 둘 다 https여야 한다. Attachments:RootPath는 절대 경로여야 한다. ConnectionStrings:Public이 있어야 한다. DataProtection:KeysPath는 절대 경로여야 한다."
+    },
+    {
+      "step": 12,
+      "component": "FileSystemAttachmentStore",
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.EnsureRootIsWritable",
+      "description": "Directory.CreateDirectory(_root)로 디렉터리를 만들고 .startup-probe-{guid} 0바이트 파일을 쓴다. 이어 PhysicalPath(\"00/startup-probe\")로 경로 계산이 되는지 확인한다. finally에서 probe를 삭제하며, 삭제에 실패하면 경고 로그만 남긴다."
+    },
+    {
+      "step": 13,
+      "component": "AppDbContext",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "adminDb.Database.Migrate",
+      "description": "새 스코프에서 AppDbContext를 해석한다. 이때 RequireConnectionString이 실행된다. 이어 동기 Migrate()로 아직 적용되지 않은 마이그레이션(InitialCreate, AddAttachments)을 적용한다."
+    },
+    {
+      "step": 14,
+      "component": "PublicRoleGrants",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.Apply",
+      "description": "ConnectionStrings:Public이 비어 있지 않을 때만 실행한다. 트랜잭션을 열기 전(119-124행)에 RoleOf로 롤 이름을 다시 검증하고, 관리 연결의 Username(owner)과 같으면 InvalidOperationException을 던진다. 그다음 BeginTransaction → pg_tables에서 소유 테이블 조회 → BuildStatements가 만든 REVOKE/GRANT를 ExecuteSqlRaw로 순서대로 실행 → Commit한다."
+    },
+    {
+      "step": 15,
+      "component": "PublicRoleGrants",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.BuildStatements",
+      "description": "소유 테이블마다 REVOKE ALL ... FROM PUBLIC과 REVOKE ALL ... FROM {role}을 만들고, GRANT USAGE ON SCHEMA public을 추가한다. ReadableTables 가운데 소유 목록에 있는 테이블에만 GRANT SELECT를 만든다."
+    },
+    {
+      "step": 16,
+      "component": "MarkdownRenderer",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "MarkdownRenderer.Render",
+      "description": "csharp 코드 블록 하나를 렌더해, ColorCode 등의 정적 초기화 비용을 첫 방문자 대신 시작 시점에 치른다. RenderGate와 RenderedPostCache를 거치지 않고 직접 호출한다."
+    },
+    {
+      "step": 17,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.Run",
+      "description": "미들웨어 파이프라인과 엔드포인트를 등록한 뒤 app.Run()을 호출한다. 이때 호스트가 시작되고, hosted service(AttachmentJanitor)도 함께 시작되는 것으로 보인다(프레임워크 동작, INFERRED)."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "top-level statements",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.CheckConnectionString",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Check / Require",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.RoleOf",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.BuildStatements",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.Apply",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "symbol": "AddBlogData / RequireConnectionString / PublicOrDefaultConnectionString",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.BuildConnectionString",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.SaveChanges / SaveChangesAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+      "symbol": "AddAttachments.Up",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore..ctor / EnsureRootIsWritable",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+      "symbol": "SiteOptions.HostOf",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "symbol": "CidrList.Parse",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "AuthServiceCollectionExtensions.DataProtectionKeysPathKey",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "symbol": "PublicOptions.StatementTimeoutMs",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.Render",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "role": "config"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.api / services.postgres",
+      "role": "config"
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "설정은 IOptions와 IConfiguration으로 들어온다. 원천은 appsettings.json, appsettings.{Environment}.json, 환경 변수다. 환경 변수로는 ConnectionStrings__Default, ConnectionStrings__Public, Site__*, Admin__*, Proxy__TrustedIp, Attachments__RootPath, DataProtection__KeysPath가 쓰인다. 이 값들은 IOptions<SiteOptions/AdminOptions/ProxyOptions/AttachmentOptions/PublicOptions/RenderingOptions>와 IConfiguration에 바인딩된다. StartupValidation은 이 값을 읽기만 하고 바꾸지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "43-47"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "85-87"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "60-70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "27-30"
+        }
+      ]
+    },
+    {
+      "text": "공개 연결은 이렇게 조립된다. PublicOrDefaultConnectionString이 ConnectionStrings:Public을 고르고, 없으면 Default로 폴백한다. PublicDbContext.BuildConnectionString은 기반 문자열에 Options가 이미 있으면 거부한다. 없으면 Options=\"-c statement_timeout={StatementTimeoutMs} -c default_transaction_read_only=on\"과 ApplicationName=\"PortfolioBlog.Public\"을 붙여 새 연결 문자열을 만든다. 연결 문자열이 다르므로 Npgsql 풀도 따로 생긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "33-36"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "45-49"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "lines": "46-62"
+        }
+      ]
+    },
+    {
+      "text": "공개 롤 이름은 이렇게 흐른다. RoleOf가 ConnectionStrings:Public의 Username을 정규식으로 검증한다. 롤 이름은 SQL 매개변수로 넘길 수 없으므로 BuildStatements가 REVOKE/GRANT 문장에 식별자로 직접 넣는다. BuildStatements는 정규식을 한 번 더 검사하며, 테이블 이름은 QuoteIdentifier로 큰따옴표 인용한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "23-25"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "39-54"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "76-101"
+        }
+      ]
+    },
+    {
+      "text": "DB 권한 적용: pg_tables(schemaname='public', tableowner=current_user)에서 소유 테이블 목록을 읽어 SQL 문장 목록으로 바꾸고, 같은 트랜잭션에서 실행한다. 허용 목록 ReadableTables는 코드 상수 [Posts, Series, Tags, PostTags, Attachments]다. AdminState와 __EFMigrationsHistory는 회수 대상에는 들어가지만 GRANT 대상에는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "21"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "125-137"
+        }
+      ]
+    },
+    {
+      "text": "마이그레이션이 만드는 것: InitialCreate는 AdminState·Series·Tags·Posts·PostTags 테이블과 CHECK 제약·인덱스를 만들고, AdminState(Id=1, SessionEpoch=1)를 시드한다. AddAttachments는 Attachments 테이블과 IX_Attachments_Sha256(unique)·IX_Attachments_CreatedAt_Id 인덱스를 만든다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+          "lines": "12-152"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+          "lines": "12-47"
+        }
+      ]
+    },
+    {
+      "text": "첨부 루트 경로: Attachments:RootPath가 절대 경로면 그대로 쓰고, 상대 경로면 ContentRootPath와 결합한다. 결과는 GetFullPath → TrimEndingDirectorySeparator로 정규화해 _root에 둔다. 원래 설정값은 _configuredRootPath에 따로 보관해 오류 메시지에 쓴다. 기동할 때 _root에 probe 파일을 썼다가 지운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "55-78"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "93-122"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "Built(builder.Build 완료)",
+      "to": "Validated",
+      "trigger": "StartupValidation.Validate가 예외 없이 반환",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "73-76"
+        }
+      ]
+    },
+    {
+      "from": "Validated",
+      "to": "AttachmentRootReady",
+      "trigger": "FileSystemAttachmentStore.EnsureRootIsWritable 성공(디렉터리 생성과 probe 쓰기 성공)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "77-79"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "93-104"
+        }
+      ]
+    },
+    {
+      "from": "AttachmentRootReady",
+      "to": "Migrated(스키마 최신)",
+      "trigger": "adminDb.Database.Migrate() 완료",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "82-85"
+        }
+      ]
+    },
+    {
+      "from": "Migrated",
+      "to": "GrantsApplied(공개 롤 권한이 허용 테이블 SELECT로 재정렬)",
+      "trigger": "ConnectionStrings:Public이 있고 PublicRoleGrants.Apply의 transaction.Commit() 성공",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "86-87"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "125-137"
+        }
+      ]
+    },
+    {
+      "from": "Migrated",
+      "to": "WarmedUp(권한 적용 생략)",
+      "trigger": "ConnectionStrings:Public이 비어 있음(Development·테스트)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "86-91"
+        }
+      ]
+    },
+    {
+      "from": "GrantsApplied",
+      "to": "WarmedUp",
+      "trigger": "MarkdownRenderer.Render 워밍업 반환",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "90-91"
+        }
+      ]
+    },
+    {
+      "from": "WarmedUp",
+      "to": "Running",
+      "trigger": "app.Run()",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "126"
+        }
+      ]
+    },
+    {
+      "from": "임의의 부트스트랩 단계",
+      "to": "프로세스 종료(기동 실패)",
+      "trigger": "처리되지 않은 InvalidOperationException, PostgresException 등",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "75-91"
+        }
+      ]
+    },
+    {
+      "from": "Migrated(Apply 진입, 트랜잭션 시작 전)",
+      "to": "프로세스 종료(롤백 없음)",
+      "trigger": "RoleOf 검증 실패 또는 공개 롤 == 관리 롤 → BeginTransaction 전에 InvalidOperationException",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "119-124"
+        }
+      ]
+    },
+    {
+      "from": "공개 롤 권한 트랜잭션 진행 중",
+      "to": "이전 권한 상태 유지(롤백) 후 프로세스 종료",
+      "trigger": "SqlQueryRaw/ExecuteSqlRaw의 PostgresException → Commit 전에 using var transaction이 Dispose됨",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "125-137"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "__EFMigrationsHistory",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "adminDb.Database.Migrate (EF Core가 적용 이력 조회)"
+    },
+    {
+      "entity": "__EFMigrationsHistory",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "adminDb.Database.Migrate (EF Core가 적용 이력 기록)"
+    },
+    {
+      "entity": "AdminState",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up CreateTable"
+    },
+    {
+      "entity": "AdminState",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up InsertData (Id=1, SessionEpoch=1)"
+    },
+    {
+      "entity": "Series",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up CreateTable"
+    },
+    {
+      "entity": "Tags",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up CreateTable"
+    },
+    {
+      "entity": "Posts",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up CreateTable"
+    },
+    {
+      "entity": "PostTags",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up CreateTable"
+    },
+    {
+      "entity": "Attachments",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+      "symbol": "AddAttachments.Up CreateTable"
+    },
+    {
+      "entity": "pg_tables",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.Apply (SqlQueryRaw)"
+    },
+    {
+      "entity": "관리 롤 소유 public 테이블 전체(REVOKE ALL FROM PUBLIC / FROM {role})",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.Apply / BuildStatements"
+    },
+    {
+      "entity": "SCHEMA public (GRANT USAGE TO {role})",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.BuildStatements"
+    },
+    {
+      "entity": "Posts, Series, Tags, PostTags, Attachments (GRANT SELECT TO {role})",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.BuildStatements"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL(compose의 postgres 서비스, postgres:17.11-alpine)에 Npgsql/EF Core(UseNpgsql)로 접속한다. 마이그레이션과 권한 적용은 관리 연결(ConnectionStrings:Default, 롤 blog_app)로 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "32"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "61-62"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "88-90"
+        }
+      ]
+    },
+    {
+      "text": "blog_app·blog_public 롤, blog DB, public 스키마 소유권은 앱이 아니라 deploy/postgres-init/10-roles.sh가 만든다. 이 스크립트는 빈 pgdata로 처음 기동할 때 한 번만 실행된다. blog_public에는 DB CONNECT만 준다. 테이블 SELECT는 앱의 PublicRoleGrants가 기동할 때마다 다시 맞춘다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "1-30"
+        }
+      ]
+    },
+    {
+      "text": "compose 기동 순서: api는 postgres가 service_healthy(pg_isready -U blog_app -d blog)여야 뜬다. 다만 10-roles.sh 주석에 따르면 initdb 임시 서버가 도는 동안에도 pg_isready가 통과한다. 그래서 이 조건만으로는 init 완료가 엄밀히 보장되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "84-86"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "106-110"
+        },
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "13-16"
+        }
+      ]
+    },
+    {
+      "text": "로컬 파일 시스템: 첨부 저장 루트(운영에서는 /data/attachments 볼륨)에 디렉터리를 만들고 probe 파일을 썼다가 지운다. api 컨테이너는 read_only: true라서 볼륨 경로에만 쓸 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "93-122"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "55"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "71-73"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "StartupValidation.Validate / Check / Require / CheckConnectionString",
+      "condition": "다음 중 하나라도 해당하면 실패한다.\n- 형식 오류: origin, CIDR, TrustedIp, PasswordHash, 연결 문자열 파싱\n- 값 오류: Site:Title 공백, RootPath 공백, 한도 값 <1\n- 범위 오류: StatementTimeoutMs 범위 밖, Rendering 범위 밖\n- 연결 문자열 규칙 위반: Options가 있음, Command Timeout ≤ StatementTimeoutMs, 공개 Username이 관리 Username과 같음\n- 비 Development 환경에서 필수값 누락이나 조건 위반",
+      "handling": "의도된 fail-fast다. FormatException·ArgumentException은 Check가 설정 키를 담은 InvalidOperationException으로 감싸서 던진다. 나머지는 InvalidOperationException을 직접 던진다. Program.cs가 잡지 않으므로 기동이 실패한다. 연결 문자열 관련 메시지에는 설정 키만 넣고 값은 넣지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "48-135"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "151-206"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+          "symbol": "PublicConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue",
+          "lines": "252"
+        }
+      ]
+    },
+    {
+      "where": "PublicRoleGrants.RoleOf",
+      "condition": "공개 연결 문자열 파싱 실패, 또는 Username이 비었거나 ^[a-z_][a-z0-9_]{0,62}\\z에 맞지 않음(대문자, 특수문자, 끝 개행 등)",
+      "handling": "InvalidOperationException을 던진다. StartupValidation이 먼저 이 메서드를 호출하므로 DB에 접속하기 전에 기동이 막힌다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "39-54"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "95-96"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+          "symbol": "RoleOf_RejectsNamesThatAreNotPlainLowercaseIdentifiers",
+          "lines": "220"
+        }
+      ]
+    },
+    {
+      "where": "FileSystemAttachmentStore 생성자 58행 (RootPath 공백)",
+      "condition": "Attachments:RootPath가 null, 빈 문자열, 공백뿐인 값",
+      "handling": "감싸지 않고 InvalidOperationException('Attachments:RootPath 설정이 없습니다.')을 바로 던진다(InnerException 없음). 실제 기동 경로에서는 StartupValidation 109-112행이 같은 조건을 먼저 걸러 다른 메시지('설정 Attachments:RootPath 이(가) 필수입니다...')로 실패시킨다. 그래서 이 58행 분기는 드러나지 않는 이중 방어다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "57-58"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "109-114"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+          "symbol": "AnyEnvironment_MissingAttachmentsRoot_Fails",
+          "lines": "134-135"
+        }
+      ]
+    },
+    {
+      "where": "FileSystemAttachmentStore 생성자 60-75행 (Path.GetFullPath 실패, StartupValidation 114행에서 해석)",
+      "condition": "Path.GetFullPath/Path.Combine이 거부하는 경로(NUL 문자 등). catch (Exception)이라 예외 종류를 가리지 않는다.",
+      "handling": "InvalidOperationException('설정 Attachments:RootPath이(가) 유효한 경로가 아닙니다.')으로 감싸 던지고, 원인 예외는 InnerException에 남긴다. 설정값 원문은 메시지에 넣지 않는다. 기동이 실패한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "60-75"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "113-114"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+          "symbol": "AnyEnvironment_AttachmentsRootHasNulCharacter_Fails",
+          "lines": "164-165"
+        }
+      ]
+    },
+    {
+      "where": "FileSystemAttachmentStore.EnsureRootIsWritable",
+      "condition": "디렉터리 생성 실패, probe 쓰기 실패, PhysicalPath 예외. 예외 종류는 가리지 않는다(IOException, UnauthorizedAccessException, ArgumentException, NotSupportedException 등).",
+      "handling": "모든 예외를 InvalidOperationException(\"설정 Attachments:RootPath('설정값')이 가리키는 디렉터리를 만들거나 쓸 수 없습니다.\")으로 감싸 던지고, 원인은 InnerException에 남긴다. 기동이 실패한다. probe 삭제 실패는 LogWarning만 남기고 계속 진행한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "93-122"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+          "symbol": "AnyEnvironment_AttachmentsRootIsAnExistingFile_Fails",
+          "lines": "147"
+        }
+      ]
+    },
+    {
+      "where": "DataServiceCollectionExtensions.RequireConnectionString (Migrate 스코프에서 AppDbContext를 해석할 때)",
+      "condition": "ConnectionStrings:Default가 없거나 공백이다. StartupValidation은 값이 있을 때만 검사하므로 이 경우를 거르지 않는다.",
+      "handling": "InvalidOperationException('ConnectionStrings:Default 설정이 없습니다.')을 던지고 기동이 실패한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "56-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "83-91"
+        }
+      ]
+    },
+    {
+      "where": "Program.cs adminDb.Database.Migrate()",
+      "condition": "DB에 접속할 수 없거나(postgres 미기동, 인증 실패, 네트워크 오류) 마이그레이션 DDL이 실패함",
+      "handling": "처리 없음(예외 전파). 코드에 재시도나 대기가 없어 프로세스가 종료된다. 운영에서는 compose의 restart: unless-stopped와 depends_on service_healthy에 기대는 것으로 보인다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "82-85"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "4"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "84-86"
+        }
+      ]
+    },
+    {
+      "where": "PublicRoleGrants.Apply (BeginTransaction 전, 119-124행)",
+      "condition": "RoleOf 재검증 실패, 또는 공개 롤 Username이 관리 연결 Username과 같음",
+      "handling": "트랜잭션을 시작하기 전에 InvalidOperationException을 던지므로 롤백할 트랜잭션이 없고, 기동이 실패한다. StartupValidation이 같은 검사를 먼저 하므로 이중 방어다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "119-125"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "96-101"
+        }
+      ]
+    },
+    {
+      "where": "PublicRoleGrants.Apply 트랜잭션 안(SqlQueryRaw / ExecuteSqlRaw 루프)",
+      "condition": "PostgresException이 난다. 예: 공개 롤이 DB에 없어 REVOKE ... FROM role이 실패, 권한 부족(42501) 등",
+      "handling": "처리 없음(예외 전파). using var transaction이 Commit 없이 Dispose되어 권한 변경은 롤백되고, 기동이 실패한다. 이미 커밋된 마이그레이션은 되돌리지 않는다. 롤이 없을 때의 구체적 오류 코드는 코드로 확인하지 못했다(PostgreSQL 동작에서 추론).",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "125-137"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "85-87"
+        }
+      ]
+    },
+    {
+      "where": "Program.cs MarkdownRenderer.Render 워밍업",
+      "condition": "렌더러 정적 초기화나 렌더 중 예외. Render는 입력이 크기를 넘으면 ArgumentException, 중첩 한도를 넘으면 MarkdownTooComplexException을 던질 수 있다. 다만 워밍업 입력은 짧은 상수다.",
+      "handling": "처리 없음(예외 전파). 입력이 상수 코드 블록이라 실패할 가능성은 낮지만 try/catch가 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "90-91"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "96-142"
+        }
+      ]
+    },
+    {
+      "where": "PublicDbContext.BuildConnectionString (첫 공개 요청 때 지연 실행)",
+      "condition": "기반 연결 문자열(Public, 또는 폴백된 Default)에 Options가 있음",
+      "handling": "InvalidOperationException을 던진다. 그런데 메시지는 항상 'ConnectionStrings:Default'를 가리키므로, 기반이 Public일 때는 틀린 키가 표시된다. StartupValidation이 같은 조건을 올바른 키로 먼저 거르므로 정상 기동 경로에서는 드러나지 않는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "lines": "48-55"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "45-49"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "157-160"
+        }
+      ]
+    },
+    {
+      "where": "PublicRoleGrants.Apply 소유 테이블 필터(tableowner = current_user)",
+      "condition": "public 스키마에 관리 롤이 아닌 롤이 소유한 테이블이 있고, 그 테이블에 blog_public 권한이 붙어 있음",
+      "handling": "그 테이블은 회수 대상에서 빠져 권한이 그대로 남는다(fail-open). 기동은 성공한다. 10-roles.sh는 'public 스키마의 객체는 전부 blog_app 소유'라는 불변식을 운영 규칙으로 문서화하고 있다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "126-129"
+        },
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "8-12"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+          "symbol": "Apply_SucceedsWithAllowedTableSelect_WhenAdminRoleIsNotSuperuser_AndAForeignOwnedTableExists",
+          "lines": "118"
+        }
+      ]
+    },
+    {
+      "where": "PublicRoleGrants.Apply 대상 범위(pg_tables)",
+      "condition": "public 스키마의 뷰·머티리얼라이즈드 뷰·시퀀스·함수에 대한 권한",
+      "handling": "pg_tables만 조회하므로 이 객체들은 회수·부여 대상이 아니다. 현재 마이그레이션에는 뷰가 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "128-129"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+          "lines": "12-152"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "ConnectionStrings:Public이 비어 있으면(Development·테스트) PublicRoleGrants.Apply를 건너뛴다. 이때 PublicDbContext는 관리 연결(테이블 소유 롤)로 폴백한다. 그러면 남는 방어는 default_transaction_read_only와 SaveChanges 차단뿐인데, default_transaction_read_only는 세션이 스스로 끌 수 있다. 비 Development 환경에서는 StartupValidation이 Public 연결을 필수로 요구한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "86-87"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "44-49"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "131-132"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "lines": "14-27"
+        }
+      ]
+    },
+    {
+      "text": "Command Timeout=0(무제한)이면 'Command Timeout > StatementTimeoutMs' 규칙을 건너뛴다. compose 운영 값은 두 연결 모두 30초다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "163"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "61-62"
+        }
+      ]
+    },
+    {
+      "text": "Options 금지 규칙은 Default 연결에도 적용된다. Public이 없으면 Default가 공개 연결의 기반이 되기 때문이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "88-91"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "45-49"
+        }
+      ]
+    },
+    {
+      "text": "Development에서는 다음을 모두 허용한다. 두 origin이 같아도 되고, http 스킴과 상대 RootPath도 된다. TrustedIp·CIDR·PasswordHash·Public 연결·DataProtection 키 경로가 없어도 된다. Staging이나 오타 난 환경 이름은 Development가 아니므로 운영 규칙이 적용된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "116-135"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+          "symbol": "Staging_MissingTrustedProxy_Fails",
+          "lines": "111"
+        }
+      ]
+    },
+    {
+      "text": "RootPath 공백은 두 곳에서 막는다. StartupValidation 109행이 먼저 걸러 실제 기동 실패 메시지는 StartupValidation 쪽 문구가 된다. FileSystemAttachmentStore 생성자 58행의 공백 검사는 StartupValidation을 거치지 않고 싱글턴을 해석하는 경로(예: 테스트)에서만 드러난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "109-114"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "57-58"
+        }
+      ]
+    },
+    {
+      "text": "허용 테이블이 아직 소유 목록에 없으면(마이그레이션 전) 그 테이블의 GRANT SELECT를 건너뛴다. 존재하지 않는 테이블에 GRANT하면 42P01로 기동이 막히기 때문이다. 정상 흐름에서는 Migrate() 직후에 호출되므로 이런 일이 생기지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "87-94"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+          "symbol": "BuildStatements_SkipsGrantForAllowedTableNotYetOwned",
+          "lines": "205"
+        }
+      ]
+    },
+    {
+      "text": "권한 재정렬은 기동할 때마다 멱등으로 다시 실행된다. 누군가 수동으로 준 추가 권한(공개 롤에 직접 부여했거나 PUBLIC에 부여한 것)은 다음 기동 때 회수된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "69-72"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+          "symbol": "Apply_RevokesGrantsOutsideTheAllowlist",
+          "lines": "89"
+        }
+      ]
+    },
+    {
+      "text": "AdminState(세션 폐기 카운터)와 __EFMigrationsHistory는 관리 롤 소유라 회수 대상에 들어가지만 허용 목록에는 없다. 그래서 공개 롤은 이 둘을 읽을 수 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "15-21"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+          "symbol": "PublicRole_CannotReadTablesOutsideTheAllowlist",
+          "lines": "76"
+        }
+      ]
+    },
+    {
+      "text": "마이그레이션과 권한 적용은 트랜잭션이 따로다. Migrate가 커밋된 뒤 Apply가 실패하면 새 스키마와 이전 권한 상태가 공존한다. 새 테이블이 추가된 경우라면 그 테이블에는 아직 공개 SELECT가 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "82-88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "114"
+        }
+      ]
+    },
+    {
+      "text": "Apply의 검증 실패(RoleOf 실패, 롤 동일)는 BeginTransaction 전에 던져지므로 DB 권한 상태를 전혀 건드리지 않는다. 트랜잭션 롤백은 트랜잭션 안에서 PostgresException이 났을 때만 일어난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "119-137"
+        }
+      ]
+    },
+    {
+      "text": "CLI 인자(hash-password/healthcheck)는 builder를 만들기 전에 분기하므로 부트스트랩(검증·마이그레이션)을 전혀 실행하지 않는다. compose healthcheck가 부르는 'dotnet PortfolioBlog.Api.dll healthcheck'도 이 경로를 탄다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "15-26"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "77-78"
+        }
+      ]
+    },
+    {
+      "text": "HostedService(AttachmentJanitor)는 app.Run()으로 호스트가 시작될 때 함께 시작된다. 따라서 마이그레이션과 권한 적용이 끝난 뒤에 돈다(ASP.NET Core 호스트 동작에 근거한 추론).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "66-67"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "126"
+        }
+      ]
+    },
+    {
+      "text": "시작 시 마이그레이션 적용은 단일 인스턴스 배포를 전제로 한다. 여러 인스턴스가 동시에 기동할 때 Migrate와 권한 적용이 경합하는 상황은 코드에서 다루지 않는다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "81"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "11"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "부트스트랩 코드가 직접 남기는 로그는 FileSystemAttachmentStore.EnsureRootIsWritable의 probe 파일 삭제 실패 경고(LogWarning, Probe 파일 이름만) 하나뿐이다. 검증·마이그레이션·권한 적용의 성공과 실패는 앱 코드가 따로 기록하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "115-120"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "117-138"
+        }
+      ]
+    },
+    {
+      "text": "기동 실패 예외는 처리되지 않은 예외로 프로세스 stderr나 호스트 로그에 남는 것으로 보인다. EF Core의 마이그레이션 실행 로그도 프레임워크 기본 로깅을 따를 것으로 보인다. compose는 json-file 드라이버(max-size 10m, max-file 5)로 컨테이너 로그를 보관한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "9-13"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "75-91"
+        }
+      ]
+    },
+    {
+      "text": "예외 메시지에 무엇이 들어가는지:\n- 설정 키만: StartupValidation.CheckConnectionString과 PublicRoleGrants.RoleOf는 연결 문자열 값(비밀번호 포함 가능) 대신 설정 키만 넣는다. FileSystemAttachmentStore 생성자의 GetFullPath 실패 메시지도 설정값 원문을 넣지 않는다.\n- 설정값 원문 포함: EnsureRootIsWritable 메시지는 RootPath 설정값 원문을 넣는다(서버가 계산한 절대 경로는 넣지 않음). Proxy:TrustedIp 형식 오류 메시지는 설정값을 넣는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "138-140"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "54-56"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "46-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "69-75"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "lines": "110-111"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F021_SEQUENCE",
+      "type": "sequence",
+      "title": "기동 부트스트랩 호출 순서",
+      "summary": "Program은 StartupValidation → FileSystemAttachmentStore → AppDbContext.Migrate → (Public 연결이 있으면) PublicRoleGrants.Apply → MarkdownRenderer 워밍업 순서로 동기 호출한 뒤 app.Run()으로 호스트를 시작한다.",
+      "mermaid": "sequenceDiagram\n  participant Program\n  participant StartupValidation\n  participant PublicRoleGrants\n  participant FileSystemAttachmentStore\n  participant AppDbContext\n  participant postgres\n  participant MarkdownRenderer\n  Program->>StartupValidation: Validate(app.Services, app.Environment)\n  StartupValidation->>PublicRoleGrants: RoleOf(publicConnectionString)\n  StartupValidation->>FileSystemAttachmentStore: GetRequiredService (생성자 경로 계산)\n  StartupValidation-->>Program: 통과 또는 InvalidOperationException\n  Program->>FileSystemAttachmentStore: EnsureRootIsWritable()\n  Program->>AppDbContext: CreateScope 후 GetRequiredService\n  Program->>AppDbContext: Database.Migrate()\n  AppDbContext->>postgres: 미적용 마이그레이션 DDL과 이력 기록\n  alt ConnectionStrings:Public 있음\n    Program->>PublicRoleGrants: Apply(adminDb, publicConnection)\n    PublicRoleGrants->>PublicRoleGrants: RoleOf 재검증, owner 비교(트랜잭션 전)\n    PublicRoleGrants->>postgres: BEGIN 후 SELECT tablename FROM pg_tables\n    PublicRoleGrants->>postgres: REVOKE ALL, GRANT USAGE, GRANT SELECT\n    PublicRoleGrants->>postgres: COMMIT\n  end\n  Program->>MarkdownRenderer: Render(csharp 코드 블록 워밍업)\n  Program->>Program: 미들웨어와 엔드포인트 등록 후 app.Run()",
+      "details": "StartupValidation은 I/O 없이 옵션·IConfiguration만 읽는다. 다만 FileSystemAttachmentStore 싱글턴을 미리 해석해 생성자의 경로 계산 오류를 이 시점에 드러낸다. EnsureRootIsWritable은 실제 파일 I/O(디렉터리 생성과 probe 쓰기·삭제)를 한다. Migrate와 Apply는 같은 스코프의 AppDbContext(관리 롤 blog_app 연결)를 쓰지만 트랜잭션은 서로 다르다. Apply는 트랜잭션을 열기 전에 롤 검증과 동일 롤 검사를 하고, 이후 문장은 전부 한 트랜잭션에서 실행한 뒤 커밋한다. 워밍업은 RenderGate·RenderedPostCache를 거치지 않고 MarkdownRenderer를 직접 부른다. 어느 호출에서든 예외가 나면 Program이 잡지 않으므로 프로세스가 종료된다.",
+      "nodes": [
+        {
+          "node": "Program",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "top-level statements"
+        },
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate"
+        },
+        {
+          "node": "PublicRoleGrants",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "symbol": "PublicRoleGrants.RoleOf / Apply"
+        },
+        {
+          "node": "FileSystemAttachmentStore",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "FileSystemAttachmentStore.EnsureRootIsWritable"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        },
+        {
+          "node": "postgres",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.postgres"
+        },
+        {
+          "node": "MarkdownRenderer",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.Render"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F021_FLOW",
+      "type": "flowchart",
+      "title": "기동 분기와 실패 경로",
+      "summary": "모든 부트스트랩 실패는 예외 전파로 프로세스를 종료시키는 fail-fast 구조다. 트랜잭션 롤백은 권한 적용 트랜잭션 안의 PostgresException에서만 일어난다.",
+      "mermaid": "flowchart TD\n  Start[\"dotnet PortfolioBlog.Api.dll\"] --> CliCheck{\"args가 CLI 명령인가\"}\n  CliCheck -->|예| CliExit[\"HashPasswordCommand 또는 HealthCheckCommand 실행 후 종료\"]\n  CliCheck -->|아니오| Build[\"builder.Build\"]\n  Build --> StartupValidation[\"StartupValidation.Validate\"]\n  StartupValidation -->|설정 오류 또는 저장소 생성자 경로 오류| Crash[\"예외 전파 후 프로세스 종료\"]\n  StartupValidation -->|통과| EnsureRootIsWritable[\"FileSystemAttachmentStore.EnsureRootIsWritable\"]\n  EnsureRootIsWritable -->|쓰기 불가| Crash\n  EnsureRootIsWritable -->|성공| Migrate[\"AppDbContext Database.Migrate\"]\n  Migrate -->|Default 누락 또는 DB 오류| Crash\n  Migrate -->|성공| PublicCheck{\"ConnectionStrings:Public 있음\"}\n  PublicCheck -->|아니오| Warmup[\"MarkdownRenderer.Render 워밍업\"]\n  PublicCheck -->|예| ApplyPrecheck[\"PublicRoleGrants.Apply 사전 검증 RoleOf와 owner 비교\"]\n  ApplyPrecheck -->|RoleOf 실패 또는 롤 동일, 트랜잭션 전| Crash\n  ApplyPrecheck -->|통과| ApplyTransaction[\"BeginTransaction 후 pg_tables 조회와 REVOKE GRANT 실행\"]\n  ApplyTransaction -->|PostgresException| Rollback[\"트랜잭션 롤백, 이전 권한 유지\"]\n  Rollback --> Crash\n  ApplyTransaction -->|Commit| Warmup\n  Warmup -->|예외| Crash\n  Warmup --> Run[\"app.Run\"]\n  Crash --> Restart[\"compose restart unless-stopped 재기동\"]",
+      "details": "CLI 분기는 builder를 만들기 전에 판정하므로 부트스트랩을 전혀 타지 않는다. StartupValidation 실패에는 설정 형식·범위 오류, 연결 문자열 규칙 위반, 비 Development 필수값 누락, FileSystemAttachmentStore 생성자의 경로 계산 실패가 모두 들어간다. Migrate 단계에서는 AppDbContext를 해석하면서 RequireConnectionString이 Default 누락을 잡고, DB 접속·DDL 실패는 처리 없이 전파된다. Apply는 트랜잭션 전 검증 실패(롤백 없음)와 트랜잭션 중 PostgresException(using Dispose로 롤백)으로 갈린다. Migrate 커밋은 되돌리지 않는다. 마지막 Restart 노드는 코드가 아니라 compose의 restart 정책에 근거한 추론이다.",
+      "nodes": [
+        {
+          "node": "CliCheck",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "args is [HashPasswordCommand.Name] / [HealthCheckCommand.Name]"
+        },
+        {
+          "node": "Build",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "builder.Build"
+        },
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate"
+        },
+        {
+          "node": "EnsureRootIsWritable",
+          "code": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "FileSystemAttachmentStore.EnsureRootIsWritable"
+        },
+        {
+          "node": "Migrate",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "adminDb.Database.Migrate"
+        },
+        {
+          "node": "ApplyPrecheck",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "symbol": "PublicRoleGrants.Apply (119-124)"
+        },
+        {
+          "node": "ApplyTransaction",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "symbol": "PublicRoleGrants.Apply (125-137)"
+        },
+        {
+          "node": "Warmup",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "MarkdownRenderer.Render"
+        },
+        {
+          "node": "Run",
+          "code": "PortfolioBlog.Api/Program.cs",
+          "symbol": "app.Run"
+        },
+        {
+          "node": "Restart",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "x-hardening restart: unless-stopped"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F021_DATAFLOW",
+      "type": "dataflow",
+      "title": "연결 문자열과 공개 롤 권한의 흐름",
+      "summary": "두 연결 문자열은 StartupValidation이 먼저 검사한다. 이후 관리 연결은 AppDbContext(마이그레이션·권한 적용)로, 공개 연결은 PublicDbContext.BuildConnectionString을 거쳐 읽기 전용·시간 제한 세션으로 흐른다.",
+      "mermaid": "flowchart LR\n  appsettings[\"ConnectionStrings:Default / ConnectionStrings:Public\"] --> StartupValidation[\"StartupValidation.CheckConnectionString\"]\n  PublicOptions[\"PublicOptions.StatementTimeoutMs\"] --> StartupValidation\n  appsettings --> DataServiceCollectionExtensions[\"DataServiceCollectionExtensions.AddBlogData\"]\n  DataServiceCollectionExtensions -->|Default| AppDbContext\n  DataServiceCollectionExtensions -->|\"Public 또는 Default 폴백\"| BuildConnectionString[\"PublicDbContext.BuildConnectionString\"]\n  PublicOptions --> BuildConnectionString\n  BuildConnectionString -->|\"statement_timeout, default_transaction_read_only=on\"| PublicDbContext\n  appsettings -->|\"Public Username\"| PublicRoleGrants[\"PublicRoleGrants.RoleOf / Apply\"]\n  AppDbContext -->|\"Migrate DDL\"| postgres\n  AppDbContext --> PublicRoleGrants\n  PublicRoleGrants -->|\"REVOKE / GRANT SELECT\"| postgres\n  PublicDbContext -->|\"공개 롤, 읽기 전용 세션\"| postgres",
+      "details": "appsettings 노드는 appsettings*.json과 compose 환경 변수(ConnectionStrings__Default/Public)를 합친 IConfiguration 값을 뜻한다. StartupValidation은 두 문자열의 Options 금지와 Command Timeout 규칙을 검사하고, Public의 Username을 RoleOf로 검증한다. AddBlogData의 람다는 지연 실행된다. AppDbContext는 Default를 그대로 쓰고, PublicDbContext는 Public(없으면 Default)에 시작 옵션과 ApplicationName을 붙인 연결 문자열을 쓴다. PublicRoleGrants.Apply는 AppDbContext(소유 롤) 연결로 공개 롤의 권한을 재정렬한다. 이렇게 해서 PublicDbContext가 접속하는 롤은 허용 테이블 SELECT만 갖게 된다.",
+      "nodes": [
+        {
+          "node": "appsettings",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.api.environment ConnectionStrings__*"
+        },
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.CheckConnectionString"
+        },
+        {
+          "node": "PublicOptions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "symbol": "PublicOptions.StatementTimeoutMs"
+        },
+        {
+          "node": "DataServiceCollectionExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "symbol": "AddBlogData"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        },
+        {
+          "node": "BuildConnectionString",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext.BuildConnectionString"
+        },
+        {
+          "node": "PublicDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext"
+        },
+        {
+          "node": "PublicRoleGrants",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "symbol": "PublicRoleGrants.RoleOf / Apply"
+        },
+        {
+          "node": "postgres",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.postgres"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "Migrate()와 PublicRoleGrants.Apply가 관리 연결의 Command Timeout(compose 30초)을 그대로 따르는지, 긴 마이그레이션이 이 시간을 넘으면 어떻게 되는지 확인하지 못했다.",
+    "DB에 공개 롤(blog_public)이 없을 때 Apply의 REVOKE가 내는 구체적 SqlState(예: 42704)를 코드나 테스트로 확인하지 못했다(PostgreSQL 동작에서 추론).",
+    "기동 실패 시 처리되지 않은 예외가 어떤 형식으로 로그에 남는지 확인하지 못했다(appsettings의 Logging 설정, EF Core 마이그레이션 로그 수준).",
+    "설정 오류로 기동 실패가 반복될 때 compose restart: unless-stopped가 백오프 말고 어떻게 동작하는지, 운영 절차가 이 상황을 어떻게 다루는지 이 세션에서 확인하지 않았다.",
+    "여러 인스턴스가 동시에 기동할 때의 EF 마이그레이션 잠금과 권한 적용 경합은 코드가 다루지 않으며, 실제 동작도 확인하지 못했다(단일 인스턴스 전제).",
+    "이번 검증 지적(F006 행을 F001·F003·F005·F007·F008·F011·F018·F020·F029로, F008 행을 F001·F018·F020·F029로 보정; F002·F007·F011·F018 행의 의존 표와 기능 문서 요약 불일치)은 모두 다른 기능의 의존 표 행에 관한 것이다. F021의 코드나 dependencies와는 관계가 없다. 기능 단위 세션인 F021 분석은 다른 기능 행을 고칠 수 없으므로 해당 보정은 의존 표 생성 단계나 그 기능들의 분석에서 반영해야 한다. 참고로 지적 내용 자체는 코드와 맞는다. Program.cs 104행 UseMiddleware<AdminSurfaceMiddleware>(F018), 43행 AddExceptionHandler<OverloadExceptionHandler>, 100행 UseExceptionHandler, 101행 UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)(F020)가 모든 /api 요청 경로에 걸려 있다.",
+    "F021의 dependencies는 코드로 실제 호출·사용을 확인한 기능만 유지했다. F009는 FileSystemAttachmentStore 생성자·EnsureRootIsWritable(Program.cs 79행, StartupValidation.cs 114행)이다. F011은 MarkdownRenderer.Render 워밍업(Program.cs 91행)이다. F018은 SiteOptions.HostOf·CidrList.Parse·Admin/Proxy 옵션(StartupValidation.cs 48-61행)이다. F026은 compose 환경 변수와 10-roles.sh가 롤·연결 문자열을 제공하는 것이다. F001(DataProtectionKeysPathKey 상수·PasswordHash)과 F019/F020(PublicOptions 한도·StatementTimeoutMs)의 설정도 검증하지만, 해당 기능 코드를 호출하지는 않으므로 의존으로 넣지 않았다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "top-level statements",
+      "lines": "15-126"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "lines": "41-136"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.CheckConnectionString",
+      "lines": "151-169"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.Apply",
+      "lines": "117-138"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.BuildStatements",
+      "lines": "76-96"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "symbol": "AddBlogData",
+      "lines": "30-62"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.BuildConnectionString",
+      "lines": "46-62"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore..ctor",
+      "lines": "55-78"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+      "symbol": "FileSystemAttachmentStore.EnsureRootIsWritable",
+      "lines": "93-122"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "InitialCreate.Up",
+      "lines": "12-152"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+      "symbol": "AddAttachments.Up",
+      "lines": "12-47"
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "lines": "1-30"
+    },
+    {
+      "file": "deploy/docker-compose.yml",
+      "lines": "50-110"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "lines": "27-33"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs"
+    }
+  ],
+  "history": []
+}

@@ -43,16 +43,19 @@ export function makeFixer(ctx: PhaseContext, deps: FixerDeps) {
         ctx.log(`수정 ${iteration}: 데이터 모델 재분석 (${list.length}건)`);
         ws.data = await runData(ctx, ws.features.features, { issues: list, attempt: iteration });
       } else if (doc === '09_FEATURES.md' || doc === 'README.md') {
-        // 기능 색인의 이슈는 대개 기능 문서에서 비롯된다. 언급된 기능을 재분석 대상으로 넓힌다.
-        for (const m of new Set(list.join(' ').match(/\bF\d{3}\b/g) ?? [])) {
-          const s = ws.features.features.find((f) => f.id === m);
-          if (s) { only.add(featureDocName(s.id, s.slug)); issues.set(featureDocName(s.id, s.slug), [...(issues.get(featureDocName(s.id, s.slug)) ?? []), ...list]); }
+        // 기능 색인의 이슈는 정확히 한 기능만 가리킬 때만 그 기능을 재분석한다. 여러 id를 나열한 지적을 전부에 부채질하면
+        // 기능 10여 개가 같은 이슈로 재분석된다(2026-09-25 실측 약 $16). 색인 자체는 템플릿이라 재렌더로 충분하다.
+        for (const issue of list) {
+          const ids = [...new Set(issue.match(/\bF\d{3}\b/g) ?? [])];
+          if (ids.length !== 1) continue;
+          const s = ws.features.features.find((f) => f.id === ids[0]);
+          if (s) { const name = featureDocName(s.id, s.slug); only.add(name); issues.set(name, [...(issues.get(name) ?? []), issue]); }
         }
       }
     }
     const narrativeIssues = new Map<string, string[]>();
     for (const [doc, list] of issues) if ((NARRATIVE_DOCS as readonly string[]).includes(doc) || doc.startsWith('features/')) narrativeIssues.set(doc, list);
-    const r = await updateDocs(ctx, { ws, journal: deps.journal, scope: deps.scope, prevDocs: deps.prevDocs, baseline: deps.baseline, changes: deps.changes, prevAnalyses: new Map(), issues: narrativeIssues, onlyDocs: only });
+    const r = await updateDocs(ctx, { ws, journal: deps.journal, scope: deps.scope, prevDocs: deps.prevDocs, baseline: deps.baseline, changes: deps.changes, prevAnalyses: new Map(), issues: narrativeIssues, onlyDocs: only, fixAttempt: iteration });
     const overridden = r.manualEdits.filter((m) => !m.kept).map((m) => ({ document: m.document, section: m.section, reason: (issues.get(m.document) ?? []).find((i) => i.includes(`section=${m.section}`)) ?? '검증 이슈' }));
     return { docs: r.written, overridden };
   };

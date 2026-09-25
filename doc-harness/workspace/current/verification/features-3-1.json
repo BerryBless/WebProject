@@ -1,0 +1,71 @@
+{
+  "score": {
+    "coverage": 93,
+    "accuracy": 97
+  },
+  "hallucinations": [],
+  "missingItems": [
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "data",
+      "type": "MISSING_CLIENT_CONSUMER",
+      "description": "GET /api/tags를 쓰는 곳은 TagsPage만이 아니다. PostEditorPage도 같은 쿼리 키 ['tags','list']로 tagsApi.list를 불러 태그 목록을 읽는다(96행). 또 글 저장이 성공하면(onSuccess) ['tags']를 무효화한다(167행). 그러니 TagsPage에서 태그를 삭제한 뒤의 ['tags'] 무효화는 편집기 쪽 목록도 갱신하고, 반대로 글을 저장하면 태그 화면의 목록과 글 수가 다시 조회된다. F007 문서는 시리즈에 대한 같은 구조(['series','list'] 공유, 저장 후 무효화)를 적어 두었지만, F008 문서의 데이터 흐름·엣지 케이스·관련 코드 표에는 이 내용이 없다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "96,167",
+          "symbol": "tagList / save.onSuccess"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "9-10",
+          "symbol": "TagsPage"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [],
+  "diagramIssues": [
+    {
+      "document": "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+      "diagram": "F009_FLOW",
+      "section": "F009_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "`ReSave -->|413 또는 415| Reject415` 간선은 재저장 경로의 413 결과까지 415 노드로 보낸다. 실제 코드에서는 잠금 안에서 재저장할 때도 TrySaveAsync를 거친다. 그래서 AttachmentTooLargeException은 TooLarge()(413)로, UnsupportedImageException은 415로 갈린다. 413 경로는 Reject413 노드로 이어져야 한다. 본문 설명은 '한 간선으로 묶었다'고 하지만, 다이어그램만 보면 413이 415 응답이 되는 것처럼 읽힌다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "123-131,144-152",
+          "symbol": "AttachmentEndpoints.UploadAsync.TrySaveAsync"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+      "section": "F009_FLOW",
+      "issue": "ReSave의 결과를 두 간선으로 나눠 `ReSave -->|AttachmentTooLargeException| Reject413`과 `ReSave -->|UnsupportedImageException| Reject415`로 고친다. section=F009_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "123-131,144-152",
+          "symbol": "AttachmentEndpoints.UploadAsync"
+        }
+      ]
+    },
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "data",
+      "issue": "PostEditorPage가 ['tags','list'] 쿼리 키를 공유하고(96행) 글 저장 onSuccess에서 ['tags']를 무효화한다는 사실(167행)을 데이터 흐름(클라이언트 캐시)과 관련 코드 표에 추가한다. section=data",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "96,167",
+          "symbol": "tagList / save.onSuccess"
+        }
+      ]
+    }
+  ]
+}

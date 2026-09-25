@@ -1,0 +1,54 @@
+{
+  "score": {
+    "coverage": 95,
+    "accuracy": 98
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [
+    {
+      "document": "features/F029_ADMIN_SPA_SHELL.md",
+      "section": "F029_FLOW_ERROR",
+      "type": "OVERGENERALIZED_RELATION",
+      "description": "설명문은 '모든 ApiError는 QueryCache/MutationCache onError의 noteAuthFailure를 거친다'고 쓴다. 코드는 다르다. useQuery·useMutation을 거치지 않고 request를 직접 await하는 호출이 있다. PreviewPane.tsx:53, PostEditorPage.tsx:224·261, SeriesPage.tsx:33이 그렇다. 이 호출들의 ApiError는 캐시 onError에 닿지 않고, 각 catch 블록이 noteAuthFailure(client, cause)를 직접 부른다. 문서의 failures 표는 이 점을 맞게 설명하므로, 다이어그램 설명만 이 표와 어긋난다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "createQueryClient",
+          "lines": "15-27"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+          "lines": "53"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "224,261"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "33"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F029_ADMIN_SPA_SHELL.md",
+      "section": "F029_FLOW_ERROR",
+      "issue": "'모든 ApiError는 QueryCache/MutationCache onError의 noteAuthFailure를 거친다'를 고친다. 쿼리·뮤테이션 경유 호출은 캐시 onError를 거치고, 직접 await하는 호출(PreviewPane·PostEditorPage·SeriesPage)은 catch에서 noteAuthFailure를 직접 부른다고 적는다. section=F029_FLOW_ERROR",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-18"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "261"
+        }
+      ]
+    }
+  ]
+}

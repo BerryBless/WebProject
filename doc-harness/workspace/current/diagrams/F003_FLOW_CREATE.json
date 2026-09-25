@@ -1,0 +1,48 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart TD\n  CreateAsync --> PostValidation[\"PostValidation.Validate + ValidateSeriesAsync\"]\n  PostValidation -->|오류| Validation400[\"400 ValidationProblem\"]\n  PostValidation -->|통과| RenderGate[\"RenderGate.RenderAsync\"]\n  RenderGate -->|MarkdownTooComplexException| Validation400\n  RenderGate -->|RenderBusyException| OverloadExceptionHandler[\"503 OverloadExceptionHandler\"]\n  RenderGate -->|성공| SlugCheck{\"Posts.AnyAsync slug 중복?\"}\n  SlugCheck -->|중복| DbConflict[\"409 DbConflict.Problem\"]\n  SlugCheck -->|없음| TagResolver[\"TagResolver.ResolveIdsAsync in tx\"]\n  TagResolver --> SaveChanges[\"new Post + PostTag + SaveChangesAsync\"]\n  SaveChanges -->|23505 or 23503| DbConflict\n  SaveChanges -->|성공| Commit[\"tx.CommitAsync\"]\n  Commit --> PostQueries[\"PostQueries.GetDetailAsync\"]\n  PostQueries --> RenderedPostCache[\"RenderedPostCache.Store if CanCacheRenderedResult\"]\n  RenderedPostCache --> Created201[\"201 Created Location /api/posts/id\"]",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "CreateAsync",
+      "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync"
+    },
+    {
+      "node": "PostValidation",
+      "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate"
+    },
+    {
+      "node": "RenderGate",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync"
+    },
+    {
+      "node": "OverloadExceptionHandler",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderBusyException 처리(503)"
+    },
+    {
+      "node": "DbConflict",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.Problem"
+    },
+    {
+      "node": "TagResolver",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync"
+    },
+    {
+      "node": "PostQueries",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.GetDetailAsync"
+    },
+    {
+      "node": "RenderedPostCache",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.Store"
+    }
+  ],
+  "reason": "기존 다이어그램의 호출 순서·분기·오류 응답(400/409/503/201)이 새 분석의 실행 흐름과 일치하고 관련 코드 변경도 없다. 새 후보의 추가분(기타 DbUpdateException 전파, CanCache 분기 노드, Retry-After 라벨)은 표기 상세화이거나 기존 노드 라벨(\"if CanCacheRenderedResult\")에 이미 담긴 내용이라 사람이 다듬은 원본을 보존한다."
+}

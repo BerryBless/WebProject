@@ -20,7 +20,7 @@ export interface HarnessConfig {
   };
   analysis: { feature_parallelism: number; max_features: number };
   retry: { max_attempts: number };
-  verification: { enabled: boolean; max_iterations: number };
+  verification: { enabled: boolean; max_iterations: number; feature_chunk_docs?: number; publish_on_residual?: boolean };
   git: { analyze_history: boolean; max_diff_bytes_per_commit: number; failure_keywords: string[]; marker_pattern: string };
   diagrams: { format: 'mermaid'; max_nodes: number; max_edges: number };
   output: { docs: string; workspace: string };

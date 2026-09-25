@@ -1,0 +1,58 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "stateDiagram-v2\n  [*] --> detailPending: 편집 화면 진입\n  [*] --> editing: 새 글 화면 진입\n  detailPending --> editing: 상세 조회 성공\n  detailPending --> detailError: 상세 조회 실패\n  editing --> savePending: submit 검증 통과\n  savePending --> editing: 수정 200 onSuccess\n  savePending --> navigated: 생성 201 그리고 입력 불변 또는 새 id 임시본 저장 성공\n  savePending --> createdPostId: 생성 201 그리고 입력 변경 그리고 새 id 임시본 저장 실패\n  savePending --> fieldErrors: 400\n  savePending --> conflict: 수정 409 그리고 재조회 성공\n  savePending --> conflictRefetchError: 수정 409 그리고 재조회 실패\n  savePending --> saveError: 새 글 409 또는 기타 오류\n  fieldErrors --> savePending: 다시 submit\n  saveError --> savePending: 다시 submit\n  conflict --> editing: onTakeServer 또는 onKeepMine\n  conflictRefetchError --> savePending: 다시 submit",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "detailPending",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage"
+    },
+    {
+      "node": "detailError",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage"
+    },
+    {
+      "node": "editing",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor"
+    },
+    {
+      "node": "savePending",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.submit"
+    },
+    {
+      "node": "navigated",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onSuccess"
+    },
+    {
+      "node": "createdPostId",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onSuccess"
+    },
+    {
+      "node": "fieldErrors",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onError"
+    },
+    {
+      "node": "conflict",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onError"
+    },
+    {
+      "node": "conflictRefetchError",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onError"
+    },
+    {
+      "node": "saveError",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onError"
+    }
+  ],
+  "reason": "기존 다이어그램의 저장·충돌·오류 전이가 새 분석의 상태 전이(생성 201 이동/잠금, 수정 409 재조회 성공·실패, 400, 기타 오류)와 일치한다. 새 분석이 추가한 상세 조회 재시도와 검증 실패 자기 전이는 부가 표현이라 사람이 다듬은 원본을 보존했다. 이 다이어그램의 노드 파일에 코드 변경도 없다."
+}

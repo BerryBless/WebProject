@@ -1,0 +1,28 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "stateDiagram-v2\n  [*] --> Unauthenticated\n  Unauthenticated --> Authenticated: LoginAsync 204 SignInAsync\n  Authenticated --> Authenticated: SessionValidator 통과\n  Authenticated --> Unauthenticated: LogoutAsync SessionEpoch 증가\n  Authenticated --> Unauthenticated: SessionHours 경과 SessionRules 거부\n  Authenticated --> Unauthenticated: PasswordHash 교체 후 재시작 Fingerprint 불일치",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "Unauthenticated",
+      "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LoginAsync"
+    },
+    {
+      "node": "Authenticated",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync"
+    },
+    {
+      "node": "SessionRules",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+      "symbol": "SessionRules.IsValid"
+    },
+    {
+      "node": "LogoutAsync",
+      "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LogoutAsync"
+    }
+  ],
+  "reason": "기존 다이어그램의 전이(로그인 204, 세션 검증 통과, 로그아웃 epoch 증가, SessionHours 경과, 해시 교체 후 지문 불일치)는 새 분석의 상태 전이와 모두 일치하고 관련 파일에 코드 변경도 없다. 후보에만 있는 '미인증 → 미인증: Verify 실패 401'은 상태가 바뀌지 않는 실패 응답이라 상태도에 필수가 아니므로 사람이 다듬은 원본을 그대로 둔다."
+}

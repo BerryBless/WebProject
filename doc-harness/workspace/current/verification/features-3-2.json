@@ -1,0 +1,99 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 97
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [],
+  "diagramIssues": [
+    {
+      "document": "features/F020_WEB_PIPELINE_PROTECTION.md",
+      "diagram": "F020_SEQUENCE",
+      "section": "F020_SEQUENCE",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "The diagram has the edge `AdminSurfaceMiddleware-->>StatusCodePagesMiddleware: 인가 단계에서 401 빈 본문`, which attributes the 401 to AdminSurfaceMiddleware. In the code, AdminSurfaceMiddleware.InvokeAsync returns only 404 (host) or 403 (IP, CSRF header, Origin) through Reject. The session-less 401 is produced by UseAuthorization (Program.cs line 107), which runs after UseRateLimiter and UseAuthentication. The prose says the two are grouped in one lane, but the diagram edge still shows a component returning a status it never produces. Either add a separate participant for the authorization step (UseAuthorization) or change the edge's sender.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        }
+      ]
+    },
+    {
+      "document": "features/F018_ADMIN_SURFACE_ACCESS_CONTROL.md",
+      "diagram": "F018_FLOW",
+      "section": "F018_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "The Origin-mismatch reject node is labeled `RejectOrigin[Reject 403 Origin 불일치]`. The other reject nodes use the actual ProblemDetails titles ('찾을 수 없음', '접근 거부', '교차 출처 요청 거부'). The Origin rejection's actual title is also '교차 출처 요청 거부'; 'Origin 헤더가 관리 origin과 일치해야 합니다.' is only the detail. As written, the label implies a distinct title that does not exist.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "89-94"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [
+    {
+      "document": "features/F011_MARKDOWN_RENDERING_CACHE.md",
+      "section": "failures",
+      "type": "STATUS_OVERSTATED",
+      "description": "The failure-point row for RenderedPostCache.Store ('Set을 호출하면 MemoryCache SizeLimit을 넘은 상태에서 예외 없이 조용히 거부된다') is marked CONFIRMED. Its only evidence is a comment describing a measurement (RenderedPostCache.cs lines 27-35). The code shows only the _cache.Set call with Size; it does not show or verify the rejection behavior. This document's own unknowns section also says the observation that 'SizeLimit 초과 시 Set이 조용히 거부된다' was not reproduced or verified. The status should be INFERRED.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache._cache / Store",
+          "lines": "27-35,115-122"
+        }
+      ]
+    }
+  ],
+  "fixRequired": [
+    {
+      "doc": "features/F020_WEB_PIPELINE_PROTECTION.md",
+      "section": "F020_SEQUENCE",
+      "issue": "Change the sender of the session-less 401 edge from AdminSurfaceMiddleware to a separate participant for the authorization step (UseAuthorization, Program.cs line 107); AdminSurfaceMiddleware returns only 404 and 403. section=F020_SEQUENCE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        }
+      ]
+    },
+    {
+      "doc": "features/F018_ADMIN_SURFACE_ACCESS_CONTROL.md",
+      "section": "F018_FLOW",
+      "issue": "Change the RejectOrigin node label to the actual title, e.g. 'Reject 403 교차 출처 요청 거부 (Origin 불일치)'. section=F018_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "89-94"
+        }
+      ]
+    },
+    {
+      "doc": "features/F011_MARKDOWN_RENDERING_CACHE.md",
+      "section": "failures",
+      "issue": "Change the status of the 'RenderedPostCache.Store SizeLimit 초과 시 조용히 거부' row from CONFIRMED to INFERRED and state that it rests on a comment's measurement record, to match unknowns. section=failures",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "27-35"
+        }
+      ]
+    }
+  ]
+}

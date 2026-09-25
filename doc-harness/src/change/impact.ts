@@ -19,11 +19,17 @@ export function analyzeImpact(changes: ChangeSet, classification: Classification
   let affected = featuresForFiles(graph, [...allChanged, ...renamedOld]);
   for (const item of classification.items) for (const id of item.possibleFeatures) if (graph.features[id] && !affected.includes(id)) affected.push(id);
   const direct = new Set(affected);
-  affected = expandByDependencies(graph, affected);
-  if (affected.length > direct.size) widenReason.push(`의존 1홉 확장: ${affected.filter((a) => !direct.has(a)).join(', ')}`);
+  // 분석 대상 변경이 전부 TRIVIAL(주석·포맷·문서)이면 직접 매핑된 기능만 재검증한다. 의존 확장은 동작이 바뀔 수 있을 때만(2026-09-25 실측: 주석 한 줄에 기능 5개 재분석).
+  const trivialOnly = analysisFiles.length > 0 && analysisFiles.every((f) => (classByFile.get(f)?.significance ?? 'MINOR') === 'TRIVIAL');
+  if (!trivialOnly) {
+    affected = expandByDependencies(graph, affected);
+    if (affected.length > direct.size) widenReason.push(`의존 1홉 확장: ${affected.filter((a) => !direct.has(a)).join(', ')}`);
+  } else if (affected.length) {
+    widenReason.push('변경이 전부 TRIVIAL이라 의존 확장 없이 직접 기능만 재검증');
+  }
 
   const allClasses = new Set(classification.items.flatMap((i) => i.classifications));
-  const structural = STRUCTURAL.filter((c) => allClasses.has(c));
+  const structural = trivialOnly ? [] : STRUCTURAL.filter((c) => allClasses.has(c));
   if (structural.length) {
     const changedComponents = architecture.components.filter((c) => allChanged.some((f) => f === c.path || f.startsWith(c.path.replace(/\/[^/]*$/, '') + '/') || c.evidence.some((e) => e.file === f)));
     for (const comp of changedComponents) {

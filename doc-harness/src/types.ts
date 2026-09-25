@@ -249,6 +249,8 @@ export interface Issue {
   type: string;
   description: string;
   evidence: Evidence[];
+  /** 결정적 검사가 낸 이슈인지(없으면 LLM). 발행 판정에서 결정적 차단 이슈만 필수 해결로 본다. */
+  source?: 'deterministic' | 'llm';
 }
 
 export interface DiagramIssue extends Issue {
@@ -267,6 +269,8 @@ export interface Verification {
   mermaidParser: 'VERIFIED' | 'MERMAID_RENDER_NOT_VERIFIED';
   iterations: number;
   passed: boolean;
+  /** 결정적 검사가 확신하지 못하는 관찰. 보고만 하고 차단·수정 루프에 넣지 않는다. */
+  warnings?: Issue[];
 }
 
 export type ChangeType = 'ADDED' | 'MODIFIED' | 'DELETED' | 'RENAMED' | 'UNTRACKED';

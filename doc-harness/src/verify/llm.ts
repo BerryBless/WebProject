@@ -15,9 +15,12 @@ const GROUP_ORDER: { name: string; match: (doc: string) => boolean }[] = [
 ];
 
 const MAX_GROUP_CHARS = 140_000;
-
-/** 문서를 검증 그룹으로 나눈다. 그룹이 너무 크면 순서를 유지한 채 여러 조각으로. changed가 있으면 그 문서가 든 그룹만. */
-export function groupDocs(docs: Map<string, string>, changed: Set<string> | null): DocGroup[] {
+/**
+ * 문서를 검증 그룹으로 나눈다. 큰 그룹은 순서를 유지한 채 여러 조각으로. changed가 있으면 그 문서가 든 그룹만.
+ * featureChunkDocs > 0이면 기능 문서군을 그 개수씩 고정 조각으로 자른다 — 누적 크기로 자르면 문서 하나의 크기 변화가
+ * 모든 조각 경계를 밀어 검증 캐시가 전부 깨진다(2026-09-24 실측). 0이면 크기 기준(기존 실행과 호환).
+ */
+export function groupDocs(docs: Map<string, string>, changed: Set<string> | null, featureChunkDocs = 0): DocGroup[] {
   const groups: DocGroup[] = [];
   for (const g of GROUP_ORDER) {
     const members = [...docs.keys()].filter((d) => g.match(d)).sort();
@@ -26,9 +29,11 @@ export function groupDocs(docs: Map<string, string>, changed: Set<string> | null
     let chunk: DocGroup = { name: g.name, docs: new Map() };
     let size = 0;
     let part = 1;
+    const fixedCount = g.name === 'features' && featureChunkDocs > 0;
     for (const d of selected) {
       const md = docs.get(d)!;
-      if (size + md.length > MAX_GROUP_CHARS && chunk.docs.size) {
+      const full = fixedCount ? chunk.docs.size >= featureChunkDocs : size + md.length > MAX_GROUP_CHARS;
+      if (full && chunk.docs.size) {
         groups.push(chunk);
         part++;
         chunk = { name: `${g.name}-${part}`, docs: new Map() };
@@ -64,7 +69,19 @@ export async function verifyLlm(ctx: PhaseContext, group: DocGroup, ws: CurrentW
     otherDocs: `## 그 밖의 생성 문서(이름만)\n\n${allDocNames.filter((d) => !group.docs.has(d)).map((d) => `- ${d}`).join('\n') || '(없음)'}`,
   });
   const contentHash = sha256([...group.docs.values()].join('\u0000'));
-  return callClaude<VerificationPartial>(ctx, { itemId: `verify:${group.name}:${iteration}`, phase: 'verification', schemaName: 'verification', prompt, outFile: `verification/${group.name}-${iteration}.json`, extraHash: contentHash });
+  const out = await callClaude<VerificationPartial>(ctx, { itemId: `verify:${group.name}:${iteration}`, phase: 'verification', schemaName: 'verification', prompt, outFile: `verification/${group.name}-${iteration}.json`, extraHash: contentHash });
+  // 검증자는 자기 문서군 안의 문서만 판정할 수 있다. 이름만 전달된 다른 문서에 대한 지적은 버린다(2026-09-25 실측: 범위 밖 기능 재분석 유발).
+  const inGroup = (doc: string) => group.docs.has(doc) || group.docs.has(doc.replace(/^\.\//, ''));
+  let dropped = 0;
+  const keep = <T extends { document: string }>(xs: T[]) => xs.filter((i) => { const ok = inGroup(i.document); if (!ok) dropped++; return ok; });
+  out.hallucinations = keep(out.hallucinations);
+  out.missingItems = keep(out.missingItems);
+  out.incorrectRelations = keep(out.incorrectRelations);
+  out.diagramIssues = keep(out.diagramIssues);
+  out.unsupportedClaims = keep(out.unsupportedClaims);
+  out.fixRequired = out.fixRequired.filter((f) => { const ok = inGroup(f.doc); if (!ok) dropped++; return ok; });
+  if (dropped) ctx.log(`검증자 ${group.name}: 문서군 밖 지적 ${dropped}건 무시`);
+  return out;
 }
 
 export async function consistencyLlm(ctx: PhaseContext, changedDocs: Map<string, string>, relatedDocs: Map<string, string>, iteration: number): Promise<Issue[]> {

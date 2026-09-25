@@ -1,0 +1,86 @@
+{
+  "score": {
+    "coverage": 95,
+    "accuracy": 97
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [
+    {
+      "document": "features/F022_HEALTH_CHECK.md",
+      "section": "F022_FLOW",
+      "type": "INCORRECT_EXCEPTION_SOURCE",
+      "description": "설명문과 플로차트는 UriFormatException을 SendAsync에서 나는 예외로 묶는다('SendAsync에서 난 HttpRequestException(연결 거부), TaskCanceledException(3초 타임아웃), UriFormatException은 catch 필터가 잡아'). 코드에서 try 블록 안에 UriFormatException이 날 수 있는 곳은 요청 URI를 만드는 `new HttpRequestMessage(HttpMethod.Get, $\"http://127.0.0.1:{port}/health\")`(51행)뿐이다. origin 해석은 예외를 던지지 않는 Uri.TryCreate(42행)를 쓰고, 전송은 53행 http.SendAsync다. 세 예외 모두 58행의 같은 catch 필터로 모이는 것은 맞다. 다만 UriFormatException의 발생 지점은 SendAsync가 아니라 그보다 앞의 요청 생성 단계다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "symbol": "HealthCheckCommand.RunAsync",
+          "lines": "42-62"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "features/F022_HEALTH_CHECK.md",
+      "diagram": "F022_FLOW",
+      "section": "F022_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "간선 'SendAsync -- HttpRequestException / TaskCanceledException / UriFormatException --> CatchFilter'는 UriFormatException이 HttpClient.SendAsync에서 나는 것처럼 그린다. 실제로 UriFormatException이 날 수 있는 곳은 ResolvePort 뒤 요청을 만드는 단계, 즉 new HttpRequestMessage(..., \"http://127.0.0.1:{port}/health\")(51행)다. SendAsync 호출은 53행이다. 요청 생성 단계에서 CatchFilter로 가는 간선을 따로 두거나, 이 간선에서 UriFormatException을 빼야 한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "symbol": "HealthCheckCommand.RunAsync",
+          "lines": "50-58"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [
+    {
+      "document": "features/F022_HEALTH_CHECK.md",
+      "section": "failures",
+      "type": "STATUS_OVERSTATED",
+      "description": "'Program.cs 기동 부트스트랩' 실패 행은 상태가 CONFIRMED다. 그런데 이 행에는 저장소 코드로 확인할 수 없는 Docker·Compose 엔진 동작이 섞여 있다. 예를 들면 start_period 이후 3회 연속 실패로 starting에서 unhealthy가 되는 전이, caddy가 기동하지 않는 동작, 'restart: unless-stopped가 컨테이너를 다시 띄운다'는 주장이다. 같은 문서의 F022_STATE와 상태 전이 표는 이 내용을 INFERRED로 적고 있어 서로 맞지 않는다. 코드와 설정으로 확인되는 것은 설정 값(interval·retries·start_period·restart·depends_on)과 OPERATIONS.md 153행의 증상 안내뿐이다.",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "3-4, 46-48, 77-83"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "153"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "75-91, 126"
+        }
+      ]
+    }
+  ],
+  "fixRequired": [
+    {
+      "doc": "features/F022_HEALTH_CHECK.md",
+      "section": "F022_FLOW",
+      "issue": "UriFormatException은 SendAsync가 아니라 HttpRequestMessage 생성(51행)에서 나므로, 플로차트 간선과 설명문의 발생 지점을 고친다. section=F022_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "symbol": "HealthCheckCommand.RunAsync",
+          "lines": "50-58"
+        }
+      ]
+    },
+    {
+      "doc": "features/F022_HEALTH_CHECK.md",
+      "section": "failures",
+      "issue": "'Program.cs 기동 부트스트랩' 행은 Docker·Compose 엔진 동작(unhealthy 전이, caddy 미기동, restart 재기동)을 담고 있으므로 상태를 INFERRED로 낮추거나, 확인된 설정 값과 추론한 엔진 동작을 나눠 적는다. section=failures",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "3-4, 46-48, 77-83"
+        }
+      ]
+    }
+  ]
+}
