@@ -13,11 +13,13 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>같은 내용의 삭제·업로드가 하나의 잠금(<c>GET_LOCK</c>)으로 직렬화되는지 검증한다. 테스트가 그 잠금을 직접 쥐고 요청이 기다리는 것을 본다
-/// (경쟁을 확률에 맡기지 않는다). 잠금 메커니즘 자체(같은 세션 고정·명시적 해제·짧은 대기 상한·풀 반환)의 측정은 MySQL 기준으로 따로 다시 쓴다(전환 계획 Task 6).</summary>
+/// (경쟁을 확률에 맡기지 않는다). 잠금 메커니즘 자체(같은 세션 고정·명시적 해제·타임아웃·DB별 격리·풀 재대여 해제)는
+/// <see cref="HoldAsync_KeepsEfCommandsOnTheLockingSession_AndReleaseFreesTheName"/>·<see cref="HoldAsync_WhenHeldElsewhere_TimesOutAsLockTimeout"/>·
+/// <see cref="SameSha_InAnotherDatabase_DoesNotContend"/>·<see cref="UnreleasedLock_IsFreedWhenThePooledConnectionIsReused"/>가 측정한다(전환 계획 Task 6).</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 시작하고, <see cref="HttpClient"/> 요청·<see cref="MySqlConnection"/> 왕복은 각각 자신의 비동기 흐름으로 진행된다. 여러 테스트가 같은 <see cref="MySqlContainerFixture"/> 컨테이너를 공유하고, <see cref="DeleteAndUpload_OfTheSameContent_WaitForTheContentLock_AndReleaseIt"/>·<see cref="InterleavedDeleteAndReupload_NeverLeavesARowWithoutItsFile"/>·<see cref="Upload_WhenFileVanishesWhileWaitingForTheLock_ReSavesItFromTheReopenedFormFile"/> 세 테스트는 같은 픽스처(<see cref="Png"/>)를 올리므로 내용 SHA가 <b>같다</b> — 그래도 서로 간섭하지 않는 이유는 테스트마다 격리된 <see cref="ApiFactory"/>가 각자 별도의 DB를 쓰고, 서버 전역인 <c>GET_LOCK</c> 이름에 DB 이름 해시가 들어가기 때문이다(<see cref="AttachmentLock.NameFor"/>).</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 시작하고, <see cref="HttpClient"/> 요청·<see cref="MySqlConnection"/> 왕복은 각각 자신의 비동기 흐름으로 진행된다. 여러 테스트가 같은 <see cref="MySqlContainerFixture"/> 컨테이너를 공유하고, <see cref="DeleteAndUpload_OfTheSameContent_WaitForTheContentLock_AndReleaseIt"/>·<see cref="InterleavedDeleteAndReupload_NeverLeavesARowWithoutItsFile"/>·<see cref="Upload_WhenFileVanishesWhileWaitingForTheLock_ReSavesItFromTheReopenedFormFile"/> 세 테스트는 같은 픽스처(<see cref="Png"/>)를 올리므로 내용 SHA가 <b>같다</b> — 그래도 서로 간섭하지 않는 이유는 테스트마다 격리된 <see cref="ApiFactory"/>가 각자 별도의 DB를 쓰고, 서버 전역인 <c>GET_LOCK</c> 이름에 DB 이름 해시가 들어가기 때문이다(<see cref="AttachmentLock.NameFor"/>). <see cref="SameSha_InAnotherDatabase_DoesNotContend"/>는 이를 두 개의 <see cref="ApiFactory"/>(= 두 DB)로 직접 증명한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 테스트마다 격리된 <see cref="ApiFactory"/>(자체 DB + 자체 임시 첨부 폴더)를 쓴다.</description></item>
 /// <item><description><b>Blocking:</b> 비동기. 실제 MySQL 컨테이너를 쓴다. 잠금 대기를 직접 관측하는 테스트는 <c>Task.Delay</c>나 대기자 관측(<c>performance_schema.metadata_locks</c>)으로 "요청이 잠금을 기다리는 중"인 순간을 만든다 — 10초 대기 상한 자체를 기다리는 테스트는 없다. 테스트가 직접 여는 연결은 <c>Pooling=false</c>라 해제 즉시 서버 세션이 닫힌다(쥐고 있던 잠금이 풀에 남지 않는다).</description></item>
 /// </list>
@@ -50,7 +52,8 @@ public sealed class AttachmentIntegrityTests(MySqlContainerFixture mysql)
         return value is null or DBNull ? null : Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    // 테스트가 직접 쥐는 연결은 풀을 끈다: 팩토리 Dispose는 앱이 쓴 풀 키(WithSessionReset)만 비우므로, 풀링된 테스트 연결은 잠금·소켓을 쥔 채 남을 수 있다.
+    // 테스트가 직접 여는 연결은 풀을 끈다: 팩토리 Dispose는 앱이 실제로 쓰는 EF 연결 풀(AppDbContext·PublicDbContext)만 비우므로,
+    // 테스트가 직접 만든 별도 풀링 연결은 잠금·소켓을 쥔 채 남을 수 있다.
     private static async Task<MySqlConnection> OpenUnpooledAsync(ApiFactory factory)
     {
         var connection = new MySqlConnection(new MySqlConnectionStringBuilder(factory.ConnectionString) { Pooling = false }.ConnectionString);
@@ -186,5 +189,108 @@ public sealed class AttachmentIntegrityTests(MySqlContainerFixture mysql)
             Assert.True(File.Exists(store.PhysicalPath(path)), $"파일 없는 행: {path}");
         }
         return paths.Count;
+    }
+
+    // 아래 4개 테스트는 AttachmentLock 자체(GET_LOCK 세션 고정·타임아웃·DB별 격리·풀 재대여 해제)를 MySQL 기준으로 측정한다(전환 계획 Task 6).
+    // 실제 콘텐츠 SHA와 무관한 고정값이라 임의의 64자 hex를 그대로 쓴다.
+    private const string LockSha = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+
+    // 이 클래스 위쪽의 3-인자 ScalarAsync(파라미터화된 @k)를 재사용할 수 없는 경우(잠금 이름 없이 CONNECTION_ID()만 읽을 때) 전용.
+    // UnreleasedLock_IsFreedWhenThePooledConnectionIsReused가 의도적으로 여는 "풀링된" 원시 연결에서만 쓴다.
+    private static async Task<long> ScalarAsync(MySqlConnection connection, string sql)
+    {
+        await using var command = new MySqlCommand(sql, connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>잠금을 쥔 동안 같은 컨텍스트의 EF 명령은 잠근 세션(CONNECTION_ID)을 쓰고, 해제하면 다른 세션이 즉시 잡을 수 있다.</summary>
+    [Fact]
+    public async Task HoldAsync_KeepsEfCommandsOnTheLockingSession_AndReleaseFreesTheName()
+    {
+        using var factory = new ApiFactory(mysql);
+        using var _ = factory.CreateClient();
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var name = AttachmentLock.NameFor(factory.DatabaseName, LockSha);
+        await using var observer = await OpenUnpooledAsync(factory);
+
+        await using (await AttachmentLock.HoldAsync(db, LockSha, CancellationToken.None))
+        {
+            // EF 쪽을 먼저 읽는다: HoldAsync가 연결을 명시적으로 열어 두지 않으면(변이 확인 대상) EF가 이 명령을 위해
+            // 풀에서 새로 연결을 빌렸다가 돌려주면서 ConnectionReset이 잠금을 풀어 버린다 — observer를 먼저 읽으면 그 순간에는
+            // 아직 잠금이 살아 있어(반납 시점 해제는 보장 아님, 스파이크 S6b) 우연히 같은 값이 나올 수 있어 판별력이 없다.
+            var efSession = await db.Database.SqlQueryRaw<long>("SELECT CAST(CONNECTION_ID() AS SIGNED) AS `Value`").SingleAsync();
+            var holder = await ScalarAsync(observer, "SELECT IS_USED_LOCK(@k)", name);
+            Assert.Equal((long?)efSession, holder);
+        }
+        Assert.Equal(1L, await ScalarAsync(observer, "SELECT IS_FREE_LOCK(@k)", name));
+    }
+
+    /// <summary>다른 세션이 쥐고 있으면 대기 상한 뒤 DbLockTimeoutException(→ 503)이 나고, 실패 경로에서 연결을 닫는다.</summary>
+    [Fact]
+    public async Task HoldAsync_WhenHeldElsewhere_TimesOutAsLockTimeout()
+    {
+        using var factory = new ApiFactory(mysql);
+        using var _ = factory.CreateClient();
+        var name = AttachmentLock.NameFor(factory.DatabaseName, LockSha);
+        await using var other = await OpenUnpooledAsync(factory);
+        Assert.Equal(1L, await ScalarAsync(other, "SELECT GET_LOCK(@k, 0)", name));
+
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var ex = await Assert.ThrowsAsync<DbLockTimeoutException>(() => AttachmentLock.HoldAsync(db, LockSha, waitSeconds: 1, CancellationToken.None));
+        Assert.Equal(DbErrorKind.LockTimeout, DbErrorClassifier.Classify(ex));
+        Assert.Equal(System.Data.ConnectionState.Closed, db.Database.GetDbConnection().State);
+    }
+
+    /// <summary>잠금 이름은 DB별이다: 다른 DB(다른 팩토리)의 같은 SHA 잠금과 서로 기다리지 않는다(R3).</summary>
+    [Fact]
+    public async Task SameSha_InAnotherDatabase_DoesNotContend()
+    {
+        using var first = new ApiFactory(mysql);
+        using var second = new ApiFactory(mysql);
+        using var c1 = first.CreateClient();
+        using var c2 = second.CreateClient();
+        await using var s1 = first.CreateScope();
+        await using var s2 = second.CreateScope();
+        await using (await AttachmentLock.HoldAsync(s1.ServiceProvider.GetRequiredService<AppDbContext>(), LockSha, CancellationToken.None))
+        await using (await AttachmentLock.HoldAsync(s2.ServiceProvider.GetRequiredService<AppDbContext>(), LockSha, waitSeconds: 1, CancellationToken.None))
+        {
+            // 두 번째 획득이 1초 대기 없이 성공해야 여기에 도달한다
+        }
+    }
+
+    /// <summary>
+    /// 해제하지 않고 풀에 반납된 잠금은 같은 물리 연결이 다시 대여될 때 ConnectionReset으로 풀린다(Releaser의 해제 실패 경로가 기대는 성질, 스파이크 S6b).
+    /// 반납 직후에는 아직 쥐어져 있을 수 있으므로(스파이크 S6b에서 반납 직후 관측값은 0) 재대여 뒤를 단언한다.
+    /// </summary>
+    [Fact]
+    public async Task UnreleasedLock_IsFreedWhenThePooledConnectionIsReused()
+    {
+        using var factory = new ApiFactory(mysql);
+        using var _ = factory.CreateClient();
+        var name = AttachmentLock.NameFor(factory.DatabaseName, LockSha);
+        var single = new MySqlConnectionStringBuilder(DataServiceCollectionExtensions.WithSessionReset(factory.ConnectionString)) { MaximumPoolSize = 1 }.ConnectionString;
+        try
+        {
+            long id;
+            await using (var c = new MySqlConnection(single))
+            {
+                await c.OpenAsync();
+                id = await ScalarAsync(c, "SELECT CONNECTION_ID()"); // 잠금 이름과 무관한 스칼라라 파라미터화된 3-인자 오버로드를 쓰지 않는다.
+                Assert.Equal(1L, await ScalarAsync(c, "SELECT GET_LOCK(@k, 0)", name));
+            }
+            await using (var c = new MySqlConnection(single))
+            {
+                await c.OpenAsync();
+                Assert.Equal(id, await ScalarAsync(c, "SELECT CONNECTION_ID()"));
+                Assert.Equal(1L, await ScalarAsync(c, "SELECT IS_FREE_LOCK(@k)", name));
+            }
+        }
+        finally
+        {
+            using var clear = new MySqlConnection(single);
+            MySqlConnection.ClearPool(clear);
+        }
     }
 }
