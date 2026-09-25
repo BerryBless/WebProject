@@ -20,7 +20,7 @@ public sealed class UtcDateTimeOffsetConverterTests
     {
         var value = DbClock.UtcNow();
         var stored = (DateTime)Converter.ConvertToProvider(value)!;
-        Assert.Equal(DateTimeKind.Utc, DateTime.SpecifyKind(stored, DateTimeKind.Utc).Kind);
+        Assert.Equal(DateTimeKind.Utc, stored.Kind);
         Assert.Equal(value, (DateTimeOffset)Converter.ConvertFromProvider(stored)!);
     }
 
