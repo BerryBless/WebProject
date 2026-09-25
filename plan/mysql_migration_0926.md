@@ -1,7 +1,8 @@
 # MySQL 전환 설계 (PostgreSQL 완전 교체)
 
 - 날짜: 2026-09-26
-- 상태: **설계 승인(2026-09-26)** → 구현 계획 `plan/mysql_migration_impl_0926.md`
+- 상태: **구현 완료(병합 대기)** — 구현 계획 `plan/mysql_migration_impl_0926.md`(Task 0~11), CI 4잡(test·web·web-e2e·deploy-smoke) green, 브랜치 `feat/mysql-migration`
+- 개정(2026-09-26, Task 11 문서화): 2.4절 오류 번호를 구현 중 테스트가 실제로 관측한 값으로 갱신(1205·1213 실측 확정, 1044는 분류 표 단위 테스트만 있고 실서버 미관측이라 예상 유지), 7절에 구현 중 판정을 추가
 - 개정(구현 계획 작성 중 코드 정독 결과): D3 검증 수단을 `SHOW GRANTS`로, D7에 트랜잭션 인터셉터 추가, D13을 `CHAR(36)`으로 확정, D19 서버 설정을 compose 인자로, R6 추가
 - 개정(2026-09-26, 스파이크 결과로 프로바이더를 Pomelo로 변경): Oracle `MySql.EntityFrameworkCore` 10.0.9가 Phase 0에서 no-go(S1·S9)라 **Pomelo.EntityFrameworkCore.MySql 9.0.0 + EF Core 9.0.20(커넥터 MySqlConnector 2.4.0)**으로 바꿨다. 2.1절·D1·D2·D5·D7·D14·D16·2.4절(실측 번호)·R4·5~7절을 함께 고쳤다. 근거: `.superpowers/sdd/mysql_migration_impl_0926/task-0-report.md`(Oracle), `task-0b-report.md`(Pomelo)
 - 근거 조사: PG 의존 전수 조사(패키지·컨텍스트·마이그레이션·원시 SQL·SqlState·테스트·deploy·docs), nuget 프로바이더 버전 실측(2026-09-25)
@@ -76,7 +77,7 @@ EF 하향의 비용: 코드베이스는 EF 10 전용 API(문 람다 ExecuteUpdat
 
 ### 2.4 오류 번호 대응(Phase 0 스파이크 실측, MySQL 8.4.11 + MySqlConnector 2.4.0)
 
-"실측"은 스파이크가 실제 서버에서 그 번호를 받아 낸 것이고, "예상"은 스파이크가 만들지 않아 문서 값으로 둔 것이다(구현 테스트가 관측하면 갱신한다). `DbErrorClassifier`는 `MySqlConnector.MySqlException.Number`를 읽는다.
+"실측"은 스파이크나 구현 중 테스트가 실제 서버에서 그 번호를 받아 낸 것이고, "예상"은 실서버에서 한 번도 관측되지 않아 분류 표의 기대값으로만 둔 것이다. `DbErrorClassifier`는 `MySqlConnector.MySqlException.Number`를 읽는다.
 
 | 종류 (`DbErrorKind`) | PG SqlState (현재) | MySQL 오류 번호 | HTTP |
 |---|---|---|---|
@@ -84,9 +85,9 @@ EF 하향의 비용: 코드베이스는 EF 10 전용 API(문 람다 ExecuteUpdat
 | ForeignKeyViolation | 23503 | 1451 부모 삭제 (**실측** S5b), 1452 자식 삽입 (**실측** S5c) | 409 |
 | CheckViolation | 23514 | 3819 `ER_CHECK_CONSTRAINT_VIOLATED` (**실측** S2a·S2d) | 500 (앱 검증 누락 = 버그) |
 | QueryTimeout | 57014 | 3024 `ER_QUERY_TIMEOUT` (**실측**: 교차 조인 S3b, 공개 세션의 메타데이터 잠금(MDL) 대기도 **3024** S3c — 1205가 아니다. `SELECT SLEEP(2)`는 오류 없이 0을 반환한다) | 503 |
-| LockTimeout | 55P03 | 1205 `ER_LOCK_WAIT_TIMEOUT` (예상 — 관리 연결의 InnoDB 행 잠금 대기, 예: `FOR UPDATE`) + `GET_LOCK` 반환 0 (**실측** S6a, D5) | 503 |
-| Deadlock | 40P01 | 1213 `ER_LOCK_DEADLOCK` (예상) | 503 (또는 D8 재시도) |
-| PermissionDenied | 42501 | 1142 `ER_TABLEACCESS_DENIED_ERROR` (**실측** S4d), 1227 FILE 권한 없는 `SELECT … INTO OUTFILE` (**실측** S4e), 1044 (예상). 참고: 없는 테이블 GRANT는 1146 (**실측** S4a, 분류 대상 아님) | 500 |
+| LockTimeout | 55P03 | 1205 `ER_LOCK_WAIT_TIMEOUT` (**실측** Task 7 `SeriesRowLockTests`: 다른 세션의 `FOR SHARE`가 글 INSERT의 FK 검사와 같은 S 잠금을 잡은 부모 행에 `innodb_lock_wait_timeout=1`로 접근해 1205) + `GET_LOCK` 반환 0 (**실측** S6a, D5) | 503 |
+| Deadlock | 40P01 | 1213 `ER_LOCK_DEADLOCK` (**실측** Task 7: `TagResolver`의 서수 정렬을 일부러 제거한 대조 실험에서 3/3 재현 — `MySqlException: Deadlock found when trying to get lock`. 정식 코드는 정렬을 유지해 1213을 만들지 않는다(D8 결과, 아래 참조), 그래서 상시 통과하는 테스트에는 나오지 않는다) | 503 (재시도는 불필요, D8 결과) |
+| PermissionDenied | 42501 | 1142 `ER_TABLEACCESS_DENIED_ERROR` (**실측** S4d), 1227 FILE 권한 없는 `SELECT … INTO OUTFILE` (**실측** S4e, 배포 스모크 Task 9에서도 재확인), 1044 `ER_DBACCESS_DENIED_ERROR`(**예상 유지** — `DbErrorClassifierTests`의 `KindOf(int)` 표 기반 단위 테스트로만 분류를 검증했고, 실제 서버가 이 번호를 낸 적은 없다). 참고: 없는 테이블 GRANT는 1146 (**실측** S4a, 분류 대상 아님) | 500 |
 | ReadOnly | 25006 | 1792 `ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION` (**실측** S3a) | 500 |
 
 행 잠금 대기 상한은 `innodb_lock_wait_timeout=10`(초)으로 서버에서 설정한다. 기존 `lock_timeout 10s`와 같은 값이다.
@@ -220,6 +221,15 @@ CI 네 잡(test·web·web-e2e·deploy-smoke)이 모두 green이어야 한다.
 - **DDL 부분 적용**(D18): 마이그레이션 전 백업을 운영 절차로 둔다.
 - **EF Core 10 → 9 하향**: Pomelo 9.0.0이 EF 9에 묶여 있어 EF를 9.0.20으로 내렸다. 현재 코드가 쓰는 기능 중 잃는 것은 없다(스파이크 S16: EF 10 전용 API 미사용). 대가는 EF 10의 새 기능을 당분간 못 쓰는 것과, EF 9의 지원 종료가 EF 10보다 이르다는 점이다. Pomelo가 EF 10 지원판을 내면 올린다(D16 분류기와 고정 `ServerVersion` 덕에 영향 범위가 작다).
 - **Oracle 드라이버의 `ConnectionReset=true` 재대여 실패**: 첫 스파이크에서 두 번 재현됐다가 이후 재현되지 않아 원인이 미해결이다. MySqlConnector에서는 워밍업 없는 순차 0/30·동시 0/60으로 나타나지 않았다. Oracle 드라이버로 돌아갈 일이 생기면 먼저 다시 확인한다.
+
+**구현 중 내린 판정(SDD ledger 요약, 근거는 `.superpowers/sdd/mysql_migration_impl_0926/progress.md`와 태스크별 `task-N-report.md`)**
+- **root는 `MYSQL_ROOT_HOST=localhost`로 소켓 전용으로 잠근다**(Task 9, 리뷰 권고 채택): 원격 root 로그인 경로 자체를 없앤다. 백업·복원·운영 절차가 이미 소켓을 쓰므로 비용이 작다. 대가는 원격 root 운영 절차가 막힌다는 것인데, 현재 그런 절차가 없다. 스모크의 root 조회는 소켓으로, 서버 전역 `require_secure_transport` 증명은 소켓으로 만든 임시 비-TLS 사용자로 대체한다.
+- **CI push 트리거에 `feat/**` 추가**(Task 10, 계획 밖): 브랜치 이름이 `feat/mysql-migration`인데 워크플로 트리거가 `feature/**`만 받아 CI가 한 번도 돌지 않았다. `feat/**`를 추가해 트리거 정책이 넓어진 것을 수용한다(되돌리려면 브랜치를 `feature/`로 개명).
+- **D8 결과(태그 교착 처리 방식)**: 서수 순서 삽입만으로 1213 교착이 나지 않음을 부하 테스트로 확인했다(정렬을 일부러 제거하면 3/3 재현, Task 7). 재시도 로직은 추가하지 않는다 — 서수 정렬이 이미 충분한 방지책이다.
+- **init 스크립트의 이중 실행 경로**(Task 9): 저장소의 파일 모드는 실행 비트 없음(source 경로)이지만, Windows Docker Desktop의 바인드 마운트는 모든 파일을 0777로 보여 실행 경로를 탄다(실측). 그래서 `mysql-init/10-users.sh`는 두 경로(엔트리포인트 함수 `docker_process_sql` 또는 root 소켓 직접 접속)를 모두 지원한다 — Linux 서버(source)와 이 개발 PC(execute) 양쪽에서 한 파일로 동작해야 하기 때문이다.
+- **비밀번호 조립을 `sed` 치환에서 `printf`로 교체**(Task 9): `sed`로 비밀번호를 자식 프로세스 인자에 넘기면 컨테이너 `ps`/`/proc/*/cmdline`에 노출된다. 셸 내장 `printf`로 `CREATE USER` 문장을 직접 조립해 자식 프로세스 인자 노출을 없앴다.
+- **`ApiFactory`의 풀 정리 대상 수정**(Task 5→6): Pomelo의 `UseMySql`이 연결 문자열에 `Allow User Variables=True;Use Affected Rows=False`를 덧붙여, 원시 `MySqlConnection`과 EF가 실제로 만드는 연결은 서로 다른 풀을 쓴다. `ApiFactory.Dispose`의 `ClearPool`이 엉뚱한 풀(원시 연결 문자열)을 비우고 있어, EF가 실제로 쓰는 연결 문자열을 풀 키로 쓰도록 고쳤다(안 그러면 대규모 스위트에서 유휴 연결이 쌓여 "too many connections" 간헐 실패 위험).
+- **SHA-256 CHECK 끝 앵커의 정적 검사**(Task 8): `CK_Attachments_Sha256`의 `\z` 앵커는 런타임 입력으로 구별할 수 없다(64자 hex + 개행은 `varchar(64)` 길이 제한에 먼저 걸린다 — 계획 코드의 전제 오류). `information_schema.CHECK_CONSTRAINTS.CHECK_CLAUSE`를 읽어 `\z` 사용·`$` 미사용·`'c'` 플래그를 정적으로 단언하는 테스트로 증명 방법을 바꿨다.
 
 **확장**
 - Pomelo가 EF 10 지원판을 내면 EF를 10으로 되올린다(패키지 3개와 `dotnet ef` 도구 버전만 바뀐다). Oracle 프로바이더는 S1·S9 결함이 고쳐졌을 때만 다시 본다.

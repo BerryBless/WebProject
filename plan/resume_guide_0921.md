@@ -14,6 +14,7 @@
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
 | **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **완료 — PR #5 → `531f207`(master 병합)** | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 실행 보고서 `plan/tech_blog_4_report_0923.md` |
 | 문서화 | **문서화 하네스**(`doc-harness/`, TypeScript): `문서화` 한마디로 `docs/generated/` 61개 문서를 생성·증분 갱신. 실제 저장소에 INITIAL(run-0001)·INCREMENTAL(run-0002) 발행 | **완료 — PR #6 → `0e1237d`(squash 병합)** | 설계 `docs/superpowers/specs/2026-09-23-doc-harness-design.md`, 계획 `docs/superpowers/plans/2026-09-23-doc-harness.md`, 보고서 `plan/doc_harness_0923.md`(결함 17건·판정·잔여 위험). 3b절 |
+| MySQL 전환 | 저장소를 PostgreSQL에서 MySQL 8.4(Pomelo EF Core)로 완전 교체(공개 롤·세션·잠금·동시성 토큰·오류 분류 전부 재구현·재증명) | **구현 완료(Task 0~11), 병합 대기** | 브랜치 `feat/mysql-migration`, 스펙 `plan/mysql_migration_0926.md`, 계획 `plan/mysql_migration_impl_0926.md`. 3c절 |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
 - 기준 커밋: master `c446ef7`(PR #6 병합 `0e1237d` + 보고서 정정). 작업 트리 깨끗함, 열린 PR 없음.
@@ -119,6 +120,23 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 - 하네스 코드를 고치면 `cd doc-harness && npm test && npm run typecheck`. 산출물 중 커밋 대상은 `docs/generated/**`, `doc-harness/workspace/{baseline.json,current/,depgraph.json,runs/*/run.json·report.txt}`; `runs/*/staging`·로그·state.json 등은 `.gitignore`.
 
 **하지 않기로 한 것.** 수정 루프 회차 영속화 — 필요 없음(위 캐시). 문서군 단위 검증 캐시를 문서 단위로 좁히는 개선은 하네스 개발자에게만 이득이라 보류.
+
+## 3c. MySQL 전환 — 구현 완료, 병합 대기
+
+**무엇인가.** 저장소를 PostgreSQL에서 **MySQL 8.4로 완전 교체**했다(Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0 + EF Core 9.0.20, 커넥터 MySqlConnector 2.4.0). PostgreSQL은 읽기 전용 공개 롤·시작 세션 매개변수·권고 잠금·`xmin`·정규식 CHECK 같은 **보안 통제의 구현 수단**이었으므로, 드라이버만 바꾸는 일이 아니라 그 통제를 MySQL 수단으로 하나씩 대체하고 다시 증명하는 작업이었다. 설계는 `plan/mysql_migration_0926.md`(D1~D19, R1~R6), 실행은 `plan/mysql_migration_impl_0926.md`(Task 0~11, SDD)를 따랐다.
+
+**지금 상태(2026-09-26).**
+- 브랜치 `feat/mysql-migration`, Task 0~10 전부 완료(구현·컨트롤러 검증·리뷰 clean), Task 11(문서 반영)이 이 항목을 쓰는 중이다.
+- CI 4개 잡(`test`·`web`·`web-e2e`·`deploy-smoke`) 모두 green(run 36191055799).
+- 이 PC는 Hyper-V가 포트 4173을 배타 예약해 로컬 브라우저 E2E가 막힌다 — CI가 대신 판정한다(3b절의 doc-harness와 무관한 별개 제약).
+- 진행 기록(ledger) `.superpowers/sdd/mysql_migration_impl_0926/progress.md`와 태스크별 `task-N-report.md`에 판정·측정값이 전부 있다(git 추적 대상 — Plan 4 ledger와 달리 정리되지 않는다).
+
+**이어서 할 때 알아야 할 것.**
+- Task 11은 문서만 다룬다: 사람이 읽는 문서(README·`docs/`·`deploy/OPERATIONS.md`)와 코드 주석 정리(구현자), `docs/generated/`는 `문서화` 실행으로 컨트롤러가 갱신(doc-harness owns it), 최종 검증(`dotnet test`·`npm run e2e`·`bash deploy/smoke/run.sh`·`rg` 잔존 검색)은 최종 리뷰 뒤, PR 생성과 `finishing-a-development-branch`는 그다음이다.
+- 남은 순서: 문서 커밋 → `문서화` 실행(ADR-003을 ADR-011로 대체, ADR-008 개정) → 최종 검증 → PR → 병합 방식 결정.
+- 오류 번호 대응표(스펙 2.4절)는 실제 관측 기준으로 갱신됐다: 1205·1213 실측(각각 `SeriesRowLockTests`, `TagResolver` 정렬 제거 대조 실험), 1044는 분류 표 단위 테스트만 있고 실서버 미관측이라 예상으로 남겨 뒀다.
+
+**하지 않기로 한 것.** PG·MySQL 동시 지원 구성(YAGNI, 마이그레이션·테스트·스모크가 두 벌이 된다). 초과 DB 권한 자동 회수(R6 — 회수하려면 서버 출력 문자열을 SQL로 되돌려야 해서, 기동 실패로 드러내는 쪽을 택했다).
 
 ## 4. 계획 실행 중에 끊겼다면 (Subagent-Driven Development)
 

@@ -16,9 +16,9 @@ $row
 $row
 - `PortfolioBlog.Api.Tests` — xUnit + `Microsoft.AspNetCore.Mvc.Testing`. CI의 `dotnet test` 게이트가 실제로 검사하는 대상이다.
 $row
-- `PortfolioBlog.Web` — 관리 에디터 전용 React 19 + TypeScript + Vite SPA(3단계 구현 완료). `admin.<도메인>`에서만 서빙되며 `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다. 보안 헤더(CSP 포함)의 정본은 `admin-headers.ts` — `vite preview`가 이미 쓰고 Plan 4의 Caddyfile이 CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`를 그대로 옮긴다. **HSTS는 Caddy가 따로 더한다**(이 파일에는 의도적으로 없다 — 루프백 미리보기 서버에서도 쓰이기 때문). `npm run certs`(개발 인증서 내보내기)·`npm run dev`(HTTPS 개발 서버)·`npm test`(Vitest)·`npm run e2e:prepare && npm run e2e`(Playwright, 실제 백엔드 + PostgreSQL + production 빌드, Chromium·Firefox, Docker Desktop 필요)로 검증한다. CI는 `web` 잡(lint·typecheck·test·build)과 `web-e2e` 잡(서비스 컨테이너 PostgreSQL + Playwright)을 돈다.
+- `PortfolioBlog.Web` — 관리 에디터 전용 React 19 + TypeScript + Vite SPA(3단계 구현 완료). `admin.<도메인>`에서만 서빙되며 `npm run build` 산출물 `dist/`는 Caddy 이미지에 복사된다. 보안 헤더(CSP 포함)의 정본은 `admin-headers.ts` — `vite preview`가 이미 쓰고 Plan 4의 Caddyfile이 CSP·`X-Content-Type-Options`·`X-Frame-Options`·`Referrer-Policy`·`Permissions-Policy`를 그대로 옮긴다. **HSTS는 Caddy가 따로 더한다**(이 파일에는 의도적으로 없다 — 루프백 미리보기 서버에서도 쓰이기 때문). `npm run certs`(개발 인증서 내보내기)·`npm run dev`(HTTPS 개발 서버)·`npm test`(Vitest)·`npm run e2e:prepare && npm run e2e`(Playwright, 실제 백엔드 + MySQL + production 빌드, Chromium·Firefox, Docker Desktop 필요)로 검증한다. CI는 `web` 잡(lint·typecheck·test·build)과 `web-e2e` 잡(서비스 컨테이너 MySQL + Playwright)을 돈다.
 $row
-- `deploy/` — compose(caddy·api·postgres + 백업/복원 전용 `tools`, 네트워크 셋 `public`/`edge`/`db`)·Caddyfile(공개·관리 사이트 2개)·`.env.example`·`postgres-init`(DB 롤 셋 `blog_app`/`blog_public`)·`backup.sh`/`restore.sh`(무중단 백업과 복원)·`smoke/`(운영과 같은 이미지로 띄워 찌르는 스모크, CI `deploy-smoke` 잡)·`OPERATIONS.md`. 새 이미지 태그·Caddyfile·compose를 고치면 `bash deploy/smoke/run.sh`를 통과시킬 것.
+- `deploy/` — compose(caddy·api·mysql + 백업/복원 전용 `tools`, 네트워크 셋 `public`/`edge`/`db`)·Caddyfile(공개·관리 사이트 2개)·`.env.example`·`mysql-init`(DB 사용자 셋 `blog_app`/`blog_public`, `root`는 소켓 전용)·`backup.sh`/`restore.sh`(무중단 백업과 복원)·`smoke/`(운영과 같은 이미지로 띄워 찌르는 스모크, CI `deploy-smoke` 잡)·`OPERATIONS.md`. 새 이미지 태그·Caddyfile·compose를 고치면 `bash deploy/smoke/run.sh`를 통과시킬 것.
 $row
 
 $row
@@ -179,6 +179,8 @@ $row
 | plan/tech_blog_4_report_0923.md | 2026-09-23 | 기술 블로그 4단계(배포) 실행 보고서: 만든 것(compose 3망·Caddyfile·DB 롤·백업/복원·스모크+스택 E2E·CI), 리뷰가 실측으로 찾은 결함과 교훈 6가지, 질문 없이 내린 판정 22건, 수용한 잔여 위험, 알려진 문제, 최종 리뷰·PR·CI 결과 |
 $row
 | plan/resume_guide_0921.md | 2026-09-21 | 작업 재개 가이드(갱신형, 2026-09-25): 단계별 진행 상태와 기준 커밋(1~4단계·문서화 하네스 master 병합), 재시작 5분 점검, 4단계 커밋 표와 실행하며 확인된 사실, **문서화 하네스 인계(3b절: 현재 baseline 상태·재개·비용·함정·하지 않기로 한 것)**, SDD 실행이 끊겼을 때 복구(ledger·센티널), 자주 밟는 함정, 문서·코드 지도, 사용자가 정해 둔 결정, 다음 작업(노션식 편집·보기) |
+| plan/mysql_migration_0926.md | 2026-09-26 | MySQL 전환 설계 스펙(**구현 완료, 병합 대기**): PG 통제 → MySQL 대체표 D1~D19, 질문 없이 내린 판정 R1~R6, 오류 번호 대응표(2.4절), ADR-011 초안(공개 조회 롤 재구현) |
+| plan/mysql_migration_impl_0926.md | 2026-09-26 | MySQL 전환 구현 계획(Task 0~11, SDD): 프로바이더 스파이크(Oracle no-go → Pomelo go)부터 스키마·인터셉터·테스트 기반 교체, 배포 스택·CI 교체, 문서 반영까지. 진행 기록은 `.superpowers/sdd/mysql_migration_impl_0926/progress.md`(ledger)와 태스크별 `task-N-report.md` |
 $row
 | plan/doc_harness_0923.md | 2026-09-23 | 문서화 하네스(doc-harness) 구현·실전 실행 보고서: 설계 결정과 실행 중 내린 판정, 컴포넌트 구조, 사용법, INITIAL 실전 결과(기능 29·문서 61·Mermaid 101·비용 약 $347)와 INCREMENTAL 실전 결과(run-0002: 소스 한 줄 → 기능 2·문서 15·다이어그램 3 갱신, $149), 실전에서 잡은 결함 17건과 교훈, 잔여 위험(잔여 지적 61건·문서군 단위 검증 캐시·되돌린 주석의 baseline), 향후 확장 |
 $row
