@@ -4,16 +4,17 @@
 
 **Goal:** PostgreSQL을 MySQL 8.4로 완전히 교체하되, 기존 보안 통제(공개 읽기 전용 롤·세션 제한·권고 잠금·낙관적 동시성·CHECK·오류→HTTP 매핑)를 MySQL 수단으로 다시 구현하고 테스트로 다시 증명한다.
 
-**Architecture:** EF Core 10 + Oracle `MySql.EntityFrameworkCore` 10.0.9. PG 전용 수단은 인터셉터 3종(공개 세션, READ COMMITTED 트랜잭션, Post 버전), `GET_LOCK`, 단일 오류 분류기(`DbErrorClassifier`), `SHOW GRANTS` 기반 권한 검증으로 대체한다. 순수 로직은 먼저 TDD로 만든다(Task 1). 이어서 컴파일 단위인 "전환"을 두 태스크로 나눠 실행한다(Task 2: 프로덕션 코드, Task 3: 테스트 기반). 그다음 보안 통제별로 MySQL 동작을 증명하는 테스트를 새로 쓴다(Task 4~8). 마지막은 배포·CI·문서다(Task 9~11).
+**Architecture:** EF Core 9.0.20 + `Pomelo.EntityFrameworkCore.MySql` 9.0.0(커넥터 `MySqlConnector` 2.4.0). Oracle 프로바이더는 Task 0 스파이크에서 no-go로 기각했다. PG 전용 수단은 인터셉터 3종(공개 세션, READ COMMITTED 트랜잭션, Post 버전), `GET_LOCK`, 단일 오류 분류기(`DbErrorClassifier`), `SHOW GRANTS` 기반 권한 검증으로 대체한다. 순수 로직은 먼저 TDD로 만든다(Task 1). 이어서 컴파일 단위인 "전환"을 두 태스크로 나눠 실행한다(Task 2: 프로덕션 코드, Task 3: 테스트 기반). 그다음 보안 통제별로 MySQL 동작을 증명하는 테스트를 새로 쓴다(Task 4~8). 마지막은 배포·CI·문서다(Task 9~11).
 
-**Tech Stack:** .NET 10, EF Core 10.0.12, MySql.EntityFrameworkCore 10.0.9(MySql.Data 커넥터), MySQL 8.4 LTS, Testcontainers.MySql 4.15.0, xUnit 2.9, Docker Compose, Playwright.
+**Tech Stack:** .NET 10, EF Core 9.0.20, Pomelo.EntityFrameworkCore.MySql 9.0.0(MySqlConnector 2.4.0 커넥터), MySQL 8.4 LTS(운영 `mysql:8.4.11`), Testcontainers.MySql 4.15.0, xUnit 2.9, Docker Compose, Playwright.
 
 **Spec:** `plan/mysql_migration_0926.md` — 대체표 D1~D19, 판정 R1~R6, 오류 번호표 2.4절. 실행자는 이 계획과 스펙을 함께 읽는다.
 
 ## Global Constraints
 
-- 패키지 버전은 `Directory.Packages.props`에서만 관리한다. `MySql.EntityFrameworkCore` **10.0.9**, `Testcontainers.MySql` **4.15.0**, EF Core **10.0.12**(변경 없음).
-- MySQL 이미지: 테스트는 `mysql:8.4`, 운영(compose)은 Task 0에서 확인한 최신 8.4 패치 태그(`mysql:8.4.<x>`)로 고정한다.
+- 패키지 버전은 `Directory.Packages.props`에서만 관리한다. `Pomelo.EntityFrameworkCore.MySql` **9.0.0**, EF Core **9.0.20**(`Microsoft.EntityFrameworkCore.Design`·`.Relational`), `MySqlConnector` **2.4.0**(Pomelo가 전이로 가져오는 버전과 같다. props에 명시해 고정한다), `Testcontainers.MySql` **4.15.0**. Pomelo 9.0.0은 EF Relational `[9.0.0, 9.0.999]`에 묶여 있어 EF 10과 공존할 수 없다.
+- EF 모델 구성은 `UseMySql(연결 문자열, DataServiceCollectionExtensions.ServerVersion)`만 쓴다. `ServerVersion`은 `ServerVersion.Create(new Version(8, 4, 11), ServerType.MySql)` 고정값이다. **`ServerVersion.AutoDetect`는 금지**한다(옵션을 만들 때 연결을 열어 서버에 묻는다).
+- MySQL 이미지: 테스트는 `mysql:8.4`, 운영(compose)과 CI는 Task 0에서 확인한 패치 태그 **`mysql:8.4.11`**로 고정한다.
 - 서버 인자(운영·테스트 공통): `--transaction-isolation=READ-COMMITTED --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci --local-infile=0 --innodb-lock-wait-timeout=10`. 운영은 여기에 `--secure-file-priv=NULL --require-secure-transport=ON`을 더한다.
 - 연결 문자열: `SslMode=Required` 이상. **`AllowPublicKeyRetrieval=true` 금지.** 앱은 두 연결 모두에 `ConnectionReset=true`를 강제한다(`DataServiceCollectionExtensions.WithSessionReset`).
 - 식별자 열 콜레이션은 `utf8mb4_bin`이다: Posts.Slug, Series.Slug, Tags.NormalizedName, Attachments.Sha256, Attachments.ContentType, Attachments.StoragePath.
@@ -50,234 +51,42 @@
 
 ---
 
-### Task 0: 브랜치와 스파이크(go/no-go)
+### Task 0: 브랜치와 스파이크(go/no-go) — **완료(2026-09-26)**
 
-**목적:** Oracle 프로바이더가 이 계획의 가정을 실제로 만족하는지 버리는 코드로 확인한다. **하나라도 실패하면 멈추고** 사용자에게 보고한다(후퇴안: Pomelo + EF 9, 스펙 2.1절).
+**결과 요약:** 스파이크를 두 번 돌렸다. 1차(Oracle)는 no-go, 2차(Pomelo)는 go다. 이 계획의 나머지는 2차 결과를 기준으로 쓰였다.
 
-**Files:**
-- Create: `_workspace/mysql-spike/Spike.csproj`, `_workspace/mysql-spike/Program.cs`, `_workspace/mysql-spike/report.md`. `_workspace/`는 git 추적 대상이 아니다.
+| 회차 | 대상 | 판정 | 근거 |
+|---|---|---|---|
+| 1차 | Oracle `MySql.EntityFrameworkCore` 10.0.9 (EF 10.0.12, 커넥터 `MySql.Data` 26.7.0) | **no-go** | S1: `UseCollation`과 `IsDescending`이 DDL에서 빠진다(EnsureCreated·GenerateCreateScript 둘 다). S9: `EF.Functions.Like(..., "\\")`가 잘못된 SQL `ESCAPE '\'`를 만든다. 별도로 `ConnectionReset=true` 풀의 첫 재대여 실패가 두 번 재현됐으나 이후 재실행에서는 재현되지 않았다(미해결, Oracle 드라이버 한정) |
+| 2차 | Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0 (EF 9.0.20, 커넥터 `MySqlConnector` 2.4.0) | **go** | go 조건 전부 PASS. 실제 마이그레이션 SQL(differ+generator)에서도 콜레이션과 `DESC`가 반영됐고, Like 이스케이프는 데이터로 동작을 증명했으며(이스케이프 없는 `_` 2건 / 이스케이프된 `_` 0건), 워밍업 없는 동시 재대여 실패는 0/60이다 |
 
-- [ ] **Step 1: 브랜치 생성**
+**계획에 반영한 관측값:**
+- S3b: `SELECT SLEEP(2)`는 `max_execution_time`에 걸려도 오류 없이 0을 반환한다. Task 5의 시간 초과 테스트는 교차 조인 쿼리를 쓴다.
+- S3c: MDL 대기(`LOCK TABLES … WRITE` 뒤 공개 세션의 SELECT)는 **3024**로 끝난다(1205가 아니다). `DbErrorClassifier`는 둘 다 503으로 매핑한다.
+- S4a: 없는 테이블 GRANT는 1146이다(R1 근거 ① 유지). S4e: FILE 권한 없는 `SELECT … INTO OUTFILE`은 **1227**이다(Task 9 스모크 판정 문구).
+- S6b: `ConnectionReset=true`에서 해제하지 않은 `GET_LOCK`은 **반납만으로는 풀리지 않고(0) 같은 물리 연결을 다시 대여할 때 풀린다(1)**. MySqlConnector에서도 같다.
+- S14: MySqlConnector의 인자 없는 `BeginTransaction()`은 세션 값과 무관하게 매번 `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`를 보낸다(general_log 실측). 그래서 D7의 `ReadCommittedTransactionInterceptor`는 **필수**다. (Oracle 드라이버는 세션 값을 그대로 두었다.)
+- S15: `MySqlConnector.MySqlException`에는 public 생성자가 없다. 테스트는 non-public `(MySqlErrorCode errorCode, string sqlState, string message, Exception innerException)` 생성자를 리플렉션으로 호출한다. `Number`는 int(예: 1062), `ErrorCode`는 `MySqlErrorCode` 열거형이다.
+- S12/S15b: 알 수 없는 연결 문자열 키워드는 `ArgumentException("Option 'bogus keyword' not supported.")`을 던지고 값을 드러내지 않는다.
+- 빌더 속성 `UserID`·`Password`·`SslMode`·`ConnectionReset`·`AllowPublicKeyRetrieval`·`DefaultCommandTimeout`·`MaximumPoolSize`가 MySqlConnector에도 같은 이름으로 있다. `MySqlSslMode`는 `None`·`Preferred`·`Required`·`VerifyCA`·`VerifyFull`이다(`Disabled`는 `None`의 별칭).
+- S16: 코드베이스에 EF 10 전용 API는 없다. `Microsoft.AspNetCore.Mvc.Testing` 10.0.12·`Microsoft.AspNetCore.OpenApi` 10.0.11은 EF를 전이 의존하지 않는다. `Directory.Packages.props`에서 바꿀 EF 항목은 셋이다: Npgsql EF 제거, Pomelo 9.0.0 추가, `Microsoft.EntityFrameworkCore.Design`/`.Relational` 10.0.12 → 9.0.20.
+- 운영 이미지 패치 태그: `mysql:8.4.11`(Task 9에서 고정).
 
-```powershell
-git switch -c feat/mysql-migration
-```
+**보고서:**
+- 1차(Oracle): `.superpowers/sdd/mysql_migration_impl_0926/task-0-report.md`
+- 2차(Pomelo, Oracle 대조 포함): `.superpowers/sdd/mysql_migration_impl_0926/task-0b-report.md`, `_workspace/mysql-spike-pomelo/report.md`
 
-- [ ] **Step 2: 스파이크 프로젝트 작성**
-
-`_workspace/mysql-spike/Spike.csproj`. 중앙 패키지 관리를 끄고 버전을 직접 적는다. 루트 `Directory.Packages.props`의 영향을 받지 않게 하기 위해서다.
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="MySql.EntityFrameworkCore" Version="10.0.9" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
-    <PackageReference Include="Testcontainers.MySql" Version="4.15.0" />
-  </ItemGroup>
-</Project>
-```
-
-`_workspace/mysql-spike/Program.cs`. 각 S 항목의 결과를 `PASS`/`FAIL`과 관측값으로 출력한다.
-
-```csharp
-using System.Data;
-using System.Diagnostics;
-using System.Reflection;
-using Microsoft.EntityFrameworkCore;
-using MySql.Data.MySqlClient;
-using Testcontainers.MySql;
-
-await using var container = new MySqlBuilder("mysql:8.4").WithUsername("root").WithPassword("spike-root")
-    .WithCommand("--transaction-isolation=READ-COMMITTED", "--character-set-server=utf8mb4", "--local-infile=0")
-    .Build();
-await container.StartAsync();
-var root = new MySqlConnectionStringBuilder(container.GetConnectionString()) { SslMode = MySqlSslMode.Required, Database = "spike", ConnectionReset = true }.ConnectionString;
-var report = new List<string>();
-void R(string id, bool ok, string note) { var line = $"{id} {(ok ? "PASS" : "FAIL")} {note}"; report.Add(line); Console.WriteLine(line); }
-
-// S1 스키마: 콜레이션·CHECK(REGEXP_LIKE+\z)·내림차순 인덱스·Guid 매핑·DATETIME(6)
-await using (var db = new SpikeDb(root)) { await db.Database.EnsureDeletedAsync(); await db.Database.EnsureCreatedAsync(); }
-var ddl = (string)(await Scalar(root, "", fallback: true))!; // fallback: SHOW CREATE TABLE Items의 2열
-R("S1", ddl.Contains("utf8mb4_bin") && ddl.Contains("DESC") && ddl.Contains("char(36)") && ddl.Contains("datetime(6)") && ddl.Contains("REGEXP_LIKE"), "SHOW CREATE TABLE Items:\n" + ddl);
-
-// S2 CHECK 동작: "abc\n"은 거부되고 "abc-def"는 허용되어야 한다. 오류 번호 3819 확인
-R("S2a", await ErrNo(root, "INSERT INTO Items (Id,Slug,CreatedAt,Version) VALUES (UUID(),'abc\\n',NOW(6),1)") == 3819, "슬러그 끝 개행 거부");
-R("S2b", await ErrNo(root, "INSERT INTO Items (Id,Slug,CreatedAt,Version) VALUES (UUID(),'abc-def',NOW(6),1)") == 0, "정상 슬러그 허용");
-R("S2c", await ErrNo(root, "INSERT INTO Items (Id,Slug,CreatedAt,Version) VALUES (UUID(),'abc-def',NOW(6),1)") == 1062, "중복 1062");
-R("S2d", await ErrNo(root, "INSERT INTO Items (Id,Slug,CreatedAt,Version) VALUES (UUID(),'ABC-DEF',NOW(6),1)") == 3819, "대문자는 'c' 플래그로 거부");
-
-// S3 공개 세션: read_only 쓰기 번호, max_execution_time 번호(쿼리별), MDL 대기 lock_wait_timeout 번호
-await using (var c = await Open(root))
-{
-    await Exec(c, "SET SESSION transaction_read_only = ON, max_execution_time = 200, lock_wait_timeout = 1");
-    R("S3a", await ErrNoOn(c, "DELETE FROM Items") == 1792, "읽기 전용 쓰기");
-    var sleep = await ErrNoOn(c, "SELECT SLEEP(2)");
-    var cross = await ErrNoOn(c, "SELECT COUNT(*) FROM information_schema.COLUMNS a, information_schema.COLUMNS b, information_schema.COLUMNS c");
-    R("S3b", cross == 3024, $"교차 조인 → {cross}, SLEEP → {sleep} (테스트는 3024를 내는 쿼리를 쓴다)");
-}
-await using (var holder = await Open(root))
-{
-    await Exec(holder, "LOCK TABLES Items WRITE");
-    await using var c = await Open(root);
-    await Exec(c, "SET SESSION transaction_read_only = ON, max_execution_time = 200, lock_wait_timeout = 1");
-    var sw = Stopwatch.StartNew();
-    var n = await ErrNoOn(c, "SELECT COUNT(*) FROM Items");
-    R("S3c", n is 1205 or 3024 && sw.Elapsed < TimeSpan.FromSeconds(3), $"MDL 대기 → {n}, {sw.ElapsedMilliseconds}ms");
-    await Exec(holder, "UNLOCK TABLES");
-}
-
-// S4 권한: 없는 테이블 GRANT(1146 예상), SHOW GRANTS 형식, GRANT OPTION 사용자로 부여 가능 여부
-await Exec(root, "CREATE USER 'pub'@'%' IDENTIFIED BY 'p' REQUIRE SSL; CREATE USER 'app'@'%' IDENTIFIED BY 'a' REQUIRE SSL;" +
-                 "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON `spike`.* TO 'app'@'%' WITH GRANT OPTION");
-var app = new MySqlConnectionStringBuilder(root) { UserID = "app", Password = "a" }.ConnectionString;
-var pub = new MySqlConnectionStringBuilder(root) { UserID = "pub", Password = "p" }.ConnectionString;
-R("S4a", await ErrNo(app, "GRANT SELECT ON `spike`.`Nope` TO 'pub'@'%'") == 1146, "없는 테이블 GRANT");
-R("S4b", await ErrNo(app, "GRANT SELECT ON `spike`.`Items` TO 'pub'@'%'") == 0, "GRANT OPTION 사용자가 부여");
-var grants = await Lines(pub, "SHOW GRANTS");
-R("S4c", grants.Contains("GRANT USAGE ON *.* TO `pub`@`%`") && grants.Contains("GRANT SELECT ON `spike`.`Items` TO `pub`@`%`"), string.Join(" | ", grants));
-R("S4d", await ErrNo(pub, "DELETE FROM Items") == 1142, "공개 사용자 DELETE 권한 거부 번호");
-R("S4e", await ErrNo(app, "SELECT 1 INTO OUTFILE '/tmp/x'") is 1045 or 1227 or 1290, $"FILE 권한 없음 → {await ErrNo(app, "SELECT 1 INTO OUTFILE '/tmp/y'")}");
-
-// S5 FK 번호, CHECK와 FK RESTRICT 동시 사용 가능 여부(에러 3823이면 설계 수정 필요)
-R("S5", await ErrNo(root, "CREATE TABLE P (Id char(36) PRIMARY KEY); CREATE TABLE C (Id char(36) PRIMARY KEY, PId char(36) NULL, Ord int NULL," +
-      " CONSTRAINT CK_Pair CHECK ((PId IS NULL) = (Ord IS NULL)), CONSTRAINT FK_C FOREIGN KEY (PId) REFERENCES P(Id) ON DELETE RESTRICT)") == 0, "CHECK 열에 FK RESTRICT");
-await Exec(root, "INSERT INTO P VALUES ('p1'); INSERT INTO C VALUES ('c1','p1',1)");
-R("S5b", await ErrNo(root, "DELETE FROM P") == 1451, "부모 삭제 1451");
-R("S5c", await ErrNo(root, "INSERT INTO C VALUES ('c2','zz',1)") == 1452, "자식 삽입 1452");
-
-// S6 GET_LOCK: 이름 64자 한계, 타임아웃 반환 0, 반환 타입, ConnectionReset=true 풀 반납 후 잠금 해제
-var name = "att:12345678:" + new string('a', 48);
-await using (var a = await Open(root)) await using (var b = await Open(root))
-{
-    var got = await ScalarOn(a, $"SELECT CAST(GET_LOCK('{name}', 10) AS SIGNED)");
-    var other = await ScalarOn(b, $"SELECT CAST(GET_LOCK('{name}', 0) AS SIGNED)");
-    R("S6a", got is long g && g == 1 && other is long o && o == 0, $"획득 {got} / 경쟁 {other} (타입 {got?.GetType().Name})");
-}
-var single = new MySqlConnectionStringBuilder(root) { MaximumPoolSize = 1 }.ConnectionString;
-await using (var a = await Open(single)) await ScalarOn(a, $"SELECT GET_LOCK('{name}', 0)"); // 해제하지 않고 풀에 반납
-await using (var a = await Open(single)) R("S6b", Convert.ToInt64(await ScalarOn(a, $"SELECT IS_FREE_LOCK('{name}')")) == 1, "ConnectionReset=true 재대여 시 잠금 해제");
-
-// S7 격리 수준: 인자 없는 BeginTransaction()이 보내는 수준
-await using (var c = await Open(root))
-{
-    await using var tx = await c.BeginTransactionAsync();
-    R("S7", true, $"BeginTransaction() IsolationLevel={tx.IsolationLevel}, @@transaction_isolation={await ScalarOn(c, "SELECT @@transaction_isolation", tx)}");
-}
-
-// S8 MySqlException 생성자(테스트에서 만들 수 있는가)
-var ctor = typeof(MySqlException).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, [typeof(string), typeof(int)]);
-R("S8", ctor is not null, ctor is null ? "생성자 없음 → 테스트는 실제 서버 오류를 쓴다" : "(string,int) 생성자 존재");
-
-// S9 EF 기능: ExecuteUpdate(열+1), ExecuteDelete, Like+escape, Version 동시성 토큰
-await using (var db = new SpikeDb(root))
-{
-    db.Items.Add(new Item { Id = Guid.CreateVersion7(), Slug = "x-1", CreatedAt = DateTime.UtcNow, Version = 1 });
-    await db.SaveChangesAsync();
-    var n = await db.Items.Where(i => i.Slug == "x-1").ExecuteUpdateAsync(u => u.SetProperty(i => i.Version, i => i.Version + 1));
-    var like = await db.Items.CountAsync(i => EF.Functions.Like(i.Slug, "x\\-%", "\\"));
-    var del = await db.Items.Where(i => i.Slug == "x-1").ExecuteDeleteAsync();
-    R("S9", n == 1 && like >= 0 && del == 1, $"update {n}, like {like}, delete {del}");
-}
-
-// S10 비동기 논블로킹: SLEEP(1) 200건 동시 실행 중 스레드 풀 스레드 수 증가
-ThreadPool.SetMinThreads(8, 8);
-var before = ThreadPool.ThreadCount;
-var pooled = new MySqlConnectionStringBuilder(root) { MaximumPoolSize = 250 }.ConnectionString;
-await Exec(root, "SET GLOBAL max_connections = 400");
-var sw2 = Stopwatch.StartNew();
-var peak = 0;
-var sampler = Task.Run(async () => { while (sw2.Elapsed < TimeSpan.FromSeconds(4)) { peak = Math.Max(peak, ThreadPool.ThreadCount); await Task.Delay(50); } });
-await Task.WhenAll(Enumerable.Range(0, 200).Select(async _ => { await using var c = await Open(pooled); await ScalarOn(c, "SELECT SLEEP(1)"); }));
-await sampler;
-// 판정은 경과 시간으로 한다: 진짜 비동기면 SLEEP(1) 200건이 약 1~3초(+TLS 핸드셰이크)에 끝난다. sync-over-async면 스레드 풀이 초당 1~2개씩만
-// 늘어 200/스레드 수 ≈ 10초 이상이 걸린다. 스레드 최대치는 참고용으로만 기록한다(주입 속도가 느려 blocking이어도 60 아래로 나올 수 있다).
-R("S10", sw2.Elapsed < TimeSpan.FromSeconds(5), $"경과 {sw2.ElapsedMilliseconds}ms, 스레드 {before}→최대 {peak}");
-
-// S11 max_connections·isolation 서버 인자 반영
-R("S11", (string)(await Scalar(root, "SELECT @@GLOBAL.transaction_isolation"))! == "READ-COMMITTED", "서버 인자 반영");
-
-// S12 연결 문자열 키워드: DefaultCommandTimeout 이름, 알 수 없는 키 예외 타입과 메시지(값 노출 여부)
-try { _ = new MySqlConnectionStringBuilder("Server=db.example;Bogus Keyword=1"); R("S12", false, "예외 없음"); }
-catch (Exception ex) { R("S12", !ex.Message.Contains("db.example"), $"{ex.GetType().Name}: {ex.Message}"); }
-
-File.WriteAllLines(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "report.md"), report);
-
-static async Task<MySqlConnection> Open(string cs) { var c = new MySqlConnection(cs); await c.OpenAsync(); return c; }
-static async Task Exec(object target, string sql) { if (target is string cs) { await using var c = await Open(cs); await Exec(c, sql); return; } await using var cmd = new MySqlCommand(sql, (MySqlConnection)target); await cmd.ExecuteNonQueryAsync(); }
-static async Task<int> ErrNo(string cs, string sql) { await using var c = await Open(cs); return await ErrNoOn(c, sql); }
-static async Task<int> ErrNoOn(MySqlConnection c, string sql) { try { await Exec(c, sql); return 0; } catch (MySqlException ex) { return ex.Number; } }
-static async Task<object?> ScalarOn(MySqlConnection c, string sql, MySqlTransaction? tx = null) { await using var cmd = new MySqlCommand(sql, c, tx); return await cmd.ExecuteScalarAsync(); }
-static async Task<object?> Scalar(string cs, string sql, bool fallback = false)
-{
-    await using var c = await Open(cs);
-    if (fallback) { await using var cmd = new MySqlCommand("SHOW CREATE TABLE Items", c); await using var r = await cmd.ExecuteReaderAsync(); await r.ReadAsync(); return r.GetString(1); }
-    return await ScalarOn(c, sql);
-}
-static async Task<List<string>> Lines(string cs, string sql) { await using var c = await Open(cs); await using var cmd = new MySqlCommand(sql, c); await using var r = await cmd.ExecuteReaderAsync(); var l = new List<string>(); while (await r.ReadAsync()) l.Add(r.GetString(0)); return l; }
-
-sealed class Item { public Guid Id { get; set; } public string Slug { get; set; } = ""; public DateTime CreatedAt { get; set; } public uint Version { get; set; } }
-sealed class SpikeDb(string cs) : DbContext
-{
-    public DbSet<Item> Items => Set<Item>();
-    protected override void OnConfiguring(DbContextOptionsBuilder o) => o.UseMySQL(cs);
-    protected override void OnModelCreating(ModelBuilder b) => b.Entity<Item>(e =>
-    {
-        e.ToTable("Items", t => t.HasCheckConstraint("CK_Items_Slug", "REGEXP_LIKE(`Slug`, '^[a-z0-9]+(-[a-z0-9]+)*\\\\z', 'c')"));
-        e.Property(x => x.Slug).HasMaxLength(100).UseCollation("utf8mb4_bin");
-        e.Property(x => x.CreatedAt).HasColumnType("datetime(6)");
-        e.Property(x => x.Version).IsConcurrencyToken();
-        e.HasIndex(x => x.Slug).IsUnique();
-        e.HasIndex(x => new { x.CreatedAt, x.Id }).IsDescending(true, false);
-    });
-}
-```
-
-> CHECK 식에서 C# 문자열 `\\\\z`는 SQL 텍스트 `\\z`가 되고, MySQL 문자열 리터럴 해석을 거쳐 정규식 `\z`가 된다. S2a가 이 연쇄를 검증한다.
-
-- [ ] **Step 3: 실행과 판정**
-
-```powershell
-dotnet run --project _workspace/mysql-spike/Spike.csproj
-```
-
-**go 조건:** S1·S2a~d·S3a·S3b·S3c·S4b~e·S5·S5b·S5c·S6a·S6b·S9·S10·S11이 PASS여야 한다. S4a·S7·S8·S12는 관측값을 기록만 한다(설계가 그 결과에 의존하지 않는다).
-
-**관측값에 따른 계획 조정**(report.md에 결정을 적는다):
-- S3b: `SELECT SLEEP`이 3024를 내지 않으면 Task 5의 시간 초과 테스트는 교차 조인 쿼리를 쓴다(계획 코드가 이미 그렇게 되어 있다).
-- S3c: MDL 대기 오류 번호(1205 또는 3024)를 2.4절 표에 반영한다. 둘 다 `DbErrorClassifier`가 503으로 매핑한다.
-- S4a가 0이면(없는 테이블 GRANT 허용) R1의 근거 ①을 스펙에서 정정한다. 설계는 그대로 둔다.
-- S4e 번호를 `deploy/smoke/run.sh`의 거부 판정 문구에 반영한다.
-- S5 실패(3823)면 `CK_Posts_Series_Pair`와 FK RESTRICT 공존이 불가능하다. 멈추고 보고한다.
-- S7: `IsolationLevel`이 `RepeatableRead`면 D7의 트랜잭션 인터셉터가 **필수**다. 아니어도 넣는다(이중 방어).
-- S8 실패면 Task 7의 `MySqlErrors.Create`는 실제 서버 오류를 캡처하는 방식으로 대체한다(Task 7 Step 1의 대안 코드 참조).
-- S12: 알 수 없는 키 예외 타입을 `StartupValidation.CheckConnection`의 catch 조건에 반영한다. 메시지에 값이 드러나면 이미 계획대로 메시지를 버린다.
-
-**report.md 형식:** 항목별 한 줄(`S<n> PASS|FAIL 관측값`)과 마지막 "판정: go/no-go" 줄. no-go면 이후 태스크를 진행하지 않는다.
-
-- [ ] **Step 4: 운영 이미지 패치 태그 확인**
-
-```powershell
-docker pull mysql:8.4; docker image inspect mysql:8.4 --format '{{index .Config.Env}}' | Select-String MYSQL_VERSION
-```
-
-결과 버전(예: `8.4.6`)을 report.md에 적는다. Task 9에서 `mysql:8.4.<x>`로 고정한다.
+스파이크 코드는 `_workspace/mysql-spike/`(Oracle), `_workspace/mysql-spike-pomelo/`(Pomelo), `_workspace/mysql-spike-reset/`(S13/S14의 MySql.Data 대조)에 있다. git 추적 대상이 아니다. 프로바이더 API 사용법(`UseMySql`·`ServerVersion`·`IDesignTimeModel` 기반 마이그레이션 SQL 생성)은 `_workspace/mysql-spike-pomelo/Program.cs`가 실제로 컴파일되는 예시다.
 
 ---
 
 ### Task 1: 순수 부품 — 오류 분류기, 잠금 이름, 권한 판정, UTC 변환기
 
-**목적:** DB 없이 검증 가능한 부품을 먼저 TDD로 만든다. 이 태스크 동안 PG 코드는 그대로 두므로 두 프로바이더 패키지가 잠시 공존한다.
+**목적:** DB 없이 검증 가능한 부품을 먼저 TDD로 만든다. 이 태스크 동안 PG 코드는 그대로 둔다. Pomelo는 아직 넣지 못한다: Npgsql EF 10.0.3은 EF 10을, Pomelo 9.0.0은 EF 9를 요구하므로 중앙 전이 고정(`CentralPackageTransitivePinningEnabled`) 아래에서 둘이 공존할 수 없다. 그래서 이 태스크는 `DbErrorClassifier`가 필요로 하는 커넥터 `MySqlConnector`만 추가한다(EF 의존 없음).
 
 **Files:**
-- Modify: `Directory.Packages.props` (`MySql.EntityFrameworkCore` 10.0.9 추가, Npgsql은 유지)
-- Modify: `PortfolioBlog.Api/PortfolioBlog.Api.csproj` (`<PackageReference Include="MySql.EntityFrameworkCore" />` 추가)
+- Modify: `Directory.Packages.props` (`MySqlConnector` 2.4.0 추가, Npgsql은 유지)
+- Modify: `PortfolioBlog.Api/PortfolioBlog.Api.csproj` (`<PackageReference Include="MySqlConnector" />` 추가)
 - Create: `PortfolioBlog.Api/Infrastructure/Data/DbErrorClassifier.cs`, `DbLockTimeoutException.cs`, `UtcDateTimeOffsetConverter.cs`
 - Modify: `PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs` (`NameFor` 추가, 기존 코드 유지)
 - Modify: `PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs` (`Violations` 추가, 기존 코드 유지)
@@ -292,17 +101,19 @@ docker pull mysql:8.4; docker image inspect mysql:8.4 --format '{{index .Config.
   - `static IReadOnlyList<string> PublicRoleGrants.Violations(IEnumerable<string> showGrantsLines, string database, IReadOnlyList<string> readableTables)`
   - `sealed class UtcDateTimeOffsetConverter : ValueConverter<DateTimeOffset, DateTime>`
 
-- [ ] **Step 1: 패키지 추가**
+- [ ] **Step 1: 커넥터 패키지 추가(`MySqlConnector`만)**
 
 `Directory.Packages.props`의 `<ItemGroup>`에 추가한다:
 ```xml
-    <PackageVersion Include="MySql.EntityFrameworkCore" Version="10.0.9" />
+    <PackageVersion Include="MySqlConnector" Version="2.4.0" />
 ```
 `PortfolioBlog.Api.csproj`의 Npgsql 참조 옆에 추가한다:
 ```xml
-    <PackageReference Include="MySql.EntityFrameworkCore" />
+    <PackageReference Include="MySqlConnector" />
 ```
 실행: `dotnet build PortfolioBlog.slnx -warnaserror` → 성공(경고 0).
+
+> Pomelo 9.0.0은 Task 2 Step 1에서 Npgsql 제거·EF 9.0.20 하향과 **같은 단계에** 넣는다. Pomelo가 전이로 가져오는 `MySqlConnector`도 2.4.0이라 버전이 겹친다. Task 2 이후 `PortfolioBlog.Api.csproj`의 명시 `PackageReference`는 코드가 `MySqlConnector` 네임스페이스를 직접 쓰므로 남겨 둔다(중복이라 판단되면 csproj 참조만 지워도 되지만 props의 `PackageVersion`은 버전 고정용으로 유지한다).
 
 - [ ] **Step 2: 실패하는 테스트 작성**
 
@@ -512,7 +323,7 @@ public sealed class DbLockTimeoutException(string message) : Exception(message);
 
 `PortfolioBlog.Api/Infrastructure/Data/DbErrorClassifier.cs`:
 ```csharp
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 
 namespace PortfolioBlog.Api.Infrastructure.Data;
 
@@ -527,7 +338,7 @@ public enum DbErrorKind
     ForeignKeyViolation,
     /// <summary>CHECK 제약 위반(3819). 앱 검증 누락이므로 500.</summary>
     CheckViolation,
-    /// <summary>실행 시간 상한 초과(3024, max_execution_time). 503.</summary>
+    /// <summary>실행 시간 상한 초과(3024, max_execution_time). 공개 세션의 메타데이터 잠금(MDL) 대기도 이 번호로 끝난다(스파이크 S3c). 503.</summary>
     QueryTimeout,
     /// <summary>잠금 대기 상한 초과(1205, 또는 앱의 <see cref="DbLockTimeoutException"/>). 503.</summary>
     LockTimeout,
@@ -539,7 +350,7 @@ public enum DbErrorKind
     ReadOnly,
 }
 
-/// <summary>MySQL 오류 번호를 한곳에서 <see cref="DbErrorKind"/>로 바꾼다. 번호는 스펙 2.4절(스파이크 실측)과 같아야 한다.</summary>
+/// <summary>MySQL 오류 번호(<see cref="MySqlException.Number"/>, int)를 한곳에서 <see cref="DbErrorKind"/>로 바꾼다. 번호는 스펙 2.4절(스파이크 실측)과 같아야 한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -551,7 +362,7 @@ public enum DbErrorKind
 public static class DbErrorClassifier
 {
     /// <summary>오류 번호 하나를 분류한다.</summary>
-    /// <param name="number"><see cref="MySqlException.Number"/> 값.</param>
+    /// <param name="number"><see cref="MySqlException.Number"/> 값(int). 같은 예외의 <c>ErrorCode</c>는 <c>MySqlErrorCode</c> 열거형이라 쓰지 않는다.</param>
     /// <returns>분류. 모르는 번호는 <see cref="DbErrorKind.Other"/>.</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
@@ -700,7 +511,7 @@ git commit -m "추가: MySQL 전환에 쓸 오류 분류기·잠금 이름·권�
 **목적:** API 프로젝트에서 Npgsql을 없애고 MySQL로 기동되게 한다. 테스트 프로젝트는 Task 3에서 고치므로, 이 태스크의 완료 기준은 **API 빌드 + 로컬 MySQL로 실제 기동·마이그레이션·헬스 200**이다.
 
 **Files:**
-- Modify: `Directory.Packages.props` (Npgsql 줄 삭제), `PortfolioBlog.Api/PortfolioBlog.Api.csproj` (Npgsql 참조 삭제)
+- Modify: `Directory.Packages.props` (Npgsql 줄 삭제, Pomelo 9.0.0 추가, EF Design/Relational 10.0.12 → 9.0.20), `PortfolioBlog.Api/PortfolioBlog.Api.csproj` (Npgsql 참조 → Pomelo 참조)
 - Create: `Infrastructure/Data/PublicSessionInterceptor.cs`, `ReadCommittedTransactionInterceptor.cs`, `PostVersionInterceptor.cs`
 - Modify: `AppDbContext.cs`, `DataServiceCollectionExtensions.cs`, `PublicDbContext.cs`, `PublicRoleGrants.cs`, `DbConflict.cs`, `TagResolver.cs`, `PublicQueries.cs:89-92`, `LikePattern.cs`(주석), `DbClock.cs`(주석), `Features/Posts/PostEndpoints.cs:70-81`, `Features/Series/SeriesEndpoints.cs:188-218`, `Features/Attachments/AttachmentEndpoints.cs:168`, `Infrastructure/Storage/AttachmentLock.cs`, `Infrastructure/Storage/AttachmentJanitor.cs:126-137`, `Infrastructure/Web/OverloadExceptionHandler.cs:46-70`, `Infrastructure/Access/StartupValidation.cs`, `Contracts/TextRules.cs`(주석), `Program.cs:82-88`, `appsettings.Development.json`
 - Delete + Create: `Infrastructure/Data/Migrations/*` → `dotnet ef migrations add InitialCreate`
@@ -709,6 +520,7 @@ git commit -m "추가: MySQL 전환에 쓸 오류 분류기·잠금 이름·권�
 - Consumes (Task 1): `DbErrorClassifier`, `DbErrorKind`, `DbLockTimeoutException`, `AttachmentLock.NameFor`, `PublicRoleGrants.Violations`, `UtcDateTimeOffsetConverter`
 - Produces:
   - `public static string DataServiceCollectionExtensions.WithSessionReset(string connectionString)` — `ConnectionReset=true`를 강제한 문자열. 테스트가 풀을 비울 때 같은 키로 쓴다.
+  - `public static readonly ServerVersion DataServiceCollectionExtensions.ServerVersion` — `ServerVersion.Create(new Version(8, 4, 11), ServerType.MySql)`. 앱과 테스트의 모든 `UseMySql` 호출이 이 값을 쓴다.
   - `public sealed class PublicSessionInterceptor(int maxExecutionMs) : DbConnectionInterceptor`
   - `public sealed class ReadCommittedTransactionInterceptor : DbTransactionInterceptor`
   - `public sealed class PostVersionInterceptor : SaveChangesInterceptor`
@@ -718,9 +530,30 @@ git commit -m "추가: MySQL 전환에 쓸 오류 분류기·잠금 이름·권�
   - `public const int AttachmentLock.WaitSeconds = 10`
   - `AppDbContext.SlugPatternSql`(DB용, `\z` 앵커) — `SlugPattern`(기존, 문서·앱 참조용)은 유지
 
-- [ ] **Step 1: 패키지 교체**
+- [ ] **Step 1: 패키지 교체(한 단계에서 함께)**
 
-`Directory.Packages.props`에서 `Npgsql.EntityFrameworkCore.PostgreSQL` 줄을 지운다. `PortfolioBlog.Api.csproj`에서 Npgsql `PackageReference`를 지운다.
+Npgsql EF(EF 10 요구)와 Pomelo(EF 9 요구)는 공존할 수 없으므로 아래 세 가지를 **같은 단계에서** 바꾼다(스파이크 S16이 확인한 변경 전부다).
+
+`Directory.Packages.props`:
+```xml
+    <!-- 삭제 -->
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="…" />
+    <!-- 추가 -->
+    <PackageVersion Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
+    <!-- 변경: 10.0.12 → 9.0.20 -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.20" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.20" />
+```
+`MySqlConnector` 2.4.0(Task 1)은 그대로 둔다. `PortfolioBlog.Api.csproj`에서는 Npgsql `PackageReference`를 `<PackageReference Include="Pomelo.EntityFrameworkCore.MySql" />`로 바꾼다. `Microsoft.AspNetCore.Mvc.Testing`(10.0.12)·`Microsoft.AspNetCore.OpenApi`(10.0.11)는 EF를 전이 의존하지 않으므로 그대로 둔다.
+
+복원 후 `rg -n "Microsoft\.EntityFrameworkCore.*/10\." PortfolioBlog.Api/obj/project.assets.json`이 0건이어야 한다(EF 10 잔존 없음).
+
+> **`dotnet ef` 도구 버전:** 전역 `dotnet ef`(10.0.12)가 EF 9 프로젝트를 거부하면 로컬 도구 매니페스트로 9.0.20을 고정하고 그것을 쓴다:
+> ```powershell
+> dotnet new tool-manifest; dotnet tool install dotnet-ef --version 9.0.20
+> dotnet tool run dotnet-ef migrations add InitialCreate --project PortfolioBlog.Api --output-dir Infrastructure/Data/Migrations
+> ```
+> 이 경우 Step 8의 `dotnet ef …` 명령도 `dotnet tool run dotnet-ef …`로 바꿔 실행하고, 생성된 `.config/dotnet-tools.json`을 커밋한다.
 
 - [ ] **Step 2: 인터셉터 3종 작성**
 
@@ -740,9 +573,9 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// <item><description><b>Memory Allocation:</b> 연결 열기당 명령 객체 1개. SQL 문자열은 생성자에서 한 번 만든다.</description></item>
 /// <item><description><b>Blocking:</b> 비동기 경로는 DB 왕복 1회를 await한다(연결을 열 때마다 1회, 스펙 R2). 동기 경로는 동기 왕복이다.</description></item>
 /// </list>
-/// MySql.Data에는 PG의 시작 매개변수가 없어 연결마다 설정한다. 연결 문자열에 <c>ConnectionReset=true</c>가 강제되어 있어(풀에서 꺼낼 때 세션 리셋)
+/// MySqlConnector에는 PG의 시작 매개변수(<c>Options=-c …</c>)에 해당하는 것이 없어 연결마다 설정한다. 연결 문자열에 <c>ConnectionReset=true</c>가 강제되어 있어(풀에서 꺼낼 때 세션 리셋)
 /// 이전 대여자가 바꾼 세션 값이 남지 않고, 이 인터셉터가 리셋 직후 다시 설정한다. <c>lock_wait_timeout</c>(초, 최소 1)은 메타데이터 잠금 대기
-/// (예: 누군가 <c>LOCK TABLES</c>)를 끊는다. InnoDB 일반 SELECT는 행 잠금을 기다리지 않으므로 이것이 공개 경로의 유일한 무한 대기 지점이다.
+/// (예: 누군가 <c>LOCK TABLES</c>)를 끊는다(SELECT는 <c>max_execution_time</c>이 더 짧으면 그쪽이 먼저 3024로 끊는다 — 스파이크 S3c. <c>lock_wait_timeout</c>은 그 상한이 닿지 않는 경로의 안전망이다). InnoDB 일반 SELECT는 행 잠금을 기다리지 않으므로 이것이 공개 경로의 유일한 무한 대기 지점이다.
 /// </remarks>
 public sealed class PublicSessionInterceptor : DbConnectionInterceptor
 {
@@ -803,9 +636,12 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// <item><description><b>Memory Allocation:</b> 트랜잭션 객체 1개(원래도 만들어질 것을 대신 만든다). 추가 할당 없음.</description></item>
 /// <item><description><b>Blocking:</b> 비동기 경로는 <c>BeginTransactionAsync</c>를 await한다. 추가 왕복은 없다(원래 시작 문장을 대체).</description></item>
 /// </list>
-/// 기존 동시성 설계(SeriesEndpoints의 FOR UPDATE, TagResolver의 서수 삽입)는 전부 READ COMMITTED를 전제로 한다. MySql.Data의 인자 없는
-/// <c>BeginTransaction()</c>이 서버 기본값과 무관하게 REPEATABLE READ를 보낼 수 있어(스파이크 S7) 서버 설정만으로는 보장되지 않는다.
-/// 호출부가 격리 수준을 명시하면 그대로 둔다.
+/// 기존 동시성 설계(SeriesEndpoints의 FOR UPDATE, TagResolver의 서수 삽입)는 전부 READ COMMITTED를 전제로 한다. 이 인터셉터는 **필수**다:
+/// MySqlConnector의 인자 없는 <c>BeginTransaction()</c>은 서버·세션 기본값과 무관하게 매번
+/// <c>SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ</c>를 보낸다(스파이크 S14, general_log 실측). 서버 인자
+/// <c>--transaction-isolation=READ-COMMITTED</c>만으로는 EF 트랜잭션이 전부 REPEATABLE READ로 돈다.
+/// 호출부가 격리 수준을 명시하면 그대로 둔다. EF를 거치지 않고 <c>MySqlConnection.BeginTransaction()</c>을 직접 부르는 코드는 이 인터셉터가 닿지 않으므로
+/// 반드시 <c>IsolationLevel.ReadCommitted</c>를 명시한다.
 /// </remarks>
 public sealed class ReadCommittedTransactionInterceptor : DbTransactionInterceptor
 {
@@ -880,15 +716,15 @@ public sealed class PostVersionInterceptor : SaveChangesInterceptor
 
 - [ ] **Step 3: 등록 교체 — `DataServiceCollectionExtensions.cs`**
 
-`using MySql.Data.MySqlClient;`를 추가하고 `AddBlogData` 본문을 교체한다:
+`using MySqlConnector;`와 `using Pomelo.EntityFrameworkCore.MySql.Infrastructure;`(`ServerType`)를 추가한다. `UseMySql` 확장 메서드와 `ServerVersion` 타입은 `Microsoft.EntityFrameworkCore` 네임스페이스에 있다(파일에 이미 있는 using). `AddBlogData` 본문을 교체한다:
 ```csharp
         services.AddSingleton<ReadCommittedTransactionInterceptor>();
         services.AddSingleton<PostVersionInterceptor>();
         services.AddDbContext<AppDbContext>((sp, o) => o
-            .UseMySQL(WithSessionReset(RequireConnectionString(sp)))
+            .UseMySql(WithSessionReset(RequireConnectionString(sp)), ServerVersion)
             .AddInterceptors(sp.GetRequiredService<ReadCommittedTransactionInterceptor>(), sp.GetRequiredService<PostVersionInterceptor>()));
         services.AddDbContext<PublicDbContext>((sp, o) => o
-            .UseMySQL(WithSessionReset(PublicOrDefaultConnectionString(sp)))
+            .UseMySql(WithSessionReset(PublicOrDefaultConnectionString(sp)), ServerVersion)
             .AddInterceptors(new PublicSessionInterceptor(sp.GetRequiredService<IOptions<PublicOptions>>().Value.StatementTimeoutMs))
             // 공개 경로는 추적할 이유가 없다: 변경 추적기 할당을 없애고, 실수로 엔티티를 고쳐도 저장 대상이 되지 않는다.
             .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
@@ -896,6 +732,22 @@ public sealed class PostVersionInterceptor : SaveChangesInterceptor
 ```
 클래스에 추가한다(XML 주석 3항목 포함):
 ```csharp
+    /// <summary>
+    /// EF 프로바이더(Pomelo)에 알려 주는 MySQL 서버 버전. 운영 이미지 <c>mysql:8.4.11</c>과 같은 고정값이며, 앱과 테스트의 모든 <c>UseMySql</c> 호출이 이 값을 쓴다.
+    /// 프로바이더는 이 값으로 SQL 방언(내림차순 인덱스, CHECK, <c>RETURNING</c> 미지원 등)을 고른다.
+    /// </summary>
+    /// <remarks>
+    /// <b>[성능 및 동시성 제약 조건]</b>
+    /// <list type="bullet">
+    /// <item><description><b>Thread Safety:</b> Thread-safe. 정적 초기화 때 한 번 만들어지는 불변 객체를 모든 컨텍스트 옵션이 공유한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 프로세스당 1개(타입 초기화 시). 옵션을 만들 때 추가 할당 없음.</description></item>
+    /// <item><description><b>Blocking:</b> 즉시 반환. I/O 없음 — <c>ServerVersion.AutoDetect</c>는 옵션을 만들 때 연결을 열어 서버에 묻기 때문에 금지한다
+    /// (기동 순서가 DB 가용성에 묶이고, 옵션 빌드마다 왕복이 생기며, 테스트 팩토리가 DB 생성 전에 옵션을 만들면 실패한다).</description></item>
+    /// </list>
+    /// 서버를 올리면 이 값과 compose·CI 이미지 태그를 함께 바꾼다.
+    /// </remarks>
+    public static readonly ServerVersion ServerVersion = ServerVersion.Create(new Version(8, 4, 11), ServerType.MySql);
+
     /// <summary>풀에서 꺼낼 때마다 세션을 리셋하도록 <c>ConnectionReset=true</c>를 강제한 연결 문자열을 만든다.</summary>
     /// <param name="connectionString">설정의 연결 문자열.</param>
     /// <returns>정규화된 연결 문자열(풀 키). 테스트가 풀을 비울 때도 이 값을 쓴다.</returns>
@@ -907,7 +759,7 @@ public sealed class PostVersionInterceptor : SaveChangesInterceptor
     /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
     /// </list>
     /// 리셋이 필요한 이유는 세 가지다. ① 공개 세션 설정(read_only 등)이 같은 풀을 쓰는 관리 연결로 새지 않게 한다(Development는 Public이 없으면 Default를 공유한다).
-    /// ② 해제에 실패한 <c>GET_LOCK</c>이 다음 대여 때 풀린다(스파이크 S6b). ③ 공개 세션이 스스로 끈 read_only가 다음 대여로 이어지지 않는다.
+    /// ② 해제에 실패한 <c>GET_LOCK</c>이 같은 물리 연결의 다음 대여 때 풀린다(반납만으로는 풀리지 않는다 — 스파이크 S6b: 반납 후 0, 재대여 후 1). ③ 공개 세션이 스스로 끈 read_only가 다음 대여로 이어지지 않는다.
     /// 대가는 풀 대여마다 COM_RESET_CONNECTION 왕복 1회다.
     /// </remarks>
     public static string WithSessionReset(string connectionString) =>
@@ -979,7 +831,7 @@ public sealed class PostVersionInterceptor : SaveChangesInterceptor
 
 - [ ] **Step 6: `PublicRoleGrants.cs` 교체**
 
-`using Npgsql;`를 `using MySql.Data.MySqlClient;`로 바꾼다. `ReadableTables`, `GrantLine`, `Violations`(Task 1)는 유지한다. 나머지는 아래로 교체한다(`BuildStatements`·`QuoteIdentifier`·기존 `Apply` 삭제).
+`using Npgsql;`를 `using MySqlConnector;`로 바꾼다. `ReadableTables`, `GrantLine`, `Violations`(Task 1)는 유지한다. 나머지는 아래로 교체한다(`BuildStatements`·`QuoteIdentifier`·기존 `Apply` 삭제).
 ```csharp
     // MySQL 사용자 이름 한도 32자. 소문자·숫자·밑줄만 허용해 GRANT 문장에 인용 없이 넣을 수 있게 한다.
     [GeneratedRegex("^[a-z_][a-z0-9_]{0,31}\\z")]
@@ -1161,8 +1013,9 @@ remarks의 57014·55P03을 3024·1205·`DbLockTimeoutException`·1213으로 바�
                 }
                 catch
                 {
-                    // 해제 실패 시: 연결이 끊겼으면 세션 종료와 함께 잠금도 풀린다. 연결이 살아 있으면 풀에 반납되고,
-                    // 다음 대여 때 ConnectionReset=true의 COM_RESET_CONNECTION이 잠금을 푼다(스파이크 S6b, AttachmentIntegrityTests가 측정).
+                    // 해제 실패 시: 연결이 끊겼으면 세션 종료와 함께 잠금도 풀린다. 연결이 살아 있으면 잠금을 쥔 채 풀에 반납되고
+                    // (반납만으로는 풀리지 않는다), 같은 물리 연결이 다시 대여될 때 ConnectionReset=true의 리셋이 잠금을 푼다
+                    // (스파이크 S6b: 반납 후 IS_FREE_LOCK 0, 재대여 후 1. AttachmentIntegrityTests가 측정).
                     // 그때까지 같은 내용의 요청은 WaitSeconds 뒤 503을 받는다. 다시 던지면 원래 예외를 가리므로 삼킨다.
                 }
             }
@@ -1173,9 +1026,9 @@ remarks의 57014·55P03을 3024·1205·`DbLockTimeoutException`·1213으로 바�
         }
     }
 ```
-클래스·메서드 XML 주석은 PG 서술(55P03·pg_advisory·Npgsql 리셋 추론)을 GET_LOCK 기준으로 다시 쓴다. Blocking 항목은 "비동기 대기, 상한 `waitSeconds` 초 뒤 `DbLockTimeoutException`"이다.
+클래스·메서드 XML 주석은 PG 서술(55P03·pg_advisory·Npgsql 리셋 추론)을 GET_LOCK 기준으로 다시 쓴다. 풀 반납과 잠금의 관계는 위 catch 주석(S6b 실측)과 같은 서술로 맞춘다. Blocking 항목은 "비동기 대기, 상한 `waitSeconds` 초 뒤 `DbLockTimeoutException`"이다.
 
-`StartupValidation.cs` — `using Npgsql;`를 `using MySql.Data.MySqlClient;`로 바꾼다. 같은 사용자 비교의 `new NpgsqlConnectionStringBuilder(connectionString).Username`은 `new MySqlConnectionStringBuilder(connectionString).UserID`로 바꾼다. `CheckConnectionString`을 교체한다:
+`StartupValidation.cs` — `using Npgsql;`를 `using MySqlConnector;`로 바꾼다. 같은 사용자 비교의 `new NpgsqlConnectionStringBuilder(connectionString).Username`은 `new MySqlConnectionStringBuilder(connectionString).UserID`로 바꾼다. `CheckConnectionString`을 교체한다:
 ```csharp
     private static MySqlConnectionStringBuilder CheckConnectionString(string key, string connectionString, int statementTimeoutMs, bool requireTls)
     {
@@ -1186,7 +1039,8 @@ remarks의 57014·55P03을 3024·1205·`DbLockTimeoutException`·1213으로 바�
         }
         catch (Exception ex) when (ex is FormatException or ArgumentException)
         {
-            // 메시지를 옮기지 않는다: 커넥터 예외 메시지에 연결 문자열 조각(호스트 등)이 들어갈 수 있다.
+            // 메시지를 옮기지 않는다: 커넥터 예외 메시지에 연결 문자열 조각이 들어갈 수 있다.
+            // (MySqlConnector는 모르는 키워드에 ArgumentException("Option 'bogus keyword' not supported.")을 던지고 값은 싣지 않는다 — 스파이크 S12. 그래도 옮기지 않는다.)
             throw new InvalidOperationException($"설정 {key} 이(가) 잘못되었습니다(연결 문자열 형식).", ex);
         }
         if (parsed.AllowPublicKeyRetrieval)
@@ -1225,7 +1079,7 @@ dotnet ef migrations add InitialCreate --project PortfolioBlog.Api --output-dir 
 - `collation: "utf8mb4_bin"`이 6개 열에 있다.
 - `CK_Posts_Slug_Format`의 SQL에 `\\z`와 `'c'`가 있다.
 - `(CreatedAt, Id)` 인덱스에 `descending: new[] { true, false }`가 있다.
-- Guid 열이 `char(36)`이다. `DateTimeOffset` 열이 `datetime(6)`이다.
+- Guid 열이 `char(36)`이다(Pomelo는 `collation: "ascii_general_ci"`를 함께 붙인다 — 스파이크 S1과 같다). `DateTimeOffset` 열이 `datetime(6)`이다.
 - `AdminState` 시드 `InsertData`가 있다.
 
 - [ ] **Step 9: 빌드와 실제 기동 확인**
@@ -1245,7 +1099,7 @@ docker exec pb-dev-mysql mysql -uroot -pchangeme -e "SHOW CREATE TABLE blog_dev.
 ```
 예상: `utf8mb4_bin`, `CHECK (regexp_like(...))`, `KEY ... (CreatedAt DESC, Id)`가 보인다. 서버를 끈다.
 
-**두 번째 go/no-go 관문:** 스파이크는 `EnsureCreated`만 썼으므로 프로바이더의 마이그레이션 경로(이력 테이블·마이그레이션 잠금)는 여기서 처음 실행된다. `Migrate()`가 **매핑이 아니라 프로바이더 때문에** 실패하면(예: 이력 테이블 DDL 오류, 마이그레이션 잠금 미지원) 우회 패치를 하지 말고 멈춘 뒤 보고한다. 그것은 Pomelo+EF9 후퇴 판정 사안이다.
+**마이그레이션 경로 관문:** 스파이크 S1은 마이그레이션 SQL 생성(`IMigrationsModelDiffer` + `IMigrationsSqlGenerator`)까지는 확인했지만 `Migrate()` 자체(이력 테이블 `__EFMigrationsHistory`, 마이그레이션 잠금)는 실행하지 않았다. 여기서 처음 실행된다. `Migrate()`가 **매핑이 아니라 프로바이더 때문에** 실패하면(예: 이력 테이블 DDL 오류, 마이그레이션 잠금 미지원) 우회 패치를 하지 말고 멈춘 뒤 보고한다. 남은 후퇴안이 없으므로(Oracle은 no-go) 사용자 판단 사안이다.
 
 - [ ] **Step 10: 잔존 검사와 커밋**
 
@@ -1281,13 +1135,13 @@ git commit -m "수정: 저장소를 PostgreSQL에서 MySQL로 교체(프로덕�
 
 - [ ] **Step 1: 패키지**
 
-`Directory.Packages.props`: `Testcontainers.PostgreSql` → `<PackageVersion Include="Testcontainers.MySql" Version="4.15.0" />`. 테스트 csproj의 참조 이름도 바꾼다.
+`Directory.Packages.props`: `Testcontainers.PostgreSql` → `<PackageVersion Include="Testcontainers.MySql" Version="4.15.0" />`. 테스트 csproj의 참조 이름도 바꾼다. (Testcontainers.MySql 4.15.0은 Oracle 커넥터를 끌어오지 않는다 — 스파이크 산출물에 커넥터는 `MySqlConnector.dll`만 있다. 테스트 코드의 `MySqlConnection`·`MySqlException`은 API 프로젝트 참조를 통해 들어오는 `MySqlConnector`다.)
 
 - [ ] **Step 2: 픽스처 작성**
 
 `PortfolioBlog.Api.Tests/Infrastructure/MySqlContainerFixture.cs`:
 ```csharp
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using Testcontainers.MySql;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
@@ -1374,7 +1228,7 @@ Get-ChildItem PortfolioBlog.Api.Tests -Recurse -Filter *.cs | ForEach-Object {
 
 - [ ] **Step 4: `ApiFactory.cs` 교체**
 
-`using Npgsql;` → `using MySql.Data.MySqlClient;`. 필드와 생성자:
+`using Npgsql;` → `using MySqlConnector;`. 필드와 생성자:
 ```csharp
     private readonly MySqlContainerFixture _mysql;
     private readonly string _connectionString;
@@ -1408,6 +1262,7 @@ Get-ChildItem PortfolioBlog.Api.Tests -Recurse -Filter *.cs | ForEach-Object {
             foreach (var cs in new[] { _connectionString, _publicConnectionString })
             {
                 using var connection = new MySqlConnection(DataServiceCollectionExtensions.WithSessionReset(cs));
+                // MySqlConnector의 동기 정적 ClearPool(MySqlConnection): 그 연결 문자열 풀의 유휴 연결을 닫는다(Dispose가 동기라 Async 판을 쓰지 않는다).
                 MySqlConnection.ClearPool(connection);
             }
             _mysql.DropUser(PublicUser);
@@ -1447,7 +1302,8 @@ Get-ChildItem PortfolioBlog.Api.Tests -Recurse -Filter *.cs | ForEach-Object {
         var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
         var mysql = Assert.IsType<MySqlException>(ex.InnerException);
         Assert.Equal(3819, mysql.Number);
-        // MySQL은 제약 이름을 별도 속성으로 주지 않는다. 메시지 "Check constraint 'X' is violated."에서 확인한다.
+        // MySQL은 제약 이름을 별도 속성으로 주지 않는다. 서버 메시지 "Check constraint 'X' is violated."에서 확인한다
+        // (메시지는 서버가 만들고 MySqlConnector는 그대로 Message에 싣는다).
         Assert.Contains($"'{constraint}'", mysql.Message, StringComparison.Ordinal);
 ```
 
@@ -1490,7 +1346,7 @@ git commit -m "테스트: 테스트 기반을 MySQL 컨테이너로 교체하고
 ```csharp
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
@@ -1625,7 +1481,7 @@ git commit -m "테스트: 공개 사용자 권한 경계를 MySQL에서 다시 �
 ```csharp
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -1644,7 +1500,7 @@ public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
 {
     private static readonly Dictionary<string, string?> FastTimeout = new() { ["Public:StatementTimeoutMs"] = "200" };
 
-    // 스파이크 S3b: SLEEP은 3024 대신 1을 반환할 수 있어, 행을 실제로 훑는 교차 조인으로 실행 시간 초과를 만든다.
+    // 스파이크 S3b: SELECT SLEEP(2)는 max_execution_time에 걸려도 오류 없이 0을 반환한다(3024가 나지 않는다). 그래서 행을 실제로 훑는 교차 조인으로 실행 시간 초과를 만든다.
     private const string SlowSelect = "SELECT COUNT(*) AS `Value` FROM information_schema.COLUMNS a, information_schema.COLUMNS b, information_schema.COLUMNS c";
 
     /// <summary>공개 컨텍스트의 느린 SELECT는 max_execution_time으로 끊기고(3024) 분류기가 QueryTimeout으로 본다.</summary>
@@ -1680,7 +1536,7 @@ public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
         using var factory = new ApiFactory(mysql);
         using var _ = factory.CreateClient();
         var options = new DbContextOptionsBuilder<PublicDbContext>()
-            .UseMySQL(DataServiceCollectionExtensions.WithSessionReset(factory.ConnectionString))
+            .UseMySql(DataServiceCollectionExtensions.WithSessionReset(factory.ConnectionString), DataServiceCollectionExtensions.ServerVersion)
             .AddInterceptors(new PublicSessionInterceptor(3000)).Options;
         await using var db = new PublicDbContext(options);
         var raw = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync("DELETE FROM `Tags`"));
@@ -1701,7 +1557,7 @@ public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
         using var factory = new ApiFactory(mysql);
         using var _ = factory.CreateClient();
         var single = new MySqlConnectionStringBuilder(DataServiceCollectionExtensions.WithSessionReset(factory.ConnectionString)) { MaximumPoolSize = 1 }.ConnectionString;
-        var options = new DbContextOptionsBuilder<PublicDbContext>().UseMySQL(single).AddInterceptors(new PublicSessionInterceptor(3000)).Options;
+        var options = new DbContextOptionsBuilder<PublicDbContext>().UseMySql(single, DataServiceCollectionExtensions.ServerVersion).AddInterceptors(new PublicSessionInterceptor(3000)).Options;
         try
         {
             long firstId;
@@ -1743,7 +1599,7 @@ public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
 }
 ```
 
-`AttachmentEndpointsTests.cs`에 다시 추가한다(`using MySql.Data.MySqlClient;`). MySQL에서는 일반 SELECT가 행 잠금을 기다리지 않으므로 **메타데이터 잠금**(`LOCK TABLES … WRITE`)으로 대기를 만든다.
+`AttachmentEndpointsTests.cs`에 다시 추가한다(`using MySqlConnector;`). MySQL에서는 일반 SELECT가 행 잠금을 기다리지 않으므로 **메타데이터 잠금**(`LOCK TABLES … WRITE`)으로 대기를 만든다.
 ```csharp
     /// <summary>테이블이 메타데이터 잠금으로 막혀도 공개 GET은 무한 대기하지 않고 503 + Retry-After가 된다(lock_wait_timeout/max_execution_time → 분류기).</summary>
     [Fact]
@@ -1772,7 +1628,7 @@ public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
         }
     }
 ```
-(`FastPublicTimeout`의 값이 1000ms 이하면 lock_wait_timeout은 1초다. 5초 상한 안에 끝난다.)
+(`FastPublicTimeout`의 값이 1000ms 이하면 lock_wait_timeout은 1초다. 5초 상한 안에 끝난다. 스파이크 S3c에서는 max_execution_time=200ms가 먼저 걸려 MDL 대기가 **3024**로 약 200ms에 끝났다. 어느 쪽이 먼저 걸리든 분류기가 503으로 매핑하므로 이 테스트는 HTTP 상태만 단언한다.)
 
 - [ ] **Step 2: 실행 → PASS**
 
@@ -1780,7 +1636,7 @@ public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
 
 - [ ] **Step 3: 변이 확인**
 
-`PublicSessionInterceptor`의 SQL에서 `transaction_read_only = ON,`을 임시로 지우고 `SessionLayer_Alone_BlocksWrites`·`EscapedReadOnly…`가 FAIL하는지 본다. `lock_wait_timeout` 부분을 지우고 잠긴 테이블 테스트가 FAIL(5초 취소)하는지 본다. `WithSessionReset`을 `ConnectionReset = false`로 바꾸고 `EscapedReadOnly…`의 관리 측 단언이 FAIL하는지 본다. 확인 후 모두 되돌린다.
+`PublicSessionInterceptor`의 SQL에서 `transaction_read_only = ON,`을 임시로 지우고 `SessionLayer_Alone_BlocksWrites`·`EscapedReadOnly…`가 FAIL하는지 본다. `lock_wait_timeout`과 `max_execution_time`을 **둘 다** 지우고 잠긴 테이블 테스트가 FAIL(5초 취소)하는지 본다(S3c 실측상 MDL 대기는 max_execution_time이 먼저 끊으므로 `lock_wait_timeout`만 지우면 계속 PASS할 수 있다 — 그것은 정상이다). `WithSessionReset`을 `ConnectionReset = false`로 바꾸고 `EscapedReadOnly…`의 관리 측 단언이 FAIL하는지 본다. 확인 후 모두 되돌린다.
 
 - [ ] **Step 4: 커밋**
 
@@ -1801,7 +1657,7 @@ git commit -m "테스트: 공개 세션의 읽기 전용·실행 상한·리셋�
 
 - [ ] **Step 1: 테스트 작성**
 
-`AttachmentIntegrityTests.cs` 클래스 안에 추가한다(`using MySql.Data.MySqlClient; using PortfolioBlog.Api.Infrastructure.Storage;`):
+`AttachmentIntegrityTests.cs` 클래스 안에 추가한다(`using MySqlConnector; using PortfolioBlog.Api.Infrastructure.Storage;`):
 ```csharp
     private const string LockSha = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
 
@@ -2045,7 +1901,7 @@ public sealed class PostVersionTests(ApiFactory factory) : IClassFixture<ApiFact
 ```csharp
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -2143,27 +1999,31 @@ git commit -m "테스트: 앱 관리 행 버전·READ COMMITTED 보장·태그 �
 
 - [ ] **Step 1: 테스트 작성**
 
-`MySqlErrors.cs`(테스트 전용, 스파이크 S8 PASS 전제):
+`MySqlErrors.cs`(테스트 전용, 스파이크 S15a로 생성 가능성 확인):
 ```csharp
 using System.Reflection;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
-/// <summary>오류 파이프라인 테스트가 던질 <see cref="MySqlException"/>을 번호로 만든다. 공개 생성자가 없어 비공개 (string, int) 생성자를 쓴다(스파이크 S8).</summary>
+/// <summary>
+/// 오류 파이프라인 테스트가 던질 <see cref="MySqlException"/>을 번호로 만든다. MySqlConnector의 <see cref="MySqlException"/>에는 public 생성자가 없어
+/// non-public <c>(MySqlErrorCode errorCode, string sqlState, string message, Exception innerException)</c> 생성자를 리플렉션으로 호출한다(스파이크 S15a:
+/// 이 생성자로 만든 예외의 <c>Number</c>=1062, <c>ErrorCode</c>=<c>DuplicateKeyEntry</c>).
+/// </summary>
 internal static class MySqlErrors
 {
     private static readonly ConstructorInfo Ctor = typeof(MySqlException).GetConstructor(
-        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, [typeof(string), typeof(int)])
-        ?? throw new InvalidOperationException("MySqlException(string, int) 생성자가 없다 — 스파이크 S8 대안을 쓴다.");
+        BindingFlags.Instance | BindingFlags.NonPublic, [typeof(MySqlErrorCode), typeof(string), typeof(string), typeof(Exception)])
+        ?? throw new InvalidOperationException("MySqlException(MySqlErrorCode, string, string, Exception) 생성자가 없다 — MySqlConnector 버전이 바뀌었는지 확인한다.");
 
     /// <summary>지정 번호의 예외를 만든다.</summary>
-    /// <param name="number">MySQL 오류 번호.</param>
-    /// <returns>던질 예외.</returns>
-    public static MySqlException Create(int number) => (MySqlException)Ctor.Invoke([$"simulated {number}", number]);
+    /// <param name="number">MySQL 오류 번호. <see cref="MySqlException.Number"/>(int)로 그대로 읽힌다. 열거형에 이름이 없는 번호도 캐스트로 담긴다.</param>
+    /// <returns>던질 예외. SQLSTATE는 일반값 <c>HY000</c>이다(분류기는 번호만 본다).</returns>
+    public static MySqlException Create(int number) =>
+        (MySqlException)Ctor.Invoke([(MySqlErrorCode)number, "HY000", $"simulated {number}", null]);
 }
 ```
-S8이 FAIL이었다면 대안: `Create`를 컨테이너에서 실제 오류를 한 번 일으켜 캡처한 예외로 구현한다(1062: 중복 PK 삽입, 3024: `SET SESSION max_execution_time=1` 후 교차 조인, 1205: `innodb_lock_wait_timeout=1` 세션에서 잠긴 행 UPDATE, 1213: 두 연결이 두 행을 교차로 UPDATE). `ErrorPipelineTests`를 `[Collection("mysql")]`로 두고 픽스처에서 캡처한다.
 
 `ErrorPipelineTests.cs`에 되살린다:
 ```csharp
@@ -2207,7 +2067,7 @@ S8이 FAIL이었다면 대안: `Create`를 컨테이너에서 실제 오류를 �
 ```csharp
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -2307,11 +2167,11 @@ public sealed class CollationTests(ApiFactory factory) : IClassFixture<ApiFactor
     /// <summary>Development가 아니면 TLS 없는 연결(SslMode=Preferred/None)을 거부한다.</summary>
     [Theory]
     [InlineData(MySqlSslMode.Preferred)]
-    [InlineData(MySqlSslMode.Disabled)]
+    [InlineData(MySqlSslMode.None)]
     public void Production_WeakSslMode_Fails(MySqlSslMode mode) =>
         AssertStartupFails(Production(s => s["ConnectionStrings:Default"] = new MySqlConnectionStringBuilder(mysql.ConnectionString) { SslMode = mode }.ConnectionString), "SslMode");
 ```
-(`AssertStartupFails`와 `Production`은 파일의 기존 헬퍼다. `MySqlSslMode.Disabled`가 없는 버전이면 `None`을 쓴다.)
+(`AssertStartupFails`와 `Production`은 파일의 기존 헬퍼다. MySqlConnector의 `MySqlSslMode.Disabled`는 `None`과 같은 값(0)의 별칭이라 `None` 하나만 둔다.)
 
 `DeployInitScriptTests.cs`:
 ```csharp
@@ -2405,11 +2265,11 @@ SQL
       ConnectionStrings__Default: "Server=mysql;Database=blog;User ID=blog_app;Password=${BLOG_APP_PASSWORD:?};SslMode=Required;Default Command Timeout=30"
       ConnectionStrings__Public: "Server=mysql;Database=blog;User ID=blog_public;Password=${BLOG_PUBLIC_PASSWORD:?};SslMode=Required;Default Command Timeout=30"
 ```
-`depends_on: postgres:`는 `mysql:`로 바꾼다. `postgres` 서비스는 다음으로 교체한다(`<x>`는 Task 0 Step 4의 패치 버전):
+`depends_on: postgres:`는 `mysql:`로 바꾼다. `postgres` 서비스는 다음으로 교체한다(이미지는 Task 0에서 확인한 패치 버전 `mysql:8.4.11`로 고정):
 ```yaml
   mysql:
     <<: *hardening
-    image: mysql:8.4.<x>
+    image: mysql:8.4.11
     # 공식 엔트리포인트가 데이터 디렉터리 소유권을 맞추고 mysql 사용자로 내려간다(gosu). PG 판과 같은 최소 능력만 준다.
     cap_add:
       - CHOWN
@@ -2447,7 +2307,7 @@ SQL
       retries: 12
       start_period: 60s
 ```
-`tools` 서비스 이미지는 `mysql:8.4.<x>`로 바꾼다. 볼륨 `pgdata:`는 `mysqldata:`로 바꾼다. `deploy/docker-compose.smoke.yml`에서 서비스 이름 `postgres`를 참조하는 곳이 있으면 함께 바꾼다(`rg -n postgres deploy`).
+`tools` 서비스 이미지는 `mysql:8.4.11`로 바꾼다. 볼륨 `pgdata:`는 `mysqldata:`로 바꾼다. `deploy/docker-compose.smoke.yml`에서 서비스 이름 `postgres`를 참조하는 곳이 있으면 함께 바꾼다(`rg -n postgres deploy`).
 
 - [ ] **Step 3: `.env.example`**
 
@@ -2493,7 +2353,7 @@ mysql_as() { docker compose exec -T -e MYSQL_PWD="$2" mysql mysql -h mysql -u "$
 # 부정 검사는 종료 코드가 아니라 메시지로 판정한다: "0이 아닌 종료 코드"에는 연결 실패·SQL 오타도 섞여 거짓 통과를 만든다.
 deny() { # $1 사용자 $2 비밀번호 $3 SQL
   out="$(mysql_as "$1" "$2" "$3" 2>&1)" && { echo "허용돼서는 안 되는 문장이 성공했다: $3" >&2; exit 1; }
-  case "$out" in *"denied"*|*"ERROR 1290"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
+  case "$out" in *"denied"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
 }
 test "$(mysql_as root "$mysql_root_password" "select count(*) from mysql.user where User in ('blog_app','blog_public') and Super_priv='N' and File_priv='N' and Process_priv='N' and Create_user_priv='N' and Grant_priv='N' and ssl_type='ANY'")" = "2"
 test "$(mysql_as root "$mysql_root_password" "select concat(@@local_infile, ':', ifnull(@@secure_file_priv,'NULL'), ':', @@require_secure_transport, ':', @@global.transaction_isolation)")" = "0:NULL:1:READ-COMMITTED"
@@ -2506,7 +2366,7 @@ deny blog_app "$app_password" "select 1 into outfile '/tmp/smoke'"
 out="$(docker compose exec -T -e MYSQL_PWD="$app_password" mysql mysql -h mysql -u blog_app --ssl-mode=DISABLED -e 'select 1' 2>&1)" && { echo "비TLS 접속이 허용됐다" >&2; exit 1; }
 case "$out" in *"insecure transport"*) ;; *) echo "비TLS 거부 이유가 예상과 다르다: $out" >&2; exit 1;; esac
 ```
-(`deny`의 `ERROR 1290`은 `secure_file_priv`로 인한 INTO OUTFILE 거부 번호일 수 있다. 스파이크 S4e 관측값에 맞춘다.)
+(`blog_app`의 `INTO OUTFILE`은 FILE 권한 검사에서 먼저 막혀 `ERROR 1227 … Access denied; you need (at least one of) the FILE privilege(s) for this operation`이 된다(스파이크 S4e 실측). 그래서 `*"denied"*` 하나로 판정한다. 스파이크는 `--secure-file-priv=NULL` 없이 돌았으므로 운영 인자에서 다른 문구가 나오면 이 스모크가 실패로 드러낸다 — 그때는 실제 메시지를 보고 판정을 고친다.)
 
 `smoke/smoke.test.mjs:313` — `net.connect({ host: 'mysql', port: 3306 })`, 테스트 이름은 'DB는 edge 네트워크에서 닿지 않는다'(그대로).
 
@@ -2567,7 +2427,7 @@ const connection = ['Server=localhost', `Port=${prepared.port}`, 'Database=blog_
 ```yaml
     services:
       mysql:
-        image: mysql:8.4
+        image: mysql:8.4.11
         env:
           MYSQL_ROOT_PASSWORD: e2e-ci-dummy
           MYSQL_DATABASE: blog_e2e
@@ -2636,7 +2496,7 @@ rg -n -i "postgres|npgsql|psql|pg_|xmin|ilike|5432" README.md docs --glob '!docs
 
 `plan/mysql_migration_0926.md`:
 - 상태를 "구현 완료"로 바꾼다.
-- 2.4절 번호를 "예상"에서 "실측"으로 바꾼다(Task 0 report.md 반영).
+- 2.4절에서 아직 "예상"으로 남은 번호(1205·1213·1044)를 구현 중 테스트가 실제로 관측한 값으로 확정한다(Task 0 스파이크가 실측한 번호는 이미 반영됨).
 - 7절에 구현 중 새로 내린 판정을 추가한다(예: 태그 교착 처리 방식, S3 관측).
 
 - [ ] **Step 4: 생성 문서(doc-harness)**
@@ -2708,4 +2568,6 @@ gh pr create --title "MySQL 8.4로 저장소 교체" --body-file <스펙 요약 
 | ErrorPipeline 2종 | 8 |
 | Options 2종 | 폐기, AllowPublicKeyRetrieval·SslMode 검사로 대체(8) |
 
-**알려진 불확실성**(Task 0이 판정): Oracle 프로바이더의 비동기 품질(S10), `UseCollation`·`IsDescending`·Like escape의 DDL/SQL 반영(S1·S9), MDL 대기 오류 번호(S3c), `MySqlException` 생성자(S8).
+**Task 0이 해소한 불확실성:** 프로바이더의 비동기 품질(S10: 200건 4.0초, 실패 0), `UseCollation`·`IsDescending`·Like escape의 DDL/SQL 반영(S1·S9 — Oracle FAIL, Pomelo PASS), MDL 대기 오류 번호(S3c: 3024), `MySqlException` 생성(S15a: non-public 4인자 생성자), 격리 수준(S14: MySqlConnector가 REPEATABLE READ를 강제 → D7 인터셉터 필수).
+
+**남은 불확실성:** `Migrate()`와 이력 테이블 경로(Task 2 Step 9에서 처음 실행), 스파이크가 만들지 않은 오류 번호 1205·1213·1044(Task 7·8에서 관측), 운영 인자(`--secure-file-priv=NULL`) 아래 `INTO OUTFILE` 거부 문구(Task 9 스모크), 전역 `dotnet ef` 10.0.12 도구와 EF 9 프로젝트의 호환(Task 2 Step 1의 로컬 도구 대안).
