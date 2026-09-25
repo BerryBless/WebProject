@@ -4,6 +4,7 @@
 
 > **현재 상태 (2026-09-23):** 공개 사이트와 관리 에디터가 **동작합니다** — 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션, 관리 API, 마크다운 파이프라인·미리보기·이미지 첨부, 공개 페이지·검색·Atom·sitemap·보안 헤더, 관리 에디터 SPA까지 master에 병합됐습니다(.NET 테스트 591개 · Vitest 188개 · 브라우저 E2E 8개, Release 빌드 경고 0).
 > **배포 구성(4단계: Docker Compose + Caddy)도 PR #5로 master에 병합됐습니다**(.NET 테스트 625개 · Vitest 194개 · 브라우저 E2E 8개 · 스택 E2E 8개, 배포 스모크 통과) → [배포 구성](docs/deployment.md) · [재개 가이드](plan/resume_guide_0921.md).
+> **문서화 하네스(2026-09-25, PR #6)**: 코드를 근거로 신규 개발자용 기술 문서 **61개**(기능 29개 개별 문서, Mermaid 101개)를 생성하고 `문서화` 한마디로 증분 갱신합니다 → [생성 기술 문서](docs/generated/README.md) · [5분 요약](docs/generated/00_EXECUTIVE_SUMMARY.md) · [실전 보고서](plan/doc_harness_0923.md).
 
 ## 무엇을 만드나
 
@@ -39,6 +40,7 @@
 | 2 | 마크다운 파이프라인·첨부(2A), 공개 페이지·검색·Atom·sitemap·보안 헤더·속도 제한(2B) | 완료 |
 | 3 | 관리 에디터 SPA(글·시리즈·태그·첨부, sandbox 미리보기, 실제 백엔드 E2E) | 완료 |
 | 4 | Docker Compose · Caddy · DB 롤 분리 · 백업/복원 · 배포 스모크 | **완료(병합)** — PR #5 |
+| 문서화 | 문서화 하네스(`doc-harness/`): 다단계 Claude 파이프라인으로 코드 근거 기술 문서 생성·검증·증분 갱신, 실제 저장소에 INITIAL·INCREMENTAL 발행 | **완료(병합)** — PR #6 |
 | 이후 | 글쓰기·읽기 경험 개선(노션식 편집·보기) | 설계 전 |
 
 단계별로 무엇을 만들고 어떤 결함을 어디서 잡았는지: [진행 기록](docs/history.md).
@@ -72,13 +74,29 @@ dotnet test  PortfolioBlog.slnx -c Release   # 625개 — Docker 필요(Testcont
 | [개발 하네스](docs/harness.md) | AI 협업 구성(에이전트·스킬·훅·CI·Codex 교차 검증) |
 | [생성 기술 문서](docs/generated/README.md) | 문서화 하네스가 코드를 근거로 생성·검증한 문서 61개(기능 29개 개별 문서, Mermaid 101개). `문서화`로 증분 갱신 |
 
+생성 기술 문서 바로가기(모두 코드 근거 표시 `CONFIRMED / INFERRED / UNKNOWN`이 붙어 있습니다):
+
+| 알고 싶은 것 | 문서 |
+|---|---|
+| 5~10분 안에 프로젝트 파악 | [00 요약](docs/generated/00_EXECUTIVE_SUMMARY.md) · [01 개요](docs/generated/01_PROJECT_OVERVIEW.md) |
+| 컴포넌트·런타임·제어 흐름과 디렉터리 | [02 아키텍처](docs/generated/02_ARCHITECTURE.md) · [03 디렉터리 구조](docs/generated/03_DIRECTORY_STRUCTURE.md) |
+| 기능별 흐름·시퀀스·상태 다이어그램 | [09 기능 목록](docs/generated/09_FEATURES.md) → `docs/generated/features/F0xx_*.md` 29개 |
+| 엔드포인트 표, 엔티티·ER | [08 API](docs/generated/08_API.md) · [07 데이터 모델](docs/generated/07_DATA_MODEL.md) |
+| 설치·실행·설정·의존성 | [04 설치·실행](docs/generated/04_SETUP_AND_RUN.md) · [05 설정](docs/generated/05_CONFIGURATION.md) · [06 의존성](docs/generated/06_DEPENDENCIES.md) |
+| 장애가 났을 때, 과거 실패와 우회 | [12 트러블슈팅](docs/generated/12_TROUBLESHOOTING.md) · [11 실패 이력](docs/generated/11_FAILURE_HISTORY.md) · [10 오류 처리](docs/generated/10_ERROR_HANDLING.md) |
+| 보안·성능·테스트·배포 관점 | [13](docs/generated/13_SECURITY.md) · [14](docs/generated/14_PERFORMANCE.md) · [15](docs/generated/15_TESTING.md) · [16](docs/generated/16_DEPLOYMENT.md) |
+| 기술 부채, 용어, 아직 확인 못 한 것, 변경 기록 | [17 기술 부채](docs/generated/17_TECH_DEBT.md) · [18 용어](docs/generated/18_GLOSSARY.md) · [19 미확인·TODO](docs/generated/19_UNKNOWN_AND_TODO.md) · [20 변경 기록](docs/generated/20_CHANGELOG.md) · [ADR](docs/generated/adr/) |
+
+검증기가 남긴 지적 61건이 19번 문서에 있습니다 — 지적이 맞을 수도, 문서가 맞을 수도 있으니 사람이 훑어야 합니다.
+
 설계·계획 원본:
 
 | 문서 | 내용 |
 |---|---|
 | [`plan/tech_blog_0920.md`](plan/tech_blog_0920.md) | **전체 설계 스펙**(구속력 있는 기준): 설계 결정과 대안 비교, 접근 계약, 헤더·CSP, 자원 제한, 배포, 필수 테스트, Codex 검토 반영표 |
 | [`plan/resume_guide_0921.md`](plan/resume_guide_0921.md) | **작업 재개 가이드**: 현재 상태, 5분 점검, 다음 작업과 남은 결함, 실행이 끊겼을 때 복구 |
-| [`plan/tech_blog_2a_report_0921.md`](plan/tech_blog_2a_report_0921.md) · [`2b`](plan/tech_blog_2b_report_0921.md) · [`3`](plan/tech_blog_3_report_0922.md) | 단계별 실행 보고서: 검증 근거, 계획 결함과 교훈, 내린 판정, 수용한 잔여 위험 |
+| [`plan/tech_blog_2a_report_0921.md`](plan/tech_blog_2a_report_0921.md) · [`2b`](plan/tech_blog_2b_report_0921.md) · [`3`](plan/tech_blog_3_report_0922.md) · [`4`](plan/tech_blog_4_report_0923.md) | 단계별 실행 보고서: 검증 근거, 계획 결함과 교훈, 내린 판정, 수용한 잔여 위험 |
+| [`plan/doc_harness_0923.md`](plan/doc_harness_0923.md) · [설계](docs/superpowers/specs/2026-09-23-doc-harness-design.md) · [구현 계획](docs/superpowers/plans/2026-09-23-doc-harness.md) | 문서화 하네스: 설계 결정 D1~D15, INITIAL·INCREMENTAL 실전 결과와 비용, 실전에서 잡은 결함 17건과 교훈, 잔여 위험 |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/) | 단계별 구현 계획(스파이크 측정값·설계 결정·작업별 TDD 단계) |
 | [`plan/para_notes_0917.md`](plan/para_notes_0917.md) | 폐기된 이전 설계(PARA 노트앱). 결정 이력 보존용 |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | 프로젝트 규칙 (Claude Code / Codex) |
@@ -100,3 +118,5 @@ PortfolioBlog.slnx
 ## 개발 하네스
 
 설계와 구현은 Claude Code가 진행하고 OpenAI Codex CLI가 read-only로 교차 검증합니다. 에이전트 25종·스킬 27종, 커밋 메시지 형식 훅, 쓰기 범위 훅, 자동 커밋의 비밀값 스캐너, 구조 감사 스크립트, 그리고 코드를 근거로 기술 문서를 생성·증분 갱신하는 문서화 하네스(`doc-harness/`, 트리거 `문서화`)가 들어 있습니다 → [개발 하네스](docs/harness.md).
+
+문서화 하네스는 `문서화` 한마디로 돕니다(최초 INITIAL, 이후 baseline 대비 변경분만 INCREMENTAL, 변경 없으면 확인만). `문서화 상태`는 LLM 호출 없이 동기화 상태를 보여 줍니다. 비용 실측은 INITIAL 약 $130~160(사고 없을 때)·INCREMENTAL 약 $25~40이며, 하네스 자체를 고칠 때는 `cd doc-harness && npm test && npm run typecheck`로 확인합니다 → [실전 보고서](plan/doc_harness_0923.md) · [재개 가이드 3b절](plan/resume_guide_0921.md).

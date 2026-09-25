@@ -26,9 +26,9 @@ description: "프로젝트 기술 문서를 다단계 Claude 파이프라인으�
 4. **실행(분리 프로세스)** — Bash/PowerShell 도구는 명령 하나에 10분 상한이 있고 INITIAL은 1~3시간 걸리므로, 하네스를 **도구와 분리된 프로세스**로 띄운다. PowerShell 도구에서:
    ```powershell
    $log = "doc-harness/workspace/harness-run.log"
-   Start-Process -FilePath "npm" -ArgumentList "run","harness","--","run","--auto" -WorkingDirectory "doc-harness" -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+   Start-Process -FilePath "npm.cmd" -ArgumentList "run","harness","--","run","--auto" -WorkingDirectory "doc-harness" -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$log.err"
    ```
-   (전체는 `--auto` 대신 `--full`.) 그다음 Monitor 도구로 `doc-harness/workspace/harness-run.log`를 `tail -f`해 `✓`·`검증`·`문서화 완료`·`문서화 실패`·`Error` 줄을 이벤트로 받는다(모니터는 30분마다 만료되므로 재무장). 그 사이 다른 작업을 하지 않는다. 증분(INCREMENTAL)은 보통 10~20분이다.
+   (전체는 `--auto` 대신 `--full`. `-FilePath "npm"`은 Windows에서 "올바른 Win32 응용 프로그램이 아닙니다"로 실패한다 — 반드시 `npm.cmd`.) 그다음 Monitor 도구로 `doc-harness/workspace/harness-run.log`를 `tail -f`해 `✓`·`검증`·`문서화 완료`·`문서화 실패`·`Error` 줄을 이벤트로 받는다(모니터는 30분마다 만료되므로 재무장). 그 사이 다른 작업을 하지 않는다. 증분(INCREMENTAL)은 보통 10~20분이다.
 5. **보고** — 완료되면 `doc-harness/workspace/runs/<최신 run>/report.txt`를 읽어 **그대로** 출력한다(요약·재작성 금지). `status`가 FAILED면 리포트의 "남은 문제"를 보여 주고 baseline·기존 문서는 유지되었음을 알린다. 실패 원인이 일시적(타임아웃·한도)이면 `npm run harness -- resume`으로 이어갈 수 있다고 안내한다.
 6. **정리** — 센티널을 지운다. 변경된 파일(`docs/generated/**`, `doc-harness/workspace/baseline.json`·`current/`·`depgraph.json`·`runs/*/run.json`)은 이 저장소의 커밋 규칙대로 커밋한다(메시지 접두사 `문서:`, 제목은 모드와 요지 — 예: `문서: 문서화 INCREMENTAL — 기능 3개 갱신, 신규 1개`).
 

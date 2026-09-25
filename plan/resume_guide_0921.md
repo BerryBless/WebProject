@@ -1,4 +1,4 @@
-# 작업 재개 가이드 (2026-09-23 기준, Plan 4 병합 완료)
+# 작업 재개 가이드 (2026-09-25 기준, Plan 4·문서화 하네스 병합 완료)
 
 > 이 문서 하나만 읽으면 어느 세션에서든 이어서 작업할 수 있도록 쓴 인계 기록이다. 상태가 바뀌면 **이 문서를 갱신**하고 날짜를 고친다(새 파일을 만들지 않는다).
 
@@ -13,11 +13,12 @@
 | 2B | 공개 Razor 페이지·검색·Atom·sitemap·보안 헤더·호스트 필터·공개 속도 제한·읽기 전용 DB 연결·렌더 게이트/캐시·첨부 정합성 | 완료 | PR #3 → `80c8dc4`, 보고서 `plan/tech_blog_2b_report_0921.md` |
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
 | **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **완료 — PR #5 → `531f207`(master 병합)** | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 실행 보고서 `plan/tech_blog_4_report_0923.md` |
+| 문서화 | **문서화 하네스**(`doc-harness/`, TypeScript): `문서화` 한마디로 `docs/generated/` 61개 문서를 생성·증분 갱신. 실제 저장소에 INITIAL(run-0001)·INCREMENTAL(run-0002) 발행 | **완료 — PR #6 → `0e1237d`(squash 병합)** | 설계 `docs/superpowers/specs/2026-09-23-doc-harness-design.md`, 계획 `docs/superpowers/plans/2026-09-23-doc-harness.md`, 보고서 `plan/doc_harness_0923.md`(결함 17건·판정·잔여 위험). 3b절 |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
-- 기준 커밋: master `531f207`(PR #5 병합, 4단계 배포 구성까지 포함). 작업 트리 깨끗함, 열린 PR 없음.
+- 기준 커밋: master `c446ef7`(PR #6 병합 `0e1237d` + 보고서 정정). 작업 트리 깨끗함, 열린 PR 없음.
 - 검증 상태: .NET Release 빌드 경고 0 / 오류 0, 테스트 **625개 통과**. 웹: 타입 오류 0·린트 경고 0·Vitest **194개**·Playwright E2E **8개**(Chromium+Firefox)·스택 E2E **8개**. 하네스 감사 8/8, CI(ubuntu-latest: `test`·`web`·`web-e2e`·`deploy-smoke`) 통과.
-- 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`, `origin/feature/blog-admin-spa`, `origin/feature/blog-deploy`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
+- 남아 있는 것: 원격 브랜치 `origin/feature/blog-backend-core`, `origin/feature/blog-content-pipeline`, `origin/feature/blog-public-site`, `origin/feature/blog-admin-spa`, `origin/feature/blog-deploy`, `origin/feature/doc-harness`(전부 squash 병합 완료 — 지워도 된다. 아직 지우지 않았다).
 
 ## 2. 다시 시작할 때 5분 점검
 
@@ -32,6 +33,7 @@ dotnet test  PortfolioBlog.slnx -c Release # 625개 통과 (한 개가 연결 �
 cd PortfolioBlog.Web; npm ci; npm run lint; npm run typecheck; npm test; npm run build   # Vitest 194개
 npm run e2e:prepare; npm run e2e; docker rm -f pb-e2e-pg; cd ..                          # E2E 8개(포트 7198·4173·5433이 비어 있어야 한다)
 pwsh scripts/harness-audit.ps1             # PASS 8/8
+cd doc-harness; npm ci; npm test; npm run typecheck; npm run harness -- status; cd ..   # Vitest 101개, 문서화 상태(LLM 호출 없음)
 ```
 
 필요 도구: .NET SDK 10.0.303, Docker Desktop, PowerShell 7, `gh`(GitHub CLI, 로그인됨), Python 3 + Pillow(이미지 픽스처·호환성 확인용, 테스트 실행에는 불필요), Codex CLI(교차 검증을 쓸 때만). Node.js 24(react-router 8이 22.22 이상 요구), Playwright 브라우저(`npx playwright install chromium firefox`).
@@ -99,6 +101,25 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 6. **브라우저:** WebKit(Safari) 미검증. 파일 입력의 `sr-only` 포커스 가능성 미확인.
 7. 공개 사이트 CSS를 바꾸면 `PortfolioBlog.Web/public/preview/*.css` 스냅숏을 갱신해야 한다(안 하면 `PreviewCssSnapshotTests` 실패).
 
+## 3b. 문서화 하네스 — 완료·병합됨
+
+**무엇인가.** `doc-harness/`가 `claude -p`(읽기 전용 도구만)를 자식 프로세스로 띄워 프로젝트를 다단계로 분석하고 `docs/generated/`를 만든다. 코드가 Source of Truth, 다이어그램은 전부 Mermaid 인라인, 프로덕션 코드는 절대 건드리지 않는다. 트리거는 메시지 전체가 정확히 `문서화`·`문서화 전체`·`문서화 상태`·`문서화 검증`일 때만(`.claude/skills/doc-harness/SKILL.md`가 절차의 정본).
+
+**지금 상태(2026-09-25).**
+- baseline 버전 2(run-0002, 커밋 `432327f` 기준). `docs/generated/` 61개 문서, Mermaid 101개.
+- `문서화 상태`는 "STALE, 변경 파일 1개(`TagEndpoints.cs`)"를 보여 준다. 정상이다 — 증분 검증용 임시 주석을 넣고 run-0002를 돌린 뒤 주석을 되돌렸기 때문에 baseline이 주석 판본을 기억한다. 다음 `문서화`가 이 파일 하나를 TRIVIAL 증분(기능 2개·문서 10여 개·약 $25~40·15~25분)으로 정리한다.
+- 잔여 LLM 지적 61건이 `docs/generated/19_UNKNOWN_AND_TODO.md`에 있다. 지적이 맞을 수도, 문서가 맞을 수도 있다 — 사람이 훑는다.
+- 비용 실측: INITIAL 약 $347(사고 포함, 이상적으로 $130~160·3~4시간), INCREMENTAL 누적 $149(사고 포함, 이상적으로 $25~40). 모델·예산은 `doc-harness/config/harness.yaml`.
+
+**이어서 할 때 알아야 할 것.**
+- 실행은 도구 10분 상한과 분리해 띄운다. `Start-Process -FilePath "npm.cmd"`(`"npm"`은 Win32 오류) + Monitor로 `doc-harness/workspace/harness-run.log` tail. 실행 전 `.git/harness_commit_in_progress`를 만들어 Stop 훅 커밋을 막고, 끝나면 지운다.
+- 사용량 한도(`QUOTA:`)에 걸리면 즉시 FAILED로 끝난다. `npm run harness -- resume`이 실패 항목만 다시 돈다 — 검증·수정 항목은 id+입력 해시로 캐시되므로 하네스 코드를 안 고치면 재개는 거의 무료다(Fake 러너 스파이크로 확인). **실행 중이나 재개 사이에 `src/`·`prompts/`를 고치면** 프롬프트 해시가 바뀌어 캐시가 깨지고, LLM 검증은 바뀐 문서가 속한 문서군 전체($3~14)를 다시 본다.
+- 결정적 검사가 왜 발행을 막는지 볼 때는 `npx tsx scripts/repro-det.ts run-NNNN`(LLM 없이 참조·Mermaid·일관성 검사만 재현).
+- 생성 문서가 비밀번호 키워드 뒤에 `=`나 따옴표 값이 붙는 문구(연결 문자열의 Password 항목, 세션의 `pwd` 클레임, SQL의 PASSWORD 절 인용)를 담으면 Stop 훅 비밀값 스캔에 걸려 커밋이 막힌다(run-0002에서 F001·F026 문서로 실제 발생). 훅이 `.git/auto_commit_msg.failed.txt`에 메시지를 보존하니, 문구를 바꾸고 다음 턴에 다시 커밋된다. 렌더 단계 자동 정제는 향후 과제.
+- 하네스 코드를 고치면 `cd doc-harness && npm test && npm run typecheck`. 산출물 중 커밋 대상은 `docs/generated/**`, `doc-harness/workspace/{baseline.json,current/,depgraph.json,runs/*/run.json·report.txt}`; `runs/*/staging`·로그·state.json 등은 `.gitignore`.
+
+**하지 않기로 한 것.** 수정 루프 회차 영속화 — 필요 없음(위 캐시). 문서군 단위 검증 캐시를 문서 단위로 좁히는 개선은 하네스 개발자에게만 이득이라 보류.
+
 ## 4. 계획 실행 중에 끊겼다면 (Subagent-Driven Development)
 
 - 진행 기록은 `.superpowers/sdd/<계획 파일 이름>/progress.md`에 있다(git 무시 대상). 첫 줄이 그 계획 파일을 가리키면 `Task N: complete`가 찍힌 작업은 **끝난 것**이다 — 다시 맡기지 않는다. 마지막 줄이 수정 라운드면 그 라운드부터 잇는다. 기록이 없으면 `git log`로 복구한다.
@@ -152,6 +173,8 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 | 구현 계획(TDD 단계별) | `docs/superpowers/plans/2026-09-20-…backend-core.md`, `…2026-09-21-…content-pipeline.md`, `…2026-09-21-tech-blog-public-site.md`(앞의 스파이크 표 S1~S12·설계 결정 D1~D12), `…2026-09-21-tech-blog-admin-spa.md`(S1~S13·D1~D16, 끝에 구현 중 고친 계획 결함) |
 | 프로젝트 규칙(주석·커밋·하네스·경로) | `CLAUDE.md`(Codex용 미러 `AGENTS.md` — 함께 고친다) |
 | 하네스 변경 이력 | `plan/harness_changelog.md` |
+| 문서화 하네스: 설계(D1~D15)·구현 계획·실전 보고서(결함 17건, 판정, 잔여 위험) | `docs/superpowers/specs/2026-09-23-doc-harness-design.md`, `docs/superpowers/plans/2026-09-23-doc-harness.md`, `plan/doc_harness_0923.md` |
+| 생성된 기술 문서(신규 개발자용 61개, 잔여 지적은 19번) | `docs/generated/README.md`부터 |
 | 로컬 실행 방법, 설정 키 표, API 예시 요청 | `README.md`, `PortfolioBlog.Api/PortfolioBlog.Api.http` |
 
 ## 7. 코드 지도 (3단계 이후)
@@ -189,6 +212,22 @@ PortfolioBlog.Web/                 # 관리 SPA. admin-headers.ts(보안 헤더 
 └─ e2e/admin.spec.ts               # Playwright 8개: 실제 백엔드 + 배포용 CSP, CSP 위반 0건
 ```
 
+```
+doc-harness/                       # 문서화 하네스(TypeScript, Node 24). npm test(Vitest 101) · npm run typecheck · npm run harness -- <run|status|verify|resume|report|clean>
+├─ config/harness.yaml             # 제외 경로, 병렬도, 검증(max_iterations 2 · 기능 조각 4 · publish_on_residual), 단계별 모델·예산·타임아웃
+├─ prompts/                        # 00_global_rules · 01~09 단계 프롬프트 · I02/I04/I07/I08 증분 프롬프트 (실행 중 수정 금지 — 캐시 해시)
+├─ src/
+│  ├─ cli.ts · pipeline.ts         # 명령 → runInitial/runIncremental → 검증 루프 → 발행(원자 교체·baseline)
+│  ├─ claude.ts · run.ts · state.ts # claude -p 어댑터(한도 즉시 실패·비밀값 마스킹) · Run 트랜잭션·항목 캐시(id+입력 해시) · 상태 파일
+│  ├─ change/                      # detect(해시+git) · classify(LLM) · impact(depgraph) · featureDelta
+│  ├─ phases/                      # inventory · architecture · discovery · feature(워커 풀) · dataApi · failures · operations, common(stableInputHash)
+│  ├─ render/                      # 섹션 앵커 · 템플릿 문서 · 서술 문서 · 다이어그램 판정 · fixer용 재렌더
+│  └─ verify/                      # references · mermaid(jsdom 파서 3층) · consistency · llm(문서군) · loop(사전/본/사후) · fixer
+├─ scripts/repro-det.ts            # 결정적 검사 재현(LLM 없음) · det-check.ts(run-0001 전용 구버전)
+├─ test/                           # unit/*.test.ts, helpers(fake-pipeline·samples·context), fixtures/mini-project
+└─ workspace/                      # baseline.json · current/(정본 JSON) · depgraph.json · runs/run-NNNN/(run.json·report.txt 커밋, staging·state.json은 무시)
+```
+
 파일 위치는 위 트리가 어긋나면 코드가 맞다(`Glob`으로 확인). 의존 방향: `Features·Pages → Infrastructure → Contracts → Domain`. Feature끼리, `Pages`와 `Features`는 서로 참조하지 않는다. 패키지 버전은 `Directory.Packages.props`가 일괄 관리한다(2B에서 새 패키지·마이그레이션 없음).
 
 ## 8. 사용자가 정해 둔 것 (다시 묻지 않는다)
@@ -208,4 +247,5 @@ dotnet test  PortfolioBlog.slnx -c Release   # 591개 통과 (Docker 필요)
 (cd PortfolioBlog.Web && npm ci && npm run lint && npm run typecheck && npm test && npm run build)   # Vitest 188개
 (cd PortfolioBlog.Web && npm run e2e:prepare && npm run e2e; docker rm -f pb-e2e-pg)               # E2E 8개
 pwsh scripts/harness-audit.ps1               # 8/8 PASS
+(cd doc-harness && npm ci && npm test && npm run typecheck)   # Vitest 101개
 ```
