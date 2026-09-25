@@ -13,7 +13,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, <see cref="ApiFactory"/>가 구동하는 인메모리 TestServer로 실제 파이프라인(라우팅·미들웨어)을 검증한다.</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 클래스 픽스처로 1회 생성·공유된다. <see cref="Hsts_OnlyOutsideDevelopment"/>만 별도의 <see cref="ApiFactory"/>를 직접 만들어 <c>using</c>으로 해제한다.</description></item>
-/// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와는 순차 실행된다. <paramref name="factory"/>는 <see cref="IClassFixture{TFixture}"/>로 클래스 내 모든 케이스가 공유하지만, 각 케이스가 <c>using</c>으로 자기 전용 <see cref="HttpClient"/>를 새로 만들어 요청 상태(쿠키·기본 헤더)는 공유하지 않는다.</description></item>
+/// <item><description><b>Concurrency:</b> <c>mysql</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와는 순차 실행된다. <paramref name="factory"/>는 <see cref="IClassFixture{TFixture}"/>로 클래스 내 모든 케이스가 공유하지만, 각 케이스가 <c>using</c>으로 자기 전용 <see cref="HttpClient"/>를 새로 만들어 요청 상태(쿠키·기본 헤더)는 공유하지 않는다.</description></item>
 /// </list>
 /// </remarks>
 [Collection("mysql")]

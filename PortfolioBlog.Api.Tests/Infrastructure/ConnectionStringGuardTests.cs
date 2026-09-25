@@ -19,7 +19,7 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 [Collection("mysql")]
 public sealed class ConnectionStringGuardTests(MySqlContainerFixture mysql)
 {
-    /// <summary>빈 문자열·공백뿐인 연결 문자열이 Npgsql 소켓 오류가 아니라 <c>ConnectionStrings:Default</c>를 언급하는 명확한 설정 오류로 실패하는지 검증한다.</summary>
+    /// <summary>빈 문자열·공백뿐인 연결 문자열이 MySqlConnector 소켓 오류가 아니라 <c>ConnectionStrings:Default</c>를 언급하는 명확한 설정 오류로 실패하는지 검증한다.</summary>
     /// <param name="value">가드가 거부해야 하는 잘못된 연결 문자열 값(빈 문자열 또는 공백).</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>

@@ -35,7 +35,7 @@ public static class DataServiceCollectionExtensions
 
     /// <summary>풀에서 꺼낼 때마다 세션을 리셋하도록 <c>ConnectionReset=true</c>를 강제한 연결 문자열을 만든다.</summary>
     /// <param name="connectionString">설정의 연결 문자열.</param>
-    /// <returns>정규화된 연결 문자열(풀 키). 테스트가 풀을 비울 때도 이 값을 쓴다.</returns>
+    /// <returns>정규화된 연결 문자열(풀 키).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -80,7 +80,7 @@ public static class DataServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>공개 조회 컨텍스트가 쓸 연결 문자열. <c>ConnectionStrings:Public</c>(읽기 전용 롤)이 있으면 그것을, 없으면 관리 연결을 쓴다.</summary>
+    /// <summary>공개 조회 컨텍스트가 쓸 연결 문자열. <c>ConnectionStrings:Public</c>(읽기 전용 사용자)이 있으면 그것을, 없으면 관리 연결을 쓴다.</summary>
     /// <param name="sp">연결 문자열을 읽을 서비스 프로바이더.</param>
     /// <returns>공개 연결의 연결 문자열(세션 설정은 <see cref="PublicSessionInterceptor"/>가 연결을 열 때마다 건다).</returns>
     /// <exception cref="InvalidOperationException">둘 다 비어 있을 때(<see cref="RequireConnectionString"/>).</exception>

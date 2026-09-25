@@ -155,7 +155,7 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
     }
 
     /// <summary>제목·설명에 NUL(U+0000) 문자가 있으면 500이 아니라 해당 필드 키를 가진 400을 돌려주는지 검증한다.
-    /// PostgreSQL <c>text</c> 컬럼은 NUL을 저장할 수 없지만 JSON은 유니코드 이스케이프로 이를 실어 나를 수 있으므로, 검증 단계에서 걸러야 한다.</summary>
+    /// JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있으므로, MySQL이 NUL을 저장할 수 있어도 검증 단계에서 걸러야 한다.</summary>
     [Fact]
     public async Task Create_NulCharacter_Returns400_NotServerError()
     {
@@ -173,7 +173,7 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
     }
 
     /// <summary>slug 끝에 개행(<c>\n</c>)이 있으면 400을 돌려주는지 검증한다. .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는
-    /// 문자열 끝의 단일 개행 앞에서도 매칭되지만 PostgreSQL <c>~</c> 연산자는 그렇지 않으므로, 글·시리즈가 공유하는 <c>SlugRules</c>가 <c>\A</c>/<c>\z</c> 앵커로 이 차이를 없앤다.</summary>
+    /// 문자열 끝의 단일 개행 앞에서도 매칭되므로, 글·시리즈가 공유하는 <c>SlugRules</c>가 <c>\A</c>/<c>\z</c> 앵커로 DB CHECK(<c>REGEXP_LIKE</c>, ICU)와의 이 차이를 없앤다.</summary>
     [Fact]
     public async Task Create_SlugWithTrailingNewline_Returns400()
     {

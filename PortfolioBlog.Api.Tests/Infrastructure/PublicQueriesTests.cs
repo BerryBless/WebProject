@@ -84,8 +84,8 @@ public sealed class PublicQueriesTests(MySqlContainerFixture mysql)
         Assert.Equal(2, (await QueryAsync(factory, db => PublicQueries.SearchAsync(db, "완료", 1, CancellationToken.None))).Total);
     }
 
-    /// <summary>0·음수·오버플로 경계의 page는, 가드가 없었다면 PostgreSQL의 감싸이지 않은 2201X 예외(음수 OFFSET)로 500이 되거나
-    /// 오버플로 값에 따라 조용히 틀린 페이지를 냈을 것을(PublicQueries.PageAsync 주석의 실측 참조) 대신 즉시 명확한
+    /// <summary>0·음수·오버플로 경계의 page는, 가드가 없었다면 음수 OFFSET이 DB 오류나 프로바이더 예외로 500이 되거나
+    /// 오버플로 값에 따라 조용히 틀린 페이지를 냈을 것을(<c>PublicQueries.PageAsync</c> 주석의 실측 참조) 대신 즉시 명확한
     /// <see cref="ArgumentOutOfRangeException"/>으로 거부한다(심층 방어).</summary>
     [Fact]
     public async Task Latest_OutOfRangePage_Throws()

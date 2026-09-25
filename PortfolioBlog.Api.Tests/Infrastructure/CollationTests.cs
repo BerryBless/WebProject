@@ -49,7 +49,7 @@ public sealed class CollationTests(ApiFactory factory) : IClassFixture<ApiFactor
         Assert.Equal(AppDbContext.BinaryCollation, (string?)await command.ExecuteScalarAsync());
     }
 
-    /// <summary>공개 검색은 대소문자를 무시한다(PG ILIKE와 같은 사용자 경험).</summary>
+    /// <summary>공개 검색은 대소문자를 무시한다(<c>utf8mb4_0900_ai_ci</c> 콜레이션의 <c>LIKE</c>).</summary>
     [Fact]
     public async Task Search_IsCaseInsensitive()
     {

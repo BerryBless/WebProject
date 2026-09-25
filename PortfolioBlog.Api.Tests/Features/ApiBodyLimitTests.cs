@@ -11,7 +11,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, 대부분의 케이스가 <see cref="ApiFactory.CreateLoggedInClientAsync"/>로 실제 로그인 왕복을 거친 클라이언트를 만든다. <see cref="NoSession_Gets401_NotA413"/>만 로그인하지 않은 <see cref="ApiFactory.CreateAdminClient"/> 클라이언트를 쓴다(세션 부재를 검증하는 케이스라 로그인하면 전제가 깨진다).</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 클래스 픽스처로 1회 생성·공유된다. 300,000자 본문 문자열은 각 케이스가 <see cref="Json"/>으로 새로 만들어 GC 대상이 된다.</description></item>
-/// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 새 로그인 세션을 쓰므로 서로 간섭하지 않는다.</description></item>
+/// <item><description><b>Concurrency:</b> <c>mysql</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 새 로그인 세션을 쓰므로 서로 간섭하지 않는다.</description></item>
 /// </list>
 /// </remarks>
 [Collection("mysql")]

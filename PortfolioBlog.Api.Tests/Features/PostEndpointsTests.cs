@@ -144,8 +144,8 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
     }
 
     /// <summary>후행 개행이 붙은 slug가 500(DB CHECK 위반)이 아니라 필드 키 <c>slug</c>를 가진 400으로 거부되는지 검증한다.
-    /// .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는 문자열 끝의 단일 <c>\n</c> 앞에서도 매칭되지만
-    /// PostgreSQL <c>~</c> 연산자는 그렇지 않아, 앵커를 맞추지 않으면 형식 검증을 통과한 뒤 DB CHECK에서만 걸린다.</summary>
+    /// .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는 문자열 끝의 단일 <c>\n</c> 앞에서도 매칭되므로,
+    /// 앱과 DB CHECK(<c>REGEXP_LIKE</c>, ICU)가 똑같이 <c>\A</c>/<c>\z</c>로 앵커링하지 않으면 형식 검증을 통과한 뒤 DB CHECK에서만 걸린다(<see cref="SlugRules"/>).</summary>
     [Fact]
     public async Task Create_SlugWithTrailingNewline_Returns400()
     {
@@ -154,8 +154,8 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Contains("slug", (await ErrorsAsync(res)).Keys);
     }
 
-    /// <summary>제목·본문·태그 이름에 NUL(U+0000)이 섞여 있으면 500(PostgreSQL <c>text</c>가 NUL을 저장할 수 없어 발생)이 아니라
-    /// 해당 필드 키를 가진 400으로 거부되는지 검증한다. JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 입력에서 걸러야 한다.</summary>
+    /// <summary>제목·본문·태그 이름에 NUL(U+0000)이 섞여 있으면 500이 아니라 해당 필드 키를 가진 400으로 거부되는지 검증한다.
+    /// JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 입력에서 걸러야 한다(MySQL도 NUL을 저장은 하지만, 검색·로그·렌더 경로의 이상 입력을 막는 정책으로 유지한다).</summary>
     [Fact]
     public async Task Create_NulCharacter_Returns400_NotServerError()
     {
@@ -304,8 +304,8 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
-    /// <summary>검색어(<c>q</c>)에 NUL(U+0000)이 섞여 있으면 500(PostgreSQL ILIKE 매개변수가 NUL을 실어 나를 수 없어 SqlState 22021로 실패)이 아니라
-    /// 필드 키 <c>q</c>를 가진 400으로 거부되는지 검증한다. <paramref name="rawQuery"/>는 테스트 안에서 <see cref="Uri.EscapeDataString(string)"/>으로
+    /// <summary>검색어(<c>q</c>)에 NUL(U+0000)이 섞여 있으면 500이 아니라 필드 키 <c>q</c>를 가진 400으로 거부되는지 검증한다(NUL 거부는
+    /// DB 저장 실패를 막기 위해서가 아니라 검색 입력의 이상값을 막는 정책이다). <paramref name="rawQuery"/>는 테스트 안에서 <see cref="Uri.EscapeDataString(string)"/>으로
     /// 퍼센트 인코딩한다(손으로 퍼센트 시퀀스를 쓰지 않는다).</summary>
     /// <param name="rawQuery">NUL을 포함한 원본 검색어(인코딩 전).</param>
     [Theory]
