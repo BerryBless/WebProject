@@ -205,6 +205,16 @@ public sealed class StartupValidationTests(MySqlContainerFixture mysql)
         AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = shortCommandTimeout }, "ConnectionStrings:Default");
     }
 
+    /// <summary>환경에 상관없이 <c>ConnectionStrings:Default</c>의 Command Timeout이 0이 아니면서 첨부 잠금 대기 상한(<c>AttachmentLock.WaitSeconds</c>=10초) 이하면
+    /// 시작이 실패한다 — 경합 중인 <c>GET_LOCK</c>이 서버의 타임아웃 응답(0 → 503)보다 먼저 클라이언트에서 끊겨 500이 되기 때문이다.
+    /// 10초를 고른 이유: 기존 규칙(×1000 &gt; <c>Public:StatementTimeoutMs</c> 3000)은 통과하고 새 규칙의 경계(같으면 실패)에만 걸린다.</summary>
+    [Fact]
+    public void AnyEnvironment_DefaultCommandTimeoutNotLargerThanAttachmentLockWait_Fails()
+    {
+        var atLockWait = new MySqlConnectionStringBuilder(mysql.ConnectionString) { DefaultCommandTimeout = 10 }.ConnectionString;
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = atLockWait }, "첨부 잠금 대기 상한(AttachmentLock.WaitSeconds");
+    }
+
     /// <summary><c>Development</c>가 아닌 환경에서 공개 조회 전용 연결(<c>ConnectionStrings:Public</c>)이 없으면 시작이 실패한다.
     /// 없으면 공개 페이지가 테이블 소유자 롤로 돌고, 남는 방어는 세션이 스스로 끌 수 있는 <c>default_transaction_read_only</c>뿐이다.</summary>
     [Fact]

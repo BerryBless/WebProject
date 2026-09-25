@@ -226,6 +226,23 @@ public sealed class AttachmentIntegrityTests(MySqlContainerFixture mysql)
         Assert.Equal(1L, await ScalarAsync(observer, "SELECT IS_FREE_LOCK(@k)", name));
     }
 
+    /// <summary>잠금을 쥔 동안 그 세션의 <c>lock_wait_timeout</c>(메타데이터 잠금 대기 상한)이 대기 상한과 같다 — PG 판 <c>lock_timeout</c>과 같은 통제.
+    /// 기본값(10)이 아닌 7을 주는 이유: 인자가 실제로 세션에 전달됨을 상수 우연 일치 없이 보인다(서버 기본 31536000과도 다르다).</summary>
+    [Fact]
+    public async Task HoldAsync_BoundsMetadataLockWaitOnTheLockingSession()
+    {
+        using var factory = new ApiFactory(mysql);
+        using var _ = factory.CreateClient();
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        await using (await AttachmentLock.HoldAsync(db, LockSha, waitSeconds: 7, CancellationToken.None))
+        {
+            var sessionValue = await db.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.lock_wait_timeout AS SIGNED) AS `Value`").SingleAsync();
+            Assert.Equal(7L, sessionValue);
+        }
+    }
+
     /// <summary>다른 세션이 쥐고 있으면 대기 상한 뒤 DbLockTimeoutException(→ 503)이 나고, 실패 경로에서 연결을 닫는다.</summary>
     [Fact]
     public async Task HoldAsync_WhenHeldElsewhere_TimesOutAsLockTimeout()
