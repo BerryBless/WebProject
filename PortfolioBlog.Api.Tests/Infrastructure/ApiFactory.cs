@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MySqlConnector;
@@ -47,6 +48,10 @@ public class ApiFactory : WebApplicationFactory<Program>
     private readonly string _publicConnectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly string? _attachmentsRootPathOverride;
+
+    // ConfigureWebHost는 호스트가 실제로 빌드될 때만(= Services·CreateClient가 최초로 호스트를 요구할 때) 호출된다.
+    // 이 플래그로 "호스트가 한 번이라도 기동됐는지"를 판별해, Dispose가 쓰지도 않은 호스트를 깨우는 일을 막는다.
+    private bool _hostBuilt;
 
     /// <summary>이 팩토리가 만든 테스트 전용 DB를 가리키는 관리 연결 문자열(잠금·테이블 잠금 테스트가 쓴다).</summary>
     internal string ConnectionString => _connectionString;
@@ -101,6 +106,8 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // 호스트 빌드가 실제로 시작됐다는 신호. Dispose가 이 값으로 "풀을 비울 실제 호스트가 있었는지"를 판별한다.
+        _hostBuilt = true;
         builder.UseSetting("ConnectionStrings:Default", _connectionString);
         builder.UseSetting("ConnectionStrings:Public", _publicConnectionString);
         // Development가 아닌 환경의 시작 검증이 요구한다. 첨부 루트 안에 두지 않는다(청소 잡 테스트가 그 폴더를 훑는다). 전 팩토리 공유.
@@ -239,27 +246,53 @@ public class ApiFactory : WebApplicationFactory<Program>
         return setCookie.Split(';', 2)[0];
     }
 
-    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 공개 사용자를 지운 뒤 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.
-    /// 풀 정리·사용자 삭제가 예외를 던져도(예: 컨테이너 연결 실패) 첨부 임시 폴더 정리는 <c>finally</c>로 항상 실행된다.</summary>
+    /// <summary>호스트가 실제로 기동된 적이 있으면 그 호스트가 쓰던 관리·공개 두 연결 풀의 정확한 키를 잡아 두고, 기반
+    /// <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤 그 풀들을 비운다. 이어서 공개 사용자를 지우고
+    /// 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다. 풀 정리·사용자 삭제가 예외를 던져도(예: 컨테이너 연결 실패)
+    /// 첨부 임시 폴더 정리는 <c>finally</c>로 항상 실행된다.</summary>
     /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·연결 풀·임시 폴더)까지 해제한다.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> xUnit이 픽스처 해제 시 1회만 호출한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> <see cref="DataServiceCollectionExtensions.WithSessionReset"/>가 만드는 연결 문자열 2개 + 반복용 배열 1개.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 블로킹. 풀 정리·<c>DROP USER</c>(root 연결 DB 왕복)와 파일 시스템 I/O(디렉터리 재귀 삭제). <c>base.Dispose</c>가 먼저 호스트를 내려 파일 핸들을 놓아야 삭제가 실패하지 않으므로 반드시 그 다음에 호출한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> DI 스코프 1개(호스트가 기동됐을 때만) + 연결 문자열 캡처 2개 + 반복용 배열 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 블로킹. 스코프 해석·풀 정리·<c>DROP USER</c>(root 연결 DB 왕복)와 파일 시스템 I/O(디렉터리 재귀 삭제).
+    /// 연결 문자열 캡처는 <c>base.Dispose</c>가 호스트를 내리기 전(서비스가 아직 살아 있을 때) 해야 하고, 실제 <c>ClearPool</c> 호출은
+    /// 그 다음(<c>base.Dispose</c> 이후, 요청 처리 중이던 연결까지 풀로 반납된 뒤)이어야 유휴 연결이 남김없이 닫힌다.</description></item>
     /// </list>
+    /// Pomelo의 <c>UseMySql</c>은 <see cref="DataServiceCollectionExtensions.WithSessionReset"/>가 정규화한 문자열 뒤에
+    /// <c>Allow User Variables=True;Use Affected Rows=False</c>를 추가로 덧붙인다 — 그래서 풀 키가 그 두 옵션까지 포함한
+    /// 최종 문자열이다. 이 메서드가 <c>WithSessionReset</c>을 다시 적용하지 않고 <see cref="AppDbContext"/>·<see cref="PublicDbContext"/>의
+    /// <c>Database.GetDbConnection().ConnectionString</c>을 그대로 읽는 이유가 이것이다(그 값이 앱이 실제로 연 풀의 키와 글자 그대로 같다).
     /// </remarks>
     protected override void Dispose(bool disposing)
     {
+        string? appConnectionString = null;
+        string? publicConnectionString = null;
+        if (disposing && _hostBuilt)
+        {
+            try
+            {
+                // Services가 아직 살아 있는 지금 시점에만 앱이 실제로 쓴 연결 문자열을 읽을 수 있다(연결 자체는 열지 않는다 — 문자열만 필요).
+                using var scope = Services.CreateScope();
+                appConnectionString = scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.GetDbConnection().ConnectionString;
+                publicConnectionString = scope.ServiceProvider.GetRequiredService<PublicDbContext>().Database.GetDbConnection().ConnectionString;
+            }
+            catch
+            {
+                // 호스트 기동이 실패했거나 이미 내려간 경우 등 — 풀 정리용 연결 문자열을 얻지 못해도 치명적이지 않다.
+                // 뒤이은 base.Dispose가 호스트 정리를 마저 한다.
+            }
+        }
         base.Dispose(disposing);
         if (!disposing) return;
         try
         {
-            // 풀은 연결 문자열별 프로세스 전역 상태다. 앱이 쓴 것과 같은 키(WithSessionReset 정규화)로 비워야 유휴 연결이 서버에서 즉시 닫힌다.
-            foreach (var cs in new[] { _connectionString, _publicConnectionString })
+            // 풀은 연결 문자열별 프로세스 전역 상태다. 앱이 실제로 연 것과 글자 그대로 같은 키로 비워야 유휴 연결이 서버에서 즉시 닫힌다.
+            foreach (var cs in new[] { appConnectionString, publicConnectionString })
             {
-                using var connection = new MySqlConnection(DataServiceCollectionExtensions.WithSessionReset(cs));
+                if (cs is null) continue; // 호스트가 한 번도 기동되지 않았으면(_hostBuilt=false) 비울 풀 자체가 없다.
+                using var connection = new MySqlConnection(cs);
                 // MySqlConnector의 동기 정적 ClearPool(MySqlConnection): 그 연결 문자열 풀의 유휴 연결을 닫는다(Dispose가 동기라 Async 판을 쓰지 않는다).
                 MySqlConnection.ClearPool(connection);
             }
