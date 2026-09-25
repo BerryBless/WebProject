@@ -17,6 +17,8 @@
 | 잘못된 설정은 시작 실패 | 조용히 약해지는 설정(빈 신뢰 프록시, 같은 두 origin, http origin, 상대 경로 저장소)은 기동을 막습니다 |
 | 세션 폐기 | 절대 수명 12시간. 비밀번호를 바꾸면 기존 세션이 자동 폐기되고, 로그아웃은 모든 세션을 폐기합니다 |
 | 저장소는 MySQL 8.4, 공개 조회는 5개 테이블 SELECT만 가진 별도 DB 사용자 | PG의 소유자 GRANT·시작 매개변수를 대체: 앱이 기동마다 GRANT를 적용하고 `SHOW GRANTS`로 정확한 권한 집합인지 스스로 검증하며(불일치 시 기동 실패), 공개 연결은 열릴 때마다 세션을 읽기 전용 + 실행 시간 상한으로 고정합니다. 동시성 토큰은 `xmin` 대신 앱이 관리하는 `Version` 컬럼입니다. DB 인증은 `caching_sha2_password` + `SslMode=Required`(서버 자동 인증서, 신뢰 검증 없음) → [설계 스펙 2.2절](../plan/mysql_migration_0926.md) |
+| 트랜잭션 격리 수준을 앱이 READ COMMITTED로 고정(D7) | MySqlConnector의 인자 없는 `BeginTransaction()`은 매번 `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`를 보냅니다(실측) — `ReadCommittedTransactionInterceptor`가 격리 수준 미지정 트랜잭션을 전부 READ COMMITTED로 대체합니다. 서버 플래그 `--transaction-isolation=READ-COMMITTED`는 명시 트랜잭션 밖의 단일 문장(autocommit)을 담당합니다 |
+| 첨부는 `GET_LOCK` 사용자 잠금으로 직렬화(D5) | 같은 내용(SHA-256)을 만지는 업로드·삭제·청소가 경합하지 않게 순서를 강제합니다. 잠금 이름은 서버 전역이라 DB 이름 해시로 네임스페이스를 나누고(최대 64자), 대기 10초 초과는 503입니다. 해제는 명시적이며, 실패해도 늦어도 다음 대여 때 연결 리셋이 풉니다 |
 
 설계 초안은 OpenAI Codex CLI로 교차 검토했고(지적 23건), 수용한 항목과 의견이 갈린 4건의 근거를 [스펙 2.6절](../plan/tech_blog_0920.md)에 남겼습니다.
 
@@ -60,7 +62,7 @@ CSRF 방어는 **커스텀 헤더 + Origin 검사 + `SameSite=Strict` 쿠키** �
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 2. **영구 잠금 없음**(작성자 서비스 거부 방지) |
 | 업로드 | 전역 30회/분 + 동시 2. 앱 10MB / 프레임워크 11MB(multipart 프레이밍 여유 1MB) |
 | 렌더링 | 프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503. 공개 글은 `(PostId, Version)` 캐시(64MB) + 단일 비행 |
-| DB | 공개 조회는 별도 DB 사용자 연결. 열릴 때마다 `SET SESSION transaction_read_only = ON, max_execution_time = 3000` |
+| DB | 공개 조회는 별도 DB 사용자 연결. 열릴 때마다 `SET SESSION transaction_read_only = ON, max_execution_time = 3000, lock_wait_timeout = 3`(메타데이터 잠금 대기 상한) |
 | JSON 본문 | 관리 API 256KB(직렬화 후 바이트 기준) |
 | 과부하 응답 | 시간 초과·잠금 대기·렌더 슬롯 초과는 503 + `Retry-After: 5` |
 
@@ -77,7 +79,7 @@ CSRF 방어는 **커스텀 헤더 + Origin 검사 + `SameSite=Strict` 쿠키** �
 - WebP: 청크 허용 목록, `VP8X`는 정확히 10바이트일 때만 받아 EXIF·XMP 플래그 제거, RIFF 크기 재작성
 - GIF: 그래픽 제어 확장과 NETSCAPE2.0 반복 횟수만 재구성해 유지, 나머지 확장·트레일러 뒤 폐기
 
-SHA-256은 **제거 후** 바이트 기준이며 그 값이 곧 저장 경로(`{sha[..2]}/{sha}.{ext}`)입니다. 저장 루트는 정적 파일 루트 밖이고 경로는 서버 생성 값만 씁니다. 삽입·삭제·청소는 sha256 단위 advisory lock으로 직렬화하고, 청소 잡이 6시간마다 1시간 넘은 임시 파일과 참조 없는 파일을 지웁니다.
+SHA-256은 **제거 후** 바이트 기준이며 그 값이 곧 저장 경로(`{sha[..2]}/{sha}.{ext}`)입니다. 저장 루트는 정적 파일 루트 밖이고 경로는 서버 생성 값만 씁니다. 삽입·삭제·청소는 sha256 단위 `GET_LOCK` 사용자 잠금으로 직렬화하고, 청소 잡이 6시간마다 1시간 넘은 임시 파일과 참조 없는 파일을 지웁니다.
 
 디코더 없이는 닫을 수 없는 잔여 표면(ICC 프로파일 본문, WebP ANMF 프레임 페이로드, JPEG DQT/DHT/SOF 페이로드, PNG CRC 미검증, GIF LZW 체인)은 10MB 상한·시그니처 기반 Content-Type·`nosniff`·`default-src 'none'; sandbox`로 완화합니다 — 브라우저에서 실행될 수 없습니다.
 

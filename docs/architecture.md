@@ -204,7 +204,9 @@ erDiagram
 - 발행 모델에 **초안 상태가 없습니다**. 저장 = 즉시 공개.
 - 동시 수정은 앱이 관리하는 `Version`(`int`) 동시성 토큰으로 감지합니다(409). Posts를 UPDATE하는 모든 경로(SaveChanges 인터셉터·`ExecuteUpdateAsync`)가 반드시 `Version`을 1 올려야 하며, 아키텍처 테스트로 이를 강제합니다. 에디터는 409를 받으면 서버본과 내 본문을 나란히 보여 줍니다.
 - 앱의 검증 규칙은 **DB 제약의 부분집합**이어야 한다는 것을 테스트가 강제합니다(앱을 우회해도 DB가 막습니다).
-- 공개 조회는 별도 `PublicDbContext`가 담당합니다: `NoTracking`, 연결을 열 때마다 `PublicSessionInterceptor`가 `SET SESSION transaction_read_only = ON, max_execution_time = <ms>`를 보냅니다(MySqlConnector에는 PG의 시작 매개변수가 없어 연결마다 1회 왕복이 든다). 진짜 경계는 5개 테이블 SELECT만 가진 DB 사용자(`blog_public`)이며, 앱이 기동마다 GRANT를 적용하고 `SHOW GRANTS`로 스스로 검증합니다(불일치 시 기동 실패). 그 구현은 4단계(배포)에 있습니다 → [배포 구성](deployment.md).
+- 공개 조회는 별도 `PublicDbContext`가 담당합니다: `NoTracking`, 연결을 열 때마다 `PublicSessionInterceptor`가 `SET SESSION transaction_read_only = ON, max_execution_time = <ms>, lock_wait_timeout = <ms를 초 단위로 올림, 최소 1>`을 보냅니다(MySqlConnector에는 PG의 시작 매개변수가 없어 연결마다 1회 왕복이 든다). `lock_wait_timeout`은 메타데이터 잠금(MDL) 대기의 상한입니다 — 공개 경로에서 유일하게 무한정 기다릴 수 있는 지점이라(일반 SELECT는 행 잠금을 기다리지 않습니다) `max_execution_time`이 놓치는 경로의 안전망 역할을 합니다. 진짜 경계는 5개 테이블 SELECT만 가진 DB 사용자(`blog_public`)이며, 앱이 기동마다 GRANT를 적용하고 `SHOW GRANTS`로 스스로 검증합니다(불일치 시 기동 실패). 그 구현은 4단계(배포)에 있습니다 → [배포 구성](deployment.md).
+- **트랜잭션 격리 수준(D7)**: MySqlConnector의 인자 없는 `BeginTransaction()`은 서버·세션 설정과 무관하게 매번 `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`를 보냅니다(실측). `ReadCommittedTransactionInterceptor`가 격리 수준을 지정하지 않은 모든 트랜잭션을 READ COMMITTED로 대체합니다(`SeriesEndpoints`의 `FOR UPDATE`, `TagResolver`의 서수 삽입 등 기존 동시성 설계가 전부 이 수준을 전제로 합니다). 서버 플래그 `--transaction-isolation=READ-COMMITTED`는 명시 트랜잭션 **밖**에서 도는 단일 문장(autocommit, `ExecuteUpdate`/`ExecuteDelete` 등)을 담당합니다 — 둘은 서로 다른 문장을 맡으므로 어느 한쪽만으로는 부족합니다.
+- **첨부 직렬화 잠금(D5)**: 같은 내용(SHA-256)을 만지는 업로드·삭제·청소는 `GET_LOCK` 사용자 잠금으로 직렬화합니다(`AttachmentLock`). 잠금 이름이 서버 전역이라 DB 이름 해시로 네임스페이스를 나누고(`att:` + DB 이름 SHA-256 앞 8자 + `:` + 내용 SHA 앞 48자, 최대 64자), 대기 상한은 10초로 넘으면 `DbLockTimeoutException`이 503으로 바뀝니다. 해제는 명시적(`RELEASE_LOCK`)이며, 실패해도 늦어도 같은 물리 연결이 다음에 풀에서 대여될 때 `ConnectionReset=true`의 리셋이 잠금을 풉니다.
 
 ## 코드 지도
 

@@ -129,7 +129,7 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 - 브랜치 `feat/mysql-migration`, Task 0~10 전부 완료(구현·컨트롤러 검증·리뷰 clean), Task 11(문서 반영)이 이 항목을 쓰는 중이다.
 - CI 4개 잡(`test`·`web`·`web-e2e`·`deploy-smoke`) 모두 green(run 36191055799).
 - 이 PC는 Hyper-V가 포트 4173을 배타 예약해 로컬 브라우저 E2E가 막힌다 — CI가 대신 판정한다(3b절의 doc-harness와 무관한 별개 제약).
-- 진행 기록(ledger) `.superpowers/sdd/mysql_migration_impl_0926/progress.md`와 태스크별 `task-N-report.md`에 판정·측정값이 전부 있다(git 추적 대상 — Plan 4 ledger와 달리 정리되지 않는다).
+- 진행 기록(ledger) `.superpowers/sdd/mysql_migration_impl_0926/progress.md`와 태스크별 `task-N-report.md`에 판정·측정값이 전부 있다 — 단, 이 디렉터리는 **git-ignore 대상**이다(`.superpowers/sdd/.gitignore`), Plan 4 ledger처럼 계획이 끝나면 지워질 임시 기록이다. **영속 기록은 스펙 `plan/mysql_migration_0926.md` 7절(구현 중 내린 판정)과 커밋 이력·PR**이다 — ledger가 지워지기 전에 중요한 판정은 전부 7절로 옮겨졌다.
 
 **이어서 할 때 알아야 할 것.**
 - Task 11은 문서만 다룬다: 사람이 읽는 문서(README·`docs/`·`deploy/OPERATIONS.md`)와 코드 주석 정리(구현자), `docs/generated/`는 `문서화` 실행으로 컨트롤러가 갱신(doc-harness owns it), 최종 검증(`dotnet test`·`npm run e2e`·`bash deploy/smoke/run.sh`·`rg` 잔존 검색)은 최종 리뷰 뒤, PR 생성과 `finishing-a-development-branch`는 그다음이다.

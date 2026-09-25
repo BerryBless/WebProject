@@ -105,7 +105,7 @@ Task 1~6을 브랜치에서 모두 마쳤습니다: 공개 조회 전용 DB 롤�
 
 Phase 0 스파이크에서 처음 고른 Oracle `MySql.EntityFrameworkCore` 10.0.9가 no-go 판정을 받았습니다(`UseCollation`·`IsDescending`이 생성 DDL에서 빠지고, `Like` 이스케이프가 잘못된 SQL을 만들었습니다). 대신 **Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0**(EF Core를 9.0.20으로 하향)으로 다시 스파이크해 go 판정을 받았습니다.
 
-주요 대체: 공개 조회 롤의 GRANT를 앱이 기동마다 적용하고 `SHOW GRANTS`로 스스로 검증(불일치·초과 시 기동 실패, fail-closed) · 공개 연결이 열릴 때마다 세션에 `transaction_read_only`·`max_execution_time`을 거는 인터셉터 · `xmin` 대신 앱이 관리하는 `Version` 컬럼(모든 UPDATE 경로가 +1해야 함을 아키텍처 테스트로 강제) · `pg_advisory_lock` 대신 `GET_LOCK`(이름에 DB 해시로 네임스페이스 분리) · MySqlConnector가 트랜잭션마다 강제하는 REPEATABLE READ를 인터셉터로 READ COMMITTED로 되돌림(서버 플래그만으로는 트랜잭션 밖 문장이 여전히 REPEATABLE READ) · SqlState 대신 `MySqlException.Number` 기반 단일 오류 분류기.
+주요 대체: 공개 조회 롤의 GRANT를 앱이 기동마다 적용하고 `SHOW GRANTS`로 스스로 검증(불일치·초과 시 기동 실패, fail-closed) · 공개 연결이 열릴 때마다 세션에 `transaction_read_only`·`max_execution_time`을 거는 인터셉터 · `xmin` 대신 앱이 관리하는 `Version` 컬럼(모든 UPDATE 경로가 +1해야 함을 아키텍처 테스트로 강제) · `pg_advisory_lock` 대신 `GET_LOCK`(이름에 DB 해시로 네임스페이스 분리) · MySqlConnector가 트랜잭션마다 강제하는 REPEATABLE READ를 인터셉터로 READ COMMITTED로 되돌림(서버 플래그 `--transaction-isolation=READ-COMMITTED`는 트랜잭션 밖 단일 문장만 커버하고, 명시 트랜잭션 자체는 인터셉터 없이는 여전히 REPEATABLE READ로 돈다) · SqlState 대신 `MySqlException.Number` 기반 단일 오류 분류기.
 
 - 서수 순서 삽입만으로 태그 upsert의 데드락(1213)이 나지 않음을 부하 테스트로 확인해 재시도 로직을 추가하지 않았습니다(순서를 없애자 3/3 재현).
 - init 스크립트의 최초 구현이 비밀번호를 `sed` 치환 인자로 넘겨 컨테이너 `ps`/`/proc/*/cmdline`에 노출시켰습니다 → 셸 내장 `printf`로 SQL을 직접 조립하도록 바꿨습니다.
