@@ -119,14 +119,15 @@ mysql은 빈 데이터 볼륨에서 처음 뜰 때만 `.env`의 값으로 사용
 docker compose exec -it mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'   # 대화형 프롬프트가 뜬다
 ALTER USER 'blog_app'@'%' IDENTIFIED BY '<새 값>';      -- 프롬프트 안에서 입력한다(셸 명령줄·ps에 남지 않는다)
 ALTER USER 'blog_public'@'%' IDENTIFIED BY '<새 값>';   -- 이어서 blog_public도
-ALTER USER 'root'@'%' IDENTIFIED BY '<새 값>';          -- 마지막으로 root도. 공식 이미지는 root를 두 개 만든다
-ALTER USER 'root'@'localhost' IDENTIFIED BY '<새 값>';  -- (소켓 접속용, 백업·복원 스크립트가 쓴다) — 둘 다 같은 값으로
+ALTER USER 'root'@'localhost' IDENTIFIED BY '<새 값>';  -- 마지막으로 root도(소켓 전용 계정 하나뿐이다)
 exit
 $EDITOR .env                       # 세 값 모두 같은 값으로
 docker compose up -d mysql api     # mysql도 다시 만든다: 헬스체크·백업·복원이 컨테이너 환경변수의 비밀번호를 쓴다
 ```
 
 `mysql -e "ALTER USER …"`처럼 셸 명령줄에 비밀번호를 넣지 않는다(셸 히스토리·`ps`에 남는다). 대화형 클라이언트는 `IDENTIFIED`·`PASSWORD`가 든 줄을 히스토리 파일에 쓰지 않는다.
+
+root는 컨테이너 안 소켓으로만 접속한다(compose의 `MYSQL_ROOT_HOST: localhost`). 이 설정은 빈 볼륨에서 처음 뜰 때만 적용되므로, 그 전에 만든 기존 배포는 위 프롬프트에서 `SELECT Host FROM mysql.user WHERE User='root';`로 `localhost`가 있는지 확인한 뒤 `DROP USER 'root'@'%';`를 실행한다.
 
 ## 10. 이미지 버전 올리기
 

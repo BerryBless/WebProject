@@ -106,6 +106,9 @@ services:
       - --innodb-lock-wait-timeout=10
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      # root는 'root'@'localhost'(컨테이너 안 소켓) 하나만 만든다 — 네트워크로는 root 로그인이 불가능하다. 빈 데이터 볼륨에서 처음 뜰 때만 적용된다.
+      # 백업·복원·관리 명령은 전부 `docker compose exec mysql`로 소켓을 쓰고, 헬스체크는 blog_app을 쓴다.
+      MYSQL_ROOT_HOST: localhost
       BLOG_APP_PASSWORD: ${BLOG_APP_PASSWORD:?}
       BLOG_PUBLIC_PASSWORD: ${BLOG_PUBLIC_PASSWORD:?}
     volumes:

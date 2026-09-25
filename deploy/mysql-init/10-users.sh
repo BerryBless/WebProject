@@ -10,18 +10,12 @@
 #   blog_public — 여기서는 접속만(USAGE). 테이블별 SELECT는 앱(PublicRoleGrants)이 마이그레이션 직후 주고 SHOW GRANTS로 검증한다.
 # 두 사용자 모두 TLS 접속만 허용한다(서버도 --require-secure-transport=ON).
 # 권한 문자열은 PortfolioBlog.Api.Tests의 MySqlContainerFixture.AppPrivileges와 같아야 한다(DeployInitScriptTests가 대조).
-# 비밀번호는 영문·숫자만 허용한다(아래 검사). 그래서 sed 치환과 SQL 문자열 리터럴이 깨지지 않는다. heredoc은 따옴표('SQL')라 셸이 본문을 건드리지 않는다.
+# 비밀번호는 영문·숫자만 허용한다(아래 검사). 그래서 SQL 문자열 리터럴이 깨지지 않는다. 비밀번호는 셸 내장 printf로만 SQL에 넣는다 —
+# 자식 프로세스(sed 등)의 인자로 넘기면 init 동안 컨테이너 안 ps·/proc/*/cmdline에 보인다. heredoc은 따옴표('SQL')라 셸이 본문을 건드리지 않는다.
 # 순서 보장: init 동안 서버는 --skip-networking 임시 서버로 뜨므로 TCP 헬스체크(compose)가 실패한다 — api는 init이 끝난 뒤에만 뜬다.
 (
   set -eu
   case "$BLOG_APP_PASSWORD$BLOG_PUBLIC_PASSWORD" in *[!A-Za-z0-9]*) echo "BLOG_APP_PASSWORD·BLOG_PUBLIC_PASSWORD는 영문·숫자만 쓴다" >&2; exit 1;; esac
-  sql=$(cat <<'SQL'
-CREATE DATABASE blog CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE USER 'blog_app'@'%' IDENTIFIED BY '@APP_PW@' REQUIRE SSL;
-CREATE USER 'blog_public'@'%' IDENTIFIED BY '@PUBLIC_PW@' REQUIRE SSL;
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON `blog`.* TO 'blog_app'@'%' WITH GRANT OPTION;
-SQL
-  )
   run_sql() {
     if command -v docker_process_sql > /dev/null 2>&1; then
       # 엔트리포인트 함수는 미설정 변수를 전제로 짜여 있다(_mysql_passfile의 "$1", $MYSQL_DATABASE). set -u 아래서 부르면
@@ -32,5 +26,14 @@ SQL
       MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot mysql
     fi
   }
-  printf '%s\n' "$sql" | sed -e "s/@APP_PW@/$BLOG_APP_PASSWORD/" -e "s/@PUBLIC_PW@/$BLOG_PUBLIC_PASSWORD/" | run_sql
+  {
+    cat <<'SQL'
+CREATE DATABASE blog CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+SQL
+    printf "CREATE USER 'blog_app'@'%%' IDENTIFIED BY '%s' REQUIRE SSL;\n" "$BLOG_APP_PASSWORD"
+    printf "CREATE USER 'blog_public'@'%%' IDENTIFIED BY '%s' REQUIRE SSL;\n" "$BLOG_PUBLIC_PASSWORD"
+    cat <<'SQL'
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON `blog`.* TO 'blog_app'@'%' WITH GRANT OPTION;
+SQL
+  } | run_sql
 ) || exit 1
