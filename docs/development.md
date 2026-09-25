@@ -9,7 +9,7 @@
 | 도구 | 용도 |
 |---|---|
 | .NET SDK 10.0.303+ | 빌드·테스트·실행 |
-| Docker Desktop | 통합 테스트(Testcontainers), E2E의 PostgreSQL, 배포 스모크 |
+| Docker Desktop | 통합 테스트(Testcontainers), E2E의 MySQL, 배포 스모크 |
 | Node.js 24 | 관리 SPA(react-router 8이 22.22 이상을 요구) |
 | PowerShell 7 | 하네스 스크립트(`scripts/*.ps1`) |
 | `gh`(GitHub CLI) | PR 생성·CI 확인 |
@@ -25,10 +25,11 @@ dotnet test  PortfolioBlog.slnx -c Release           # 591개 (Docker 필요)
 
 ## API + 공개 페이지 띄우기
 
-1. 개발용 PostgreSQL을 띄웁니다(`appsettings.Development.json`의 연결 문자열과 맞춥니다):
+1. 개발용 MySQL을 띄웁니다(`appsettings.Development.json`의 연결 문자열과 맞춥니다). 서버 플래그는 운영과 같은 격리 수준·문자셋을 씁니다(스펙 D7·D19):
    ```powershell
-   docker run -d --name blog-dev-pg -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=blog_dev -p 5432:5432 postgres:17-alpine
+   docker run -d --name pb-dev-mysql -e MYSQL_ROOT_PASSWORD=changeme -p 127.0.0.1:3306:3306 mysql:8.4 --transaction-isolation=READ-COMMITTED --character-set-server=utf8mb4 --local-infile=0
    ```
+   컨테이너가 준비될 때까지 반복 확인합니다: `docker exec pb-dev-mysql mysql -h 127.0.0.1 -uroot -pchangeme -N -e "SELECT 1"`. 개발 DB(`blog_dev`)는 API가 시작할 때 `Migrate()`로 직접 만들므로 미리 만들 필요가 없습니다.
 2. 관리자 비밀번호 해시를 user-secrets에 넣습니다(저장소에는 남지 않습니다):
    ```powershell
    dotnet user-secrets init --project PortfolioBlog.Api
@@ -45,22 +46,26 @@ dotnet test  PortfolioBlog.slnx -c Release           # 591개 (Docker 필요)
 
 ### Docker 없이 띄우기
 
-Docker가 필요한 것은 개발용 PostgreSQL 하나뿐입니다. Windows에 PostgreSQL을 직접 설치하면 나머지 절차는 같습니다. API가 시작할 때 마이그레이션을 적용하므로 스키마를 따로 만들 필요는 없습니다.
+Docker가 필요한 것은 개발용 MySQL 하나뿐입니다. Windows에 MySQL을 직접 설치하면 나머지 절차는 같습니다. API가 시작할 때 마이그레이션을 적용하므로 스키마를 따로 만들 필요는 없습니다.
 
-1. PostgreSQL 17을 설치합니다. 설치 중 정한 `postgres` 비밀번호를 기억해 둡니다.
+1. MySQL 8.4를 설치합니다. 설치 중 정한 `root` 비밀번호를 기억해 둡니다.
    ```powershell
-   winget install PostgreSQL.PostgreSQL.17
+   winget install Oracle.MySQL
    ```
-2. 개발 DB를 만듭니다.
-   ```powershell
-   & "C:\Program Files\PostgreSQL\17\bin\createdb.exe" -U postgres blog_dev
+2. 설정 파일(보통 `C:\ProgramData\MySQL\MySQL Server 8.4\my.ini`)에 운영과 같은 격리 수준·문자셋을 맞춥니다(스펙 D7·D10), 서비스를 재시작합니다.
+   ```ini
+   [mysqld]
+   transaction-isolation=READ-COMMITTED
+   character-set-server=utf8mb4
    ```
-3. 설치 때 정한 비밀번호가 `appsettings.Development.json`의 값과 다르면, 파일을 고치지 말고 user-secrets로 덮어씁니다.
+3. 설치 때 정한 비밀번호가 `appsettings.Development.json`의 값과 다르면, 파일을 고치지 말고 user-secrets로 덮어씁니다. 개발 DB(`blog_dev`)는 API가 `Migrate()`로 직접 만듭니다.
    ```powershell
    dotnet user-secrets init --project PortfolioBlog.Api
-   dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=blog_dev;Username=postgres;Password=<설치 때 정한 비밀번호>" --project PortfolioBlog.Api
+   dotnet user-secrets set "ConnectionStrings:Default" "Server=localhost;Port=3306;Database=blog_dev;User ID=root;Password=<설치 때 정한 비밀번호>;SslMode=Required" --project PortfolioBlog.Api
    ```
 4. 위 2·3단계(관리자 비밀번호 해시, https 프로필 실행)를 그대로 합니다. `https://localhost:7198/`이 공개 첫 쪽입니다.
+
+> Windows 설치본은 `lower_case_table_names=1`이 기본이라 `SHOW TABLES` 등에서 테이블 이름이 소문자로 보입니다. 권한 검증(`PublicRoleGrants`)은 대소문자를 무시하고 비교하므로 동작에는 영향이 없습니다.
 
 관리 SPA도 Docker 없이 아래 절차 그대로 뜹니다. 다만 `dotnet test`(Testcontainers)와 E2E·배포 스모크는 여전히 Docker가 필요합니다.
 

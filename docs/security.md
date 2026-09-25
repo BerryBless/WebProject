@@ -16,6 +16,7 @@
 | HTML을 저장하지 않고 요청마다 렌더링 | 렌더러 보안 수정이 과거 글 전체에 즉시 적용됩니다 |
 | 잘못된 설정은 시작 실패 | 조용히 약해지는 설정(빈 신뢰 프록시, 같은 두 origin, http origin, 상대 경로 저장소)은 기동을 막습니다 |
 | 세션 폐기 | 절대 수명 12시간. 비밀번호를 바꾸면 기존 세션이 자동 폐기되고, 로그아웃은 모든 세션을 폐기합니다 |
+| 저장소는 MySQL 8.4, 공개 조회는 5개 테이블 SELECT만 가진 별도 DB 사용자 | PG의 소유자 GRANT·시작 매개변수를 대체: 앱이 기동마다 GRANT를 적용하고 `SHOW GRANTS`로 정확한 권한 집합인지 스스로 검증하며(불일치 시 기동 실패), 공개 연결은 열릴 때마다 세션을 읽기 전용 + 실행 시간 상한으로 고정합니다. 동시성 토큰은 `xmin` 대신 앱이 관리하는 `Version` 컬럼입니다. DB 인증은 `caching_sha2_password` + `SslMode=Required`(서버 자동 인증서, 신뢰 검증 없음) → [설계 스펙 2.2절](../plan/mysql_migration_0926.md) |
 
 설계 초안은 OpenAI Codex CLI로 교차 검토했고(지적 23건), 수용한 항목과 의견이 갈린 4건의 근거를 [스펙 2.6절](../plan/tech_blog_0920.md)에 남겼습니다.
 
@@ -58,8 +59,8 @@ CSRF 방어는 **커스텀 헤더 + Origin 검사 + `SameSite=Strict` 쿠키** �
 | `/api/preview` | 전역 60회/분, 동시 2, 본문 200KB |
 | 로그인 | IP별 5회/분 + 전역 20회/분 + 해시 검증 동시 2. **영구 잠금 없음**(작성자 서비스 거부 방지) |
 | 업로드 | 전역 30회/분 + 동시 2. 앱 10MB / 프레임워크 11MB(multipart 프레이밍 여유 1MB) |
-| 렌더링 | 프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503. 공개 글은 `(PostId, xmin)` 캐시(64MB) + 단일 비행 |
-| DB | 공개 조회는 별도 연결(`statement_timeout` 3초 + `default_transaction_read_only`) |
+| 렌더링 | 프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503. 공개 글은 `(PostId, Version)` 캐시(64MB) + 단일 비행 |
+| DB | 공개 조회는 별도 DB 사용자 연결. 열릴 때마다 `SET SESSION transaction_read_only = ON, max_execution_time = 3000` |
 | JSON 본문 | 관리 API 256KB(직렬화 후 바이트 기준) |
 | 과부하 응답 | 시간 초과·잠금 대기·렌더 슬롯 초과는 503 + `Retry-After: 5` |
 
@@ -92,7 +93,8 @@ SHA-256은 **제거 후** 바이트 기준이며 그 값이 곧 저장 경로(`{
 
 | 위험 | 근거 | 되돌릴 조건 |
 |---|---|---|
-| `default_transaction_read_only`는 세션이 스스로 끌 수 있다 | 앱은 SQL을 입력으로 조립하지 않고(전부 매개변수화), 심층 방어일 뿐 | 4단계의 쓰기 권한 없는 DB 롤이 진짜 경계가 된다 → [배포](deployment.md) |
+| 공개 세션이 `SET SESSION transaction_read_only=OFF`를 스스로 보낼 수 있다 | 앱은 SQL을 입력으로 조립하지 않고(전부 매개변수화), 심층 방어일 뿐. 1차 방어선은 테이블 단위 SELECT 권한(DB 사용자가 `blog_public`)이라 쓰기는 여전히 거부된다 | — |
+| DB 접속의 TLS는 암호화만 하고 서버 인증서를 검증하지 않는다(`SslMode=Required`) | `db` 망이 internal이라 수용 | 자체 CA 발급 + `SslMode=VerifyCA` |
 | 관리 SPA CSP의 `style-src-elem 'unsafe-inline'` | CodeMirror가 `<style>` 요소를 주입한다. 정적 서빙이라 nonce 불가. `style-src-attr 'none'`·`script-src 'self'`는 유지 | CodeMirror가 constructable stylesheet로 바뀔 때 |
 | 소스 가드는 정규식 패턴 검사다 | 목적은 실수 방지. 2차 방어는 CSP와 코드 리뷰 | — |
 | 첨부 삭제가 캐시 사본을 회수하지 못한다 | 응답이 `immutable` 1년. 삭제가 보장하는 것은 오리진이 더는 내주지 않는다는 것뿐 | — |
@@ -102,4 +104,4 @@ SHA-256은 **제거 후** 바이트 기준이며 그 값이 곧 저장 경로(`{
 
 ## 확장 후보(아직 하지 않은 것)
 
-TOTP 2단계, 기기별 세션 관리, 비밀번호 변경 UI(현재는 해시 교체 후 재배포), 초안/예약 발행, slug 변경 + 리다이렉트, 전문 검색(`tsvector`), 마이그레이션 전용 DB 롤 분리, 앞단 CDN(`trusted_proxies` 재설계 필요).
+TOTP 2단계, 기기별 세션 관리, 비밀번호 변경 UI(현재는 해시 교체 후 재배포), 초안/예약 발행, slug 변경 + 리다이렉트, `FULLTEXT` 인덱스 기반 전문 검색, 마이그레이션 전용 DB 사용자 분리, 앞단 CDN(`trusted_proxies` 재설계 필요).

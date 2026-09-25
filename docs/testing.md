@@ -1,6 +1,6 @@
 # 테스트
 
-테스트는 "코드가 도는가"가 아니라 **"주장한 경계가 실제로 막는가"**를 증명하도록 짰습니다. 그래서 인메모리 대역이 아니라 실제 PostgreSQL·실제 브라우저·실제 호스트를 씁니다.
+테스트는 "코드가 도는가"가 아니라 **"주장한 경계가 실제로 막는가"**를 증명하도록 짰습니다. 그래서 인메모리 대역이 아니라 실제 MySQL·실제 브라우저·실제 호스트를 씁니다.
 
 관련 문서: [보안 설계](security.md) · [개발 환경](development.md) · [진행 기록](history.md)
 
@@ -8,7 +8,7 @@
 
 | 층 | 무엇 | 개수(master) | 무엇을 증명하나 |
 |---|---|---|---|
-| .NET 통합·단위 | xUnit + `WebApplicationFactory` + Testcontainers PostgreSQL | **625** | 접근 매트릭스, 세션 규칙, 마크다운 정제, 이미지 판정·메타데이터 제거, 속도 제한 체인, 공개 페이지·피드·sitemap, DB 제약 ⊇ 앱 검증 |
+| .NET 통합·단위 | xUnit + `WebApplicationFactory` + Testcontainers MySQL | **625** | 접근 매트릭스, 세션 규칙, 마크다운 정제, 이미지 판정·메타데이터 제거, 속도 제한 체인, 공개 페이지·피드·sitemap, DB 제약 ⊇ 앱 검증 |
 | 웹 단위 | Vitest + Testing Library + jsdom | **194** | API 클라이언트의 경로 검사, 에디터 상태 기계(저장 중 입력·409·임시본), 오픈 리다이렉트 방지, 소스 가드 |
 | 브라우저 E2E | Playwright(Chromium·Firefox) + 실제 백엔드 + production 빌드 | **8** | 배포될 CSP 값 자체, 실제 쿠키·Origin 검사, sandbox iframe, 글쓰기 전 과정, CSP 위반 0건 |
 | 배포 스모크 | Node 테스트 러너 + 실제 컨테이너 스택(운영과 같은 이미지·Caddyfile·compose) | 허용 IP 10·비허용 IP 6·오류 응답 1·seed 1·verify-restore 1, 복원 후 허용 IP 10 재실행 | 접근 통제·헤더·업로드 상한, DB 롤 권한(비 superuser, 공개 롤은 읽기 전용), 백업→볼륨 삭제→복원 바이트 단위 일치 |
@@ -24,9 +24,9 @@ dotnet test  PortfolioBlog.slnx -c Release          # 591개, 약 35초 (Docker 
 
 cd PortfolioBlog.Web
 npm ci; npm run lint; npm run typecheck; npm test   # Vitest 188개
-npm run e2e:prepare                                  # 개발 인증서, 버려질 PostgreSQL(pb-e2e-pg), 버려질 비밀번호 해시
+npm run e2e:prepare                                  # 개발 인증서, 버려질 MySQL(pb-e2e-mysql), 버려질 비밀번호 해시
 npm run e2e                                          # Chromium·Firefox 8개, 재시도 없음
-docker rm -f pb-e2e-pg
+docker rm -f pb-e2e-mysql
 
 bash deploy/smoke/run.sh                             # Docker 필요. 운영과 같은 이미지·Caddyfile·compose로 접근·헤더·한도·DB 롤·복원 리허설
 SMOKE_E2E=1 bash deploy/smoke/run.sh                 # 위 + 스택 대상 브라우저 E2E 8개
@@ -35,7 +35,7 @@ SMOKE_E2E=1 bash deploy/smoke/run.sh                 # 위 + 스택 대상 브�
 pwsh scripts/harness-audit.ps1                       # 하네스 구조 8개 항목
 ```
 
-E2E는 포트 7198·4173·5433을 씁니다 — 비어 있어야 합니다.
+E2E는 포트 7198·4173·3307을 씁니다 — 비어 있어야 합니다. 이 PC는 Hyper-V가 4173을 배타 예약해 로컬 브라우저 E2E가 막힙니다 — CI가 대신 판정합니다.
 
 ## 이 저장소의 테스트 규칙
 
@@ -62,7 +62,7 @@ E2E는 포트 7198·4173·5433을 씁니다 — 비어 있어야 합니다.
 |---|---|
 | `test` | restore → build(Release) → `dotnet test`(Testcontainers) |
 | `web` | `npm ci` → `npm audit --omit=dev --audit-level=high` → lint → typecheck → test → build |
-| `web-e2e` | 서비스 컨테이너 PostgreSQL + Playwright(Chromium·Firefox). 실패하면 trace를 아티팩트로 올린다 |
+| `web-e2e` | 서비스 컨테이너 MySQL + Playwright(Chromium·Firefox). 실패하면 trace를 아티팩트로 올린다 |
 | `deploy-smoke` | 운영과 같은 이미지·Caddyfile·compose를 띄워 접근 통제·헤더·한도·DB 롤·백업→삭제→복원·브라우저 E2E까지(`SMOKE_E2E=1 bash deploy/smoke/run.sh`). 실패하면 trace와 Caddy 접근 로그(`caddy.log`)를 아티팩트로 올린다 |
 
 **첫 Linux 실행은 게이트로 취급합니다.** Windows에서 통과한 것이 Linux에서 처음 깨진 전례가 있습니다(절대 시간 상한, 개발 인증서 내보내기 경로).
