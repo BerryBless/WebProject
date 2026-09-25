@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using MySqlConnector;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
@@ -386,6 +387,33 @@ public sealed class AttachmentEndpointsTests(MySqlContainerFixture mysql)
         using var visitor = factory.CreatePublicClient();
         using var res = await visitor.GetAsync(dto.Url);
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    /// <summary>테이블이 메타데이터 잠금으로 막혀도 공개 GET은 무한 대기하지 않고 503 + Retry-After가 된다(lock_wait_timeout/max_execution_time → 분류기).</summary>
+    [Fact]
+    public async Task PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter()
+    {
+        using var factory = new ApiFactory(mysql, FastPublicTimeout);
+        using var admin = await factory.CreateLoggedInClientAsync();
+        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
+
+        // 관리 연결 문자열로 연 별도 연결이라 앱의 풀과 물리 연결을 공유하지 않는다. LOCK TABLES는 이 세션이 UNLOCK하거나 끝날 때까지 유지된다.
+        await using var holder = new MySqlConnection(factory.ConnectionString);
+        await holder.OpenAsync();
+        await using (var lockCommand = new MySqlCommand("LOCK TABLES `Attachments` WRITE", holder)) await lockCommand.ExecuteNonQueryAsync();
+        try
+        {
+            using var visitor = factory.CreatePublicClient();
+            using var bounded = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // 상한이 걸리지 않은 구현이 finally까지 붙잡는 교착을 막는다
+            using var res = await visitor.GetAsync(dto.Url, bounded.Token);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
+            Assert.Equal(TimeSpan.FromSeconds(OverloadExceptionHandler.RetryAfterSeconds), res.Headers.RetryAfter?.Delta);
+        }
+        finally
+        {
+            await using var unlock = new MySqlCommand("UNLOCK TABLES", holder);
+            await unlock.ExecuteNonQueryAsync();
+        }
     }
 
     /// <summary>임시 파일이 남지 않는다(성공·거부 어느 경로든).</summary>
