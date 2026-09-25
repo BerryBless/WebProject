@@ -66,6 +66,14 @@ public sealed class MySqlContainerFixture : IAsyncLifetime
     public void DropUser(string user) => Execute($"DROP USER IF EXISTS '{user}'@'%'");
 }
 
-/// <summary>MySQL 컨테이너를 공유하는 테스트 컬렉션.</summary>
+/// <summary>MySQL 컨테이너를 공유하는 테스트 컬렉션. <see cref="MySqlContainerFixture"/>를 <c>"mysql"</c> 컬렉션 이름에 등록해 컬렉션 안의 테스트 클래스가 컨테이너 하나를 공유하게 한다.</summary>
+/// <remarks>
+/// <b>[성능 및 동시성 제약 조건]</b>
+/// <list type="bullet">
+/// <item><description><b>Thread Safety:</b> xUnit 내부 인프라가 만들고 소유한다. 사용자 코드는 인스턴스를 직접 다루지 않는다. 같은 컬렉션의 클래스들은 서로 직렬로 실행된다.</description></item>
+/// <item><description><b>Memory Allocation:</b> 상태가 없는 마커 클래스다. 컨테이너 핸들은 <see cref="MySqlContainerFixture"/>가 컬렉션당 1개만 가진다.</description></item>
+/// <item><description><b>Blocking:</b> 해당 없음. 인스턴스화되지 않는 컬렉션 정의 전용 타입이다. 컨테이너 기동 대기는 <see cref="MySqlContainerFixture.InitializeAsync"/>에서 일어난다.</description></item>
+/// </list>
+/// </remarks>
 [CollectionDefinition("mysql")]
 public sealed class MySqlCollection : ICollectionFixture<MySqlContainerFixture>;
