@@ -110,7 +110,12 @@ deny() { # $1 사용자 $2 비밀번호 $3 SQL
   case "$out" in *"denied"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
 }
 test "$(root_sql <<< "select count(*) from mysql.user where User in ('blog_app','blog_public') and Super_priv='N' and File_priv='N' and Process_priv='N' and Create_user_priv='N' and Grant_priv='N' and ssl_type='ANY'")" = "2"
-test "$(root_sql <<< "select concat(@@local_infile, ':', ifnull(@@secure_file_priv,'NULL'), ':', @@require_secure_transport, ':', @@global.transaction_isolation)")" = "0:NULL:1:READ-COMMITTED"
+# --secure-file-priv=NULL(파일 입출력 전면 금지)을 MySQL 8.4.11은 SQL NULL이 아니라 네 글자 문자열 'NULL'로 보고한다(실측: hex 4E554C4C, IS NULL은 0).
+# ifnull(...,'NULL')은 SQL NULL과 그 문자열을 구별하지 못하므로, SQL NULL은 '<SQL NULL>'로 드러나게 하고 문자열 'NULL'만 통과시킨다.
+test "$(root_sql <<< "select concat(@@local_infile, ':', coalesce(@@secure_file_priv, '<SQL NULL>'), ':', @@require_secure_transport, ':', @@global.transaction_isolation)")" = "0:NULL:1:READ-COMMITTED"
+# 값만으로는 동작을 보장하지 못하므로 FILE 권한이 있는 root로 기본 허용 디렉터리에 써 본다 — 서버가 1290(--secure-file-priv)으로 거부해야 한다.
+out="$(root_sql <<< "select 1 into outfile '/var/lib/mysql-files/smoke-secure-file-priv.txt'" 2>&1)" && { echo "secure_file_priv가 파일 쓰기를 막지 않았다" >&2; exit 1; }
+case "$out" in *"secure-file-priv"*) ;; *) echo "INTO OUTFILE 거부 이유가 secure_file_priv가 아니다: $out" >&2; exit 1;; esac
 # root 계정은 localhost 하나뿐이고, 네트워크 root 로그인은 거부된다(비밀번호가 맞아도).
 test "$(root_sql <<< "select group_concat(Host) from mysql.user where User='root'")" = "localhost"
 out="$(mysql_as root "$mysql_root_password" 'select 1' 2>&1)" && { echo "root가 네트워크로 로그인했다" >&2; exit 1; }
