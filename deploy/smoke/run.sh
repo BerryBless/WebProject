@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 배포 스택 스모크: 이미지 빌드 → 기동 → 접근·헤더·한도 검사(허용/비허용 IP) → DB 롤 검사 → 백업·삭제·복원 리허설 → (선택) 브라우저 E2E.
+# 배포 스택 스모크: 이미지 빌드 → 기동 → 접근·헤더·한도 검사(허용/비허용 IP) → DB 사용자 검사 → 백업·삭제·복원 리허설 → (선택) 브라우저 E2E.
 # 운영과 같은 compose·Caddyfile·이미지를 쓴다. 다른 것은 이름(pb-smoke), 루프백 포트, *.localhost 도메인(Caddy 내부 CA), 버려질 비밀값뿐이다.
 # 사용법: deploy/smoke/run.sh          환경변수: SMOKE_E2E=1(Playwright까지), SMOKE_KEEP=1(끝나도 스택을 남긴다)
 set -euo pipefail
@@ -35,14 +35,15 @@ ACME_EMAIL=smoke@example.test
 # 그럴 때만 SMOKE_HTTP_BIND로 덮어쓴다(기본값·CI는 8081 그대로).
 HTTP_BIND=${SMOKE_HTTP_BIND:-127.0.0.1:8081}
 HTTPS_BIND=127.0.0.1:8443
-POSTGRES_PASSWORD=${pg_password}
+MYSQL_ROOT_PASSWORD=${mysql_root_password}
 BLOG_APP_PASSWORD=${app_password}
 BLOG_PUBLIC_PASSWORD=${public_password}
 ADMIN_PASSWORD_HASH=${1}
 SMOKE_ADMIN_PASSWORD=${admin_password}
 EOF
 }
-pg_password="$(random)"; app_password="$(random)"; public_password="$(random)"
+# random은 영문·숫자만 낸다 — init 스크립트가 앱·공개 비밀번호에 그 밖의 문자를 거부한다.
+mysql_root_password="$(random)"; app_password="$(random)"; public_password="$(random)"
 
 cleanup() {
   status=$?
@@ -97,23 +98,31 @@ docker compose down -v --remove-orphans
 SMOKE_ROLE=verify-restore docker compose run --rm -T smoke-allowed
 SMOKE_ROLE=allowed docker compose run --rm -T smoke-allowed # 복원된 스택에서도 전 과정이 돈다(새 dpkeys·권한 재부여 포함)
 
-step "DB 롤: 앱은 슈퍼유저가 아니고, 공개 롤은 읽기만 한다"
-# 복원 리허설 뒤에 돈다: pg_restore --clean은 테이블을 드롭·재생성하며 ACL을 덤프의 것으로 되돌리므로,
-# 권한 경계가 조용히 열릴 수 있는 지점은 정확히 복원 직후다(복원 전에만 검사하면 이 지점을 놓친다).
-# postgres 컨테이너 안에서도 -h 127.0.0.1은 pg_hba.conf의 trust 규칙을 타 비밀번호를 검증하지 않는다(T3-2, 실측).
-# -h postgres(컨테이너 자신의 네트워크 주소)로 붙어야 scram-sha-256이 강제된다.
-psql_as() { docker compose exec -T -e PGPASSWORD="$2" postgres psql -h postgres -U "$1" -d blog -v ON_ERROR_STOP=1 -tA -c "$3"; }
-# 부정 검사는 종료 코드가 아니라 메시지로 판정한다: "0이 아닌 종료 코드"에는 연결 실패·SQL 오타도 섞여 들어와 거짓 통과를 만든다(T3-2).
-deny() { # $1 롤 $2 비밀번호 $3 SQL
-  out="$(psql_as "$1" "$2" "$3" 2>&1)" && { echo "허용돼서는 안 되는 문장이 성공했다: $3" >&2; exit 1; }
-  case "$out" in *"permission denied"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
+step "DB 사용자: 앱은 전역 권한이 없고, 공개 사용자는 허용 테이블 읽기만 한다"
+# 복원 리허설 뒤에 돈다: 복원은 DB를 지우고 다시 만든다. 권한 경계가 조용히 열릴 수 있는 지점은 정확히 복원 직후다.
+# -h mysql(네트워크 주소)로 붙어 TLS·비밀번호 인증을 실제로 거친다(소켓 접속은 인증 경로가 다르다).
+mysql_as() { docker compose exec -T -e MYSQL_PWD="$2" mysql mysql -h mysql -u "$1" --ssl-mode=REQUIRED -D blog -N -B -e "$3"; }
+# 부정 검사는 종료 코드가 아니라 메시지로 판정한다: "0이 아닌 종료 코드"에는 연결 실패·SQL 오타도 섞여 거짓 통과를 만든다.
+deny() { # $1 사용자 $2 비밀번호 $3 SQL
+  out="$(mysql_as "$1" "$2" "$3" 2>&1)" && { echo "허용돼서는 안 되는 문장이 성공했다: $3" >&2; exit 1; }
+  case "$out" in *"denied"*) ;; *) echo "거부됐지만 이유가 권한이 아니다: $out" >&2; exit 1;; esac
 }
-test "$(psql_as postgres "$pg_password" "select count(*) from pg_roles where rolname in ('blog_app','blog_public') and not rolsuper and not rolcreaterole and not rolcreatedb")" = "2"
-psql_as blog_public "$public_password" 'select count(*) from "Posts"' > /dev/null
-for sql in 'delete from "Posts"' 'set default_transaction_read_only = off; delete from "Posts"' 'create table smoke_t(i int)' 'select * from "AdminState"' 'select * from "__EFMigrationsHistory"'; do
+test "$(mysql_as root "$mysql_root_password" "select count(*) from mysql.user where User in ('blog_app','blog_public') and Super_priv='N' and File_priv='N' and Process_priv='N' and Create_user_priv='N' and Grant_priv='N' and ssl_type='ANY'")" = "2"
+test "$(mysql_as root "$mysql_root_password" "select concat(@@local_infile, ':', ifnull(@@secure_file_priv,'NULL'), ':', @@require_secure_transport, ':', @@global.transaction_isolation)")" = "0:NULL:1:READ-COMMITTED"
+mysql_as blog_public "$public_password" 'select count(*) from `Posts`' > /dev/null
+for sql in 'delete from `Posts`' 'set session transaction_read_only = off; delete from `Posts`' 'create table smoke_t(i int)' 'select * from `AdminState`' 'select * from `__EFMigrationsHistory`' 'select * from mysql.user' 'use mysql'; do
   deny blog_public "$public_password" "$sql"
 done
-deny blog_app "$app_password" "copy (select 1) to program 'true'"
+# FILE 권한 검사에서 먼저 막힌다: ERROR 1227 ... Access denied; you need (at least one of) the FILE privilege(s)(운영 인자 --secure-file-priv=NULL 아래 실측).
+deny blog_app "$app_password" "select 1 into outfile '/tmp/smoke'"
+# TLS 없는 접속은 두 겹으로 막힌다. 앱 사용자는 계정의 TLS 요구에서 먼저 걸려 ERROR 1045(Access denied)가 된다(실측) — 같은 비밀번호로
+# TLS 접속이 위에서 성공했으므로 이 거부는 비밀번호가 아니라 TLS 때문이다. 서버 전역 설정(require_secure_transport)은 계정에 TLS 요구가 없는
+# root로 따로 확인한다: ERROR 3159 "Connections using insecure transport are prohibited"(실측).
+no_tls() { docker compose exec -T -e MYSQL_PWD="$2" mysql mysql -h mysql -u "$1" --ssl-mode=DISABLED -e 'select 1' 2>&1; }
+out="$(no_tls blog_app "$app_password")" && { echo "앱 사용자의 비TLS 접속이 허용됐다" >&2; exit 1; }
+case "$out" in *"denied"*) ;; *) echo "앱 사용자 비TLS 거부 이유가 예상과 다르다: $out" >&2; exit 1;; esac
+out="$(no_tls root "$mysql_root_password")" && { echo "root의 비TLS 접속이 허용됐다" >&2; exit 1; }
+case "$out" in *"insecure transport"*) ;; *) echo "비TLS 거부 이유가 서버 설정이 아니다: $out" >&2; exit 1;; esac
 
 if [ "${SMOKE_E2E:-0}" = "1" ]; then
   step "브라우저 E2E(Chromium·Firefox): Caddy가 주는 실제 헤더 아래에서 SPA 전 과정"

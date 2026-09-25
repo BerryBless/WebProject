@@ -58,8 +58,8 @@ services:
     tmpfs:
       - /tmp:mode=1777,size=64m
     environment:
-      ConnectionStrings__Default: "Host=postgres;Database=blog;Username=blog_app;Password=${BLOG_APP_PASSWORD:?};Command Timeout=30"
-      ConnectionStrings__Public: "Host=postgres;Database=blog;Username=blog_public;Password=${BLOG_PUBLIC_PASSWORD:?};Command Timeout=30"
+      ConnectionStrings__Default: "Server=mysql;Database=blog;User ID=blog_app;Password=${BLOG_APP_PASSWORD:?};SslMode=Required;Default Command Timeout=30"
+      ConnectionStrings__Public: "Server=mysql;Database=blog;User ID=blog_public;Password=${BLOG_PUBLIC_PASSWORD:?};SslMode=Required;Default Command Timeout=30"
       Site__PublicOrigin: ${PUBLIC_ORIGIN:?}
       Site__AdminOrigin: ${ADMIN_ORIGIN:?}
       Site__Title: ${SITE_TITLE:-Blog}
@@ -82,37 +82,53 @@ services:
       start_period: 40s
       start_interval: 2s
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
 
-  postgres:
+  mysql:
     <<: *hardening
-    image: postgres:17.11-alpine
+    image: mysql:8.4.11
+    # 공식 엔트리포인트가 데이터 디렉터리 소유권을 맞추고 mysql 사용자로 내려간다(gosu). PG 판과 같은 최소 능력만 준다.
     cap_add:
       - CHOWN
       - DAC_OVERRIDE
       - FOWNER
       - SETGID
       - SETUID
+    # 설정 파일을 마운트하지 않는다: MySQL은 world-writable 설정 파일을 조용히 무시한다(스펙 D19). 서버 설정은 전부 여기 인자로.
+    command:
+      - --transaction-isolation=READ-COMMITTED
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --local-infile=0
+      - --secure-file-priv=NULL
+      - --require-secure-transport=ON
+      - --innodb-lock-wait-timeout=10
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
       BLOG_APP_PASSWORD: ${BLOG_APP_PASSWORD:?}
       BLOG_PUBLIC_PASSWORD: ${BLOG_PUBLIC_PASSWORD:?}
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      - mysqldata:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/run/mysqld:mode=1777,size=1m
+      - /tmp:mode=1777,size=64m
     networks:
       - db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U blog_app -d blog"]
+      # mysqladmin ping은 인증 실패에도 0을 반환하므로 앱 사용자로 실제 쿼리를 한다. -h 127.0.0.1(TCP)이라 init 중 임시 서버(--skip-networking)에서는 실패한다.
+      # 비밀번호는 명령줄이 아니라 MYSQL_PWD로 넘긴다(컨테이너 안 ps에 보이지 않게). $$는 compose 보간을 피해 컨테이너 셸이 펼치게 한다.
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$BLOG_APP_PASSWORD\" mysql -h 127.0.0.1 -u blog_app --ssl-mode=REQUIRED -N -e 'SELECT 1' blog"]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 60s
 
   # 백업·복원 전용(backup.sh·restore.sh가 `docker compose run`으로만 띄운다). 평소에는 뜨지 않는다.
   tools:
     profiles: ["tools"]
-    image: postgres:17.11-alpine
+    image: mysql:8.4.11
     user: "1654:1654"
     network_mode: none
     read_only: true
@@ -140,7 +156,7 @@ networks:
     internal: true
 
 volumes:
-  pgdata:
+  mysqldata:
   attachments:
   dpkeys:
   caddy_data:

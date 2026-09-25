@@ -33,7 +33,7 @@ $EDITOR .env                                   # 도메인·허용 CIDR·비밀�
 docker compose build api
 docker run --rm -it portfolioblog-api hash-password   # 관리자 비밀번호 입력(화면에 보이지 않음) → 출력된 해시를 .env의 ADMIN_PASSWORD_HASH에
 docker compose up -d --build
-docker compose ps                              # api·postgres가 healthy, caddy가 running
+docker compose ps                              # api·mysql이 healthy, caddy가 running
 ```
 
 앱은 시작할 때 스스로 한다: 설정 검증(틀리면 어떤 키가 문제인지 말하고 종료) → DB 마이그레이션 → 공개 조회 롤(`blog_public`)의 권한을 허용 테이블의 `SELECT`로 다시 맞춤.
@@ -77,7 +77,7 @@ Caddyfile과 관리 SPA는 caddy 이미지에 구워져 있다 — 고치면 위
 ## 5. 백업과 복원
 
 ```bash
-./backup.sh [백업 루트]            # 기본 ./backups/<UTC 시각>/ 에 blog.dump · attachments.tar · SHA256SUMS
+./backup.sh [백업 루트]            # 기본 ./backups/<UTC 시각>/ 에 blog.sql · attachments.tar · SHA256SUMS
 ./restore.sh --yes <백업 디렉터리>  # 현재 DB와 첨부를 전부 지우고 덮어쓴다
 ```
 
@@ -104,7 +104,7 @@ docker compose up -d api
 쿠키가 유출됐다고 의심되면, 빠른 순서대로:
 
 1. 관리 화면에서 **로그아웃** — 모든 기기의 세션이 함께 끊긴다(세션 epoch 증가).
-2. 화면에 들어갈 수 없으면: `docker compose exec -T postgres psql -U postgres -d blog -c 'UPDATE "AdminState" SET "SessionEpoch" = "SessionEpoch" + 1'`
+2. 화면에 들어갈 수 없으면: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot blog -e "UPDATE AdminState SET SessionEpoch = SessionEpoch + 1"'`
 3. 비밀번호까지 새 나갔다면 6절로 비밀번호를 바꾼다(세션도 함께 폐기된다).
 
 ## 8. 허용 IP 변경
@@ -113,19 +113,20 @@ docker compose up -d api
 
 ## 9. DB 비밀번호 변경
 
-postgres는 빈 데이터 볼륨에서 처음 뜰 때만 `.env`의 값으로 롤을 만든다. 나중에 바꾸려면 DB 안에서 먼저 바꾼다.
+mysql은 빈 데이터 볼륨에서 처음 뜰 때만 `.env`의 값으로 사용자를 만든다. 나중에 바꾸려면 DB 안에서 먼저 바꾼다. 새 값은 영문·숫자만 쓴다(연결 문자열에 그대로 들어간다).
 
 ```bash
-docker compose exec -it postgres psql -U postgres   # 대화형 프롬프트가 뜬다
-\password blog_app                                   # 새 값을 두 번 입력한다(화면에 보이지 않는다)
-\password blog_public                                # 이어서 blog_public도
-\password postgres                                   # 마지막으로 postgres도
-\q
+docker compose exec -it mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'   # 대화형 프롬프트가 뜬다
+ALTER USER 'blog_app'@'%' IDENTIFIED BY '<새 값>';      -- 프롬프트 안에서 입력한다(셸 명령줄·ps에 남지 않는다)
+ALTER USER 'blog_public'@'%' IDENTIFIED BY '<새 값>';   -- 이어서 blog_public도
+ALTER USER 'root'@'%' IDENTIFIED BY '<새 값>';          -- 마지막으로 root도. 공식 이미지는 root를 두 개 만든다
+ALTER USER 'root'@'localhost' IDENTIFIED BY '<새 값>';  -- (소켓 접속용, 백업·복원 스크립트가 쓴다) — 둘 다 같은 값으로
+exit
 $EDITOR .env                       # 세 값 모두 같은 값으로
-docker compose up -d api
+docker compose up -d mysql api     # mysql도 다시 만든다: 헬스체크·백업·복원이 컨테이너 환경변수의 비밀번호를 쓴다
 ```
 
-인라인 `-c "ALTER ROLE … PASSWORD '…'"` 형태는 쓰지 않는다 — 문장이 실패하면(롤 이름 오타 등) PostgreSQL이 그 문장을 로그에 평문 그대로 남긴다(`docker compose logs postgres`로 누구나 볼 수 있고, 로그는 11절이 시키는 대로 문제 보고 때 그대로 첨부되기도 한다). `\password`는 psql이 클라이언트에서 SCRAM 검증자를 계산해 보내므로 서버 로그·`ps`·셸 히스토리 어디에도 평문이 남지 않는다.
+`mysql -e "ALTER USER …"`처럼 셸 명령줄에 비밀번호를 넣지 않는다(셸 히스토리·`ps`에 남는다). 대화형 클라이언트는 `IDENTIFIED`·`PASSWORD`가 든 줄을 히스토리 파일에 쓰지 않는다.
 
 ## 10. 이미지 버전 올리기
 
@@ -135,14 +136,14 @@ docker compose up -d api
 |---|---|
 | `mcr.microsoft.com/dotnet/sdk`, `mcr.microsoft.com/dotnet/aspnet:<버전>-noble-chiseled-extra` | `PortfolioBlog.Api/Dockerfile` |
 | `node`, `caddy` | `PortfolioBlog.Web/Dockerfile` |
-| `postgres`(서비스와 `tools` 두 곳) | `deploy/docker-compose.yml` |
+| `mysql`(서비스와 `tools` 두 곳) | `deploy/docker-compose.yml` |
 | `node`(스모크 클라이언트) | `deploy/docker-compose.smoke.yml` |
 
 올린 뒤에는 `deploy/smoke/run.sh`를 통과시킨다(CI의 `deploy-smoke` 잡이 같은 것을 돌린다). PostgreSQL의 **주 버전**(17 → 18)은 데이터 디렉터리 형식이 달라 태그만 바꾸면 뜨지 않는다 — 백업 → 새 버전으로 빈 볼륨에서 복원한다.
 
 ## 11. 로그
 
-- `docker compose logs -f api|caddy|postgres`. 컨테이너마다 10MB × 5개로 돌려 쓴다(그 이상은 사라진다 — 보존이 필요하면 외부 수집기를 붙인다).
+- `docker compose logs -f api|caddy|mysql`. 컨테이너마다 10MB × 5개로 돌려 쓴다(그 이상은 사라진다 — 보존이 필요하면 외부 수집기를 붙인다).
 - Caddy 액세스 로그는 `Cookie`·`Set-Cookie`·`Authorization` 값을 `REDACTED`로 남긴다(기본 동작, 실측). 앱은 비밀번호·쿠키·요청 본문을 기록하지 않는다. 로그인 실패는 IP만 남는다.
 - 과부하(503) 한 건은 스택 포함 약 50줄이다. 검색어·본문은 남지 않는다.
 
