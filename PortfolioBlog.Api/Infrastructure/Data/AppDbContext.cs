@@ -50,8 +50,8 @@ public class AppDbContext : DbContext
     /// <summary>DB CHECK용 slug 정규식. ICU의 <c>$</c>는 끝의 <c>\n</c> 앞에서도 매칭되므로 끝 앵커로 <c>\z</c>를 쓴다. SQL 문자열 리터럴 안에 들어가므로 백슬래시를 두 번 쓴다.</summary>
     public const string SlugPatternSql = "^[a-z0-9]+(-[a-z0-9]+)*\\\\z";
 
-    /// <summary>식별자 열(유니크 비교가 바이트 단위여야 하는 열)의 콜레이션.</summary>
-    public const string BinaryCollation = "utf8mb4_bin";
+    /// <summary>식별자 열(유니크 비교가 바이트 단위여야 하는 열)의 콜레이션. NO PAD라 끝 공백도 다른 값으로 본다(<c>utf8mb4_bin</c>은 PAD SPACE라 <c>'abc'</c>와 <c>'abc '</c>를 같게 본다, 스펙 D10).</summary>
+    public const string BinaryCollation = "utf8mb4_0900_bin";
 
     /// <summary>슬러그 최대 길이(문자).</summary>
     public const int SlugMax = 100;

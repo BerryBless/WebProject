@@ -55,7 +55,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("varchar(20)")
-                        .UseCollation("utf8mb4_bin");
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -69,7 +69,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("varchar(64)")
-                        .UseCollation("utf8mb4_bin");
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -78,7 +78,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(80)
                         .HasColumnType("varchar(80)")
-                        .UseCollation("utf8mb4_bin");
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.HasKey("Id");
 
@@ -123,7 +123,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)")
-                        .UseCollation("utf8mb4_bin");
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<string>("Summary")
                         .IsRequired()
@@ -196,7 +196,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("varchar(100)")
-                        .UseCollation("utf8mb4_bin");
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -231,7 +231,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("varchar(50)")
-                        .UseCollation("utf8mb4_bin");
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.HasKey("Id");
 
