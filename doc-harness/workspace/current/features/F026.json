@@ -1,0 +1,1379 @@
+{
+  "feature": {
+    "id": "F026",
+    "name": "Docker Compose 운영 배포 구성",
+    "slug": "COMPOSE_DEPLOYMENT",
+    "summary": "운영자가 deploy/docker-compose.yml(프로젝트 이름 portfolioblog)로 caddy·api·postgres 세 서비스와 profile 전용 tools 서비스를 띄운다. 네트워크는 셋이다: public(caddy만), edge(internal, 172.30.0.0/24, caddy 고정 IP 172.30.0.2), db(internal). 영속 볼륨은 pgdata·attachments·dpkeys·caddy_data·caddy_config 다섯이다. 기동 순서는 healthcheck 기반 depends_on(postgres→api→caddy)으로 강제한다. postgres가 빈 pgdata에서 처음 뜰 때 postgres-init/10-roles.sh가 blog_app·blog_public 롤과 blog DB를 만든다. 공통 x-hardening 앵커(restart unless-stopped, no-new-privileges, cap_drop ALL, json-file 10m×5)는 caddy·api·postgres에만 병합된다. 비루트 1654와 read_only 루트 FS는 caddy·api·tools에만 해당한다.",
+    "entryPoints": [
+      "CLI docker compose up -d --build (deploy/ 디렉터리에서 실행, deploy/docker-compose.yml)",
+      "CLI docker compose --profile tools run --rm -T --no-deps tools '<sh 명령>' (deploy/backup.sh·deploy/restore.sh가 호출)",
+      "postgres 컨테이너 최초 기동 시 /docker-entrypoint-initdb.d/10-roles.sh",
+      "api 컨테이너 healthcheck: dotnet PortfolioBlog.Api.dll healthcheck"
+    ],
+    "relatedFiles": [
+      "deploy/docker-compose.yml",
+      "deploy/postgres-init/10-roles.sh",
+      "deploy/.env.example",
+      "deploy/OPERATIONS.md",
+      "deploy/Caddyfile",
+      "deploy/docker-compose.smoke.yml",
+      "deploy/smoke/run.sh",
+      "deploy/backup.sh",
+      "deploy/restore.sh",
+      "PortfolioBlog.Api/Dockerfile",
+      "PortfolioBlog.Web/Dockerfile",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      ".github/workflows/ci.yml"
+    ],
+    "dependencies": [
+      "F021",
+      "F022",
+      "F025"
+    ],
+    "importance": "INFRA",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F026은 실행 코드가 아니라 선언형 배포 구성이다. docker-compose.yml, Dockerfile 2개, postgres 초기화 스크립트로 이뤄진다. 이 구성이 넣어 주는 환경변수는 앱 코드가 소비한다(StartupValidation, HealthCheckCommand, ForwardedHeaders 설정, DataProtection 키 경로). 기동은 세 단계로 진행된다. 먼저 postgres가 pg_isready로 healthy가 된다. 다음으로 api가 설정 검증·첨부 루트 쓰기 확인·마이그레이션·공개 롤 권한 재부여를 마치고 dotnet healthcheck를 통과한다. 마지막으로 caddy가 80·443을 게시하고 ACME를 처리한다. 비밀값과 도메인은 모두 deploy/.env에서 `${VAR:?}` 필수 보간으로 들어온다. 하나라도 빠지면 compose가 컨테이너를 만들기 전에 중단한다(Compose 의미론이라 INFERRED). 보안 설정은 서비스마다 다르다. caddy는 user 1654:1654와 read_only를 쓰고, x-hardening(cap_drop ALL)에 NET_BIND_SERVICE만 더한다. api는 compose에 user가 없고 이미지의 USER 1654로 비루트 실행하며, read_only·/tmp tmpfs·x-hardening을 쓴다. api 이미지에서 /data만 1654 소유로 복사되고 /app은 --chown 없이 복사된다. postgres는 user도 read_only도 없이 이미지 기본 사용자로 뜬다. cap_drop ALL 위에 CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID를 다시 더한다. tools는 앵커를 병합하지 않고 보안 옵션을 개별로 선언한다. api·postgres는 internal 네트워크에만 붙어 포트를 게시하지 않는다. api는 고정 프록시 IP(172.30.0.2)만 Proxy__TrustedIp로 신뢰한다. 실패 대부분은 Docker의 재시작이나 unhealthy 판정에 맡긴다. 앱 기동 예외를 잡는 try/catch가 없어 프로세스가 종료되고, restart: unless-stopped 때문에 재시작 루프가 될 수 있다. 확인된 위험은 다섯이다. (1) 10-roles.sh와 healthcheck의 순서가 우연한 시간 차에 기댄다. (2) 172.30.0.2 상수를 여러 곳에서 수작업으로 맞춘다. (3) tmpfs 64m 크기가 UploadConcurrency 기본값 2에 묶여 있다. (4) DB 비밀번호는 최초 init에서만 반영된다. (5) /health가 DB를 점검하지 않는다.",
+  "entryPoints": [
+    {
+      "text": "운영자는 deploy/ 디렉터리에서 `docker compose up -d --build`로 전체 스택을 올린다. 최초 배포 전에 .env를 준비하고 `docker compose build api`를 실행한 뒤, hash-password로 ADMIN_PASSWORD_HASH를 만든다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "3,25-37"
+        }
+      ]
+    },
+    {
+      "text": "compose 파일의 최상위 name이 portfolioblog라 프로젝트 이름이 고정된다. OPERATIONS.md가 쓰는 이미지 이름 portfolioblog-api와 컨테이너 이름 portfolioblog-api-1은 이 이름에서 파생된다. 파생 규칙은 Compose 기본 동작이라 INFERRED다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "1"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "34,53"
+        }
+      ]
+    },
+    {
+      "text": "tools 서비스는 profiles: [\"tools\"]라 평소 up으로는 뜨지 않는다. backup.sh·restore.sh가 `docker compose --profile tools run --rm -T --no-deps tools '<명령>'`으로만 띄운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "112-125"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "25"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "40"
+        }
+      ]
+    },
+    {
+      "text": "postgres 컨테이너는 ./postgres-init을 /docker-entrypoint-initdb.d에 읽기 전용으로 마운트한다. 공식 이미지 규약상 10-roles.sh는 데이터 디렉터리가 비어 있을 때만 실행된다. 이 규약은 이미지 동작이라 INFERRED이고, 스크립트 주석이 이를 명시한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "101-103"
+        },
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "2"
+        }
+      ]
+    },
+    {
+      "text": "api 컨테이너의 healthcheck는 `dotnet PortfolioBlog.Api.dll healthcheck`를 실행한다. Program.cs는 인수가 정확히 [\"healthcheck\"]이면 웹 호스트를 만들지 않고 HealthCheckCommand.RunAsync로 분기한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "77-83"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "21-26"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "symbol": "HealthCheckCommand.RunAsync",
+          "lines": "35-63"
+        }
+      ]
+    },
+    {
+      "text": "CI의 deploy-smoke 잡과 deploy/smoke/run.sh는 같은 compose에 docker-compose.smoke.yml을 덮어써서(COMPOSE_FILE=docker-compose.yml:docker-compose.smoke.yml) 전체 스택을 검증용으로 띄운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "102-121"
+        },
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "13,78"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "docker-compose.yml",
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.*.environment",
+      "description": "compose가 deploy/.env의 변수를 보간한다. `${VAR:?}`로 표시된 필수 변수는 DOMAIN, ADMIN_DOMAIN, ADMIN_ALLOWED_CIDRS, ACME_EMAIL, BLOG_APP_PASSWORD, BLOG_PUBLIC_PASSWORD, PUBLIC_ORIGIN, ADMIN_ORIGIN, ADMIN_PASSWORD_HASH, POSTGRES_PASSWORD다. 하나라도 없으면 컨테이너를 만들기 전에 오류로 끝난다(Compose 의미론)."
+    },
+    {
+      "step": 2,
+      "component": "PortfolioBlog.Api/Dockerfile",
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "symbol": "build/final stage",
+      "description": "`--build`이면 api 이미지를 만든다. (1) sdk:10.0.401에서 restore·publish(UseAppHost=false)를 하고 web.config·appsettings.Development.json·pdb를 지운다. (2) RUN test로 wwwroot가 css/site.css 하나뿐인지, EF Design·CodeAnalysis·*.Development.json·pdb가 없는지 확인한다. (3) /data/attachments·/data/dpkeys를 700 권한으로 만든다. (4) aspnet:10.0.12-noble-chiseled-extra로 옮긴다. 게시 결과는 `COPY --from=build /app ./`로 --chown 없이 복사하므로 1654 소유가 아니다(기본은 root 소유, Docker 의미론). /data만 `COPY --from=build --chown=1654:1654 /data /data`로 1654 소유로 복사한다. ENV는 ASPNETCORE_ENVIRONMENT=Production, ASPNETCORE_HTTP_PORTS=8080, Attachments__RootPath=/data/attachments, DataProtection__KeysPath=/data/dpkeys이고, USER 1654로 실행한다."
+    },
+    {
+      "step": 3,
+      "component": "PortfolioBlog.Web/Dockerfile",
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "symbol": "build/final stage",
+      "description": "caddy 이미지를 만든다. node:24.21.0-alpine에서 npm ci를 실행한다. NPM_AUDIT=on(기본값)이면 `npm audit --omit=dev --audit-level=high`로 게이트한 뒤 npm run build를 한다. caddy:2.11.4-alpine에 deploy/Caddyfile(/etc/caddy/Caddyfile)과 dist(/srv)를 굽고, 검사용 환경값으로 `caddy validate`를 실행한다."
+    },
+    {
+      "step": 4,
+      "component": "postgres",
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.postgres",
+      "description": "postgres:17.11-alpine이 db 네트워크(internal)에서 pgdata 볼륨으로 뜬다. 포트는 게시하지 않는다. user·read_only가 없어 이미지 기본 사용자로 시작한다. x-hardening의 cap_drop ALL 위에 CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID를 다시 추가한다."
+    },
+    {
+      "step": 5,
+      "component": "10-roles.sh",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "psql heredoc (19-30행)",
+      "description": "빈 pgdata일 때만 실행된다. `set -eu`와 psql `ON_ERROR_STOP=1` 아래에서 다음을 차례로 실행한다. (1) blog_app·blog_public 롤을 NOSUPERUSER NOCREATEDB NOCREATEROLE로 만든다. (2) blog DB를 OWNER blog_app으로 만든다. (3) DB의 PUBLIC 권한을 회수한다. (4) blog_public에 CONNECT를 준다. (5) blog DB에 \\connect한 뒤 public 스키마의 PUBLIC 권한을 회수한다. (6) 스키마 소유자를 blog_app으로 바꾼다. 비밀번호는 psql 변수(:'app_pw', :'public_pw')로 인용한다."
+    },
+    {
+      "step": 6,
+      "component": "postgres",
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.postgres.healthcheck",
+      "description": "`pg_isready -U blog_app -d blog`를 10초 간격, 5초 타임아웃, 12회 재시도로 실행한다. healthy가 되면 api의 depends_on(condition: service_healthy)이 풀린다."
+    },
+    {
+      "step": 7,
+      "component": "api",
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.api",
+      "description": "api가 edge·db 네트워크에 붙어 뜬다. read_only 루트 FS와 /tmp tmpfs(64m, 1777)를 쓰고 attachments·dpkeys 볼륨을 마운트한다. compose에 user가 없어 이미지의 USER 1654로 실행된다. 환경변수로 받는 값은 ConnectionStrings__Default(blog_app), ConnectionStrings__Public(blog_public), Site__*, Admin__AllowedCidrs, Admin__PasswordHash, Proxy__TrustedIp=172.30.0.2다. 두 연결 문자열에는 모두 Command Timeout=30이 붙는다."
+    },
+    {
+      "step": 8,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "검사는 두 묶음이다. (a) 환경과 무관하게 항상 검사한다(48-114행). 대상은 두 origin·Admin:AllowedCidrs·Proxy:TrustedIp·Admin:PasswordHash(값이 있을 때)의 형식, 각종 한도 범위, Public:StatementTimeoutMs 100~60000, Attachments:RootPath 존재다. 연결 문자열 규칙(88-102행)도 여기에 속한다. 값이 있으면 CheckConnectionString으로 Options 금지와 Command Timeout×1000 > StatementTimeoutMs를 확인하고, Public과 Default의 Username이 같으면 거부한다. (b) Development가 아닐 때만 검사한다(116-135행). Require로 Proxy:TrustedIp·Admin:AllowedCidrs·Admin:PasswordHash가 있는지, 두 origin이 서로 다르고 https인지, Attachments:RootPath와 DataProtection:KeysPath가 절대 경로인지, ConnectionStrings:Public이 있는지 확인한다. 이미지 ENV가 Production이므로 운영에서는 두 묶음이 모두 적용된다. 하나라도 어기면 InvalidOperationException이 나고 프로세스가 종료된다."
+    },
+    {
+      "step": 9,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "top-level statements (76-91행)",
+      "description": "다음 순서로 진행한다. FileSystemAttachmentStore.EnsureRootIsWritable로 /data/attachments에 쓸 수 있는지 확인한다. AppDbContext.Database.Migrate()를 blog_app 연결로 실행한다. PublicRoleGrants.Apply로 blog_public에 허용 테이블의 SELECT를 다시 부여한다. MarkdownRenderer를 워밍업한다. 끝으로 app.Run()이 8080을 연다."
+    },
+    {
+      "step": 10,
+      "component": "HealthCheckCommand",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+      "symbol": "HealthCheckCommand.RunAsync",
+      "description": "Docker가 30초 간격으로 호출한다(start_period 40s, start_interval 2s, timeout 5s, retries 3). Site__PublicOrigin의 호스트를 Host 헤더에 싣고 http://127.0.0.1:{ASPNETCORE_HTTP_PORTS 첫 값}/health를 3초 타임아웃으로 부른다. 2xx면 0, 그 밖이면 1을 돌려준다."
+    },
+    {
+      "step": 11,
+      "component": "caddy",
+      "file": "deploy/docker-compose.yml",
+      "symbol": "services.caddy",
+      "description": "api가 healthy가 되면 caddy가 뜬다. user 1654:1654, cap_add NET_BIND_SERVICE, read_only로 실행된다. 포트는 HTTP_BIND/HTTPS_BIND(기본 0.0.0.0:80/443)로 게시한다. public 네트워크와 edge 네트워크(고정 IP 172.30.0.2)에 동시에 붙는다. DOMAIN·ADMIN_DOMAIN·ADMIN_ALLOWED_CIDRS·ACME_EMAIL을 Caddyfile에 넘기고 caddy_data·caddy_config 볼륨을 쓴다."
+    },
+    {
+      "step": 12,
+      "component": "AccessServiceCollectionExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "UseTrustedForwardedHeaders",
+      "description": "운영 중에는 Proxy:TrustedIp(caddy 고정 IP)만 KnownProxies에 넣고 ForwardedHeaders 미들웨어를 켠다. 그래서 caddy가 보낸 X-Forwarded-For만 원본 IP로 받아들인다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "deploy/docker-compose.yml",
+      "role": "config",
+      "symbol": "x-hardening, services caddy/api/postgres/tools, networks public/edge/db, volumes"
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "role": "data",
+      "symbol": "blog_app·blog_public 롤, blog DB 생성"
+    },
+    {
+      "file": "deploy/.env.example",
+      "role": "config",
+      "symbol": "필수·선택 환경변수 키 목록(값은 자리표시자)"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "role": "config",
+      "symbol": "build/final stage, COPY --chown=1654:1654 /data, USER 1654"
+    },
+    {
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "role": "config",
+      "symbol": "build/final stage (caddy + SPA)"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "role": "config",
+      "symbol": "{$DOMAIN}/{$ADMIN_DOMAIN} 사이트, reverse_proxy api:8080"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "role": "entry",
+      "symbol": "CLI 분기(healthcheck/hash-password), 시작 시퀀스"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "role": "validation",
+      "symbol": "StartupValidation.Validate / CheckConnectionString / Check / Require"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "role": "validation",
+      "symbol": "CidrList.Parse (잘못된 토큰 값을 담은 FormatException)"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+      "role": "service",
+      "symbol": "HealthCheckCommand.RunAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "role": "config",
+      "symbol": "ForwardedHeadersOptions KnownProxies / UseTrustedForwardedHeaders"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "role": "config",
+      "symbol": "DataProtection KeysPath → FileSystemXmlRepository"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "role": "data",
+      "symbol": "PublicRoleGrants.Apply (tableowner = current_user)"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+      "role": "config",
+      "symbol": "AdminOptions.UploadConcurrency (기본 2, tmpfs 크기와 결합)"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "role": "config",
+      "symbol": "PublicOptions.StatementTimeoutMs (기본 3000)"
+    },
+    {
+      "file": "deploy/docker-compose.smoke.yml",
+      "role": "test",
+      "symbol": "smoke-allowed/smoke-denied, public ipam 고정"
+    },
+    {
+      "file": "deploy/smoke/run.sh",
+      "role": "test",
+      "symbol": "배포 스택 스모크"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "role": "test",
+      "symbol": "deploy-smoke job"
+    },
+    {
+      "file": "deploy/backup.sh",
+      "role": "service",
+      "symbol": "tools 서비스 사용"
+    },
+    {
+      "file": "deploy/restore.sh",
+      "role": "service",
+      "symbol": "tools 서비스 사용, 볼륨 초기화"
+    },
+    {
+      "file": "deploy/OPERATIONS.md",
+      "role": "config",
+      "symbol": "운영 절차 문서"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "비밀값·도메인은 deploy/.env에서 compose 보간을 거쳐 각 서비스의 environment로 들어간다. caddy는 DOMAIN·ADMIN_DOMAIN·ADMIN_ALLOWED_CIDRS·ACME_EMAIL을 받는다. api는 ConnectionStrings__Default/Public(BLOG_APP_PASSWORD·BLOG_PUBLIC_PASSWORD 포함), Site__*, Admin__AllowedCidrs, Admin__PasswordHash를 받는다. postgres는 POSTGRES_PASSWORD·BLOG_APP_PASSWORD·BLOG_PUBLIC_PASSWORD를 받는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "31-35,60-70,97-100"
+        }
+      ]
+    },
+    {
+      "text": "ADMIN_ALLOWED_CIDRS 값 하나를 caddy(Caddyfile의 remote_ip 매처)와 api(Admin__AllowedCidrs)가 함께 읽는다. 그래서 허용 IP를 바꾸면 두 컨테이너를 모두 다시 올려야 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "34,68"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "112"
+        }
+      ]
+    },
+    {
+      "text": "운영 경로는 이미지 ENV가 정한다: Attachments__RootPath=/data/attachments, DataProtection__KeysPath=/data/dpkeys, ASPNETCORE_HTTP_PORTS=8080. compose는 두 경로에 attachments·dpkeys named volume을 마운트해 영속화한다. AuthServiceCollectionExtensions는 KeysPath가 있으면 FileSystemXmlRepository로 키를 파일에 저장한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "27-30"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "71-73"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "78-84"
+        }
+      ]
+    },
+    {
+      "text": "원본 IP는 다음 경로로 전달된다. 클라이언트 요청이 public 네트워크로 caddy에 들어오면 caddy가 remote_ip를 판정한다. caddy는 edge 네트워크의 172.30.0.2에서 api:8080으로 X-Forwarded-For를 넘긴다. api는 송신자가 KnownProxies={Proxy:TrustedIp}일 때만 XFF를 채택한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "39-45,70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "44-50,68-72"
+        }
+      ]
+    },
+    {
+      "text": "DB 권한은 두 단계로 정해진다. 10-roles.sh는 blog_public에 CONNECT만 준다. 테이블별 SELECT는 앱이 기동할 때마다 PublicRoleGrants.Apply가 blog_app 세션으로 다시 맞추며, 대상은 blog_app 소유 테이블뿐이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "5-6,26"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "82-88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "126-129"
+        }
+      ]
+    },
+    {
+      "text": "관리 SPA 정적 파일과 Caddyfile은 빌드 때 caddy 이미지에 구워진다(/srv, /etc/caddy/Caddyfile). 런타임 볼륨으로 주입하지 않으므로 둘 중 하나를 바꾸면 이미지를 다시 빌드해야 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "16-18"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "73"
+        }
+      ]
+    },
+    {
+      "text": "api 이미지 안의 소유권은 둘로 나뉜다. 볼륨 마운트 지점 /data만 --chown=1654:1654로 복사되어 1654 소유(700)다. 게시 결과인 /app은 --chown 없이 복사된다. 따라서 앱 바이너리는 실행 사용자 1654의 소유가 아니다. 소유자가 root라는 점은 Docker COPY 기본 동작에서 나온 추론이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "19-20,24-26,31"
+        }
+      ]
+    },
+    {
+      "text": "업로드 임시 데이터는 api의 /tmp tmpfs(64m, mode 1777)에 쓰인다. compose 주석에 따르면 이 크기는 11MiB × 업로드 동시성 2의 약 3배다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "56-59"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+          "lines": "45"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "pgdata 볼륨 비어 있음",
+      "to": "blog_app·blog_public 롤과 blog DB 초기화됨",
+      "trigger": "postgres 컨테이너 최초 기동 → /docker-entrypoint-initdb.d/10-roles.sh 실행",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "2,19-30"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "101-103"
+        }
+      ]
+    },
+    {
+      "from": "postgres starting",
+      "to": "postgres healthy",
+      "trigger": "pg_isready -U blog_app -d blog 성공(10s 간격, 최대 12회 재시도)",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "106-110"
+        }
+      ]
+    },
+    {
+      "from": "api 대기(생성 전)",
+      "to": "api starting",
+      "trigger": "depends_on postgres condition: service_healthy 충족",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "84-86"
+        }
+      ]
+    },
+    {
+      "from": "api starting",
+      "to": "api healthy",
+      "trigger": "HealthCheckCommand가 /health에서 2xx를 받아 종료 코드 0(start_period 40s 동안은 start_interval 2s로 검사)",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "77-83"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "lines": "53-54"
+        }
+      ]
+    },
+    {
+      "from": "api healthy",
+      "to": "api unhealthy",
+      "trigger": "healthcheck 3회 연속 실패(종료 코드 1 또는 5초 타임아웃)",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "79-81"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "lines": "55-62"
+        }
+      ]
+    },
+    {
+      "from": "api starting",
+      "to": "api exited → 재시작",
+      "trigger": "StartupValidation/EnsureRootIsWritable/Migrate/PublicRoleGrants.Apply 중 예외로 프로세스 종료 → restart: unless-stopped",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76-88"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "3-4"
+        }
+      ]
+    },
+    {
+      "from": "caddy 대기(생성 전)",
+      "to": "caddy running",
+      "trigger": "depends_on api condition: service_healthy 충족",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "46-48"
+        }
+      ]
+    },
+    {
+      "from": "tools 미기동(profile 비활성)",
+      "to": "tools 1회 실행 후 제거",
+      "trigger": "docker compose --profile tools run --rm tools '<명령>' (backup.sh/restore.sh)",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "112-125"
+        },
+        {
+          "file": "deploy/backup.sh",
+          "lines": "25"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "40"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "ROLE blog_app",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "CREATE ROLE blog_app LOGIN PASSWORD (psql 변수 :'app_pw') NOSUPERUSER NOCREATEDB NOCREATEROLE"
+    },
+    {
+      "entity": "ROLE blog_public",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "CREATE ROLE blog_public LOGIN PASSWORD (psql 변수 :'public_pw') NOSUPERUSER NOCREATEDB NOCREATEROLE"
+    },
+    {
+      "entity": "DATABASE blog",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "CREATE DATABASE blog OWNER blog_app"
+    },
+    {
+      "entity": "DATABASE blog (PUBLIC 권한)",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "REVOKE ALL ON DATABASE blog FROM PUBLIC"
+    },
+    {
+      "entity": "DATABASE blog (blog_public CONNECT)",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "GRANT CONNECT ON DATABASE blog TO blog_public"
+    },
+    {
+      "entity": "SCHEMA public (PUBLIC 권한)",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "REVOKE ALL ON SCHEMA public FROM PUBLIC"
+    },
+    {
+      "entity": "SCHEMA public (소유자)",
+      "operation": "DDL",
+      "file": "deploy/postgres-init/10-roles.sh",
+      "symbol": "ALTER SCHEMA public OWNER TO blog_app"
+    },
+    {
+      "entity": "(교차 참조) 마이그레이션 대상 테이블 전체 — F021 소관",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "AppDbContext.Database.Migrate()"
+    },
+    {
+      "entity": "(교차 참조) pg_tables / blog_public 테이블 권한 — F021 소관",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "symbol": "PublicRoleGrants.Apply"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "컨테이너 이미지 태그는 모두 정확한 버전으로 고정돼 있다: mcr.microsoft.com/dotnet/sdk:10.0.401, mcr.microsoft.com/dotnet/aspnet:10.0.12-noble-chiseled-extra, node:24.21.0-alpine, caddy:2.11.4-alpine, postgres:17.11-alpine(postgres·tools 두 곳).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "4,23"
+        },
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "4,16"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "90,115"
+        }
+      ]
+    },
+    {
+      "text": "caddy는 ACME_EMAIL로 Let's Encrypt(ACME) 인증서를 받아 caddy_data에 저장한다. ACME 아웃바운드가 나가는 통로는 public 네트워크 하나뿐이다. 관리 도메인도 HTTP-01 챌린지를 통과해야 한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "35,37,40-41"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "51"
+        }
+      ]
+    },
+    {
+      "text": "Docker Engine과 compose 플러그인, DNS A/AAAA 레코드가 필요하다. 원본 IP를 보존하려면 Docker 데몬이 iptables를 관리해야 한다(사용자 공간 프록시로 중계하면 안 된다).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "27,55-62"
+        }
+      ]
+    },
+    {
+      "text": "npm 레지스트리 감사(npm audit)가 caddy 이미지 빌드를 막을 수 있다. 우회 방법은 --build-arg NPM_AUDIT=off다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "10-13"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "deploy/docker-compose.yml 변수 보간",
+      "condition": "`${VAR:?}` 필수 변수가 .env에도 셸 환경에도 없음",
+      "handling": "compose가 컨테이너를 만들기 전에 오류로 중단한다(Compose 의미론).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "32-35,61-69,98-100"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/Dockerfile 빌드",
+      "condition": "배포 의존성에 high 이상 취약점이 있거나 Caddyfile에 문법 오류가 있음",
+      "handling": "npm audit나 caddy validate가 실패해 이미지 빌드가 중단된다. 우회는 NPM_AUDIT=off 빌드 인자로만 가능하다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "12-13,20-21"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Api/Dockerfile 빌드",
+      "condition": "wwwroot에 site.css 외 파일(.gz/.br 등)이 있거나, 게시 결과에 EF Design·CodeAnalysis·*.Development.json·pdb가 섞임",
+      "handling": "RUN test가 실패해 빌드가 중단된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "17-18"
+        }
+      ]
+    },
+    {
+      "where": "deploy/postgres-init/10-roles.sh",
+      "condition": "SQL 문 실패(롤 중복 등) 또는 변수 미정의",
+      "handling": "`set -eu`와 psql `ON_ERROR_STOP=1` 때문에 즉시 비정상 종료한다. 그 이후 처리는 공식 이미지의 초기화 실패 처리(컨테이너 종료)에 맡기며, 이 부분은 INFERRED다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "19-21"
+        }
+      ]
+    },
+    {
+      "where": "postgres healthcheck",
+      "condition": "pg_isready가 12회(약 2분) 연속 실패",
+      "handling": "postgres가 unhealthy가 되고, depends_on service_healthy 때문에 api와 caddy가 시작되지 않는다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "84-86,106-110"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Api/Program.cs 시작 시퀀스",
+      "condition": "StartupValidation 위반, 첨부 루트 쓰기 불가, Migrate/PublicRoleGrants.Apply 실패(DB 접속·권한 오류)",
+      "handling": "try/catch가 없어 예외가 전파되고 프로세스가 종료된다. restart: unless-stopped가 컨테이너를 재시작하므로 원인이 남아 있으면 재시작 루프가 된다. 운영자는 docker compose logs api로 첫 예외 메시지의 설정 키를 확인한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76-88"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "3-4"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "153"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate (연결 문자열 규칙)",
+      "condition": "두 연결 문자열 중 하나에 Options가 있거나, Command Timeout×1000이 Public:StatementTimeoutMs 이하이거나, Public과 Default의 Username이 같음",
+      "handling": "환경과 무관하게 항상 InvalidOperationException으로 기동을 막는다. 이 검사는 `if (!environment.IsDevelopment())` 블록 밖(88-102행)에 있다. 연결 문자열이 비어 있으면 이 단계는 건너뛰고, 컨텍스트를 처음 해석할 때의 가드가 처리한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate / CheckConnectionString",
+          "lines": "26,83-102,151-169"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate (Admin:PasswordHash)",
+      "condition": ".env.example의 ADMIN_PASSWORD_HASH 자리표시자를 그대로 둠(유효한 Base64가 아님)",
+      "handling": "Convert.FromBase64String의 FormatException이 설정 키를 담은 InvalidOperationException으로 바뀌어 api 기동이 실패한다(fail-fast).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "58-61,185-189"
+        },
+        {
+          "file": "deploy/.env.example",
+          "lines": "28-30"
+        }
+      ]
+    },
+    {
+      "where": "HealthCheckCommand.RunAsync",
+      "condition": "Site__PublicOrigin 누락·형식 오류, 연결 실패, 3초 타임아웃, 비 2xx 응답",
+      "handling": "stderr에 한 줄을 쓰고 종료 코드 1을 돌려준다. 예외는 던지지 않는다. 3회 연속 실패하면 Docker가 unhealthy로 표시한다. 명령의 타임아웃(3초)이 compose timeout(5초)보다 짧아서 명령이 먼저 실패를 보고한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "lines": "19-20,42-62"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "79-81"
+        }
+      ]
+    },
+    {
+      "where": "api 컨테이너 런타임",
+      "condition": "기동 후 api가 unhealthy가 됐지만 프로세스는 살아 있음",
+      "handling": "restart 정책은 종료된 컨테이너만 재시작하고, depends_on은 기동 시점만 게이트한다. 그래서 caddy는 계속 api로 프록시한다. 자동 복구 처리는 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "3-4,46-48,77-83"
+        }
+      ]
+    },
+    {
+      "where": "caddy 서비스",
+      "condition": "caddy 자체가 비정상(인증서 발급 실패 등)",
+      "handling": "caddy에는 healthcheck가 없다. OPERATIONS.md는 running 상태와 로그(grep acme/certificate)로 확인하라고 안내한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "16-48"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "36,51,154"
+        }
+      ]
+    },
+    {
+      "where": "api /tmp tmpfs",
+      "condition": "Admin__UploadConcurrency를 기본값 2보다 올렸는데 tmpfs size=64m은 그대로 둠",
+      "handling": "compose 주석에 따르면 셋째 업로드부터 tmpfs가 고갈돼 400이 난다. 두 값을 맞추는지 자동으로 검증하지 않는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "56-59"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+          "lines": "45"
+        }
+      ]
+    },
+    {
+      "where": "caddy edge 고정 IP",
+      "condition": "컨테이너 재생성 시 다른 컨테이너가 172.30.0.2를 이미 점유",
+      "handling": "Address already in use로 caddy 생성이 실패한다. 동적 할당을 ip_range 172.30.0.128/25로 한정해 충돌 가능성을 줄였다. 복구는 수동이다(docker compose down && up -d).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "44-45,132-138"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "158"
+        }
+      ]
+    },
+    {
+      "where": "업데이트(재배포) 중 마이그레이션",
+      "condition": "새 버전이 적용한 마이그레이션을 코드 롤백과 함께 되돌려야 함",
+      "handling": "자동 롤백은 없다. 사전에 backup.sh로 백업하고 restore.sh로 수동 복원하는 절차만 있다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "66-75"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "81-85"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "보안 설정은 서비스마다 다르다. caddy는 compose에서 user \"1654:1654\"와 read_only: true를 선언하고, x-hardening(cap_drop ALL)에 NET_BIND_SERVICE만 더한다. api는 compose에 user가 없어 이미지의 USER 1654로 비루트 실행하고, read_only와 x-hardening을 쓰며 cap_add는 없다. postgres는 user도 read_only도 없이 이미지 기본 사용자로 시작한다. cap_drop ALL 위에 CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID를 다시 추가한다. tools는 앵커를 병합하지 않고 user 1654:1654, read_only, network_mode none, no-new-privileges, cap_drop ALL을 개별로 선언한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "3-13,24-27,55,88-96,113-122"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "31"
+        }
+      ]
+    },
+    {
+      "text": "init 순서에 경쟁 가능성이 있다. 공식 이미지의 initdb.d 스크립트는 임시 서버에서 도는데, 그동안에도 pg_isready가 통과할 수 있다. 그래서 depends_on service_healthy는 10-roles.sh의 완료를 보장하지 않는다. 스크립트 주석이 적듯이, 지금은 스크립트가 1초 안에 끝나고 첫 healthcheck가 10초 뒤라 어긋나지 않을 뿐이다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "13-16"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "106-110"
+        }
+      ]
+    },
+    {
+      "text": "pg_isready -U blog_app -d blog는 서버가 연결을 받는지만 보고 인증은 하지 않는다. 그래서 롤·DB가 있는지, 비밀번호가 맞는지는 증명하지 못한다. 이런 문제는 api의 Migrate 단계에서야 드러난다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "107"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "82-85"
+        }
+      ]
+    },
+    {
+      "text": "/health는 외부 의존성을 점검하지 않고 상수 \"Healthy\"를 돌려준다. 그래서 기동 뒤 DB 연결이 끊겨도 api healthcheck는 계속 healthy다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "115-120,130"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "77-78"
+        }
+      ]
+    },
+    {
+      "text": "DB 비밀번호는 빈 pgdata에서 처음 init할 때만 반영된다. 나중에 .env만 바꾸면 api가 DB에 접속하지 못한다. 바꾸려면 psql \\password로 DB 안의 값을 먼저 바꾸고 그다음 .env를 고친다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/.env.example",
+          "lines": "21-23"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "114-128"
+        },
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "2"
+        }
+      ]
+    },
+    {
+      "text": "DB 비밀번호는 연결 문자열의 Password 항목에 BLOG_APP_PASSWORD 환경 변수 값이 그대로 끼워진다. 그래서 ';'·'=' 같은 문자가 들어가면 해석이 바뀐다. .env.example은 영문·숫자만 쓰라고 안내할 뿐이고, compose 단계에서는 검증하지 않는다. 형식 오류와 Options 주입은 StartupValidation.CheckConnectionString이 일부 잡는다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "61-62"
+        },
+        {
+          "file": "deploy/.env.example",
+          "lines": "21-22"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "151-169"
+        }
+      ]
+    },
+    {
+      "text": "172.30.0.2는 caddy ipv4_address, api Proxy__TrustedIp, 스모크 extra_hosts에서 수작업으로 맞춰야 하는 상수다. 하나만 바뀌면 운영에서 XFF가 신뢰되지 않는다. 그러면 원본 IP가 caddy 주소로 보이고 IP 허용 목록 판정이 틀어진다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "45,70"
+        },
+        {
+          "file": "deploy/docker-compose.smoke.yml",
+          "lines": "33-34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "lines": "44-50"
+        }
+      ]
+    },
+    {
+      "text": "compose의 Command Timeout=30(초)은 StartupValidation의 'Command Timeout×1000 > StatementTimeoutMs' 규칙을 만족한다(기본 3000ms). 이 규칙은 환경과 무관하게 적용된다. 따라서 Public:StatementTimeoutMs를 30000 이상으로 올리면(허용 상한은 60000) api 기동이 실패한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "61-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "79-82,88-94,163-168"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "lines": "30"
+        }
+      ]
+    },
+    {
+      "text": "public 스키마에 blog_app이 아닌 소유자의 객체가 생기면 PublicRoleGrants가 그 테이블의 blog_public 권한을 회수하지 않는다. 그래도 앱은 정상 기동한다(fail-open). 이 불변식은 10-roles.sh가 스키마 소유자를 blog_app으로 바꾸는 데 기댄다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "8-12,29"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "lines": "126-129"
+        }
+      ]
+    },
+    {
+      "text": "tools 서비스는 x-hardening 앵커를 병합하지 않아 json-file 로그 회전과 restart 정책이 없다. 보안 옵션은 서비스 안에서 따로 반복 선언한다. postgres 이미지 태그도 postgres·tools 두 곳에 중복돼 있어 버전을 올릴 때 어긋날 수 있다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "90,113-125"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "138"
+        }
+      ]
+    },
+    {
+      "text": "빈 named volume은 처음 마운트될 때 이미지 디렉터리(/data/attachments·/data/dpkeys)의 소유자·권한으로 초기화된다. 이 디렉터리는 --chown=1654:1654로 복사된 700 권한이다. 그래서 restore.sh는 tools(1654)가 쓰기 전에 `docker compose up --no-start api`로 볼륨부터 초기화한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "19-20,26"
+        },
+        {
+          "file": "deploy/restore.sh",
+          "lines": "39-40"
+        }
+      ]
+    },
+    {
+      "text": "public 네트워크에는 ipam 설정이 없어 서브넷이 데몬의 기본 주소 풀에 따라 달라진다. 스모크는 이 때문에 docker-compose.smoke.yml에서 public을 172.30.1.0/24로 고정한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "128-129"
+        },
+        {
+          "file": "deploy/docker-compose.smoke.yml",
+          "lines": "57-66"
+        }
+      ]
+    },
+    {
+      "text": "PostgreSQL 주 버전을 올리면(17→18) 데이터 디렉터리 형식이 달라져 태그만 바꿔서는 뜨지 않는다. 백업한 뒤 빈 볼륨에 복원해야 한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "141"
+        }
+      ]
+    },
+    {
+      "text": "백업 대상은 pgdata·attachments뿐이다. dpkeys(세션 키)·caddy_data(인증서)·.env는 백업하지 않는다. 그래서 복원 뒤에는 다시 로그인하고 인증서를 재발급받아야 한다. .env를 잃으면 DB에 접속할 수 없다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "85"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "142-147"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "caddy·api·postgres는 x-hardening 앵커의 json-file 드라이버를 쓴다. 컨테이너마다 max-size 10m, max-file 5로 회전하며, 그보다 오래된 로그는 사라진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "9-13"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "145"
+        }
+      ]
+    },
+    {
+      "text": "tools 서비스는 x-hardening을 병합하지 않아 로그 설정이 없고 데몬 기본값을 쓴다. 일회성 run --rm이라 영향은 작다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "113-125"
+        }
+      ]
+    },
+    {
+      "text": "HealthCheckCommand는 실패 사유를 stderr에 한 줄로 남긴다. 예외는 타입 이름만 쓰고 비밀값은 쓰지 않는다. 이 출력은 docker inspect의 Health 로그에서 볼 수 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "lines": "46,55,60"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "153"
+        }
+      ]
+    },
+    {
+      "text": "StartupValidation 예외 메시지에는 설정 키가 들어가며, 설정 값이 함께 들어가는지는 경로마다 다르다. (1) Require와 CheckConnectionString이 직접 던지는 메시지에는 설정 키만 있다. (2) Check<T>는 FormatException/ArgumentException의 ex.Message를 그대로 붙인다(188행). 그래서 파서 메시지에 값이 있으면 값도 로그에 남는다. Proxy:TrustedIp 형식 오류는 '{proxy.TrustedIp}' 값을 담는다(56행). Admin:AllowedCidrs 형식 오류도 CidrList.Parse가 잘못된 토큰 '{parts[i]}'를 담은 FormatException을 던지므로 값이 들어간다. (3) 연결 문자열 파싱 실패는 Npgsql ArgumentException 문구가 그대로 붙는다. 그 문구에 값이 들어가는지는 코드로 확인하지 못했다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "Check / Require / CheckConnectionString",
+          "lines": "51,54-56,139,154,159,185-189,205"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+          "symbol": "CidrList.Parse",
+          "lines": "58"
+        }
+      ]
+    },
+    {
+      "text": "10-roles.sh는 비밀번호를 psql 변수로 넘겨 인용하므로 SQL 문자열에 평문을 직접 조립하지 않는다. OPERATIONS.md는 인라인 ALTER ROLE ... PASSWORD가 실패하면 postgres 로그에 평문이 남는다고 경고한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "17-23"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "128"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F026_ARCHITECTURE",
+      "type": "architecture",
+      "title": "compose 서비스·네트워크·볼륨 구성",
+      "summary": "caddy만 public 네트워크에 붙어 포트를 게시한다. api와 postgres는 internal 네트워크(edge, db)에만 연결된다.",
+      "mermaid": "flowchart LR\n  Internet[\"인터넷 80·443\"] --> publicNet[\"public\"]\n  publicNet --> caddy\n  caddy -->|172.30.0.2| edgeNet[\"edge internal\"]\n  edgeNet -->|api:8080| api\n  api --> dbNet[\"db internal\"]\n  dbNet --> postgres\n  caddy --> caddy_data\n  caddy --> caddy_config\n  api --> attachments\n  api --> dpkeys\n  postgres --> pgdata\n  postgres -.-> rolesSh[\"postgres-init/10-roles.sh\"]\n  tools -.->|network_mode none| attachments",
+      "details": "caddy는 public과 edge 두 네트워크에 동시에 붙는다(멀티홈). edge에서는 고정 IP 172.30.0.2를 쓴다. edge 네트워크의 설정은 internal, 서브넷 172.30.0.0/24, 동적 할당 범위 172.30.0.128/25다. api는 edge·db에만 붙고 postgres는 db에만 붙는다. named volume은 다섯 개다. tools는 profile 전용이고 네트워크 없이 attachments 볼륨만 마운트한다.",
+      "nodes": [
+        {
+          "node": "caddy",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.caddy"
+        },
+        {
+          "node": "api",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.api"
+        },
+        {
+          "node": "postgres",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.postgres"
+        },
+        {
+          "node": "tools",
+          "code": "deploy/docker-compose.yml",
+          "symbol": "services.tools"
+        },
+        {
+          "node": "postgres-init/10-roles.sh",
+          "code": "deploy/postgres-init/10-roles.sh"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F026_SEQUENCE",
+      "type": "sequence",
+      "title": "docker compose up 기동 순서",
+      "summary": "postgres healthy가 api 기동을 게이트하고, api healthy가 caddy 기동을 게이트한다. api는 설정 검증→첨부 루트 쓰기 확인→마이그레이션→권한 재부여를 마친 뒤 8080을 연다.",
+      "mermaid": "sequenceDiagram\n  participant Operator\n  participant compose as docker-compose.yml\n  participant postgres\n  participant roles as 10-roles.sh\n  participant program as Program.cs\n  participant validation as StartupValidation\n  participant grants as PublicRoleGrants\n  participant health as HealthCheckCommand\n  participant caddy\n  Operator->>compose: docker compose up -d --build\n  compose->>compose: 필수 변수 보간 검사\n  compose->>postgres: 컨테이너 시작\n  postgres->>roles: 빈 pgdata일 때만 실행\n  roles->>postgres: CREATE ROLE blog_app, blog_public, CREATE DATABASE blog\n  compose->>postgres: pg_isready -U blog_app -d blog\n  postgres-->>compose: healthy\n  compose->>program: api 컨테이너 시작\n  program->>validation: Validate\n  program->>program: EnsureRootIsWritable\n  program->>postgres: AppDbContext Database.Migrate\n  program->>grants: Apply\n  grants->>postgres: REVOKE, GRANT SELECT TO blog_public\n  program->>program: app.Run 8080\n  compose->>health: dotnet PortfolioBlog.Api.dll healthcheck\n  health->>program: GET /health (Host는 PublicOrigin 호스트)\n  health-->>compose: 종료 코드 0\n  compose->>caddy: 컨테이너 시작\n  caddy->>caddy: Caddyfile 로드, ACME 인증서",
+      "details": "depends_on condition: service_healthy가 두 단계의 게이트 역할을 한다. 10-roles.sh는 pgdata가 비어 있을 때만 실행된다. pg_isready가 init 완료를 보장하지는 않는다는 한계가 있다(엣지 케이스 참조). StartupValidation은 연결 문자열 규칙을 항상 검사하고, 필수값 Require는 Development가 아닐 때만 검사한다.",
+      "nodes": [
+        {
+          "node": "docker-compose.yml",
+          "code": "deploy/docker-compose.yml"
+        },
+        {
+          "node": "10-roles.sh",
+          "code": "deploy/postgres-init/10-roles.sh"
+        },
+        {
+          "node": "Program.cs",
+          "code": "PortfolioBlog.Api/Program.cs"
+        },
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate"
+        },
+        {
+          "node": "PublicRoleGrants",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+          "symbol": "PublicRoleGrants.Apply"
+        },
+        {
+          "node": "HealthCheckCommand",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+          "symbol": "HealthCheckCommand.RunAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F026_FLOW",
+      "type": "flowchart",
+      "title": "기동 분기와 실패 경로",
+      "summary": "실패 처리는 compose 오류 중단, postgres/api unhealthy에 따른 후속 서비스 미기동, api 예외 종료 후 재시작 루프로 나뉜다. 앱 쪽에 별도 복구 코드는 없다.",
+      "mermaid": "flowchart TD\n  composeUp[\"docker compose up\"] --> interp{\"필수 변수 모두 있음?\"}\n  interp -- 아니오 --> composeErr[\"compose 오류로 중단\"]\n  interp -- 예 --> pgStart[\"postgres 시작\"]\n  pgStart --> pgEmpty{\"pgdata 비어 있음?\"}\n  pgEmpty -- 예 --> rolesSh[\"10-roles.sh\"]\n  pgEmpty -- 아니오 --> pgHealth{\"pg_isready 통과?\"}\n  rolesSh -- \"ON_ERROR_STOP 실패\" --> pgInitFail[\"init 실패, postgres 종료\"]\n  rolesSh --> pgHealth\n  pgHealth -- \"12회 실패\" --> pgUnhealthy[\"postgres unhealthy, api 미기동\"]\n  pgHealth -- 예 --> apiStart[\"api 시작\"]\n  apiStart --> validate{\"StartupValidation.Validate 통과?\"}\n  validate -- 아니오 --> apiExit[\"예외 종료, restart unless-stopped\"]\n  validate -- 예 --> migrate{\"EnsureRootIsWritable, Migrate, PublicRoleGrants.Apply 성공?\"}\n  migrate -- 아니오 --> apiExit\n  apiExit --> apiStart\n  migrate -- 예 --> apiHealth{\"HealthCheckCommand 종료 코드 0?\"}\n  apiHealth -- \"3회 연속 1\" --> apiUnhealthy[\"api unhealthy, caddy 미기동\"]\n  apiHealth -- 예 --> caddyStart[\"caddy 시작\"]",
+      "details": "필수 변수 누락은 compose 단계에서 중단된다. 10-roles.sh 실패 후의 동작은 공식 이미지에 달려 있다(INFERRED). api 기동 예외는 try/catch 없이 프로세스를 종료시키고, restart: unless-stopped 때문에 재시작 루프가 될 수 있다. 기동 후 unhealthy가 되어도 caddy는 이미 떠 있으면 계속 프록시한다.",
+      "nodes": [
+        {
+          "node": "10-roles.sh",
+          "code": "deploy/postgres-init/10-roles.sh"
+        },
+        {
+          "node": "StartupValidation.Validate",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs"
+        },
+        {
+          "node": "PublicRoleGrants.Apply",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs"
+        },
+        {
+          "node": "HealthCheckCommand",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs"
+        },
+        {
+          "node": "restart unless-stopped",
+          "code": "deploy/docker-compose.yml"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F026_DATAFLOW",
+      "type": "dataflow",
+      "title": ".env와 이미지 ENV에서 앱 설정까지의 흐름",
+      "summary": ".env 값은 compose 보간으로 서비스별 environment가 되고, 경로·포트는 api 이미지 ENV에서 온다. 이 두 원천을 앱의 옵션·검증 코드가 소비한다.",
+      "mermaid": "flowchart LR\n  envFile[\"deploy/.env\"] --> composeYml[\"docker-compose.yml\"]\n  composeYml -->|DOMAIN, ADMIN_DOMAIN, ADMIN_ALLOWED_CIDRS, ACME_EMAIL| caddy\n  caddy --> Caddyfile\n  composeYml -->|POSTGRES_PASSWORD, BLOG_APP_PASSWORD, BLOG_PUBLIC_PASSWORD| postgres\n  postgres --> rolesSh[\"10-roles.sh\"]\n  composeYml -->|ConnectionStrings, Site, Admin, Proxy__TrustedIp| api\n  apiDockerfile[\"PortfolioBlog.Api/Dockerfile\"] -->|Attachments__RootPath, DataProtection__KeysPath, ASPNETCORE_HTTP_PORTS| api\n  api --> StartupValidation\n  api --> HealthCheckCommand\n  api --> AccessServiceCollectionExtensions\n  api --> AuthServiceCollectionExtensions\n  AuthServiceCollectionExtensions --> dpkeys\n  api --> attachments",
+      "details": "ADMIN_ALLOWED_CIDRS는 caddy와 api가 공유한다. BLOG_APP_PASSWORD·BLOG_PUBLIC_PASSWORD는 postgres(롤 생성)와 api(연결 문자열)가 공유한다. Proxy__TrustedIp는 compose에 172.30.0.2 상수로 박혀 있다. dpkeys·attachments 볼륨은 이미지가 --chown=1654:1654로 만든 /data 하위 디렉터리에 마운트된다.",
+      "nodes": [
+        {
+          "node": "deploy/.env",
+          "code": "deploy/.env.example"
+        },
+        {
+          "node": "docker-compose.yml",
+          "code": "deploy/docker-compose.yml"
+        },
+        {
+          "node": "Caddyfile",
+          "code": "deploy/Caddyfile"
+        },
+        {
+          "node": "10-roles.sh",
+          "code": "deploy/postgres-init/10-roles.sh"
+        },
+        {
+          "node": "PortfolioBlog.Api/Dockerfile",
+          "code": "PortfolioBlog.Api/Dockerfile"
+        },
+        {
+          "node": "StartupValidation",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs"
+        },
+        {
+          "node": "HealthCheckCommand",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs"
+        },
+        {
+          "node": "AccessServiceCollectionExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs"
+        },
+        {
+          "node": "AuthServiceCollectionExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "필요한 Docker Engine/Compose 최소 버전이 저장소에 명시돼 있지 않다. healthcheck start_interval 같은 신규 옵션을 지원하는지도 확인할 수 없다.",
+    "입력 진입점처럼 `-f deploy/docker-compose.yml`로 다른 작업 디렉터리에서 실행할 때 compose가 .env를 어디서 찾는지 확인하지 못했다. OPERATIONS.md는 deploy/ 안에서 실행하라고만 한다.",
+    "10-roles.sh가 실패했을 때 postgres 공식 이미지가 컨테이너를 어떻게 종료·재시도하는지, 부분 초기화된 pgdata가 남는지는 이미지 동작이라 코드로 확인할 수 없다.",
+    "postgres 서비스의 cap_add(CHOWN·DAC_OVERRIDE·FOWNER·SETGID·SETUID)가 이미지 엔트리포인트의 어떤 동작에 필요한지 저장소 안에 근거가 없다.",
+    "운영 환경의 Docker 데몬이 원본 IP를 보존하는지(userland-proxy 사용 여부)는 호스트 설정 문제라 확인할 수 없다.",
+    "연결 문자열 파싱이 실패할 때 Npgsql ArgumentException 메시지에 연결 문자열 값(비밀번호 포함 가능)이 들어가는지 저장소 코드로 확인할 수 없다.",
+    "api 이미지의 /app이 --chown 없이 복사되어 root 소유가 되는 것은 Docker COPY 기본 동작에 근거한 추론이다. 실제 이미지의 소유권은 확인하지 못했다."
+  ],
+  "evidence": [
+    {
+      "file": "deploy/docker-compose.yml",
+      "lines": "1-147"
+    },
+    {
+      "file": "deploy/postgres-init/10-roles.sh",
+      "lines": "1-30"
+    },
+    {
+      "file": "PortfolioBlog.Api/Dockerfile",
+      "lines": "1-33"
+    },
+    {
+      "file": "PortfolioBlog.Web/Dockerfile",
+      "lines": "1-21"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "15-127"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "lines": "41-206"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+      "symbol": "CidrList.Parse",
+      "lines": "58"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+      "symbol": "HealthCheckCommand.RunAsync",
+      "lines": "14-63"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "lines": "44-72"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "lines": "78-84"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+      "lines": "126-129"
+    },
+    {
+      "file": "deploy/.env.example",
+      "lines": "1-34"
+    },
+    {
+      "file": "deploy/docker-compose.smoke.yml",
+      "lines": "1-66"
+    },
+    {
+      "file": "deploy/OPERATIONS.md",
+      "lines": "1-160"
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "lines": "102-128"
+    }
+  ],
+  "history": []
+}

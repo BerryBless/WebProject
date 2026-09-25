@@ -1,0 +1,64 @@
+{
+  "title": "프로젝트 개요",
+  "oneLiner": "PortfolioBlog는 단일 작성자용 보안 중심 기술 블로그로, JS 없는 서버 렌더링 공개 사이트(Razor Pages)와 별도 서브도메인·IP 허용 목록·비밀번호 세션 뒤의 관리 React SPA를 ASP.NET Core 10 + PostgreSQL 17 백엔드와 Docker Compose + Caddy로 배포한다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "details",
+      "heading": "상세 내용",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "evidence",
+      "heading": "코드 근거",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "caveats",
+      "heading": "주의사항",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "body": "",
+      "diagrams": [],
+      "unchanged": true
+    }
+  ],
+  "relatedDocs": [
+    "00_EXECUTIVE_SUMMARY.md",
+    "02_ARCHITECTURE.md",
+    "03_DIRECTORY_STRUCTURE.md",
+    "04_SETUP_AND_RUN.md",
+    "06_DEPENDENCIES.md",
+    "08_API.md",
+    "09_FEATURES.md",
+    "13_SECURITY.md",
+    "16_DEPLOYMENT.md"
+  ],
+  "unknowns": [
+    "doc-harness 디렉터리의 실제 구성과 동작(분석 대상 제외)",
+    "README.md에 기술된 공개/관리 분리 의도의 세부는 이 문서에서 직접 코드로 재검증하지 않음",
+    "PostgreSQL 17 버전 명시 위치(compose 이미지 태그 등)는 이 문서 작성 중 직접 확인하지 않음"
+  ]
+}

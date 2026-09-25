@@ -1,0 +1,1325 @@
+{
+  "feature": {
+    "id": "F002",
+    "name": "관리 글 목록 조회·삭제",
+    "slug": "ADMIN_POST_LIST",
+    "summary": "관리 SPA의 첫 화면(/)인 PostsPage가 목록 조회와 삭제를 맡는다. 검색어는 trim 후 300ms 디바운스를 거치고, 쪽 번호와 함께 GET /api/posts?q&skip&take로 보낸다. 응답은 최신순 요약 목록과 전체 건수다. 삭제는 window.confirm으로 확인받은 뒤 목록에서 받은 version을 쿼리에 실어 DELETE /api/posts/{id}?version=로 보낸다. 서버는 xmin 기반 낙관적 동시성을 적용해 204/400/404/409를 돌려준다. 모든 요청은 AdminSurfaceMiddleware(F018)와 세션 인가(F001)를 거친다. 잡지 않은 예외는 전역 예외 처리(F020)가 받는다.",
+    "entryPoints": [
+      "SPA / (routes.tsx → PostsPage)",
+      "GET /api/posts (PostEndpoints.ListAsync, ListPosts)",
+      "DELETE /api/posts/{id:guid}?version= (PostEndpoints.DeleteAsync, DeletePost)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Web/src/api/errors.ts",
+      "PortfolioBlog.Web/src/api/types.ts",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Web/src/components/notices.tsx",
+      "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "PortfolioBlog.Web/src/lib/validation.ts",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "PortfolioBlog.Api/Contracts/TextRules.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "PortfolioBlog.Web/src/test/lists.test.tsx"
+    ],
+    "dependencies": [
+      "F001",
+      "F018",
+      "F020",
+      "F029"
+    ],
+    "importance": "CORE",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F002는 실제로 동작하는 핵심 기능이다. 이번 재검증에서 PostEndpoints.cs, PostsPage.tsx, PostQueries.cs, endpoints.ts, client.ts, queryClient.ts, Program.cs, ApiEndpoints.cs를 다시 읽었다. 이전 분석의 동작 서술과 줄 번호가 현재 코드와 모두 일치했고, 동작에 의미 있는 변경은 없었다(history 추가 없음). 의존은 F001·F018·F020·F029로 유지한다. 모든 /api 요청이 Program.cs 104행의 AdminSurfaceMiddleware(F018)를 거치고, 잡지 않은 예외는 43·100행의 OverloadExceptionHandler·UseExceptionHandler(F020)로 가기 때문이다. 요청 경로는 다음과 같다. PostsPage(TanStack Query)가 posts.list·posts.remove를 부르고, 이 함수들이 request()로 /api/posts를 호출한다. 요청은 AdminSurfaceMiddleware → UseRateLimiter(이 엔드포인트는 무제한 파티션) → /api 그룹 RequireHost·RequireAuthorization(F001) → ApiBodyLimitMiddleware 순으로 통과해 PostEndpoints에 닿는다. ListAsync는 skip·take·q를 검증한 뒤 ILIKE 검색(LikePattern 이스케이프)과 CountAsync를 실행한다. 이어 PostQueries.ListAsync가 본문을 뺀 요약을 CreatedAt 내림차순·Id 오름차순으로 만들고, 핸들러는 PagedPostsDto를 반환한다. DeleteAsync는 version 쿼리를 필수로 요구하고, 낙관적 동시성 검사를 두 겹으로 한다. 먼저 조회한 행과 비교해 404/409를 내고, 이어 xmin OriginalValue를 고정한 DELETE에서 DbUpdateConcurrencyException이 나면 409로 바꾼다. 삭제되면 PostTags는 DB Cascade로 함께 지워지고 Tags는 남는다. 감사 로그는 삭제 성공 때만 남는다. 관리용 AppDbContext 연결에는 코드상 statement_timeout 옵션이 없다. 검증에서 지적된 F006·F008 행의 의존 표 불일치는 이 기능(F002)의 범위 밖이라 여기서 고칠 수 없어 unknowns에 기록했다.",
+  "entryPoints": [
+    {
+      "text": "SPA 경로 '/'는 RequireAuth → Layout 아래에서 PostsPage를 렌더한다(로그인 필요).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "23-28",
+          "symbol": "routes"
+        }
+      ]
+    },
+    {
+      "text": "GET /api/posts는 /api 그룹 아래 /posts 그룹에 ListAsync로 등록된다(이름 ListPosts). /api 그룹에는 RequireHost(adminHost)와 RequireAuthorization(PolicyName)이 걸려 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "34-47",
+          "symbol": "ApiEndpoints.MapApiEndpoints"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "39-47",
+          "symbol": "PostEndpoints.MapPostEndpoints"
+        }
+      ]
+    },
+    {
+      "text": "DELETE /api/posts/{id:guid}는 DeleteAsync로 등록된다(이름 DeletePost). version은 쿼리 매개변수(uint?)다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "46",
+          "symbol": "PostEndpoints.MapPostEndpoints"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "263",
+          "symbol": "PostEndpoints.DeleteAsync"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "routes",
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "description": "'/' 경로가 RequireAuth·Layout 아래에서 PostsPage를 렌더한다."
+    },
+    {
+      "step": 2,
+      "component": "PostsPage",
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "PostsPage",
+      "description": "search 상태를 trim한 뒤 useDebounced(300ms)로 q를 만든다. useQuery(queryKey ['posts','list',q,page], placeholderData keepPreviousData)로 posts.list(q, page*50, 50, signal)를 호출한다."
+    },
+    {
+      "step": 3,
+      "component": "posts (endpoints.ts)",
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "posts.list",
+      "description": "request<PagedPosts>('GET','/api/posts',{query:{q,skip,take},signal})를 호출한다."
+    },
+    {
+      "step": 4,
+      "component": "request (client.ts)",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request / buildUrl",
+      "description": "buildUrl이 경로를 검사한다(/api/로 시작해야 하고, //·\\·..·%2e·제어 문자는 거부). null·undefined·'' 쿼리 값을 빼고 URL을 조립한다. X-Requested-With: XMLHttpRequest 헤더를 붙이고 credentials same-origin, cache no-store, redirect error로 fetch한다."
+    },
+    {
+      "step": 5,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "description": "/api 요청에 Cache-Control no-store를 붙인다. 이어 호스트(404)·IP 정책(403)·CSRF 헤더(403)를 검사하고, GET/HEAD가 아닌 메서드이면 Origin(403)도 검사한다. 파이프라인에서 UseRateLimiter·UseAuthentication·UseAuthorization보다 앞에 있다(Program.cs 104-107)."
+    },
+    {
+      "step": 6,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "BuildChain / Matches",
+      "description": "전역 제한 체인이 실행된다. ListPosts·DeletePost에는 RateLimitMetadata가 없으므로 모든 제한기가 GetNoLimiter(\"none\")로 통과시킨다."
+    },
+    {
+      "step": 7,
+      "component": "ApiEndpoints",
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "MapApiEndpoints",
+      "description": "라우팅 단계에서 RequireHost(adminHost)가 적용되고, UseAuthorization에서 세션 정책(RequireAuthorization)이 적용된다. 세션이 없으면 401이다(F001)."
+    },
+    {
+      "step": 8,
+      "component": "ApiBodyLimitMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "description": "인가 뒤에 실행된다. /api 요청의 Content-Length가 JSON 상한을 넘으면 413을 준다. 넘지 않으면 본문 스트림을 LengthLimitedStream으로 감싸 통과시킨다. GET·DELETE는 보통 본문이 없어 그대로 통과한다."
+    },
+    {
+      "step": 9,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync",
+      "description": "skip<0, take∉[1,200], q의 NUL 포함, trim한 q 길이>100을 검사해 ValidationErrors에 모은다. 오류가 하나라도 있으면 400 ValidationProblem을 돌려준다."
+    },
+    {
+      "step": 10,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync",
+      "description": "term이 비어 있지 않으면 LikePattern.Contains로 이스케이프한 패턴을 만든다. 이 패턴으로 Title·Summary·ContentMarkdown에 EF.Functions.ILike(…, LikePattern.Escape) OR 필터를 건다."
+    },
+    {
+      "step": 11,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync",
+      "description": "query.CountAsync(ct)로 필터를 적용한 전체 건수를 먼저 구한다."
+    },
+    {
+      "step": 12,
+      "component": "PostQueries",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.ListAsync",
+      "description": "AsNoTracking, OrderByDescending(CreatedAt).ThenBy(Id), Skip/Take를 적용한다. 본문을 뺀 익명 프로젝션(태그는 NormalizedName 순으로 정렬한 Tag.Name)을 PostSummaryDto[]로 바꾼다."
+    },
+    {
+      "step": 13,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync",
+      "description": "TypedResults.Ok(new PagedPostsDto(items, total))로 200을 반환한다."
+    },
+    {
+      "step": 14,
+      "component": "PostsPage",
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "PostsPage",
+      "description": "표에 제목(편집 링크 /posts/{id})·/posts/{slug}·태그·수정 시각을 그린다. total로 lastPage를 계산하고, list.data가 있는데 page>lastPage이면 렌더 중에 setPage(lastPage)로 보정한다."
+    },
+    {
+      "step": 15,
+      "component": "PostsPage",
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "confirmRemove",
+      "description": "삭제 버튼을 누르면 window.confirm으로 확인한 뒤 remove.mutate(post)를 실행한다. 취소하면 요청을 보내지 않는다."
+    },
+    {
+      "step": 16,
+      "component": "posts (endpoints.ts)",
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "posts.remove",
+      "description": "request<void>('DELETE', `/api/posts/${encodeURIComponent(id)}`, {query:{version}})를 호출한다. 이 요청도 5~8단계를 거치며, GET이 아니므로 AdminSurfaceMiddleware의 Origin 검사도 받는다."
+    },
+    {
+      "step": 17,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync",
+      "description": "version이 null이면 400(키 version)을 돌려준다. db.Posts.SingleOrDefaultAsync로 글을 읽어 없으면 404, post.Version != version이면 409(StaleVersion)를 돌려준다."
+    },
+    {
+      "step": 18,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync",
+      "description": "Version의 OriginalValue를 요청 version으로 고정한 뒤 db.Posts.Remove와 SaveChangesAsync를 실행한다(DELETE … WHERE xmin = version). DbUpdateConcurrencyException이 나면 409를 돌려준다."
+    },
+    {
+      "step": 19,
+      "component": "AppDbContext",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating",
+      "description": "PostTag→Post FK의 OnDelete(Cascade) 때문에 링크 행이 DB에서 함께 지워진다. Tags 행은 남는다."
+    },
+    {
+      "step": 20,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync",
+      "description": "PortfolioBlog.Api.Audit 로거에 '글 삭제. PostId Slug'를 남기고 204를 반환한다."
+    },
+    {
+      "step": 21,
+      "component": "PostsPage",
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "remove.onSettled",
+      "description": "성공·실패와 관계없이 invalidateQueries(['posts'])로 목록을 다시 조회한다. 실패하면 ErrorNotice(remove.error)로 표시한다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "PostsPage",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "posts.list / posts.remove",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request / buildUrl",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "ApiError / toApiError / describeError",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "createQueryClient / noteAuthFailure",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "symbol": "ErrorNotice / Loading",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "symbol": "useDebounced / formatDateTime",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/validation.ts",
+      "symbol": "LIMITS.queryMax",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/types.ts",
+      "symbol": "PostSummary / PagedPosts",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인(UseExceptionHandler·UseStatusCodePages·AdminSurfaceMiddleware·UseRateLimiter·UseAuthorization·ApiBodyLimitMiddleware)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.StaleVersion",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.ListAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+      "symbol": "LikePattern.Contains",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.Problem",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TextRules.cs",
+      "symbol": "TextRules.ContainsNul",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "symbol": "PostSummaryDto / PagedPostsDto",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "symbol": "AddBlogData",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "BuildChain / Matches",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "symbol": "Delete_RequiresCurrentVersion_ThenReturns204_AndKeepsTags / List_PagesNewestFirst_* / List_InvalidPaging_Returns400 / List_QueryTooLong_Returns400 / List_NulInQuery_Returns400_NotServerError",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+      "symbol": "describe('글 목록')",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "목록 입력: 검색창 값은 trim과 300ms 디바운스를 거쳐 q가 되고, page는 skip=page*50·take=50으로 바뀐다. buildUrl은 값이 ''·null·undefined인 쿼리를 빼므로 빈 검색어는 q 없이 전송된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "10-22"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "31-37",
+          "symbol": "buildUrl"
+        }
+      ]
+    },
+    {
+      "text": "서버 목록 변환: q는 Trim을 거친 뒤 LikePattern.Contains로 이스케이프되어(\\ → \\\\, % → \\%, _ → \\_, 앞뒤에 %) ILIKE 매개변수가 된다. Post 엔티티는 본문을 뺀 익명 프로젝션을 거쳐 PostSummaryDto 배열이 된다(필드: Id, Slug, Title, Summary, Tags[], SeriesId, SeriesOrder, CreatedAt, UpdatedAt, Version). 이 배열은 total과 함께 PagedPostsDto로 직렬화된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "69-85",
+          "symbol": "PostEndpoints.ListAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+          "lines": "30-33",
+          "symbol": "LikePattern.Contains"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "lines": "59-71",
+          "symbol": "PostQueries.ListAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Contracts/PostDtos.cs"
+        }
+      ]
+    },
+    {
+      "text": "Version은 PostgreSQL xmin 시스템 컬럼이다(uint, IsRowVersion). 클라이언트는 목록 응답의 version을 PostSummary.version(number)으로 보관한다. 삭제할 때 이 값을 ?version= 쿼리로 돌려보내고, 서버는 이를 DELETE의 WHERE xmin 비교값으로 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "23-26"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "lines": "22",
+          "symbol": "posts.remove"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "271-277",
+          "symbol": "PostEndpoints.DeleteAsync"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+          "lines": "11-20"
+        }
+      ]
+    },
+    {
+      "text": "오류 응답(ProblemDetails/ValidationProblem)은 toApiError가 ApiError(status, title, detail, fieldErrors, retryAfterSeconds)로 바꾼다. describeError가 이를 상태별 한국어 문구로 바꾸고, ErrorNotice가 텍스트 노드로 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "54-84"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/notices.tsx"
+        }
+      ]
+    },
+    {
+      "text": "핸들러가 결과 본문 없이 상태 코드만 설정하고 끝낸 /api 오류에도 ProblemDetails 본문이 붙는다. 경로는 UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync) → ErrorResponses.WriteAsync → IProblemDetailsService.TryWriteAsync다(/api는 MachinePrefixes에 속한다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "17, 30, 45-50",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "Post 행 존재(xmin = v)",
+      "to": "Post 행 삭제 + PostTags 링크 Cascade 삭제(Tags 유지)",
+      "trigger": "DELETE /api/posts/{id}?version=v 요청의 version이 현재 xmin과 일치",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "263-285",
+          "symbol": "PostEndpoints.DeleteAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "134-140"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "235-255",
+          "symbol": "Delete_RequiresCurrentVersion_ThenReturns204_AndKeepsTags"
+        }
+      ]
+    },
+    {
+      "from": "PostsPage page = N",
+      "to": "page = lastPage",
+      "trigger": "list.data가 있고 page > lastPage(마지막 쪽 삭제 등으로 total 감소)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "33-38"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+          "lines": "29-54"
+        }
+      ]
+    },
+    {
+      "from": "PostsPage page = N",
+      "to": "page = 0",
+      "trigger": "검색 입력 onChange",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "44-45"
+        }
+      ]
+    },
+    {
+      "from": "PostsPage page = N",
+      "to": "page = N±1",
+      "trigger": "'이전'(page>0)·'다음'(page<lastPage) 버튼",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "66-70"
+        }
+      ]
+    },
+    {
+      "from": "ME_KEY authenticated=true",
+      "to": "ME_KEY authenticated=false(RequireAuth가 로그인 화면으로 전환)",
+      "trigger": "목록 조회나 삭제에서 ApiError 401 수신(QueryCache/MutationCache onError)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-18",
+          "symbol": "noteAuthFailure"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Posts",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ListAsync (query.CountAsync)"
+    },
+    {
+      "entity": "Posts, PostTags, Tags",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.ListAsync"
+    },
+    {
+      "entity": "Posts",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync (SingleOrDefaultAsync)"
+    },
+    {
+      "entity": "Posts",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.DeleteAsync (SaveChangesAsync, WHERE xmin)"
+    },
+    {
+      "entity": "PostTags",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating (PostTag→Post OnDelete Cascade)"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL(Npgsql EF Core)의 EF.Functions.ILike, xmin 행 버전, FK Cascade에 의존한다. 관리 컨텍스트 AppDbContext는 ConnectionStrings:Default로 UseNpgsql만 설정하고 statement_timeout 옵션을 붙이지 않는다. 시간 제한 옵션은 공개 PublicDbContext만 BuildConnectionString(StatementTimeoutMs)으로 붙인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "79-81"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96, 138"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "32-34",
+          "symbol": "AddBlogData"
+        }
+      ]
+    },
+    {
+      "text": "클라이언트는 @tanstack/react-query(useQuery/useMutation/keepPreviousData)와 react-router(Link)를 쓰고, 브라우저 fetch와 window.confirm에 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "1-3, 30"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "60-62"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "PostEndpoints.ListAsync",
+      "condition": "skip<0, take<1 또는 >200, q에 NUL 포함, trim한 q 길이>100",
+      "handling": "필드별로 ValidationErrors에 모아 400 ValidationProblem(키 skip/take/q)을 반환한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "66-73"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "291-319"
+        }
+      ]
+    },
+    {
+      "where": "GET /api/posts · DELETE /api/posts/{id} 매개변수 바인딩",
+      "condition": "take=abc처럼 int/uint로 해석할 수 없는 쿼리 값(version=abc 포함)",
+      "handling": "RouteHandlerOptions.ThrowOnBadRequest=false이므로 프레임워크가 예외 대신 400으로 응답한다. take=abc는 테스트로 확인했다. version에 숫자가 아닌 값이 오는 경우도 같은 규칙을 따를 것으로 추론한다(전용 테스트 없음).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "48-49"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "286-296",
+          "symbol": "List_InvalidPaging_Returns400"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.ListAsync (CountAsync / PostQueries.ListAsync)",
+      "condition": "DB 연결 실패·타임아웃 등 DB 예외",
+      "handling": "핸들러는 처리하지 않고(예외 전파) 전역 UseExceptionHandler로 넘긴다. 예외 체인에 PostgresException 57014·55P03이 있으면 OverloadExceptionHandler가 503과 Retry-After를 쓴다. 그 밖의 예외는 AddProblemDetails 기반의 기본 500 응답이 된다(프레임워크 기본 동작에서 추론).",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "83-85"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 47, 100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42, 63-70",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.DeleteAsync",
+      "condition": "version 쿼리가 없음",
+      "handling": "400 ValidationProblem(키 version)을 반환한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "265-268"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "235-255"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.DeleteAsync",
+      "condition": "id에 해당하는 글이 없음(이미 삭제됨)",
+      "handling": "404 NotFound를 반환한다(본문은 UseStatusCodePages가 ProblemDetails로 채운다). 클라이언트는 '대상을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.'를 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "269-270"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "76"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "235-255"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.DeleteAsync (사전 비교)",
+      "condition": "post.Version != version(목록 조회 뒤 다른 곳에서 수정됨)",
+      "handling": "StaleVersion()이 DbConflict.Problem으로 409 ProblemDetails를 반환한다(title '충돌', detail '다른 곳에서 이 글이 먼저 수정되었습니다…').",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "271, 366-367"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "lines": "50-51"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "235-255"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.DeleteAsync (SaveChangesAsync)",
+      "condition": "사전 비교와 저장 사이에 다른 요청이 글을 수정·삭제해 WHERE xmin 조건에 맞는 행이 0개 → DbUpdateConcurrencyException",
+      "handling": "catch해서 StaleVersion() 409를 반환한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "273-282"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.DeleteAsync (SaveChangesAsync)",
+      "condition": "동시성 외의 DbUpdateException 또는 DB 연결 예외",
+      "handling": "처리 없음(예외 전파). 전역 예외 처리기가 받아, 체인에 57014·55P03이 있으면 503+Retry-After, 없으면 기본 500을 낸다. 명시적 트랜잭션이 없으므로 SaveChangesAsync 내부 트랜잭션이 롤백되는 것으로 추론한다(EF 기본 동작).",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "275-282"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "56-70",
+          "symbol": "OverloadExceptionHandler.IsOverload"
+        }
+      ]
+    },
+    {
+      "where": "AdminSurfaceMiddleware",
+      "condition": "관리 호스트가 아님(404), 허용되지 않은 IP(403), X-Requested-With 헤더 누락(403), DELETE 요청의 Origin이 관리 origin과 다름(403)",
+      "handling": "본문을 읽지 않고 즉시 Reject(Results.Problem)로 응답한다. client.ts는 CSRF 헤더를 항상 붙인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "75-93, 112-113",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "16-18, 47"
+        }
+      ]
+    },
+    {
+      "where": "/api 그룹 RequireAuthorization",
+      "condition": "세션이 없거나 만료됨 → 401",
+      "handling": "noteAuthFailure가 ME_KEY를 authenticated=false로 바꾸고, RequireAuth가 로그인 화면으로 전환한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-18"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware",
+      "condition": "/api 요청의 Content-Length가 JSON 상한을 넘음(GET·DELETE에 비정상적으로 큰 본문을 붙인 경우)",
+      "handling": "413을 설정하고 ErrorResponses.WriteAsync로 ProblemDetails를 쓴다. SPA의 목록·삭제 호출은 본문을 보내지 않으므로 정상 경로에서는 발생하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "36-56",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "108"
+        }
+      ]
+    },
+    {
+      "where": "request (client.ts)",
+      "condition": "fetch 자체 실패(네트워크)",
+      "handling": "ApiError(0,'네트워크 오류')로 바꾼다. AbortError(쿼리 취소)는 그대로 다시 던진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "59-67"
+        }
+      ]
+    },
+    {
+      "where": "request (client.ts)",
+      "condition": "2xx인데 본문이 JSON이 아님",
+      "handling": "ApiError(status,'응답을 해석할 수 없습니다')를 던진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "69-75"
+        }
+      ]
+    },
+    {
+      "where": "PostsPage list 조회 실패",
+      "condition": "list.error 존재",
+      "handling": "ErrorNotice에 메시지와 '다시 시도'(list.refetch) 버튼을 보여 준다. 자동 재시도는 없다(retry:false). 503·429이면 Retry-After 초를 문구에 덧붙인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "48"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "20-23"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "70, 80-81"
+        }
+      ]
+    },
+    {
+      "where": "PostsPage remove 실패",
+      "condition": "remove.error 존재(400/404/409 등)",
+      "handling": "ErrorNotice로 표시하고, onSettled에서 ['posts']를 무효화해 목록(새 version)을 다시 받는다. 재시도 버튼은 없다(mutations retry:false).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "23-26, 49"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "23"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "두 탭이 같은 version으로 동시에 삭제하면 둘 다 사전 비교를 통과할 수 있다. 이때 늦은 쪽의 DELETE … WHERE xmin은 0행에 맞아 DbUpdateConcurrencyException → 409('먼저 수정되었습니다')가 된다. 실제로는 이미 삭제된 상황인데 404가 아니라 409 문구가 나오는 것이다. 테스트는 순차 재삭제(404)만 다룬다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "269-282"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "235-255"
+        }
+      ]
+    },
+    {
+      "text": "CountAsync와 PostQueries.ListAsync는 한 트랜잭션·스냅샷으로 묶이지 않은 별도 쿼리다. 두 쿼리 사이에 글이 생성·삭제되면 total과 items가 어긋날 수 있다. 쪽 범위를 넘는 경우 일부는 클라이언트의 page>lastPage 보정이 흡수한다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "83-84"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "33-38"
+        }
+      ]
+    },
+    {
+      "text": "마지막 쪽의 마지막 글을 지워 total이 줄면 서버는 그 skip에 빈 목록을 준다. PostsPage는 list.data가 있을 때만 page>lastPage를 검사해 렌더 중에 setPage(lastPage)로 되돌린다. list.data 조건은 첫 로딩 때 total=0으로 잘못 보정하는 것을 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "35-38"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+          "lines": "29-54"
+        }
+      ]
+    },
+    {
+      "text": "LikePattern이 검색어의 %, _, \\를 이스케이프하므로 이 문자들은 리터럴로만 매칭된다(와일드카드로 전체가 매칭되거나 의도하지 않게 매칭되는 일을 막는다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+          "lines": "30-33"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "259-281",
+          "symbol": "List_PagesNewestFirst_SearchesTitleSummaryContent_AndTreatsWildcardsLiterally"
+        }
+      ]
+    },
+    {
+      "text": "검색 입력의 onChange는 즉시 page를 0으로 되돌리지만 q는 300ms 뒤에야 바뀐다. 그 사이 ['posts','list',이전 q,0] 조회가 한 번 더 나갈 수 있다. keepPreviousData라서 화면에는 이전 데이터가 남아 있다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "15-22, 44-45"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts"
+        }
+      ]
+    },
+    {
+      "text": "remove.isPending 동안에는 모든 행의 삭제 버튼이 비활성화되므로 한 번에 한 건만 삭제할 수 있다. remove.error는 다음 mutation 전까지 계속 표시된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "49, 59"
+        }
+      ]
+    },
+    {
+      "text": "클라이언트 입력창의 maxLength=LIMITS.queryMax와 서버 MaxQueryLength(100)는 같은 상한을 쓴다. 서버는 trim한 뒤 길이를 잰다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/validation.ts"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "44"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "27, 69-72"
+        }
+      ]
+    },
+    {
+      "text": "skip에는 상한이 없다. 매우 큰 skip을 보내면 빈 items와 정상 total로 200이 돌아온다(int 범위 안).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "67, 84"
+        }
+      ]
+    },
+    {
+      "text": "삭제는 RenderedPostCache를 건드리지 않는다. 하지만 공개 PostModel은 PublicQueries.GetPostAsync로 DB를 먼저 조회하고, 글이 없으면 NotFound를 반환한다. 따라서 삭제된 글은 공개 페이지에서 즉시 404가 되고, 남은 캐시 항목은 쓰이지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "263-285"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "lines": "48-49",
+          "symbol": "PostModel"
+        }
+      ]
+    },
+    {
+      "text": "삭제 확인 수단은 window.confirm뿐이다. 되돌리기(휴지통·소프트 삭제)가 없고 Posts 행을 물리 삭제한다. 확인 문구도 되돌릴 수 없다고 알린다. confirm을 취소하면 DELETE를 보내지 않는다(테스트로 확인).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "28-31"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "274"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+          "lines": "11-20"
+        }
+      ]
+    },
+    {
+      "text": "서버가 준 제목 등의 문자열은 JSX 텍스트로만 들어가고 HTML로 해석되지 않는다(XSS 문자열을 제목으로 쓴 테스트가 있다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "56"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+          "lines": "22-27"
+        }
+      ]
+    },
+    {
+      "text": "ContentMarkdown ILIKE 검색에 쓸 trigram/GIN 인덱스가 없다. Posts의 인덱스는 Slug, (CreatedAt,Id), (SeriesId,SeriesOrder,CreatedAt,Id)뿐이다. 관리 연결에는 코드상 statement_timeout이 없고 /api/posts에는 속도 제한도 없다. 결국 본문 검색 비용을 코드로 제한하는 장치가 보이지 않는다(관찰).",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96-99"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "32"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "128-129"
+        }
+      ]
+    },
+    {
+      "text": "ListPosts·DeletePost 엔드포인트에는 RateLimitMetadata가 없다. 그래서 전역 제한 체인(BuildChain)의 파티션 선택기가 GetNoLimiter(\"none\")를 고르고, 이 기능은 429를 받지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "128-129, 150, 170"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "39-47"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "삭제에 성공했을 때만 'PortfolioBlog.Api.Audit' 카테고리에 Information 로그 '글 삭제. PostId={PostId} Slug={Slug}'를 남긴다(본문은 기록하지 않는다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "283"
+        }
+      ]
+    },
+    {
+      "text": "목록 조회와 삭제의 400/404/409 경로에는 핸들러 수준 로그가 없다. 잡지 않은 예외의 로깅은 전역 UseExceptionHandler(프레임워크)가 맡는다. OverloadExceptionHandler는 로그를 남기지 않고 503 응답만 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "64-86, 263-282"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F002_SEQUENCE",
+      "type": "sequence",
+      "title": "관리 글 목록 조회와 삭제 호출 순서",
+      "summary": "PostsPage는 request()를 거쳐 GET·DELETE /api/posts를 호출한다. 두 요청 모두 AdminSurfaceMiddleware를 지나 PostEndpoints에 닿고, PostEndpoints는 AppDbContext·PostQueries로 DB에 접근한다.",
+      "mermaid": "sequenceDiagram\n  participant PostsPage\n  participant request\n  participant AdminSurfaceMiddleware\n  participant PostEndpoints\n  participant PostQueries\n  participant AppDbContext\n  PostsPage->>request: posts.list q skip take\n  request->>AdminSurfaceMiddleware: GET /api/posts + X-Requested-With\n  AdminSurfaceMiddleware->>PostEndpoints: ListAsync 호스트 IP CSRF 세션 통과\n  PostEndpoints->>PostEndpoints: skip take q 검증 후 LikePattern.Contains\n  PostEndpoints->>AppDbContext: CountAsync ILIKE 필터\n  PostEndpoints->>PostQueries: ListAsync query skip take\n  PostQueries->>AppDbContext: SELECT 요약 프로젝션 ORDER BY CreatedAt DESC\n  PostEndpoints-->>request: 200 PagedPostsDto\n  request-->>PostsPage: PagedPosts\n  PostsPage->>PostsPage: window.confirm\n  PostsPage->>request: posts.remove id version\n  request->>AdminSurfaceMiddleware: DELETE /api/posts/id?version= + Origin\n  AdminSurfaceMiddleware->>PostEndpoints: DeleteAsync\n  PostEndpoints->>AppDbContext: SingleOrDefaultAsync id\n  PostEndpoints->>AppDbContext: Remove + SaveChangesAsync WHERE xmin\n  PostEndpoints-->>request: 204 NoContent\n  request-->>PostsPage: onSettled invalidateQueries posts",
+      "details": "목록 조회: PostsPage가 디바운스된 q와 page로 posts.list를 부르면 request()가 CSRF 헤더를 붙여 fetch한다. 서버에서는 AdminSurfaceMiddleware → UseRateLimiter(무제한 파티션) → RequireHost·RequireAuthorization → ApiBodyLimitMiddleware를 거쳐 ListAsync가 실행된다. ListAsync는 검증 후 CountAsync와 PostQueries.ListAsync를 순차 await해 PagedPostsDto를 돌려준다. 삭제: window.confirm으로 확인한 뒤 posts.remove가 version 쿼리와 함께 DELETE를 보낸다. DeleteAsync는 행을 읽어 version을 비교하고, OriginalValue를 고정한 뒤 SaveChangesAsync를 실행한다. 성공하면 204를 돌려주고, 클라이언트는 onSettled에서 목록을 무효화해 다시 조회한다. 오류 분기는 F002_FLOW_DELETE에 있다.",
+      "nodes": [
+        {
+          "node": "PostsPage",
+          "code": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "symbol": "PostsPage"
+        },
+        {
+          "node": "request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "node": "PostEndpoints",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "ListAsync / DeleteAsync"
+        },
+        {
+          "node": "PostQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.ListAsync"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F002_FLOW_DELETE",
+      "type": "flowchart",
+      "title": "DeleteAsync 분기(400/404/409/204/503/500)",
+      "summary": "DeleteAsync는 version 누락이면 400, 글이 없으면 404, version이 다르거나 동시성 예외가 나면 409, 성공하면 204를 반환한다. 그 밖의 DB 예외는 전역 예외 처리기로 전파된다.",
+      "mermaid": "flowchart TD\n  DeleteAsync[DeleteAsync 요청] --> VersionCheck{version 쿼리 있음?}\n  VersionCheck -- 아니오 --> BadRequest[400 ValidationProblem version]\n  VersionCheck -- 예 --> LoadPost[db.Posts.SingleOrDefaultAsync]\n  LoadPost --> Exists{post 존재?}\n  Exists -- 아니오 --> NotFound[404 NotFound]\n  Exists -- 예 --> Compare{post.Version == version?}\n  Compare -- 아니오 --> StaleVersion[409 StaleVersion]\n  Compare -- 예 --> SaveChangesAsync[OriginalValue 고정 후 Remove + SaveChangesAsync]\n  SaveChangesAsync -- DbUpdateConcurrencyException --> StaleVersion\n  SaveChangesAsync -- 기타 예외 --> OverloadExceptionHandler{SqlState 57014 또는 55P03?}\n  OverloadExceptionHandler -- 예 --> Overload503[503 + Retry-After]\n  OverloadExceptionHandler -- 아니오 --> Default500[기본 500 ProblemDetails]\n  SaveChangesAsync -- 성공 --> AuditLog[Audit 로그 글 삭제]\n  AuditLog --> NoContent[204 NoContent]",
+      "details": "사전 비교(post.Version != version)와 SaveChangesAsync의 WHERE xmin 비교가 두 겹의 낙관적 동시성 검사다. 사전 비교를 통과한 뒤 다른 요청이 행을 바꾸거나 지우면 DbUpdateConcurrencyException이 나고, 이것도 같은 StaleVersion 409로 바뀐다. 동시성 외의 DB 예외는 핸들러가 잡지 않고 Program.cs의 UseExceptionHandler로 전파된다. 거기서 OverloadExceptionHandler가 SqlState 57014·55P03이면 503+Retry-After를 쓰고, 나머지는 프레임워크 기본 500이 된다(500 부분은 추론). 404 본문은 UseStatusCodePages(ErrorResponses)가 ProblemDetails로 채운다.",
+      "nodes": [
+        {
+          "node": "DeleteAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.DeleteAsync"
+        },
+        {
+          "node": "StaleVersion",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.StaleVersion"
+        },
+        {
+          "node": "SaveChangesAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.DeleteAsync"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        },
+        {
+          "node": "NotFound",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F002_DATAFLOW",
+      "type": "dataflow",
+      "title": "목록 조회 데이터 변환",
+      "summary": "검색어와 쪽 번호는 쿼리 문자열이 되고, 서버에서 ILIKE 패턴과 Skip/Take로 바뀐다. Posts·PostTags 행은 본문을 뺀 PostSummaryDto 배열과 total을 담은 PagedPostsDto로 클라이언트에 돌아간다.",
+      "mermaid": "flowchart LR\n  PostsPage -->|q trim + 300ms, skip = page x 50, take 50| buildUrl\n  buildUrl -->|GET /api/posts?q&skip&take| ListAsync\n  ListAsync -->|term| LikePattern\n  LikePattern -->|이스케이프 패턴| ListAsync\n  ListAsync -->|ILIKE Title Summary ContentMarkdown| Posts\n  ListAsync -->|query, skip, take| PostQueries\n  PostQueries -->|SELECT 프로젝션| Posts\n  PostQueries -->|태그 NormalizedName 순| PostTags\n  PostQueries -->|PostSummaryDto 배열| PagedPostsDto\n  ListAsync -->|total| PagedPostsDto\n  PagedPostsDto -->|JSON| PostsPage",
+      "details": "buildUrl은 빈 값의 쿼리를 빼므로 빈 검색어는 q 없이 전송된다. ListAsync는 q를 Trim한 뒤 LikePattern.Contains로 %·_·\\를 이스케이프한다. 이 패턴으로 Title·Summary·ContentMarkdown에 ILIKE OR 필터를 걸고, CountAsync로 total을 구한다. PostQueries.ListAsync는 AsNoTracking 상태로 CreatedAt 내림차순·Id 오름차순 정렬과 Skip/Take를 적용한다. 본문(ContentMarkdown)은 빼고, 태그는 PostTags→Tags를 NormalizedName 순으로 정렬한 이름 배열로 프로젝션한다. 응답의 Version(xmin)은 삭제 요청의 version 쿼리로 다시 쓰인다.",
+      "nodes": [
+        {
+          "node": "PostsPage",
+          "code": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "symbol": "PostsPage"
+        },
+        {
+          "node": "buildUrl",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "buildUrl"
+        },
+        {
+          "node": "ListAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.ListAsync"
+        },
+        {
+          "node": "LikePattern",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+          "symbol": "LikePattern.Contains"
+        },
+        {
+          "node": "PostQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.ListAsync"
+        },
+        {
+          "node": "Posts",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.Posts"
+        },
+        {
+          "node": "PostTags",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.OnModelCreating"
+        },
+        {
+          "node": "PagedPostsDto",
+          "code": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "PagedPostsDto"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "관리 연결(ConnectionStrings:Default)에 statement_timeout 같은 서버·연결 옵션이 들어 있는지는 확인하지 않았다(설정 값을 보지 않는 규칙). 코드상 AppDbContext 등록(DataServiceCollectionExtensions.cs 32행)에는 timeout 옵션이 없다. 그래서 OverloadExceptionHandler의 57014 → 503 경로가 관리 목록 조회에서 실제로 발생할 수 있는지는 알 수 없다.",
+    "처리되지 않은 비과부하 DB 예외의 최종 응답이 500 ProblemDetails라는 것은 AddProblemDetails + UseExceptionHandler의 프레임워크 기본 동작에서 추론했다. 이 기능을 대상으로 한 테스트는 찾지 못했다.",
+    "DELETE에 version=abc처럼 uint로 해석할 수 없는 값을 보내면 400이 된다는 것은 ThrowOnBadRequest=false 설정에서 추론했다. 이 경우를 직접 검증하는 테스트는 찾지 못했다.",
+    "ContentMarkdown ILIKE 검색의 실제 실행 계획(순차 스캔 여부)과 글 수에 따른 응답 시간은 확인하지 못했다.",
+    "검증 지적 중 F006·F008 행의 의존 표 불일치(F006 → F001·F003·F005·F007·F008·F011·F018·F020·F029, F008 → F001·F018·F020·F029)는 이 세션(F002 단일 기능)의 출력 스키마로 고칠 수 없다. 그 행들은 해당 기능의 분석이나 의존 표를 생성하는 단계에서 반영해야 한다. 다만 지적의 근거 자체는 코드와 맞다. 모든 /api 요청은 Program.cs 104행의 UseMiddleware<AdminSurfaceMiddleware>(F018)를 거치고, 잡지 않은 예외는 43행 AddExceptionHandler<OverloadExceptionHandler>와 100행 UseExceptionHandler(F020)가 처리한다. 이 코드로 /api를 쓰는 기능이 F018·F020에 의존한다는 점은 확인했다.",
+    "CONTRADICTION 지적(의존 표의 F002 행이 F001·F029뿐)에 대해: 이 문서의 F002 의존은 코드로 다시 확인해 F001·F018·F020·F029로 유지했다. 기능 간 의존 표의 F002 행을 이 목록에 맞춰야 한다. /api/posts에는 RateLimitMetadata가 없어(RateLimitingExtensions.cs 129행 Matches) F019는 넣지 않았다. 삭제가 RenderedPostCache를 건드리지 않으므로 F011도 넣지 않았다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "lines": "1-73",
+      "symbol": "PostsPage"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "lines": "39-86",
+      "symbol": "PostEndpoints.ListAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "lines": "263-285",
+      "symbol": "PostEndpoints.DeleteAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "lines": "59-71",
+      "symbol": "PostQueries.ListAsync"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "lines": "16-23",
+      "symbol": "posts"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "lines": "20-76",
+      "symbol": "request"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "lines": "34-47",
+      "symbol": "ApiEndpoints.MapApiEndpoints"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43-49, 98-108"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "lines": "67-113",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "lines": "36-56",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "lines": "35-70",
+      "symbol": "OverloadExceptionHandler"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "lines": "17-50",
+      "symbol": "ErrorResponses"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "lines": "119-170"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "lines": "89-140",
+      "symbol": "AppDbContext.OnModelCreating"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "lines": "30-38",
+      "symbol": "AddBlogData"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "lines": "11-27",
+      "symbol": "createQueryClient"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "lines": "235-319"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/lists.test.tsx",
+      "lines": "8-55"
+    }
+  ],
+  "history": []
+}

@@ -1,0 +1,772 @@
+{
+  "build": [
+    {
+      "text": "백엔드는 .NET 10 SDK로 'dotnet restore/build/test'와 'dotnet publish -c Release'로 빌드한다(CI·Dockerfile 공통).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "22-29"
+        },
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "4-13"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드는 'tsc -b && vite build'로 빌드하고(package.json build 스크립트), oxlint 린트·tsc 타입체크·vitest 단위테스트를 CI가 순서대로 돌린다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/package.json",
+          "lines": "7-16"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "31-49"
+        }
+      ]
+    },
+    {
+      "text": "패키지 버전은 Directory.Packages.props로 중앙 관리되며 전이 의존성까지 고정한다(CentralPackageTransitivePinningEnabled).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "Directory.Packages.props",
+          "lines": "1-23"
+        }
+      ]
+    },
+    {
+      "text": "CI에는 test(.NET)·web(Node)·web-e2e(Playwright)·deploy-smoke(배포 스택 스모크) 4개 잡이 있고 master/feature 브랜치 push·PR에서 실행된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "1-133"
+        }
+      ]
+    }
+  ],
+  "caches": [
+    {
+      "text": "렌더링된 글 HTML은 RenderedPostCache라는 인메모리 캐시로 보관되는 것으로 보인다(외부 캐시 서버는 확인되지 않음).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "61"
+        }
+      ]
+    }
+  ],
+  "ci": [
+    {
+      "text": ".github/workflows/ci.yml 하나로 .NET 테스트, 웹 린트/타입체크/유닛테스트/빌드, Playwright E2E, 배포 스택 스모크(deploy/smoke/run.sh)를 실행한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml"
+        }
+      ]
+    },
+    {
+      "text": "deploy-smoke 잡은 SMOKE_E2E=1로 deploy/smoke/run.sh를 실행해 운영과 같은 Docker 이미지·Caddyfile·compose로 접근 통제·헤더·백업/복원까지 검증한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "102-132"
+        },
+        {
+          "file": "deploy/smoke/run.sh"
+        }
+      ]
+    }
+  ],
+  "configs": [
+    {
+      "text": "PortfolioBlog.Api/appsettings.json에 ConnectionStrings·Site·Admin·Proxy·Attachments 섹션의 키 이름(값은 비어 있음)이 정의돼 있고, appsettings.Development.json이 개발용 값을 덮어쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/appsettings.json",
+          "lines": "1-8"
+        }
+      ]
+    },
+    {
+      "text": "운영 배포 설정은 deploy/.env(예시는 .env.example로 추정, 트리에는 보이지 않음)로 주입되며 docker-compose.yml이 필수 환경변수(DOMAIN, ADMIN_DOMAIN, ADMIN_ALLOWED_CIDRS, ACME_EMAIL, 비밀번호류 등)를 compose environment로 전달한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "31-70"
+        }
+      ]
+    },
+    {
+      "text": "스모크 전용 오버레이 설정은 deploy/docker-compose.smoke.yml이며 실행 시 deploy/smoke/.env.smoke를 run.sh가 생성한다(운영 .env와 별개).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.smoke.yml"
+        },
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "14-44"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드 개발서버 설정은 PortfolioBlog.Web/vite.config.ts에서 BLOG_API_ORIGIN 환경변수와 개발용 인증서 경로(.certs/dev.pem·key)를 읽는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "1-36"
+        }
+      ]
+    }
+  ],
+  "containers": [
+    {
+      "text": "PortfolioBlog.Api/Dockerfile은 sdk:10.0.401로 빌드하고 aspnet:10.0.12-noble-chiseled-extra(비루트 uid 1654, 셸 없음)로 최종 이미지를 만들며 ENTRYPOINT는 'dotnet PortfolioBlog.Api.dll'이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "1-33"
+        }
+      ]
+    },
+    {
+      "text": "PortfolioBlog.Web/Dockerfile은 node:24.21.0-alpine으로 관리 SPA를 빌드해 caddy:2.11.4-alpine 이미지에 deploy/Caddyfile과 함께 구워 넣는다(리버스 프록시+정적 파일 서버 겸용).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "1-22"
+        }
+      ]
+    },
+    {
+      "text": "deploy/docker-compose.yml은 caddy·api·postgres(17.11-alpine) 3개 서비스와 tools(백업/복원 전용 프로필) 서비스, public/edge/db 3개 네트워크, pgdata/attachments/dpkeys/caddy_data/caddy_config 5개 볼륨을 정의한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "1-148"
+        }
+      ]
+    },
+    {
+      "text": "deploy/docker-compose.smoke.yml은 운영 compose 위에 smoke-allowed/smoke-denied(node:24.21.0-alpine 기반 스모크 클라이언트) 서비스와 public 네트워크 ipam 고정을 덧붙이는 오버레이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.smoke.yml",
+          "lines": "1-67"
+        }
+      ]
+    }
+  ],
+  "databases": [
+    {
+      "text": "PostgreSQL 17(compose에서는 17.11-alpine, CI E2E에서는 postgres:17-alpine)을 EF Core 10 + Npgsql.EntityFrameworkCore.PostgreSQL로 사용한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "90"
+        },
+        {
+          "file": "Directory.Packages.props",
+          "lines": "15"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "54-64"
+        }
+      ]
+    },
+    {
+      "text": "운영 DB는 blog_app(스키마 소유자, 마이그레이션·관리 API용)과 blog_public(공개 조회 전용, SELECT만) 두 롤로 분리되며 deploy/postgres-init/10-roles.sh가 최초 기동 시 롤·DB를 생성한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/postgres-init/10-roles.sh",
+          "lines": "1-31"
+        }
+      ]
+    },
+    {
+      "text": "AppDbContext(관리용)와 PublicDbContext(공개 조회 전용) 두 EF Core DbContext가 등록되며, 앱 시작 시 마이그레이션 적용 후 PublicRoleGrants.Apply로 공개 롤의 테이블 SELECT 권한을 재계산한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "53-55,82-88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs"
+        }
+      ]
+    },
+    {
+      "text": "EF Core 마이그레이션은 PortfolioBlog.Api/Infrastructure/Data/Migrations/에 있으며 현재 InitialCreate와 AddAttachments 두 개가 확인된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "text": "백엔드 주요 패키지: Markdig(마크다운), ColorCode.HTML(코드 하이라이팅), HtmlSanitizer, Microsoft.AspNetCore.OpenApi, EF Core(Design/Relational) 10.0.12, Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 — Directory.Packages.props로 버전 고정.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "Directory.Packages.props",
+          "lines": "9-15"
+        },
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "21-31"
+        }
+      ]
+    },
+    {
+      "text": "테스트 프로젝트 의존성: xunit, xunit.runner.visualstudio, Microsoft.AspNetCore.Mvc.Testing, Microsoft.NET.Test.Sdk, Testcontainers.PostgreSql, coverlet.collector.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj",
+          "lines": "10-17"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드 주요 의존성: react/react-dom 19.2.8, react-router 8.4.0, @tanstack/react-query 5.103.2, codemirror 6.0.2 계열(@codemirror/lang-markdown·state·view). 개발 의존성: vite 8.3.0, vitest 5.0.1, playwright 1.63.0, tailwindcss 4.3.3, oxlint 1.81.0, typescript 6.0.2.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/package.json",
+          "lines": "17-44"
+        }
+      ]
+    }
+  ],
+  "directories": [
+    {
+      "path": "PortfolioBlog.Api",
+      "role": "ASP.NET Core 10 백엔드 — 관리용 최소 API(Features/)와 공개 페이지(Pages/, Razor Pages), 인프라(Infrastructure/Access,Data,Markdown,Storage,Web)",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "PortfolioBlog.Api.Tests",
+      "role": "xUnit + WebApplicationFactory + Testcontainers.PostgreSql 기반 통합/단위 테스트",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "PortfolioBlog.Web",
+      "role": "관리 에디터 SPA — React 19 + Vite + CodeMirror 6, Vitest/Playwright 테스트 포함",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "deploy",
+      "role": "운영 배포 구성 — docker-compose.yml/.smoke.yml, Caddyfile, backup.sh/restore.sh, postgres-init, smoke 테스트, OPERATIONS.md",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "docs",
+      "role": "제품·아키텍처·보안·설정·배포·테스트 문서, docs/superpowers 하위에 구현 계획·스펙 문서",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "plan",
+      "role": "설계 스펙, 단계별 실행 보고서, 재개 가이드, 하네스 관련 감사/변경 기록 등 프로젝트 진행 문서",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": ".github/workflows",
+      "role": "GitHub Actions CI 정의(ci.yml)",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": ".claude / .agents / .codex",
+      "role": "AI 개발 하네스 — Claude Code 에이전트·스킬 정의(.claude), 미러된 스킬(.agents), Codex 에이전트 설정(.codex). 제품 기능이 아니다.",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "scripts",
+      "role": "자동 커밋/하네스 감사용 PowerShell 스크립트(auto-commit.ps1, harness-audit.ps1)와 Git 훅 스크립트(hooks/guard-write-scope.ps1)",
+      "status": "CONFIRMED"
+    },
+    {
+      "path": "doc-harness",
+      "role": "코드 근거 기반 문서 생성/증분 갱신용 문서화 하네스로 README에 언급되나 이 세션의 분석 대상에서 제외된 디렉터리",
+      "status": "INFERRED"
+    }
+  ],
+  "entryPoints": [
+    {
+      "text": "PortfolioBlog.Api/Program.cs가 유일한 실행 진입점이며, CLI 인자에 따라 세 경로로 분기한다: hash-password(HashPasswordCommand, 웹 호스트 미생성), healthcheck(HealthCheckCommand, 컨테이너 헬스체크용), 기본(WebApplication 빌드 후 app.Run()).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "16-26,73-127"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드 SPA 진입점은 PortfolioBlog.Web/src/main.tsx(Vite 빌드 엔트리)이다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/main.tsx"
+        },
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "28-36"
+        }
+      ]
+    },
+    {
+      "text": "컨테이너 진입점은 'dotnet PortfolioBlog.Api.dll'(API 이미지)과 caddy 실행(Web/Caddy 이미지, deploy/Caddyfile 사용)이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "33"
+        },
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "16-17"
+        }
+      ]
+    }
+  ],
+  "environments": [
+    {
+      "text": "ASPNETCORE_ENVIRONMENT로 Development/Production을 구분하며, appsettings.Development.json이 개발 값을 제공하고 Production 이미지 빌드 시 이 파일은 삭제된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "13,27"
+        },
+        {
+          "file": "PortfolioBlog.Api/appsettings.Development.json"
+        }
+      ]
+    },
+    {
+      "text": "CI web-e2e 잡은 E2E_SKIP_DOCKER=1, E2E_PG_PORT/E2E_PG_PASSWORD 등 별도 환경변수로 CI 전용 Postgres 서비스 컨테이너를 사용한다(로컬 Testcontainers 대신).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "51-68"
+        }
+      ]
+    },
+    {
+      "text": "배포 스모크는 *.localhost 도메인과 별도 .env.smoke로 운영과 분리된 임시 환경을 구성한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh",
+          "lines": "11-44"
+        }
+      ]
+    }
+  ],
+  "externalSystems": [
+    {
+      "text": "ACME(Let's Encrypt 등)를 통한 자동 TLS 인증서 발급을 Caddy가 처리한다(ACME_EMAIL 환경변수).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "1-17"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "35"
+        }
+      ]
+    },
+    {
+      "text": "코드에서 확인 가능한 그 외 외부 API/서드파티 서비스 연동(이메일 발송, 분석, 결제 등)은 없다.",
+      "status": "UNKNOWN",
+      "evidence": []
+    }
+  ],
+  "frameworks": [
+    {
+      "text": "백엔드: ASP.NET Core 10 (Microsoft.NET.Sdk.Web) — 최소 API(Features/) + Razor Pages(Pages/) 혼합, EF Core 10.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "1-6"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드: React 19 + Vite 8 + TypeScript, 상태/데이터 페칭은 @tanstack/react-query, 라우팅은 react-router, 에디터는 CodeMirror 6, 스타일은 Tailwind CSS 4(@tailwindcss/vite).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/package.json",
+          "lines": "17-40"
+        },
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "3-4,30"
+        }
+      ]
+    },
+    {
+      "text": "마크다운 렌더링은 Markdig + ColorCode.HTML(하이라이팅) + HtmlSanitizer(위생화) 조합을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "22-24"
+        }
+      ]
+    }
+  ],
+  "languages": [
+    {
+      "text": "백엔드는 C#(.NET 10, TargetFramework net10.0).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "4"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드는 TypeScript(react/tsx 포함).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/tsconfig.json"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/main.tsx"
+        }
+      ]
+    },
+    {
+      "text": "배포·운영 스크립트는 POSIX shell(bash/sh)로 작성됐고, 개발용 로컬 도구 스크립트는 PowerShell이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh"
+        },
+        {
+          "file": "scripts/auto-commit.ps1"
+        }
+      ]
+    }
+  ],
+  "migrations": [
+    {
+      "text": "EF Core Code-First 마이그레이션 2개(InitialCreate, AddAttachments)가 존재하며 앱 시작 시 Database.Migrate()로 자동 적용된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "81-88"
+        }
+      ]
+    }
+  ],
+  "project": {
+    "name": "PortfolioBlog",
+    "description": "단일 작성자용 보안 중심 기술 블로그. 공개 사이트는 JS 없는 서버 렌더링 Razor Pages, 관리 표면은 별도 서브도메인 + IP 허용 목록 + 비밀번호 세션 뒤의 React SPA로 분리된다(README 기준, INFERRED). 백엔드는 ASP.NET Core 10 + EF Core 10 + PostgreSQL 17, 배포는 Docker Compose + Caddy.",
+    "status": "INFERRED",
+    "evidence": [
+      {
+        "file": "README.md",
+        "lines": "1-18"
+      },
+      {
+        "file": "PortfolioBlog.slnx",
+        "lines": "1-5"
+      }
+    ]
+  },
+  "queues": [
+    {
+      "text": "코드·설정에서 확인되는 메시지 큐/브로커(RabbitMQ, Kafka 등)는 없다.",
+      "status": "UNKNOWN",
+      "evidence": []
+    }
+  ],
+  "runtimes": [
+    {
+      "text": ".NET 10(SDK 10.0.401 빌드, aspnet:10.0.12 런타임)이 백엔드 런타임이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Dockerfile",
+          "lines": "4,23"
+        }
+      ]
+    },
+    {
+      "text": "Node.js 24(24.21.0-alpine 컨테이너, CI에서는 node-version 24)가 프런트엔드 빌드·스모크 클라이언트 런타임이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "4"
+        },
+        {
+          "file": ".github/workflows/ci.yml",
+          "lines": "38-40"
+        }
+      ]
+    }
+  ],
+  "scripts": [
+    {
+      "text": "deploy/backup.sh·restore.sh는 pg_dump/pg_restore와 첨부 tar로 백업/복원을 수행하는 운영 스크립트다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/backup.sh"
+        },
+        {
+          "file": "deploy/restore.sh"
+        }
+      ]
+    },
+    {
+      "text": "deploy/smoke/run.sh는 운영과 동일한 이미지·compose·Caddyfile로 스택을 띄워 접근통제·헤더·DB 롤·백업복원·(옵션)브라우저 E2E를 검증하는 스모크 스크립트다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/run.sh"
+        }
+      ]
+    },
+    {
+      "text": "scripts/auto-commit.ps1·harness-audit.ps1은 개발 하네스용 PowerShell 스크립트(자동 커밋, 구조 감사)이고, scripts/hooks/guard-write-scope.ps1은 쓰기 범위를 제한하는 훅이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "scripts/auto-commit.ps1"
+        },
+        {
+          "file": "scripts/harness-audit.ps1"
+        },
+        {
+          "file": "scripts/hooks/guard-write-scope.ps1"
+        }
+      ]
+    },
+    {
+      "text": "PortfolioBlog.Web/scripts/e2e-prepare.mjs는 E2E 실행 전 개발 인증서·비밀번호 해시 등을 준비하는 스크립트다(package.json의 e2e:prepare/certs에서 호출).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/package.json",
+          "lines": "13-14"
+        },
+        {
+          "file": "PortfolioBlog.Web/scripts/e2e-prepare.mjs"
+        }
+      ]
+    }
+  ],
+  "staticResources": [
+    {
+      "text": "백엔드의 유일한 정적 자원은 wwwroot/css/site.css 하나이며, csproj에서 CompressionEnabled=false로 명시해 .br/.gz 산출물이 생기지 않게 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/wwwroot/css/site.css"
+        },
+        {
+          "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+          "lines": "7-11"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "102-103"
+        }
+      ]
+    },
+    {
+      "text": "PortfolioBlog.Web/public/preview/에 마크다운 미리보기용 highlight.css·site.css가 있다(에디터 미리보기 패널에서 사용하는 것으로 추정).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/public/preview/highlight.css"
+        },
+        {
+          "file": "PortfolioBlog.Web/public/preview/site.css"
+        }
+      ]
+    },
+    {
+      "text": "관리 SPA 빌드 결과(dist)는 Caddy 이미지의 /srv 아래로 복사돼 file_server가 정적으로 서빙한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/Dockerfile",
+          "lines": "18"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "112-143"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "text": ".NET 테스트는 PortfolioBlog.Api.Tests에 xUnit + WebApplicationFactory + Testcontainers.PostgreSql로 작성돼 있으며, Features/와 Infrastructure/ 하위에 엔드포인트별·인프라별 테스트 파일이 다수 존재한다(예: AuthEndpointsTests, PostEndpointsTests, DatabaseSchemaTests 등).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/DatabaseSchemaTests.cs"
+        }
+      ]
+    },
+    {
+      "text": "프런트엔드 단위/컴포넌트 테스트는 Vitest(PortfolioBlog.Web/src/test/, *.test.ts(x))로, E2E는 Playwright(PortfolioBlog.Web/e2e/admin.spec.ts, playwright.config.ts/playwright.stack.config.ts)로 작성돼 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/vitest.config.ts"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/editor.test.tsx"
+        },
+        {
+          "file": "PortfolioBlog.Web/e2e/admin.spec.ts"
+        },
+        {
+          "file": "PortfolioBlog.Web/playwright.config.ts"
+        },
+        {
+          "file": "PortfolioBlog.Web/playwright.stack.config.ts"
+        }
+      ]
+    },
+    {
+      "text": "배포 스택 레벨 테스트는 deploy/smoke/smoke.test.mjs(node:test 기반)로, 허용/비허용 IP, 헤더, 업로드 한도, 백업·복원 리허설, DB 롤 권한 등을 검사한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/smoke/smoke.test.mjs"
+        }
+      ]
+    }
+  ],
+  "tooling": [
+    {
+      "text": ".claude/agents(21개)와 .claude/skills·.agents/skills(동일 목록 미러로 보임)에 코드 리뷰·동시성 감사·TDD·성능 리뷰 등 다수의 Claude Code 에이전트/스킬 정의가 있다. 이는 제품 기능이 아니라 AI 개발 하네스다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".claude/agents/architecture-reviewer.md"
+        },
+        {
+          "file": ".claude/skills/tdd-orchestrator/SKILL.md"
+        }
+      ]
+    },
+    {
+      "text": ".codex/agents/*.toml은 .claude/agents의 각 에이전트에 대응하는 Codex CLI용 설정으로 보이며(파일명 대응), CLAUDE.md/AGENTS.md는 각각 Claude Code/Codex용 프로젝트 규칙 문서다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": ".codex/agents/architecture-reviewer.toml"
+        },
+        {
+          "file": "CLAUDE.md"
+        },
+        {
+          "file": "AGENTS.md"
+        }
+      ]
+    },
+    {
+      "text": ".claude/skills/cross-verify는 Codex를 통한 교차 검증 스킬로 invoke-codex.ps1 스크립트와 plan/review/adjudicate 등 프롬프트 템플릿을 포함한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": ".claude/skills/cross-verify/scripts/invoke-codex.ps1"
+        },
+        {
+          "file": ".claude/skills/cross-verify/references/prompts/adjudicate.md"
+        }
+      ]
+    },
+    {
+      "text": "scripts/에는 자동 커밋(auto-commit.ps1)과 저장소 구조 감사(harness-audit.ps1) 스크립트, scripts/hooks/guard-write-scope.ps1 쓰기 범위 제한 훅이 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "scripts/auto-commit.ps1"
+        },
+        {
+          "file": "scripts/harness-audit.ps1"
+        },
+        {
+          "file": "scripts/hooks/guard-write-scope.ps1"
+        }
+      ]
+    },
+    {
+      "text": "docs/superpowers/plans·specs와 plan/ 하위 다수 문서는 단계별 설계·실행 계획/보고서로, 개발 진행 관리용 문서다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "docs/superpowers/plans/2026-09-23-doc-harness.md"
+        },
+        {
+          "file": "plan/resume_guide_0921.md"
+        }
+      ]
+    }
+  ],
+  "unknowns": [
+    "appsettings.json·.env의 구체적 값(도메인, 비밀번호 등)은 규칙에 따라 조사하지 않았다.",
+    "외부 이메일/알림/분석/결제 등 서드파티 API 연동 여부는 코드에서 확인되지 않아 UNKNOWN이다.",
+    "메시지 큐/브로커 사용 여부는 코드에서 확인되지 않아 UNKNOWN이다.",
+    "doc-harness/ 디렉터리의 실제 동작 방식은 세션 규칙상 분석 대상에서 제외되어 조사하지 않았다.",
+    "PortfolioBlog.Web/.e2e/env.json의 구체적 내용은 조사하지 않았다(값 노출 회피 및 범위 밖)."
+  ]
+}

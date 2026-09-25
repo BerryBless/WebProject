@@ -1,0 +1,162 @@
+{
+  "items": [
+    {
+      "id": "SEC001",
+      "title": "미리보기·렌더 CPU 소진(적대적 마크다운)에 대한 방어가 동시성 제한뿐",
+      "classification": "POTENTIAL_RISK",
+      "description": "Markdig 렌더는 취소할 수 없는 동기 CPU 작업이고 실행 시간 타임아웃이 없다. 적대적 입력은 문서 기준 최대 약 8.5초 동안 렌더 슬롯(기본 2개)과 요청 스레드를 점유할 수 있다. 방어는 RenderGate 동시성, 미리보기 분당·동시성 한도, 입력 크기(200KB)·중첩(128) 제한이다. 관리 표면이 IP 허용 목록과 인증 뒤라서 외부 공격 노출은 낮다. 공개 글 렌더는 저장된 글이 대상이라 위험이 낮다.",
+      "recommendation": "렌더를 별도 스레드에서 실행하고 벽시계 타임아웃으로 결과를 버리는 방안, 또는 입력 크기를 더 줄이는 방안을 검토한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render"
+        }
+      ],
+      "featureIds": [
+        "F004",
+        "F011"
+      ]
+    },
+    {
+      "id": "SEC002",
+      "title": "로그아웃이 epoch 갱신 0행을 확인하지 않고 204를 반환",
+      "classification": "POTENTIAL_RISK",
+      "description": "AdminState 행이 없으면 ExecuteUpdateAsync가 0행을 갱신한다. 이때 다른 세션이 폐기되지 않는데도 호출한 브라우저의 쿠키만 지우고 204를 돌려준다. 행 부재는 CHECK 제약과 시드로 막아 두어 정상 운영에서는 발생하기 어렵다.",
+      "recommendation": "갱신된 행 수를 확인하고 0이면 오류로 처리하거나 로그를 남긴다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "symbol": "AuthEndpoints.LogoutAsync"
+        }
+      ],
+      "featureIds": [
+        "F001"
+      ]
+    },
+    {
+      "id": "SEC003",
+      "title": "DB 장애 시 SessionValidator 예외로 쿠키가 붙은 모든 요청이 실패",
+      "classification": "POTENTIAL_RISK",
+      "description": "SessionValidator가 AdminStates를 SingleAsync로 조회하는데 예외를 처리하지 않는다. DB 장애나 행 부재 시 쿠키가 있는 요청은 인증 단계에서 예외가 난다. 57014·55P03만 503이 되고 나머지는 500이다. 보안 우회는 아니고 fail-closed로 동작한다. 다만 /me 계약이 깨지고 가용성이 떨어진다.",
+      "recommendation": "DB 예외 시 미인증으로 처리하거나 503으로 일관되게 응답하는 방안을 검토한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "symbol": "SessionValidator.ValidateAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.IsOverload"
+        }
+      ],
+      "featureIds": [
+        "F001"
+      ]
+    },
+    {
+      "id": "SEC004",
+      "title": "공개 첨부 경로가 손상된 StoragePath나 I/O 오류에서 500이 됨",
+      "classification": "POTENTIAL_RISK",
+      "description": "FileSystemAttachmentStore.PhysicalPath가 저장 루트를 벗어나는 경로를 InvalidOperationException으로 막아 루트 밖 파일은 읽히지 않는다(Path Traversal 방어). 다만 이 예외와 UnauthorizedAccessException·IOException은 처리하지 않아 500이 된다. 응답 본문에 경로가 노출되는지는 코드로 확인하지 못했다.",
+      "recommendation": "예외를 404나 503으로 매핑하고 서버 로그에만 원인을 남긴다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+          "symbol": "FileSystemAttachmentStore.PhysicalPath"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints.GetAsync"
+        }
+      ],
+      "featureIds": [
+        "F010"
+      ]
+    },
+    {
+      "id": "SEC005",
+      "title": "업로드 중단 시 참조 없는 파일이 남고 23505 폴백에 무처리 구간이 있음",
+      "classification": "IMPROVEMENT",
+      "description": "잠금 대기 초과·INSERT 실패·요청 취소 뒤에는 보상 삭제가 없어 참조 없는 파일이 남는다. AttachmentJanitor가 1시간 경과 후 6시간 주기로 정리한다. 이미지 시그니처 검사, 메타데이터 제거, 10MB 상한은 이미 적용되어 있다. 저장량 고갈 위험은 낮다.",
+      "recommendation": "실패 경로에서 방금 옮긴 파일을 즉시 보상 삭제하는 방안을 검토한다. 삭제할 때는 동일 내용을 참조하는 다른 행이 없는지 확인한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "symbol": "AttachmentEndpoints.UploadAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs"
+        }
+      ],
+      "featureIds": [
+        "F009"
+      ]
+    },
+    {
+      "id": "SEC006",
+      "title": "미리보기 CSP 생성이 origin 형식 불일치 시 예외를 던짐",
+      "classification": "IMPROVEMENT",
+      "description": "previewCsp가 window.location.origin이 ORIGIN_PATTERN에 맞지 않으면 Error를 던진다. useMemo 안에서 호출되어 React 오류 경계로 전파된다. 보안상 fail-closed이지만 미리보기 화면 전체가 실패한다. 예를 들어 허용 패턴 밖의 호스트 표기에서 발생한다.",
+      "recommendation": "실패 시 미리보기만 비활성화하고 안내 문구를 보여 준다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/previewDoc.ts",
+          "symbol": "previewCsp"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx"
+        }
+      ],
+      "featureIds": [
+        "F004"
+      ]
+    },
+    {
+      "id": "SEC007",
+      "title": "개발 환경에서 https·HSTS 강제가 빠짐",
+      "classification": "IMPROVEMENT",
+      "description": "HSTS는 Development가 아닐 때만 붙는다. Site 원본의 https 강제도 Development에서는 건너뛴다. 세션 쿠키는 __Host- 접두사와 Secure Always라 http에서는 동작하지 않는다. 운영 설정 오류로 Development 환경이 배포되면 이 방어가 빠진다.",
+      "recommendation": "운영 배포 절차에서 ASPNETCORE_ENVIRONMENT 값을 점검한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+          "symbol": "SecurityHeadersMiddleware._hsts"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate"
+        }
+      ],
+      "featureIds": [
+        "F017"
+      ]
+    },
+    {
+      "id": "SEC008",
+      "title": "draft 저장소 접근 예외가 화면 오류로 번짐",
+      "classification": "IMPROVEMENT",
+      "description": "loadDraft·saveDraft·clearDraft의 기본 인자 window.localStorage 접근이 try 밖에서 평가된다. 저장소 접근이 차단된 브라우저에서는 에디터 렌더가 실패할 수 있다. 기밀 노출이 아니라 가용성 문제다.",
+      "recommendation": "저장소 획득을 try 안으로 옮긴다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "loadDraft"
+        }
+      ],
+      "featureIds": [
+        "F005"
+      ]
+    }
+  ],
+  "summary": "이미 처리된 부분: 관리 표면은 다중 게이트다. 관리 호스트 확인, IP 허용 목록(빈 목록이면 전부 거부), X-Requested-With CSRF 헤더, 비안전 메서드의 Origin 검사가 본문을 읽기 전에 실행된다(AdminSurfaceMiddleware). 세션 쿠키는 __Host- 접두사에 HttpOnly, Secure Always, SameSite=Strict를 쓰고 슬라이딩 만료가 없으며 epoch·지문 검증을 거친다. 로그인은 IP·전역·동시성 속도 제한이 있고 비밀번호 길이를 해싱 전에 제한하며 실패 로그에 IP만 남긴다. 모든 응답에 nosniff, CSP(default-src 'none'), X-Frame-Options DENY, Referrer/Permissions-Policy가 붙고 비개발 환경에서는 HSTS도 붙는다. 첨부는 sandbox CSP, 매직바이트 검사, 메타데이터 제거, 크기 제한, 루트 이탈 차단을 적용한다. 마크다운은 HtmlAllowlist·UrlPolicy 정제, 중첩·입력 크기·강조 시간 상한을 둔다. 공개 DB 롤은 읽기 전용이다. HostFiltering, 기동 시 설정 검증, 요청 값을 반사하지 않는 404, SQL은 EF 파라미터화와 LikePattern 이스케이프로 처리한다. 확인한 CONFIRMED_ISSUE는 없고 남은 항목은 가용성·견고성 성격이다.",
+  "unknowns": [
+    "ClientIp와 ForwardedHeaders가 Caddy 뒤에서 실제 원본 IP를 올바르게 산출하는지는 이번 분석에서 코드를 직접 읽지 않아 확인하지 못했다.",
+    "HtmlAllowlist·UrlPolicy의 정제 규칙 세부(허용 태그·속성·스킴)는 파일을 직접 읽어 검증하지 않았다.",
+    "Caddyfile과 배포 헤더는 입력 목록에 없어 에지 측 방어를 확인하지 못했다.",
+    "500 응답 본문에 예외 세부가 노출되는지는 확인하지 못했다."
+  ]
+}

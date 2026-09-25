@@ -1,0 +1,51 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 98
+  },
+  "hallucinations": [],
+  "missingItems": [
+    {
+      "document": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+      "section": "F005_STATE",
+      "type": "MISSING_STATE_TRANSITION",
+      "description": "임시본 상태도(F005_STATE)와 데이터 절의 상태 전이 표에 DraftFailed → NoDraft 전이가 없다. 코드에서는 자동 저장 effect가 settled와 기준선이 같다고 판단하면 clearDraft(draftKey)를 부르고 setDraftFailed(false)를 호출한다. 그래서 저장 실패 표시 상태에서 입력을 기준선으로 되돌리면 저장 실패 표시가 풀리고 임시본도 사라진다. 문서에는 DraftFailed에서 빠져나가는 경로로 '다음 saveDraft 성공 → Stored'만 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor 자동 저장 useEffect",
+          "lines": "105-113"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [],
+  "diagramIssues": [],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+      "section": "F005_STATE",
+      "issue": "상태도에 'DraftFailed --> NoDraft: settled equals baseline clearDraft, setDraftFailed(false)' 전이를 추가한다(PostEditorPage.tsx 110행). section=F005_STATE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor 자동 저장 useEffect",
+          "lines": "110"
+        }
+      ]
+    },
+    {
+      "doc": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+      "section": "data",
+      "issue": "상태 전이 표에 '저장 실패 표시(draftFailed=true) → 임시본 없음' 행을 추가한다. 트리거는 settled가 기준선과 같아져 clearDraft와 setDraftFailed(false)가 실행되는 경우다. section=data",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor 자동 저장 useEffect",
+          "lines": "110"
+        }
+      ]
+    }
+  ]
+}

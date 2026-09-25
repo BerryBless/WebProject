@@ -1,0 +1,187 @@
+{
+  "score": {
+    "coverage": 85,
+    "accuracy": 92
+  },
+  "hallucinations": [
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "section": "EXEC_DATAFLOW",
+      "type": "NONEXISTENT_PATH",
+      "description": "코드 근거 표에서 Caddyfile의 코드 경로를 저장소 루트의 `Caddyfile`로 적었지만 루트에는 그런 파일이 없다. 실제 파일은 `deploy/Caddyfile`이다.",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "79-99"
+        }
+      ]
+    }
+  ],
+  "missingItems": [
+    {
+      "document": "03_DIRECTORY_STRUCTURE.md",
+      "section": "tree",
+      "type": "MISSING_FILE",
+      "description": "파일 트리에 실제로 있는 `scripts/git-hooks/commit-msg`(커밋 메시지 접두사를 강제하는 Git commit-msg 훅)가 빠져 있다. roles 표의 scripts 설명에도 이 파일이 없다.",
+      "evidence": [
+        {
+          "file": "scripts/git-hooks/commit-msg",
+          "lines": "1-10"
+        }
+      ]
+    },
+    {
+      "document": "03_DIRECTORY_STRUCTURE.md",
+      "section": "tree",
+      "type": "MISSING_FILE",
+      "description": "deploy/ 트리에 compose가 참조하는 환경변수 예시 파일 `deploy/.env.example`이 없다(F026 관련 파일이기도 하다). 값을 옮기지 않고 파일명만 적는 것은 허용된다.",
+      "evidence": [
+        {
+          "file": "deploy/.env.example"
+        },
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "31-35"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "section": "EXEC_DATAFLOW",
+      "type": "WRONG_CODE_MAPPING",
+      "description": "코드 근거 표가 AdminSurfaceMiddleware를 `PortfolioBlog.Api/Program.cs`에 연결한다. Program.cs는 이 미들웨어를 등록만 한다(`app.UseMiddleware<AdminSurfaceMiddleware>()`). 구현은 `PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs`에 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs"
+        }
+      ]
+    },
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "section": "EXEC_DATAFLOW",
+      "type": "WRONG_CODE_MAPPING",
+      "description": "코드 근거 표가 MarkdownRenderer를 `RenderGate.cs`에 연결한다. RenderGate.cs는 생성자에서 `renderer.RenderDetailed`를 참조할 뿐이다. MarkdownRenderer 클래스와 `RenderDetailed`는 `PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs`에 정의돼 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed",
+          "lines": "111"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "lines": "36-48"
+        }
+      ]
+    },
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "section": "EXEC_DATAFLOW",
+      "type": "WRONG_CODE_MAPPING",
+      "description": "코드 근거 표가 AppDbContext를 `PostEndpoints.cs`에 연결한다. PostEndpoints.cs는 AppDbContext를 주입받아 쓰는 쪽이다. 클래스 정의는 `PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs`에 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "124,151"
+        }
+      ]
+    },
+    {
+      "document": "03_DIRECTORY_STRUCTURE.md",
+      "section": "roles",
+      "type": "WRONG_DESCRIPTION",
+      "description": "scripts 행이 `hooks/guard-write-scope.ps1`을 'Git 훅 스크립트'라고 설명한다. 이 파일은 Claude Code의 PreToolUse 훅으로, 서브에이전트의 Write/Edit 범위를 제한한다. 실제 Git 훅은 `scripts/git-hooks/commit-msg`다.",
+      "evidence": [
+        {
+          "file": "scripts/hooks/guard-write-scope.ps1",
+          "lines": "1-15"
+        },
+        {
+          "file": "scripts/git-hooks/commit-msg",
+          "lines": "1-3"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "diagram": "EXEC_DATAFLOW",
+      "section": "EXEC_DATAFLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "다이어그램의 노드·간선 순서(PostEndpoints가 RenderGate→AppDbContext→PostQueries→RenderedPostCache를 직접 호출)는 코드와 맞다. 그러나 노드 코드 근거 표에 틀린 경로가 네 개 있다. Caddyfile은 없는 루트 경로 `Caddyfile`로, AdminSurfaceMiddleware는 Program.cs로, MarkdownRenderer는 RenderGate.cs로, AppDbContext는 PostEndpoints.cs로 연결돼 있다.",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "00_EXECUTIVE_SUMMARY.md",
+      "section": "EXEC_DATAFLOW",
+      "issue": "코드 근거 표의 경로를 바로잡는다. Caddyfile→`deploy/Caddyfile`, AdminSurfaceMiddleware→`PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs`, MarkdownRenderer→`PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs`, AppDbContext→`PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs`. section=EXEC_DATAFLOW",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs"
+        }
+      ]
+    },
+    {
+      "doc": "03_DIRECTORY_STRUCTURE.md",
+      "section": "roles",
+      "issue": "scripts 행을 고친다. `hooks/guard-write-scope.ps1`은 Claude Code PreToolUse 훅이고 Git 훅은 `git-hooks/commit-msg`라고 적는다. section=roles",
+      "evidence": [
+        {
+          "file": "scripts/hooks/guard-write-scope.ps1",
+          "lines": "1"
+        },
+        {
+          "file": "scripts/git-hooks/commit-msg",
+          "lines": "1-3"
+        }
+      ]
+    },
+    {
+      "doc": "03_DIRECTORY_STRUCTURE.md",
+      "section": "tree",
+      "issue": "파일 트리에 빠진 `scripts/git-hooks/commit-msg`와 `deploy/.env.example`을 추가한다. section=tree",
+      "evidence": [
+        {
+          "file": "scripts/git-hooks/commit-msg"
+        },
+        {
+          "file": "deploy/.env.example"
+        }
+      ]
+    }
+  ]
+}

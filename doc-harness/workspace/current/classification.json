@@ -1,0 +1,62 @@
+{
+  "items": [
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "classifications": [
+        "DOCUMENTATION_ONLY"
+      ],
+      "significance": "TRIVIAL",
+      "possibleFeatures": [
+        "F008"
+      ],
+      "rationale": "주석 한 줄만 추가된 임시 검증용 변경이다. 동작에는 영향이 없다."
+    },
+    {
+      "file": "AGENTS.md",
+      "classifications": [
+        "DOCUMENTATION_ONLY"
+      ],
+      "significance": "TRIVIAL",
+      "possibleFeatures": [],
+      "rationale": "개발 도구 규칙 문서다. 제품 동작과 무관하다."
+    },
+    {
+      "file": "CLAUDE.md",
+      "classifications": [
+        "DOCUMENTATION_ONLY"
+      ],
+      "significance": "TRIVIAL",
+      "possibleFeatures": [],
+      "rationale": "개발 도구 규칙 문서다. 제품 동작과 무관하다."
+    },
+    {
+      "file": "plan/doc_harness_0923.md",
+      "classifications": [
+        "DOCUMENTATION_ONLY"
+      ],
+      "significance": "TRIVIAL",
+      "possibleFeatures": [],
+      "rationale": "계획 문서가 추가되었다."
+    },
+    {
+      "file": "plan/harness_changelog.md",
+      "classifications": [
+        "DOCUMENTATION_ONLY"
+      ],
+      "significance": "TRIVIAL",
+      "possibleFeatures": [],
+      "rationale": "하네스 변경 이력 문서다."
+    },
+    {
+      "file": "README.md",
+      "classifications": [
+        "DOCUMENTATION_ONLY"
+      ],
+      "significance": "TRIVIAL",
+      "possibleFeatures": [],
+      "rationale": "문서만 바뀌었다."
+    }
+  ],
+  "summary": "의미 있는 변화는 없다. TagEndpoints.cs에 임시 주석 한 줄이 추가되었고 나머지는 문서 변경뿐이다.",
+  "changelogCandidates": []
+}

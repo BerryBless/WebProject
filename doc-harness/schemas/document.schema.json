@@ -1,0 +1,13 @@
+{
+  "$id": "document.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string" },
+    "oneLiner": { "type": "string" },
+    "sections": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false,
+      "properties": { "id": { "type": "string", "pattern": "^[a-z0-9_-]+$" }, "heading": { "type": "string" }, "body": { "type": "string" }, "diagrams": { "$ref": "common.schema.json#/$defs/diagramList" }, "unchanged": { "type": "boolean" } },
+      "required": ["id", "heading", "body", "diagrams", "unchanged"] } },
+    "relatedDocs": { "$ref": "common.schema.json#/$defs/stringList" },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["title", "oneLiner", "sections", "relatedDocs", "unknowns"]
+}

@@ -1,0 +1,8 @@
+{
+  "$id": "failures.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "failures": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/failureRecord" } },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["failures", "unknowns"]
+}

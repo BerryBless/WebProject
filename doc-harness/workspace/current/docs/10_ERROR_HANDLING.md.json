@@ -1,0 +1,123 @@
+{
+  "title": "오류 처리",
+  "oneLiner": "과부하(57014·55P03·RenderBusyException)는 전역 OverloadExceptionHandler가 503+Retry-After 5로, 동시성 충돌은 엔드포인트가 409로, 관리 표면·본문 상한·속도 제한은 핸들러 앞에서 거부하며, 서버 재시도는 없고 그 밖의 예외는 기본 500으로 흐르며 기동 검증 실패는 프로세스를 종료시킨다.",
+  "sections": [
+    {
+      "id": "summary",
+      "heading": "한 줄 요약",
+      "unchanged": false,
+      "diagrams": [],
+      "body": "## 한 줄 요약\n\n오류 처리는 **앞단 거부 → 엔드포인트 지역 매핑(400/404/409/413/415) → 전역 핸들러(503) → 기본 500** 순서의 계층 구조다. 서버는 재시도하지 않고 클라이언트(SPA `describeError`)에 맡긴다. 기동 시 설정·저장소·마이그레이션 실패는 예외를 잡지 않고 프로세스를 종료시킨다. 가장 큰 남은 위험은 '처리 없음 → 기본 500' 경로의 본문 형식·로깅이 확정되지 않았다는 점이다(ERR001)."
+    },
+    {
+      "id": "key-points",
+      "heading": "핵심 내용",
+      "unchanged": false,
+      "diagrams": [],
+      "body": "### 전역 핸들러\n\n| 구성 요소 | 역할 | 근거 |\n|---|---|---|\n| `UseExceptionHandler` + `OverloadExceptionHandler` | 예외 InnerException 체인에서 SqlState 57014·55P03 또는 `RenderBusyException`을 찾아 503 + `Retry-After: 5`로 응답 | `Program.cs` 43·47·100행, `OverloadExceptionHandler.cs` 35-42, 63-70행 |\n| `UseStatusCodePages` → `ErrorResponses` | 본문 없는 상태 코드에 대해 `/api`는 ProblemDetails, 공개 경로는 요청 값을 반사하지 않는 고정 HTML을 쓴다 | `Program.cs` 101행, `ErrorResponses.cs` |\n| `RouteHandlerOptions.ThrowOnBadRequest=false` | 바인딩 실패를 예외 없이 프레임워크 400으로 응답 | `Program.cs` 48-49행 |\n| `StartupValidation` | 기동 시 설정 오류를 설정 키 이름과 함께 중단 | `Program.cs` 76행 |\n\n### 오류 응답 형식\n\n| 상태 | 발생 조건 | 형식 |\n|---|---|---|\n| 400 | 필드 검증 실패 | `ValidationProblem`(필드별 errors) |\n| 400 | 바인딩 실패(잘못된 JSON·타입 불일치) | 프레임워크 기본 400, errors 키 없음(추론) |\n| 401 | 세션 없음·만료, 로그인 실패 | 401 + ProblemDetails(로그인 실패 title '로그인 실패') |\n| 403/404 | 관리 표면 게이트(IP·CSRF·Origin / 호스트) | `AdminSurfaceMiddleware`가 ProblemDetails를 직접 기록 |\n| 404 | 대상 없음, 잘못된 slug·page | `/api`는 ProblemDetails, 공개는 고정 HTML |\n| 409 | version 불일치(xmin), slug 중복, FK·유니크 경쟁(23505·23503) | `DbConflict.Problem`(본문 포함) |\n| 413 | 본문 256KB 초과, 첨부 10MB 초과 | `ApiBodyLimitMiddleware` / `AttachmentEndpoints.TooLarge` |\n| 415 | 이미지 시그니처 불일치·구조 손상 | `TrySaveAsync`가 매핑 |\n| 429 | 속도·동시성 제한 초과 | 대기열 없이 즉시 거부 + `Retry-After` |\n| 503 | 57014·55P03·`RenderBusyException` | `OverloadExceptionHandler` |\n| 500 | 그 밖의 예외 | 프레임워크 기본(본문 형식 미확정) |\n\n### 재시도·타임아웃·롤백\n\n| 항목 | 동작 |\n|---|---|\n| 서버 재시도 | 없음(409·503·429 모두). `DbConflict` 주석에 이유 기재 |\n| 클라이언트 재시도 | 자동 재시도 없음. `describeError`가 `Retry-After` 초를 안내 |\n| 렌더 슬롯 대기 | `RenderGate` `QueueTimeoutMs` 기본 5000ms 초과 시 `RenderBusyException`→503 |\n| 429 | `QueueLimit=0`. 고정 창은 창 종료까지 1~60초, 동시성 제한은 5초 |\n| DB 문장 | `statement_timeout`(57014)·`lock_timeout`(55P03)→503. 첨부 잠금 대기 10초 |\n| 롤백 | 트랜잭션은 `await using` dispose로 롤백. `TagResolver`가 만든 Tags 행도 함께 롤백 |\n| 강조 표시 | 정규식 250ms·누적 2,000ms 초과 시 해당 블록만 이스케이프 `<pre><code>`로 폴백 |\n| 첨부 청소 | `AttachmentJanitor` 스윕 실패는 `LogError` 후 다음 주기에 재시도 |"
+    },
+    {
+      "id": "details",
+      "heading": "상세 내용",
+      "unchanged": false,
+      "diagrams": [
+        {
+          "id": "ERR_FLOW",
+          "type": "flowchart",
+          "title": "오류가 응답으로 바뀌는 경로",
+          "summary": "본문을 직접 쓰는 경로(관리 표면 게이트, DbConflict)와 ErrorResponses를 거치는 경로(413, 본문 없는 429, 503)가 갈라진다.",
+          "mermaid": "flowchart LR\n  AdminSurfaceMiddleware -->|404 403 본문 직접 기록| HttpResponse\n  ApiBodyLimitMiddleware -->|413 WriteAsync 호출| ErrorResponses\n  RateLimitingExtensions -->|429 본문 없음 StatusCodePages| ErrorResponses\n  PostEndpoints -->|xmin 23505 23503| DbConflict\n  DbConflict -->|TypedResults.Problem 409 본문 포함| HttpResponse\n  PostEndpoints -->|57014 55P03 RenderBusyException 전파| OverloadExceptionHandler\n  OverloadExceptionHandler -->|503 Retry-After 5| ErrorResponses\n  PostEndpoints -->|그 밖의 예외| Program\n  ErrorResponses --> HttpResponse",
+          "details": "AdminSurfaceMiddleware는 `Results.Problem(...).ExecuteAsync`로 ProblemDetails를 직접 쓰므로 ErrorResponses·UseStatusCodePages가 관여하지 않는다. DbConflict.Problem도 `TypedResults.Problem`으로 본문이 있는 409를 돌려줘 StatusCodePages가 덮어쓰지 않는다. ErrorResponses를 거치는 것은 ApiBodyLimitMiddleware의 413(직접 WriteAsync 호출), 본문 없는 상태 코드(429 등, UseStatusCodePages 경유), OverloadExceptionHandler의 503이다. AdminSurfaceMiddleware는 UseRateLimiter보다 앞이라 게이트에서 걸린 요청은 속도 제한 예산을 쓰지 않는다. ApiBodyLimitMiddleware는 UseAuthorization 뒤라 세션이 필요한 경로에서는 401이 먼저다. PostEndpoints는 대표 예이며 다른 엔드포인트와 Razor 페이지도 같은 전역 경로를 탄다. Program 노드는 UseExceptionHandler 기본 처리(500)이며 본문 형식은 미확정이다. HttpResponse는 ASP.NET 응답 자체를 가리키는 노드다.",
+          "status": "CONFIRMED",
+          "nodes": [
+            {
+              "node": "AdminSurfaceMiddleware",
+              "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+              "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+            },
+            {
+              "node": "ApiBodyLimitMiddleware",
+              "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+              "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+            },
+            {
+              "node": "RateLimitingExtensions",
+              "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+              "symbol": "AddAppRateLimiting"
+            },
+            {
+              "node": "PostEndpoints",
+              "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+              "symbol": "PostEndpoints.UpdateAsync"
+            },
+            {
+              "node": "DbConflict",
+              "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+              "symbol": "DbConflict.Problem"
+            },
+            {
+              "node": "OverloadExceptionHandler",
+              "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+              "symbol": "OverloadExceptionHandler.IsOverload"
+            },
+            {
+              "node": "ErrorResponses",
+              "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+              "symbol": "ErrorResponses.WriteAsync"
+            },
+            {
+              "node": "Program",
+              "code": "PortfolioBlog.Api/Program.cs",
+              "symbol": "UseExceptionHandler"
+            }
+          ]
+        }
+      ],
+      "body": "## 상세 내용\n\n분류: **CONFIRMED_ISSUE**는 코드로 확정된 결함, **POTENTIAL_RISK**는 관찰된 위험(재현 없음), **IMPROVEMENT**는 결함은 아니지만 개선 여지가 있는 항목이다.\n\n### CONFIRMED_ISSUE\n\n| ID | 요약 | 영향 기능 |\n|---|---|---|\n| ERR004 | `Editor.save.onError`가 409를 status만 보고 ConflictPanel로 처리하고 서버 detail(ErrorNotice)을 숨긴다. FK 경쟁 409에서도 '먼저 수정되었습니다'가 나오고, '내 내용 유지' 뒤 재저장이 같은 원인으로 다시 실패할 수 있다. 새 글의 409는 패널 없이 ErrorNotice만 보인다 | F003·F006·F008 |\n\n### POTENTIAL_RISK\n\n| ID | 요약 | 영향 기능 |\n|---|---|---|\n| ERR001 | `IsOverload`가 57014·55P03·`RenderBusyException` 외에는 false라 기본 500이 된다. `UseExceptionHandler`가 `UseStatusCodePages`보다 바깥이라 공개 경로 500 본문이 HTML인지 ProblemDetails인지 미확정. `ErrorPipelineTests`는 상태만 검사. 쿠키가 붙은 관리 요청은 `SessionValidator`의 DB 예외로 실패할 수 있다 | F001·F002·F008·F012~F017 |\n| ERR002 | `CreateAsync`/`UpdateAsync`가 `CommitAsync` 뒤 `PostQueries.GetDetailAsync`로 재조회한다. 이 재조회가 실패하면 저장됐는데 클라이언트는 오류를 받고, 생성 재시도는 slug 409가 된다 | F003 |\n| ERR003 | `UpdateAsync`의 `TagResolver.ResolveIdsAsync`(213행 부근)가 try(226행) 밖이라 DB 오류가 409 매핑을 받지 못하고 전역 처리로 간다. 트랜잭션은 dispose로 롤백 | F006·F008 |\n| ERR005 | `LogoutAsync`의 `ExecuteUpdateAsync`가 0행이어도 204를 준다. 로그인은 `SingleAsync`가 행 부재 시 `InvalidOperationException` | F001 |\n| ERR007 | 슬롯을 얻은 뒤 Markdig 렌더는 취소·타임아웃이 없는 동기 CPU 작업이다(적대적 입력 시 문서상 최대 약 8.5초). 방어는 동시성 제한과 분당 한도뿐 | F003·F004·F011·F013 |\n| ERR008 | 첨부 업로드는 INSERT 없이 끝나면 보상 삭제가 없다(`AttachmentJanitor`가 1시간 경과분을 6시간 주기로 정리). 23505 폴백의 `SingleAsync`는 행이 사라지면 `InvalidOperationException` 500 | F009 |\n| ERR009 | `PublicAttachmentEndpoints.GetAsync`는 `FileNotFoundException`·`DirectoryNotFoundException`만 404로 바꾼다. 그 밖의 I/O 예외와 `PhysicalPath`의 루트 이탈 `InvalidOperationException`(try 밖)은 500. 헤더 전송 후 오류 동작은 UNKNOWN | F010 |\n| ERR011 | `drafts.ts` 기본 인자 `window.localStorage`가 try 밖에서 평가된다(추론). `previewCsp`는 origin 형식이 틀리면 렌더 중 Error를 던지고 `PreviewPane`에 catch가 없다 | F004·F005 |\n| ERR012 | `HighlightCss.Value`가 Lazy 기본 모드라 첫 Build 예외가 캐시되어 재시작 전까지 `/css/highlight.css`가 500일 수 있다(추론) | F017 |\n| ERR015 | `MarkdownRenderer.RenderDetailed`의 null·UTF-8 한도 검사(113-117행: `ThrowIfNull`, `GetByteCount > MaxInputBytes` → `ArgumentException`)는 try 밖이라 `MarkdownTooComplexException`이 아닌 일반 예외가 된다. 저장·미리보기는 사전 검증하지만 공개 `PostModel.RenderAsync`는 DB CHECK(`CK_Posts_Content_Size`)에 의존하므로 우회 시 500. 138-143행은 try 안 `ArgumentException`을 `MarkdownTooComplexException`으로 감싸는 catch다 | F011·F013 |\n\n### IMPROVEMENT\n\n| ID | 요약 |\n|---|---|\n| ERR006 | 로그 없이 삼키는 지점: `AttachmentLock.Releaser.DisposeAsync`(unlock 실패), `RenderedPostCache.Store`(SizeLimit 초과 거부), `PostModel.RenderAsync`의 `MarkdownTooComplexException` 폴백, `HighlightingCodeBlockRenderer` 타임아웃 폴백, 클라이언트 `clearDraft` |\n| ERR010 | `OperationCanceledException` 전용 처리가 없다. 최종 상태·로그 수준은 프레임워크 동작이며 UNKNOWN |\n| ERR013 | `CreateAsync`의 slug 사전 검사(136행)가 렌더(133행) 뒤라 중복 slug 요청도 렌더 슬롯을 쓴다 |\n| ERR014 | 오류 형식이 계층별로 다르다(`/api`는 ProblemDetails, 공개는 고정 HTML, `HostFiltering`은 본문 없는 400). 바인딩 400은 errors 키가 없고, 검색 q 오류는 400 상태로 `Page()`를 직접 렌더링한다. 내부 정보 누출은 확인되지 않았다 |\n\n### 기동 실패 경로\n\n`Program.cs`의 기동 시퀀스는 try/catch 없이 진행되므로 실패하면 예외가 그대로 전파되어 프로세스가 시작되지 못한다.\n\n| 단계 | 위치 | 실패 시 |\n|---|---|---|\n| 설정 검증 | `StartupValidation.Validate`(`Program.cs` 76행) | 잘못된 설정을 설정 키 이름만 담아 예외로 중단 |\n| 저장 루트 쓰기 확인 | `FileSystemAttachmentStore.EnsureRootIsWritable`(79행) | 설정 키를 명시한 실패로 중단 |\n| 마이그레이션 | `adminDb.Database.Migrate()`(85행) | 예외 전파, 종료 |\n| 공개 롤 GRANT | `PublicRoleGrants.Apply`(87행, `Public` 연결 문자열이 있을 때) | 예외 전파, 종료 |\n\n`StartupValidation`은 I/O가 없다는 계약이라 저장 루트 확인이 별도 단계로 분리돼 있다(`Program.cs` 77-79행 주석).\n\n### 백그라운드 작업\n\n`AttachmentJanitor`는 `PeriodicTimer` 루프에서 `OperationCanceledException`을 제외한 예외를 잡아 `LogError(\"첨부 청소 실패. 다음 주기에 다시 시도한다.\")` 후 다음 틱에 다시 시도한다(`AttachmentJanitor.cs` 61-63행). 스윕 내부에는 `IOException`·`UnauthorizedAccessException`(147행)과 잠금 타임아웃(109행)을 위한 별도 catch가 있다. 알림 체계는 확인하지 못했다.\n\n### 계층별 실패 경로 예\n\n- **F001 로그인**: 게이트 실패(404/403)는 속도 제한 예산을 쓰지 않는다. 비밀번호 불일치는 `LogWarning`(RemoteIp만) 후 401, 쿠키 미발급.\n- **F003/F006 저장**: version 불일치는 렌더 전에 409, `DbUpdateConcurrencyException`과 23505·23503은 catch되어 409, `MarkdownTooComplexException`은 contentMarkdown 400, `RenderBusyException`은 503.\n- **F009 첨부**: 0바이트·필드 없음 400, 크기 초과 413, 시그니처 불일치·구조 손상 415, 잠금 대기 초과 503.\n- **공개 페이지**: 잘못된 slug·page는 DB 조회 전에 404, 빈 쪽은 COUNT·SELECT 후 404. 검색 q 검증 실패는 400 상태로 직접 렌더링해 StatusCodePages가 덮어쓰지 않는다.\n\n### 개선 제안(분석과 분리)\n\n- ERR001: 일시적 DB 장애를 `IsOverload`에 포함할지 검토하고 500 본문 형식을 경로 접두사별 테스트로 고정한다.\n- ERR004: 409에 원인 구분 코드(extensions)를 넣는다.\n- ERR002: 재조회 실패 시 저장 성공을 알리는 폴백 응답을 준다.\n- ERR005: 0행이면 오류 처리하거나 경고 로그를 남긴다.\n- ERR008: 폴백 조회를 `SingleOrDefault`로 바꾸고 INSERT 실패 시 보상 삭제를 검토한다.\n- ERR012: `LazyThreadSafetyMode.PublicationOnly` 또는 기동 시 Build 검증."
+    },
+    {
+      "id": "evidence",
+      "heading": "코드 근거",
+      "unchanged": false,
+      "diagrams": [],
+      "body": "## 코드 근거\n\n| 주장 | 파일 | 심볼·줄 |\n|---|---|---|\n| 전역 핸들러 등록 | `PortfolioBlog.Api/Program.cs` | 43·47·100·101행 |\n| 바인딩 실패를 예외 없이 400 | `PortfolioBlog.Api/Program.cs` | 48-49행 |\n| 기동 검증·마이그레이션 | `PortfolioBlog.Api/Program.cs` | 76·79·85·87행 |\n| 과부하 판정과 503 | `PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs` | `TryHandleAsync` 35-42, `IsOverload` 63-70 |\n| 상태 코드 본문 | `PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs` | `HandleStatusCodeAsync`/`WriteAsync` |\n| 관리 표면 게이트 | `PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs` | `InvokeAsync` 67-96 |\n| 기동 설정 검증 | `PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs` | `StartupValidation.Validate` |\n| 저장 루트 확인·경로 이탈 | `PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs` | `EnsureRootIsWritable` 93, `PhysicalPath` 136-147 |\n| 본문 상한 | `PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs` | 21, 47-55, 84 |\n| 속도 제한 429 | `PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs` | 44-72, 88-101 |\n| 409 매핑 | `PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs` | `Problem`, `IsConstraintRace` |\n| 글 수정 충돌 처리 | `PortfolioBlog.Api/Features/Posts/PostEndpoints.cs` | `UpdateAsync` 199-238, `RenderOrAddErrorAsync` 323-334 |\n| 렌더 슬롯 대기 | `PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs` | `RenderAsync` 86-98 |\n| 렌더 입력 검사·예외 래핑 | `PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs` | `RenderDetailed` 113-117, 138-143 |\n| 첨부 잠금 | `PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs` | `HoldAsync` 52-62 |\n| 첨부 청소 실패 | `PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs` | 61-63행 |\n| SPA 오류 안내 | `PortfolioBlog.Web/src/api/errors.ts` | `describeError` |\n| SPA 401 처리 | `PortfolioBlog.Web/src/app/queryClient.ts` | `noteAuthFailure` 11-18 |\n| SPA 임시본 | `PortfolioBlog.Web/src/lib/drafts.ts` | `loadDraft`/`saveDraft`/`clearDraft` |\n| 에러 파이프라인 테스트 | `PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs` | `PostgresOverload_MapsTo503`, `RenderBusy_MapsTo503` |\n\n> 이번에 직접 재확인한 코드는 `Program.cs` 기동 시퀀스와 `AttachmentJanitor`의 catch뿐이다. 나머지는 워크스페이스 기능 분석을 인용했다."
+    },
+    {
+      "id": "caveats",
+      "heading": "주의사항",
+      "unchanged": false,
+      "diagrams": [],
+      "body": "## 주의사항\n\n- 409는 원인이 여러 가지다(version 충돌, slug 중복, 참조 삭제 경쟁). 클라이언트가 status만으로 분기하므로 문구를 바꿀 때 `Editor.save.onError`를 함께 본다.\n- `UseExceptionHandler`는 `UseStatusCodePages`보다 바깥이다. 500 본문 형식은 확정되지 않았으니 바꾸기 전에 실측한다.\n- 서버는 재시도하지 않는다. 트랜잭션은 dispose 롤백에 의존하므로 `await using` 구조를 깨지 않는다.\n- `IsOverload`는 InnerException 체인 전체를 본다. 너무 넓히면 오탐이 생기므로 `ErrorPipelineTests`의 과확장 방지 테스트를 유지한다.\n- `TagResolver.ResolveIdsAsync`는 엔드포인트 try 밖에서 호출된다.\n- 기동 시퀀스(`StartupValidation`·`EnsureRootIsWritable`·`Migrate`·`PublicRoleGrants.Apply`)는 try/catch가 없어 실패가 곧 프로세스 종료다.\n- 관리 표면 게이트의 4xx와 `DbConflict` 409는 본문을 직접 쓰므로 `ErrorResponses`를 고쳐도 이들 형식은 바뀌지 않는다.\n- 검색의 q 검증 실패는 400 상태로 본문을 직접 렌더링해 StatusCodePages가 덮어쓰지 않는다."
+    },
+    {
+      "id": "related",
+      "heading": "관련 문서",
+      "unchanged": false,
+      "diagrams": [],
+      "body": "## 관련 문서\n\n- [08_API](08_API.md)\n- [13_SECURITY](13_SECURITY.md)\n- [14_PERFORMANCE](14_PERFORMANCE.md)\n- [12_TROUBLESHOOTING](12_TROUBLESHOOTING.md)\n- [17_TECH_DEBT](17_TECH_DEBT.md)\n- [19_UNKNOWN_AND_TODO](19_UNKNOWN_AND_TODO.md)\n- [F003 글 편집기](features/F003_ADMIN_POST_EDITOR.md)\n- [F006 글 수정 충돌](features/F006_POST_EDIT_CONFLICT.md)\n- [F009 첨부 관리](features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md)\n- [F019 속도 제한](features/F019_RATE_LIMITING.md)\n- [F021 기동 부트스트랩](features/F021_STARTUP_BOOTSTRAP.md)\n- [F024 첨부 청소](features/F024_ATTACHMENT_JANITOR.md)"
+    }
+  ],
+  "relatedDocs": [
+    "08_API.md",
+    "13_SECURITY.md",
+    "14_PERFORMANCE.md",
+    "12_TROUBLESHOOTING.md",
+    "17_TECH_DEBT.md",
+    "19_UNKNOWN_AND_TODO.md",
+    "features/F003_ADMIN_POST_EDITOR.md",
+    "features/F006_POST_EDIT_CONFLICT.md",
+    "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+    "features/F019_RATE_LIMITING.md",
+    "features/F021_STARTUP_BOOTSTRAP.md",
+    "features/F024_ATTACHMENT_JANITOR.md"
+  ],
+  "unknowns": [
+    "500 응답 본문이 공개 HTML 경로에서 ProblemDetails인지 고정 HTML인지(ErrorPipelineTests는 상태 코드만 검사)",
+    "클라이언트 취소(OperationCanceledException)의 최종 상태 코드와 로그 수준",
+    "FileStreamHttpResult가 헤더 전송 후 I/O 오류를 만났을 때의 동작",
+    "태그 삭제 경쟁 시 DbUpdateConcurrencyException 보고 여부(재현 없음)",
+    "window.localStorage 접근 실패 시 Editor가 RouteError로 가는지",
+    "워크스페이스 발췌가 F016에서 잘려 F017 이후 기능의 실패 경로는 반영하지 못함",
+    "전역 로깅 구성과 알림 체계(기동 실패·청소 실패 신호의 수신처)"
+  ]
+}

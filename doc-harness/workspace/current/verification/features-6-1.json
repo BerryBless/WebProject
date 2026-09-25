@@ -1,0 +1,91 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 97
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [],
+  "diagramIssues": [
+    {
+      "document": "features/F019_RATE_LIMITING.md",
+      "diagram": "F019_SEQUENCE",
+      "section": "F019_SEQUENCE",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "다이어그램의 `UseRateLimiter->>ErrorResponses: 상태 429 본문 없음 HandleStatusCodeAsync` 간선이 코드와 다르다. RateLimiter 미들웨어는 RejectionStatusCode=429를 설정하고 OnRejected(Retry-After 헤더만 설정)를 실행한 뒤 반환한다. ErrorResponses.HandleStatusCodeAsync는 파이프라인이 되돌아올 때 바깥의 StatusCodePagesMiddleware(Program.cs 101행 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync))가 호출한다. 문서 본문도 '본문은 UseStatusCodePages(101행)에 연결된 ErrorResponses.HandleStatusCodeAsync가 쓴다'고 적고 있어 다이어그램이 본문과도 어긋난다. StatusCodePagesMiddleware participant를 추가하고 그 participant가 ErrorResponses를 호출하도록 고쳐야 한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101",
+          "symbol": "app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "47-52",
+          "symbol": "AddAppRateLimiting.OnRejected"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "30-31",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync"
+        }
+      ]
+    },
+    {
+      "document": "features/F020_WEB_PIPELINE_PROTECTION.md",
+      "diagram": "F020_SEQUENCE",
+      "section": "F020_SEQUENCE",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "`AdminSurfaceMiddleware-->>StatusCodePagesMiddleware: 인가 단계에서 401 빈 본문` 간선은 401 응답이 AdminSurfaceMiddleware에서 나오는 것으로 그린다. AdminSurfaceMiddleware.InvokeAsync는 404와 403만 만들고 401을 만들지 않는다. 401은 UseAuthorization(Program.cs 107행)에서 인증 챌린지가 일어날 때 쿠키 인증의 OnRedirectToLogin 이벤트가 StatusCode=401로 설정한 것이다. 이 간선은 경유 단계를 묶어 그린 것이 아니라 응답이 어디서 생기는지를 틀리게 표시한다. UseAuthorization(또는 AuthorizationMiddleware) participant를 따로 두고 401 간선을 그 participant에서 내보내야 한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "67-96",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "68",
+          "symbol": "OnRedirectToLogin"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104-108"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F019_RATE_LIMITING.md",
+      "section": "F019_SEQUENCE",
+      "issue": "UseRateLimiter->>ErrorResponses 간선을 지우고, StatusCodePagesMiddleware participant가 429 빈 본문 응답을 받아 ErrorResponses.HandleStatusCodeAsync를 호출하도록 고친다. section=F019_SEQUENCE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "47-52"
+        }
+      ]
+    },
+    {
+      "doc": "features/F020_WEB_PIPELINE_PROTECTION.md",
+      "section": "F020_SEQUENCE",
+      "issue": "401 빈 본문 간선의 출발점을 AdminSurfaceMiddleware에서 UseAuthorization(인가 미들웨어, 쿠키 인증 OnRedirectToLogin) participant로 옮긴다. section=F020_SEQUENCE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "67-96"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+          "lines": "68"
+        }
+      ]
+    }
+  ]
+}

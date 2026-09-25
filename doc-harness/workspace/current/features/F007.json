@@ -1,0 +1,1452 @@
+{
+  "feature": {
+    "id": "F007",
+    "name": "시리즈 관리",
+    "slug": "ADMIN_SERIES_MANAGEMENT",
+    "summary": "관리자가 SPA /series 화면(SeriesPage·SeriesForm)에서 시리즈를 조회·생성·수정·삭제하면 request()가 CSRF 헤더를 붙여 /api/series CRUD를 호출한다. 요청은 Program.cs 파이프라인(UseTrustedForwardedHeaders → AdminSurfaceMiddleware의 호스트·IP·CSRF·Origin 검사 → 세션 인가 → ApiBodyLimitMiddleware 256KB)을 거친다. SeriesEndpoints는 SeriesValidation으로 형식을 검증하고, slug 중복과 slug 불변 규칙은 직접 검사한 뒤 AppDbContext(Series·Posts)에 반영한다. 삭제는 한 트랜잭션에서 시리즈 행을 FOR UPDATE로 잠그고, 소속 글의 SeriesId·SeriesOrder를 함께 비운 뒤 시리즈를 지운다.",
+    "entryPoints": [
+      "SPA /series",
+      "GET /api/series",
+      "GET /api/series/{id:guid}",
+      "POST /api/series",
+      "PUT /api/series/{id:guid}",
+      "DELETE /api/series/{id:guid}"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/api/types.ts",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Web/src/api/errors.ts",
+      "PortfolioBlog.Web/src/lib/validation.ts",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/components/Layout.tsx",
+      "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+      "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Contracts/SeriesDtos.cs",
+      "PortfolioBlog.Api/Contracts/ValidationErrors.cs",
+      "PortfolioBlog.Api/Contracts/TextRules.cs",
+      "PortfolioBlog.Api/Domain/Series.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+      "PortfolioBlog.Web/src/test/auth.test.tsx"
+    ],
+    "dependencies": [
+      "F001",
+      "F018",
+      "F020",
+      "F029"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: 시리즈 관리는 지금 동작하는 관리용 CRUD 기능이다. 이번 재검증에서도 코드는 이전 분석과 일치했다. 이 기능의 파일은 직접 변경되지 않았고, 작업 트리에서 변경된 API 파일은 TagEndpoints.cs뿐이다. 서버는 SeriesEndpoints의 정적 핸들러 5개(List/Get/Create/Update/Delete)로 이루어지고, SPA에서는 SeriesPage 한 화면이 이를 쓴다. 형식 검증은 SeriesValidation이 한다. SPA의 validateSeries는 같은 규칙을 먼저 검사하는 편의 기능이고, 최종 판정은 서버가 한다. 생성할 때는 AnyAsync로 slug 중복을 먼저 조회한다(중복이면 409). 그 뒤 같은 slug가 동시에 만들어지는 경쟁은 SaveChangesAsync의 유니크 위반(23505)을 DbConflict.IsConstraintRace가 409로 바꿔 막는다. slug는 만든 뒤 바꿀 수 없어서, PUT 요청의 slug가 현재 값과 다르면 400이다. 삭제는 한 트랜잭션 안에서 FOR UPDATE 잠금, Posts의 SeriesId·SeriesOrder 동시 비우기, Series ExecuteDeleteAsync 순으로 진행한다. FK 위반(23503)이면 409, 삭제된 행이 0이면 404이고, 두 경우 모두 커밋하지 않아 dispose에서 롤백된다. 모든 /api/series 요청은 Program.cs 98-108행 파이프라인을 거친다(SecurityHeaders → TrustedForwardedHeaders → ExceptionHandler(OverloadExceptionHandler) → StatusCodePages(ErrorResponses) → StaticFiles → AdminSurfaceMiddleware(F018) → RateLimiter → Authentication/Authorization(F001) → ApiBodyLimitMiddleware(F020)). 그래서 F007의 의존은 F001·F018·F020·F029로 유지한다. 속도 제한 메타데이터가 없어 F019는 적용되지 않는다. 서버와 클라이언트 모두 자동 재시도를 하지 않는다(queryClient retry:false). 이번에 새로 확인한 것은 Posts.Version이 xmin 행 버전이라는 점(AppDbContext 96행)이다. 그래서 시리즈 삭제의 ExecuteUpdateAsync는 소속 글의 Version을 바꾼다. 이는 F006(글 저장 충돌)이 F007에 의존한다는 기능 문서 서술을 뒷받침한다.",
+  "entryPoints": [
+    {
+      "text": "SPA 라우트 /series는 RequireAuth → Layout 아래에서 SeriesPage를 렌더링한다(F029 셸). Layout 상단 내비게이션의 '시리즈' 링크로 들어간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "9,31"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "symbol": "LINKS",
+          "lines": "8"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesPage",
+          "lines": "53-93"
+        }
+      ]
+    },
+    {
+      "text": "/api/series 그룹은 MapSeriesEndpoints가 등록한다. GET ''(ListSeries), GET /{id:guid}(GetSeries), POST ''(CreateSeries), PUT /{id:guid}(UpdateSeries), DELETE /{id:guid}(DeleteSeries)다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.MapSeriesEndpoints",
+          "lines": "29-37"
+        }
+      ]
+    },
+    {
+      "text": "/api 그룹 전체에 RequireHost(관리 호스트)와 RequireAuthorization(세션 정책)이 걸려 있다. 따라서 시리즈 엔드포인트는 관리 호스트로 들어오고 로그인 세션이 있는 요청만 받는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "symbol": "ApiEndpoints.MapApiEndpoints",
+          "lines": "34-47"
+        }
+      ]
+    },
+    {
+      "text": "요청은 엔드포인트에 닿기 전에 Program.cs 파이프라인을 이 순서로 지난다: SecurityHeadersMiddleware(98) → UseTrustedForwardedHeaders(99) → UseExceptionHandler(100) → UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)(101) → UseStaticFiles(103) → AdminSurfaceMiddleware(104) → UseRateLimiter(105) → UseAuthentication(106) → UseAuthorization(107) → ApiBodyLimitMiddleware(108).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "98-108"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "symbol": "AccessServiceCollectionExtensions.UseTrustedForwardedHeaders"
+        }
+      ]
+    },
+    {
+      "text": "GET /api/series/{id}(상세+소속 글 목록)는 서버 라우트로 살아 있고 테스트가 호출한다. 그러나 SPA에서 series.get 헬퍼를 호출하는 곳은 없다. SeriesPage는 list/create/update/remove만, PostEditorPage는 list만 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Detail_OrdersPostsBySeriesOrder_ThenCreatedAt_AllowingDuplicateOrders"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "series.get",
+          "lines": "27"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "95"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "SeriesPage",
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesPage",
+      "description": "화면이 마운트되면 useQuery(['series','list'])로 api.list(signal)를 호출한다. 로딩 중에는 Loading을 보여 주고, 실패하면 ErrorNotice와 다시 시도 버튼(list.refetch)을 보여 준다."
+    },
+    {
+      "step": 2,
+      "component": "request",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "description": "/api 경로 요청에 X-Requested-With: XMLHttpRequest(CSRF 헤더)를 붙여 fetch한다. 응답이 2xx가 아니면 toApiError로 ApiError(status, title, detail, fieldErrors, retryAfter)를 던진다."
+    },
+    {
+      "step": 3,
+      "component": "UseTrustedForwardedHeaders",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "AccessServiceCollectionExtensions.UseTrustedForwardedHeaders",
+      "description": "SecurityHeadersMiddleware 바로 뒤에서 실행된다. 신뢰 프록시가 설정된 경우에만 ForwardedHeaders 처리로 원격 IP를 정한다. 이어서 UseExceptionHandler, UseStatusCodePages, UseStaticFiles를 지난다."
+    },
+    {
+      "step": 4,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "description": "/api 요청에 Cache-Control: no-store를 단다. 관리 호스트가 아니면 404, 허용 IP가 아니면 403, CSRF 헤더가 없으면 403, GET/HEAD가 아닌데 Origin이 관리 origin과 다르면 403으로 거부한다. 통과하면 UseRateLimiter(시리즈는 메타데이터가 없어 제한 없음)와 UseAuthentication/UseAuthorization(세션이 없으면 401)을 지난다."
+    },
+    {
+      "step": 5,
+      "component": "ApiBodyLimitMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+      "description": "자체 크기 상한이 없는 /api 엔드포인트(시리즈 포함)의 본문을 256KB(JsonLimitBytes)로 제한한다. Content-Length가 상한을 넘으면 즉시 413이다. 길이를 선언하지 않은 본문은 읽는 도중 413 예외가 난다."
+    },
+    {
+      "step": 6,
+      "component": "SeriesEndpoints",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.ListAsync",
+      "description": "AsNoTracking으로 Series를 Title, Id 순으로 정렬하고, Project로 SeriesDto 배열(Posts.Count 서브쿼리 포함)을 만들어 200으로 응답한다."
+    },
+    {
+      "step": 7,
+      "component": "SeriesForm",
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesForm.submit",
+      "description": "만들기나 수정 저장을 누르면 validateSeries로 로컬 검증을 한다. 오류가 있으면 필드 오류만 표시하고 요청은 보내지 않는다. 오류가 없으면 busy=true로 바꾸고 onSubmit(api.create 또는 api.update)을 직접 await한다. useMutation은 쓰지 않는다."
+    },
+    {
+      "step": 8,
+      "component": "SeriesEndpoints",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.CreateAsync",
+      "description": "SeriesValidation.Validate가 실패하면 400 ValidationProblem이다. 통과하면 db.Series.AnyAsync로 slug 중복을 조회하고, 중복이면 DbConflict.Problem으로 409를 준다. 중복이 없으면 Domain.Series(Slug는 받은 값 그대로, Title은 Trim, Description은 Trim하고 null이면 빈 문자열)를 Add하고 SaveChangesAsync한다."
+    },
+    {
+      "step": 9,
+      "component": "DbConflict",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.IsConstraintRace",
+      "description": "SaveChangesAsync가 DbUpdateException을 던지고 InnerException이 PostgresException 23505/23503이면 409 '같은 slug의 시리즈가 방금 만들어졌습니다.'로 응답한다. 저장에 성공하면 Audit 로그를 남기고 201 Created(Location /api/series/{id}, PostCount 0)를 준다."
+    },
+    {
+      "step": 10,
+      "component": "SeriesEndpoints",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.UpdateAsync",
+      "description": "먼저 추적 조회를 해서 시리즈가 없으면 404다. 있으면 Validate를 실행하고, req.Slug가 null이 아니면서 현재 slug와 다르면 slug 불변 오류를 추가한다. 오류가 하나라도 있으면 400이다. 통과하면 Title·Description만 바꿔 SaveChangesAsync한다. DbUpdateConcurrencyException이면 404다. 성공하면 Audit 로그를 남기고 Project로 다시 조회해 200을 준다(재조회 결과가 null이면 404)."
+    },
+    {
+      "step": 11,
+      "component": "SeriesPage",
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesPage.confirmRemove",
+      "description": "삭제를 누르면 window.confirm이 제목과 소속 글 수를 보여 준다. 확인하면 remove.mutate가 api.remove(DELETE)를 호출한다. onSettled에서 성공·실패와 관계없이 ['series'] 쿼리를 무효화한다."
+    },
+    {
+      "step": 12,
+      "component": "SeriesEndpoints",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.DeleteAsync",
+      "description": "BeginTransactionAsync 다음 첫 문장으로 SELECT 1 FROM \"Series\" WHERE \"Id\" = id FOR UPDATE를 실행해 행을 잠근다. 이어서 Posts.Where(SeriesId==id).ExecuteUpdateAsync로 SeriesId·SeriesOrder를 한 UPDATE에서 함께 null로 만들고, Series.Where(Id==id).ExecuteDeleteAsync를 실행한다."
+    },
+    {
+      "step": 13,
+      "component": "SeriesEndpoints",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.DeleteAsync",
+      "description": "PostgresException 23503이면 409를 주고 커밋하지 않는다. 트랜잭션은 await using dispose에서 롤백된다. 삭제된 행이 0이면 404를 주고 마찬가지로 롤백된다. 1행이면 CommitAsync한 뒤 Audit 로그를 남기고 204를 준다."
+    },
+    {
+      "step": 14,
+      "component": "ErrorResponses",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync",
+      "description": "TypedResults.NotFound()처럼 본문 없는 오류 응답이 /api 경로이면, UseStatusCodePages 콜백이 ProblemDetails 본문을 채운다."
+    },
+    {
+      "step": 15,
+      "component": "SeriesPage",
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesPage.refresh",
+      "description": "생성·수정이 성공하면 refresh(invalidateQueries ['series'])로 목록을 다시 불러온다. 생성 폼은 입력을 EMPTY로 비우고, 수정 폼은 setEditing(null)로 닫는다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesPage",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesForm",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "LINKS",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "series",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "toApiError / parseFieldErrors",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/types.ts",
+      "symbol": "Series / SeriesPost / SeriesDetail / UpsertSeriesRequest",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/validation.ts",
+      "symbol": "validateSeries / LIMITS",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure / createQueryClient",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "seriesList (['series','list'] 공유) / 저장 onSuccess의 ['series'] 무효화",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "AccessServiceCollectionExtensions.UseTrustedForwardedHeaders",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+      "symbol": "SeriesValidation.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "symbol": "SlugRules.IsValid",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TextRules.cs",
+      "symbol": "TextRules.ContainsNul",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/ValidationErrors.cs",
+      "symbol": "ValidationErrors",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/SeriesDtos.cs",
+      "symbol": "SeriesDto / SeriesPostDto / SeriesDetailDto / UpsertSeriesRequest",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Series.cs",
+      "symbol": "Series",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+      "symbol": "SeriesEndpointsTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/auth.test.tsx",
+      "symbol": "SeriesForm 401 처리 테스트",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력: SeriesForm 상태 {slug,title,description}(TS UpsertSeriesRequest)가 JSON 본문으로 전송되고, 서버의 UpsertSeriesRequest record에 바인딩된다. ThrowOnBadRequest=false 설정 때문에 바인딩 실패는 예외가 아니라 400이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "series.create / series.update",
+          "lines": "28-29"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/types.ts",
+          "symbol": "UpsertSeriesRequest",
+          "lines": "23"
+        },
+        {
+          "file": "PortfolioBlog.Api/Contracts/SeriesDtos.cs",
+          "symbol": "UpsertSeriesRequest"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "48-49"
+        }
+      ]
+    },
+    {
+      "text": "생성 시 Slug는 받은 값 그대로 저장한다(공백·대문자는 형식 검증에서 이미 거부된다). Title은 Trim해서 저장한다. Description도 Trim하되 null이면 빈 문자열로 저장한다. Id는 Domain.Series 기본값으로 정해진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.CreateAsync",
+          "lines": "114"
+        },
+        {
+          "file": "PortfolioBlog.Api/Domain/Series.cs"
+        }
+      ]
+    },
+    {
+      "text": "출력: 목록·수정 응답은 Project()가 만드는 SeriesDto(Id, Slug, Title, Description, PostCount=Posts.Count 서브쿼리)다. 생성 응답은 PostCount를 0으로 고정해 직접 만든다. 상세 응답은 SeriesDetailDto(SeriesDto, SeriesPostDto[])다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.Project",
+          "lines": "50-51"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.CreateAsync",
+          "lines": "125"
+        },
+        {
+          "file": "PortfolioBlog.Api/Contracts/SeriesDtos.cs"
+        }
+      ]
+    },
+    {
+      "text": "상세의 소속 글 목록은 SeriesPostDto(Id, Slug, Title, SeriesOrder!.Value) 배열이다. (SeriesOrder, CreatedAt, Id) 순으로 안정 정렬하며, 순서값 중복을 허용한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.GetAsync",
+          "lines": "85-89"
+        }
+      ]
+    },
+    {
+      "text": "클라이언트 캐시: 목록은 TanStack Query 키 ['series','list']에 둔다. 시리즈 생성·수정·삭제 뒤에는 ['series'] 접두로 무효화해 다시 조회한다. PostEditorPage도 같은 키로 시리즈 선택 목록을 읽는다. 글 저장 성공 때도 ['series']를 무효화하므로 소속 글 수(postCount)가 다시 조회된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "56-58,75,90"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "95,168"
+        }
+      ]
+    },
+    {
+      "text": "400 응답 본문의 ValidationProblem errors(필드 키 slug/title/description)는 ValidationErrors.ToDictionary가 만든다. SPA에서는 toApiError→parseFieldErrors를 거쳐 ApiError.fieldErrors가 되고, SeriesForm이 FieldError로 해당 필드 아래에 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Contracts/ValidationErrors.cs",
+          "symbol": "ValidationErrors.Add / ToDictionary"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "parseFieldErrors / toApiError"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesForm.submit",
+          "lines": "34,40-43"
+        }
+      ]
+    },
+    {
+      "text": "본문 없는 404(TypedResults.NotFound)는 /api 경로에서 ErrorResponses가 ProblemDetails로 채운다. 413은 ApiBodyLimitMiddleware가 ErrorResponses.WriteAsync로 직접 쓴다. 409는 DbConflict.Problem이 title '충돌'과 detail을 직접 담는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.Problem",
+          "lines": "50-51"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "(없음)",
+      "to": "Series 행 존재",
+      "trigger": "POST /api/series 성공(CreateAsync SaveChangesAsync)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.CreateAsync",
+          "lines": "114-125"
+        }
+      ]
+    },
+    {
+      "from": "Series 행 존재",
+      "to": "Series 행 존재(Title·Description 갱신, Slug 불변)",
+      "trigger": "PUT /api/series/{id} 성공(UpdateAsync)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.UpdateAsync",
+          "lines": "153-160"
+        }
+      ]
+    },
+    {
+      "from": "Series 행 존재",
+      "to": "Series 행 삭제",
+      "trigger": "DELETE /api/series/{id} 트랜잭션 커밋(DeleteAsync)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync",
+          "lines": "211-222"
+        }
+      ]
+    },
+    {
+      "from": "Post 시리즈 소속(SeriesId·SeriesOrder non-null)",
+      "to": "Post 시리즈 미소속(SeriesId·SeriesOrder 모두 null, UpdatedAt 유지, xmin Version 변경)",
+      "trigger": "시리즈 삭제 트랜잭션의 ExecuteUpdateAsync(커밋 시 확정)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync",
+          "lines": "204-206"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Delete_KeepsPosts_AndClearsBothSeriesFields"
+        }
+      ]
+    },
+    {
+      "from": "SeriesPage 목록 항목 보기",
+      "to": "항목 인라인 수정 폼(editing=item.id)",
+      "trigger": "'수정' 버튼 클릭",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "55,73-80"
+        }
+      ]
+    },
+    {
+      "from": "항목 인라인 수정 폼",
+      "to": "SeriesPage 목록 항목 보기",
+      "trigger": "수정 저장 성공(setEditing(null)) 또는 '취소' 클릭",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "75"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Series",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.ListAsync (Project, Posts.Count 서브쿼리)"
+    },
+    {
+      "entity": "Series",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.GetAsync"
+    },
+    {
+      "entity": "Posts",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.GetAsync (SeriesId 필터, SeriesOrder·CreatedAt·Id 정렬)"
+    },
+    {
+      "entity": "Series",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.CreateAsync (slug 중복 AnyAsync)"
+    },
+    {
+      "entity": "Series",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.CreateAsync"
+    },
+    {
+      "entity": "Series",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.UpdateAsync (추적 조회·저장 후 재조회)"
+    },
+    {
+      "entity": "Series",
+      "operation": "UPDATE",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.UpdateAsync"
+    },
+    {
+      "entity": "Series",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.DeleteAsync (SELECT 1 ... FOR UPDATE 행 잠금)"
+    },
+    {
+      "entity": "Posts",
+      "operation": "UPDATE",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.DeleteAsync (ExecuteUpdateAsync SeriesId·SeriesOrder=null)"
+    },
+    {
+      "entity": "Series",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints.DeleteAsync (ExecuteDeleteAsync)"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL(Npgsql + EF Core)을 쓴다. Series 테이블에는 Slug 길이 제한(SlugMax 100)·Title 길이 제한(TitleMax 200)·Description 길이 제한(SeriesDescriptionMax 1000), CK_Series_Slug_Format과 CK_Series_Title_NotBlank CHECK 제약이 있다. Posts→Series FK는 Restrict이고, Posts에는 CK_Posts_Series_Pair가 있으며 Version은 xmin 행 버전이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.OnModelCreating",
+          "lines": "51-63,96-120"
+        }
+      ]
+    },
+    {
+      "text": "삭제와 글 저장의 경쟁은 PostgreSQL 행 잠금 의미론(FOR UPDATE가 FK 검사의 FOR KEY SHARE와 충돌)과 READ COMMITTED 격리 수준을 전제로 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync",
+          "lines": "195-202"
+        }
+      ]
+    },
+    {
+      "text": "SPA는 @tanstack/react-query(useQuery·useMutation·useQueryClient), 브라우저 fetch, window.confirm을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "1-2,56-62"
+        }
+      ]
+    },
+    {
+      "text": "/api 요청에는 AdminSurfaceMiddleware가 요구하는 CSRF 헤더 X-Requested-With: XMLHttpRequest가 붙는다. 서버 상수와 클라이언트가 보내는 값이 같다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        }
+      ]
+    },
+    {
+      "text": "리버스 프록시 뒤에서 운영할 때 AdminSurfaceMiddleware의 IP 허용 판정은 UseTrustedForwardedHeaders가 등록하는 ForwardedHeaders 처리에 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+          "symbol": "AccessServiceCollectionExtensions.UseTrustedForwardedHeaders"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "99"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "AdminSurfaceMiddleware.InvokeAsync",
+      "condition": "관리 호스트가 아님 / 허용 IP가 아님 / X-Requested-With 누락 / GET·HEAD가 아닌데 Origin 불일치",
+      "handling": "본문을 읽기 전에 404 또는 403 ProblemDetails로 거부하므로 시리즈 핸들러까지 가지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "104"
+        }
+      ]
+    },
+    {
+      "where": "UseAuthorization(/api 그룹 RequireAuthorization)",
+      "condition": "세션이 없거나 만료됨",
+      "handling": "401을 준다. SPA에서는 noteAuthFailure가 ME_KEY를 authenticated:false로 기록하고, RequireAuth가 로그인 화면으로 보낸다. SeriesForm은 noteAuthFailure를 직접 호출하고, remove·list는 MutationCache/QueryCache.onError를 거친다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesForm.submit",
+          "lines": "29-33"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "noteAuthFailure",
+          "lines": "11-18"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/auth.test.tsx"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware.InvokeAsync",
+      "condition": "POST/PUT 본문이 256KB(JsonLimitBytes)를 넘음",
+      "handling": "Content-Length가 선언돼 있으면 ErrorResponses로 413 ProblemDetails를 준다. 선언이 없는 본문은 읽는 도중 413 예외가 난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.CreateAsync / UpdateAsync",
+      "condition": "SeriesValidation.Validate 실패: slug 비었음·NUL·형식/길이 위반, 제목 공백·NUL·길이 초과, 설명 NUL·길이 초과",
+      "handling": "TypedResults.ValidationProblem(errors.ToDictionary())으로 필드별 400을 준다. SPA는 fieldErrors를 해당 필드 아래에 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "symbol": "SeriesValidation.Validate",
+          "lines": "28-45"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "110-111,151-154"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Create_Invalid_Returns400_Duplicate_Returns409"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.CreateAsync",
+      "condition": "AnyAsync 사전 조회에서 같은 slug가 이미 있음",
+      "handling": "DbConflict.Problem으로 409 'slug ...는 이미 쓰이고 있습니다.'를 준다. SPA는 이를 ErrorNotice(failure)로 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "112"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "34,44"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.CreateAsync SaveChangesAsync",
+      "condition": "사전 검사를 통과한 뒤 같은 slug가 동시에 만들어져 INSERT에서 유니크 위반(23505)이 남",
+      "handling": "catch (DbUpdateException) when DbConflict.IsConstraintRace에서 409 '같은 slug의 시리즈가 방금 만들어졌습니다.'를 준다. 서버는 재시도하지 않는다. DbConflict 주석에 그 이유(변경 추적기 정리가 복잡하고, 클라이언트 재시도가 더 투명함)가 적혀 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "116-123"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.IsConstraintRace",
+          "lines": "15,36-37"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.UpdateAsync / GetAsync",
+      "condition": "대상 시리즈 Id가 없음",
+      "handling": "404 NotFound를 주고 ErrorResponses가 ProblemDetails 본문을 채운다. UpdateAsync는 검증보다 존재 확인을 먼저 하므로, 없는 Id에 잘못된 본문을 보내도 404다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "83-84,148-149"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.UpdateAsync",
+      "condition": "요청 slug가 null이 아니면서 현재 slug와 다름",
+      "handling": "errors.Add('slug', 'slug는 생성 후 바꿀 수 없습니다.')를 추가하고 400을 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "152-154"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Update_ChangesTitleAndDescription_ButNotSlug"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.UpdateAsync SaveChangesAsync",
+      "condition": "조회 뒤 저장 직전에 다른 요청이 시리즈를 삭제해 UPDATE가 0행에 적용됨",
+      "handling": "catch DbUpdateConcurrencyException에서 404를 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "158-166"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.UpdateAsync 재조회",
+      "condition": "저장은 성공했지만 재조회 직전에 시리즈가 삭제됨",
+      "handling": "SingleOrDefaultAsync 결과가 null이면 404를 준다. SingleAsync였다면 났을 예외(500)를 피한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "169-171"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.DeleteAsync ExecuteDeleteAsync",
+      "condition": "FOR UPDATE 선점으로도 막지 못한 경쟁으로 FK 위반(PostgresException 23503)이 남",
+      "handling": "catch PostgresException when SqlState==23503에서 409 '참조하는 글이 방금 추가되었습니다...'를 준다. 커밋하지 않으므로 await using dispose에서 롤백되고, 앞서 실행한 글 UPDATE도 원래대로 돌아간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "209-218"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.DeleteAsync",
+      "condition": "삭제 대상 시리즈가 없음(ExecuteDeleteAsync 0행)",
+      "handling": "404를 준다. 커밋하지 않은 트랜잭션은 dispose에서 롤백된다(주석 219행). FK가 Restrict라 없는 시리즈를 참조하는 글은 있을 수 없으므로, 직전 ExecuteUpdateAsync도 0행이었을 것으로 본다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "205-206,219"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "100-101"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints 전 핸들러 DB 호출",
+      "condition": "예외 체인에 PostgresException 57014(statement_timeout) 또는 55P03(잠금 대기 초과)이 있음",
+      "handling": "OverloadExceptionHandler가 503과 Retry-After를 준다. SPA는 retryAfter 값을 읽지만 자동 재시도는 하지 않는다(queryClient 기본값 retry:false).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,100"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "20-23"
+        }
+      ]
+    },
+    {
+      "where": "SeriesEndpoints.CreateAsync / UpdateAsync / DeleteAsync / ListAsync / GetAsync",
+      "condition": "유니크·FK·동시성·과부하가 아닌 기타 DbUpdateException, 23503이 아닌 PostgresException, DB 연결 오류",
+      "handling": "처리 없음(예외 전파). UseExceptionHandler와 AddProblemDetails가 최종 처리하며, 과부하가 아니면 500 ProblemDetails가 될 것으로 본다. DeleteAsync에서 커밋 전에 난 예외는 await using tx dispose로 롤백된다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "65-66,81-91,116-123,158-166,194-220"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "47,100"
+        }
+      ]
+    },
+    {
+      "where": "SeriesForm.submit (SPA)",
+      "condition": "요청 실패(400·401·403·404·409·413·503·네트워크 등)",
+      "handling": "401이면 noteAuthFailure로 기록한다. 400이면 필드 오류로 표시하고, 그 밖의 오류는 setFailure로 ErrorNotice에 표시한다. 실패하면 refresh를 호출하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesForm.submit",
+          "lines": "23-37"
+        }
+      ]
+    },
+    {
+      "where": "SeriesPage remove 뮤테이션 (SPA)",
+      "condition": "DELETE 실패(404·409·401·503·네트워크)",
+      "handling": "remove.error를 ErrorNotice로 표시한다. onSettled에서 항상 목록을 다시 조회한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "58,68"
+        }
+      ]
+    },
+    {
+      "where": "SeriesPage 목록 조회 (SPA)",
+      "condition": "GET /api/series 실패",
+      "handling": "ErrorNotice와 다시 시도 버튼(list.refetch)을 보여 준다. queryClient 기본 설정이 retry:false라 자동 재시도는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "67"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "22-23"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "PUT에서 slug를 생략(null)하면 SeriesValidation이 'slug는 필수입니다.'로 400을 준다. UpdateAsync에는 'req.Slug is not null' 가드가 있어 null slug에는 불변 오류가 겹쳐 붙지 않는다. 반면 빈 문자열('')은 이 가드를 지나므로, 현재 slug와 다르면 필수 오류와 불변 오류가 함께 쌓인다. SPA는 slugLocked(readOnly) 폼으로 기존 slug를 그대로 보낸다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "lines": "33"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "151-154"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "42,74"
+        }
+      ]
+    },
+    {
+      "text": "PUT에서 형식이 틀린 slug를 현재와 다른 값으로 보내면, 'slug' 키 하나에 형식 오류와 불변 오류 메시지가 함께 쌓인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "151-153"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "lines": "35"
+        }
+      ]
+    },
+    {
+      "text": "끝에 개행이 붙은 slug('abc\\n')는 SlugRules 판정에서 400이 된다. 이 판정은 DB CHECK와 결과를 맞춘 것이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Create_SlugWithTrailingNewline_Returns400"
+        }
+      ]
+    },
+    {
+      "text": "slug·제목·설명의 NUL(U+0000)은 PostgreSQL text에 저장할 수 없다. 검증 단계에서 필드별 400으로 걸러 DB에서 500이 나는 것을 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "lines": "32-41"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Create_NulCharacter_Returns400_NotServerError"
+        }
+      ]
+    },
+    {
+      "text": "시리즈를 삭제하면 소속 글 행이 UPDATE된다. Posts.Version은 xmin 행 버전(IsRowVersion)이므로 이 UPDATE로 글의 Version이 바뀐다. 그 글을 열어 둔 에디터 탭에서 이전 version으로 저장하면 버전 충돌(F006 경로)이 날 것으로 본다. UpdatedAt은 의도적으로 바꾸지 않는다(주석 204행).",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "204-206"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96"
+        }
+      ]
+    },
+    {
+      "text": "같은 시리즈를 참조하는 글 저장과 시리즈 삭제가 동시에 일어나도 500은 나오지 않는다. 삭제는 204나 409로 끝나고, 204로 끝나면 매달린 참조가 남지 않는다. 테스트로 검증되어 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+          "symbol": "Delete_ConcurrentWithPostSaves_NeverReturns500_AndLeavesNoDanglingReference"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "195-202"
+        }
+      ]
+    },
+    {
+      "text": "삭제 트랜잭션이 FOR UPDATE 잠금을 쥐고 있는 동안, 같은 시리즈를 참조하는 글 저장은 삭제가 커밋되거나 롤백될 때까지 블로킹된다. Infrastructure/Data에서 lock_timeout이나 statement_timeout을 설정하는 코드는 공개용 PublicDbContext에만 있고, 관리용 AppDbContext 쪽에서는 보이지 않는다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "197-202"
+        }
+      ]
+    },
+    {
+      "text": "생성 응답의 PostCount는 DB를 조회하지 않고 0으로 고정한다. 새 시리즈이므로 이 값은 정확하다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "125"
+        }
+      ]
+    },
+    {
+      "text": "목록 API에는 페이지네이션이 없어 모든 시리즈를 한 번에 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.ListAsync",
+          "lines": "65-66"
+        }
+      ]
+    },
+    {
+      "text": "시리즈 엔드포인트에는 속도 제한 메타데이터가 없어 속도 제한을 받지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.MapSeriesEndpoints",
+          "lines": "29-37"
+        }
+      ]
+    },
+    {
+      "text": "SPA의 remove는 모든 항목이 뮤테이션 하나를 공유한다. 그래서 삭제가 진행 중이면(remove.isPending) 모든 항목의 삭제 버튼이 비활성화된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "58,81"
+        }
+      ]
+    },
+    {
+      "text": "SeriesForm이 404·409 등으로 실패하면 refresh를 호출하지 않는다. 다른 탭에서 삭제된 시리즈를 수정하다 404가 나도, 사용자가 다시 조회하기 전까지 목록은 이전 상태로 남는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "28-35,75"
+        }
+      ]
+    },
+    {
+      "text": "인라인 수정 폼은 editing 상태(문자열 하나)로 관리되어 한 번에 한 항목만 열린다. 수정 중인 입력값은 폼 로컬 상태라 취소하면 버려진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "18,55,73-75"
+        }
+      ]
+    },
+    {
+      "text": "SeriesPage의 목록 쿼리 키 ['series','list']를 PostEditorPage도 시리즈 선택 목록에 쓴다. 그래서 시리즈를 생성·수정·삭제한 뒤의 ['series'] 무효화가 에디터의 선택 목록도 갱신한다. 반대로 글을 저장하면 PostEditorPage가 ['series']를 무효화해 시리즈 화면의 소속 글 수가 다시 조회된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "56-57"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "95,168"
+        }
+      ]
+    },
+    {
+      "text": "SPA 헬퍼 series.get(GET /api/series/{id})을 호출하는 곳은 SPA에 없다. 서버 엔드포인트를 호출하는 것은 테스트뿐인 것으로 확인된다.",
+      "status": "POSSIBLE_LEGACY",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "series.get",
+          "lines": "27"
+        }
+      ]
+    },
+    {
+      "text": "클라이언트 검증 validateSeries는 서버 SeriesValidation과 AppDbContext 상수(slugMax 100, titleMax 200, seriesDescriptionMax 1000)를 그대로 옮긴 편의 검사다. 최종 판정은 서버가 한다고 주석에 적혀 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/validation.ts",
+          "symbol": "validateSeries / LIMITS",
+          "lines": "4-8,62-68"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "lines": "33-42"
+        }
+      ]
+    },
+    {
+      "text": "공개 sitemap.xml에는 시리즈 URL이 들어가고 Cache-Control: public, max-age=300이 붙는다. 그래서 시리즈를 생성하거나 삭제한 뒤 HTTP 캐시를 거치는 클라이언트에는 최대 5분 동안 이전 목록이 보일 수 있다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "생성에 성공하면 'PortfolioBlog.Api.Audit' 카테고리에 Information 로그 '시리즈 생성. SeriesId={SeriesId} Slug={Slug}'를 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.CreateAsync",
+          "lines": "124"
+        }
+      ]
+    },
+    {
+      "text": "수정에 성공하면 Audit 로그 '시리즈 수정. SeriesId={SeriesId}'를 남긴다. 제목·설명 값은 기록하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.UpdateAsync",
+          "lines": "167"
+        }
+      ]
+    },
+    {
+      "text": "삭제 Audit 로그 '시리즈 삭제. SeriesId={SeriesId}'는 CommitAsync가 끝난 뒤에만 남긴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync",
+          "lines": "220-221"
+        }
+      ]
+    },
+    {
+      "text": "400·404·409 같은 실패 경로에서는 SeriesEndpoints가 별도 로그를 남기지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "lines": "108-223"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F007_SEQUENCE",
+      "type": "sequence",
+      "title": "시리즈 목록 조회와 생성 호출 순서",
+      "summary": "SeriesPage·SeriesForm의 요청은 request()를 거쳐 AdminSurfaceMiddleware·세션 인가·ApiBodyLimitMiddleware를 통과한 뒤 SeriesEndpoints에 닿는다. 생성은 형식 검증, slug 사전 조회, INSERT 순으로 진행되고, 각 단계에서 400·409가 날 수 있다.",
+      "mermaid": "sequenceDiagram\n  participant SeriesPage\n  participant SeriesForm\n  participant request\n  participant AdminSurfaceMiddleware\n  participant ApiBodyLimitMiddleware\n  participant SeriesEndpoints\n  participant SeriesValidation\n  participant DbConflict\n  participant AppDbContext\n  SeriesPage->>request: GET /api/series\n  request->>AdminSurfaceMiddleware: 호스트 IP CSRF 검사\n  AdminSurfaceMiddleware->>SeriesEndpoints: 세션 인가 통과 후 ListAsync\n  SeriesEndpoints->>AppDbContext: SELECT Series + Posts.Count\n  SeriesEndpoints-->>SeriesPage: 200 SeriesDto 배열\n  SeriesForm->>SeriesForm: validateSeries\n  SeriesForm->>request: POST /api/series\n  request->>AdminSurfaceMiddleware: 호스트 IP CSRF Origin 검사\n  AdminSurfaceMiddleware->>ApiBodyLimitMiddleware: 세션 인가 통과 후\n  ApiBodyLimitMiddleware->>SeriesEndpoints: CreateAsync\n  SeriesEndpoints->>SeriesValidation: Validate(req)\n  alt 형식 오류\n    SeriesEndpoints-->>SeriesForm: 400 ValidationProblem\n  else 형식 통과\n    SeriesEndpoints->>AppDbContext: AnyAsync slug 사전 조회\n    alt slug 중복\n      SeriesEndpoints->>DbConflict: Problem\n      SeriesEndpoints-->>SeriesForm: 409 이미 쓰이는 slug\n    else 중복 없음\n      SeriesEndpoints->>AppDbContext: INSERT Series SaveChangesAsync\n      alt DbUpdateException 23505 동시 생성 경쟁\n        SeriesEndpoints->>DbConflict: IsConstraintRace\n        SeriesEndpoints-->>SeriesForm: 409 방금 만들어진 slug\n      else 저장 성공\n        SeriesEndpoints-->>SeriesForm: 201 SeriesDto PostCount 0\n        SeriesForm->>SeriesPage: refresh invalidateQueries series\n      end\n    end\n  end",
+      "details": "목록 조회는 SeriesPage의 useQuery(['series','list'])에서 시작한다. GET 요청이라 Origin 검사가 없고 본문도 없으므로 ApiBodyLimitMiddleware는 통과만 한다. 생성은 SeriesForm.submit이 validateSeries로 로컬 검증을 먼저 하고, 통과하면 api.create를 직접 await한다. 서버 CreateAsync는 SeriesValidation.Validate → AnyAsync slug 사전 조회 → Add+SaveChangesAsync 순으로 처리한다. 사전 조회와 INSERT 사이의 경쟁은 DB 유니크 제약이 막고, DbConflict.IsConstraintRace가 이를 409로 바꾼다. 성공하면 refresh가 ['series'] 접두 쿼리를 무효화한다. 파이프라인의 다른 미들웨어(SecurityHeaders, ForwardedHeaders, ExceptionHandler, StatusCodePages, RateLimiter)는 그림을 단순하게 하려고 생략했다.",
+      "nodes": [
+        {
+          "node": "SeriesPage",
+          "code": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesPage"
+        },
+        {
+          "node": "SeriesForm",
+          "code": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesForm"
+        },
+        {
+          "node": "request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "node": "ApiBodyLimitMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync"
+        },
+        {
+          "node": "SeriesEndpoints",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints"
+        },
+        {
+          "node": "SeriesValidation",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "symbol": "SeriesValidation.Validate"
+        },
+        {
+          "node": "DbConflict",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F007_FLOW",
+      "type": "flowchart",
+      "title": "시리즈 삭제 트랜잭션 분기(DeleteAsync)",
+      "summary": "삭제는 한 트랜잭션 안에서 행 잠금, 소속 글 해제, 시리즈 삭제 순으로 진행된다. 1행이 삭제됐을 때만 커밋하고, 그 밖의 경우는 dispose에서 롤백된다.",
+      "mermaid": "flowchart TD\n  DeleteAsync[\"SeriesEndpoints.DeleteAsync\"] --> BeginTx[\"BeginTransactionAsync\"]\n  BeginTx --> LockSeries[\"SELECT 1 FROM Series FOR UPDATE\"]\n  LockSeries --> ClearPosts[\"Posts ExecuteUpdateAsync SeriesId SeriesOrder null\"]\n  ClearPosts --> DeleteSeries[\"Series ExecuteDeleteAsync\"]\n  DeleteSeries -->|\"PostgresException 23503\"| Conflict409[\"DbConflict.Problem 409 tx 롤백\"]\n  DeleteSeries -->|\"0행\"| NotFound404[\"404 NotFound tx 롤백\"]\n  DeleteSeries -->|\"1행\"| CommitTx[\"tx.CommitAsync\"]\n  CommitTx --> AuditLog[\"PortfolioBlog.Api.Audit 시리즈 삭제 로그\"]\n  AuditLog --> NoContent204[\"204 NoContent\"]\n  LockSeries -->|\"57014 또는 55P03\"| Overload503[\"OverloadExceptionHandler 503\"]\n  ClearPosts -->|\"기타 DB 예외\"| Unhandled[\"UseExceptionHandler 예외 전파 tx 롤백\"]",
+      "details": "FOR UPDATE는 트랜잭션의 첫 문장이다. 동시에 같은 시리즈를 참조해 글을 INSERT·UPDATE하면 FK 검사가 FOR KEY SHARE를 요구하므로, 이 잠금과 충돌해 블로킹된다. Posts의 두 컬럼은 CK_Posts_Series_Pair 때문에 한 UPDATE 문에서 함께 비운다. ExecuteDeleteAsync는 벌크 연산이라 FK 위반이 DbUpdateException이 아니라 PostgresException으로 올라온다. 그래서 IsConstraintRace 대신 SqlState를 직접 비교한다. 404·409·예외 경로는 모두 커밋하지 않고 await using dispose에서 롤백되며, 앞서 비운 글 UPDATE도 원래대로 돌아간다. 503 분기는 OverloadExceptionHandler가 57014/55P03을 판정하는 경우이고, 어느 DB 호출에서든 날 수 있다(그림에서는 잠금 단계에만 표시했다).",
+      "nodes": [
+        {
+          "node": "SeriesEndpoints.DeleteAsync",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync"
+        },
+        {
+          "node": "DbConflict.Problem 409 tx 롤백",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.Problem"
+        },
+        {
+          "node": "OverloadExceptionHandler 503",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler"
+        },
+        {
+          "node": "UseExceptionHandler 예외 전파 tx 롤백",
+          "code": "PortfolioBlog.Api/Program.cs"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F007_FLOW_UPDATE",
+      "type": "flowchart",
+      "title": "시리즈 수정 분기(UpdateAsync)",
+      "summary": "수정은 존재 확인을 검증보다 먼저 하고, 형식 오류와 slug 변경 시도를 한 번에 모아 400으로 돌려준다. 저장이나 재조회 사이에 삭제 경쟁이 있으면 500이 아니라 404로 끝난다.",
+      "mermaid": "flowchart TD\n  UpdateAsync[\"SeriesEndpoints.UpdateAsync\"] --> FindSeries[\"Series SingleOrDefaultAsync 추적 조회\"]\n  FindSeries -->|\"없음\"| NotFoundMissing[\"404 NotFound\"]\n  FindSeries -->|\"있음\"| ValidateReq[\"SeriesValidation.Validate\"]\n  ValidateReq --> SlugCheck{\"slug not null 이고 현재와 다름?\"}\n  SlugCheck -->|\"예\"| AddSlugError[\"errors.Add slug 불변\"]\n  SlugCheck -->|\"아니오\"| HasErrors{\"errors.Any?\"}\n  AddSlugError --> HasErrors\n  HasErrors -->|\"예\"| BadRequest400[\"400 ValidationProblem\"]\n  HasErrors -->|\"아니오\"| SaveUpdate[\"SaveChangesAsync UPDATE Title Description\"]\n  SaveUpdate -->|\"DbUpdateConcurrencyException\"| NotFoundRace[\"404 NotFound\"]\n  SaveUpdate -->|\"성공\"| ReloadProject[\"Project 재조회\"]\n  ReloadProject -->|\"null\"| NotFoundAfter[\"404 NotFound\"]\n  ReloadProject -->|\"있음\"| Ok200[\"200 SeriesDto\"]",
+      "details": "UpdateAsync(146-172행)는 추적 조회로 존재를 확인한 뒤 SeriesValidation.Validate를 실행한다. req.Slug가 null이 아니면서 현재 slug와 다르면 불변 오류를 같은 ValidationErrors에 추가한다. 통과하면 Title과 Description(Trim, null이면 빈 문자열)만 바꾼다. 저장 직전에 동시 삭제가 일어나면 EF가 DbUpdateConcurrencyException을 던지고, 이를 404로 바꾼다. 저장 뒤 재조회 직전에 삭제되면 SingleOrDefaultAsync의 null을 404로 처리한다. 성공한 경우에만 Audit 로그를 남긴다.",
+      "nodes": [
+        {
+          "node": "SeriesEndpoints.UpdateAsync",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.UpdateAsync"
+        },
+        {
+          "node": "SeriesValidation.Validate",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+          "symbol": "SeriesValidation.Validate"
+        },
+        {
+          "node": "Project 재조회",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.Project"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F007_STATE",
+      "type": "state",
+      "title": "Series 행과 Posts 시리즈 소속 상태",
+      "summary": "Series 행은 생성, 수정(slug 불변), 삭제의 상태를 거친다. 삭제하면 소속 Post는 지워지지 않고 시리즈 미소속 상태가 된다.",
+      "mermaid": "stateDiagram-v2\n  [*] --> SeriesExists: CreateAsync INSERT Series\n  SeriesExists --> SeriesExists: UpdateAsync Title Description 갱신\n  SeriesExists --> SeriesDeleted: DeleteAsync 커밋\n  SeriesDeleted --> [*]\n  PostInSeries --> PostDetached: DeleteAsync ExecuteUpdateAsync\n  PostDetached --> PostInSeries: 글 저장에서 SeriesId SeriesOrder 지정",
+      "details": "SeriesExists 안에서 가능한 전이는 Title·Description 갱신뿐이다. Slug는 UpdateAsync가 변경을 거부한다. 삭제 커밋은 소속 Post의 SeriesId·SeriesOrder를 함께 null로 바꾸는 전이를 동반한다. 이 UPDATE는 Post의 xmin Version도 바꾼다. PostDetached → PostInSeries 전이는 이 기능이 아니라 글 작성·수정(F003)에서 일어난다.",
+      "nodes": [
+        {
+          "node": "SeriesExists",
+          "code": "PortfolioBlog.Api/Domain/Series.cs",
+          "symbol": "Series"
+        },
+        {
+          "node": "PostDetached",
+          "code": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+          "symbol": "SeriesEndpoints.DeleteAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "처리되지 않은 일반 예외(과부하가 아닌 DB 오류)가 UseExceptionHandler와 AddProblemDetails 조합에서 정확히 어떤 500 본문이 되는지는 프레임워크 기본 동작에 달려 있어, 이 저장소 코드로는 확인하지 못했다.",
+    "관리용 AppDbContext 연결에 lock_timeout이나 statement_timeout을 설정하는 코드는 찾지 못했다. 따라서 삭제의 FOR UPDATE 잠금 대기에 상한이 있는지는 운영 DB 설정에 달려 있으며, 확인하지 못했다.",
+    "공개 시리즈 페이지(F015)와 RenderedPostCache가 시리즈 정보를 서버 쪽에 캐시하는지, 그래서 시리즈 수정·삭제가 공개 쪽에 얼마나 늦게 반영되는지는 조사하지 않았다.",
+    "검증 지적(F006 행을 F001·F003·F005·F007·F008·F011·F018·F020·F029로, F008 행을 F001·F018·F020·F029로, F002 행을 F001·F018·F020·F029로 보정)은 다른 기능의 의존 목록과 기능 간 의존 표에 관한 것이다. 이 세션은 F007 feature 객체만 출력할 수 있어 직접 반영하지 못했다. 코드로 확인한 근거는 다음과 같다. 모든 /api 요청은 Program.cs 104행 AdminSurfaceMiddleware(F018)와 43·100행 OverloadExceptionHandler/UseExceptionHandler(F020)를 거친다. F006→F007은 SeriesEndpoints.DeleteAsync의 ExecuteUpdateAsync가 xmin Version(AppDbContext 96행)을 바꾸는 점으로 뒷받침된다. 따라서 지적은 코드와 맞는다. F007 자신의 의존은 F001·F018·F020·F029로 유지했다(F019는 속도 제한 메타데이터가 없어 제외, F021은 기동 전제일 뿐 호출 경로 의존이 아니라 제외)."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+      "symbol": "SeriesEndpoints",
+      "lines": "1-224"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+      "symbol": "SeriesValidation.Validate",
+      "lines": "28-45"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+      "symbol": "SeriesPage / SeriesForm",
+      "lines": "13-93"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "lines": "34-47"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43-49,98-108"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict",
+      "lines": "17-52"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating",
+      "lines": "96"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "series",
+      "lines": "25-30"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure / createQueryClient",
+      "lines": "11-27"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/validation.ts",
+      "symbol": "validateSeries",
+      "lines": "62-68"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "lines": "95,168"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "lines": "9,31"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "LINKS",
+      "lines": "8"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+      "symbol": "SeriesEndpointsTests"
+    }
+  ],
+  "history": []
+}

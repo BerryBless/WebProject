@@ -1,0 +1,42 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart LR\n    Compose[docker-compose.yml] --> Caddyfile\n    Compose --> AdminOptions\n    Compose --> SiteOptions\n    Compose --> ProxyOptions\n    AdminOptions --> StartupValidation\n    SiteOptions --> StartupValidation\n    ProxyOptions --> StartupValidation\n    AdminOptions --> IpAllowlistAdminAccessPolicy\n    IpAllowlistAdminAccessPolicy --> CidrList\n    ProxyOptions --> ForwardedHeadersOptions\n    ProxyOptions --> UseTrustedForwardedHeaders\n    SiteOptions --> AdminSurfaceMiddleware\n    SiteOptions --> ApiEndpoints\n    IpAllowlistAdminAccessPolicy --> AdminSurfaceMiddleware",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "Caddyfile",
+      "code": "deploy/Caddyfile"
+    },
+    {
+      "node": "StartupValidation",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "Validate"
+    },
+    {
+      "node": "IpAllowlistAdminAccessPolicy",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/IpAllowlistAdminAccessPolicy.cs",
+      "symbol": "IsAllowed"
+    },
+    {
+      "node": "UseTrustedForwardedHeaders",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "UseTrustedForwardedHeaders"
+    },
+    {
+      "node": "ForwardedHeadersOptions",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "AddAdminAccess"
+    },
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "InvokeAsync"
+    },
+    {
+      "node": "ApiEndpoints",
+      "code": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "MapApiEndpoints"
+    }
+  ],
+  "reason": "기존 다이어그램의 간선(설정 주입, 시작 검증, 신뢰 프록시 처리, 관리 표면 미들웨어)은 새 분석의 실행·데이터 흐름과 일치한다. 새 후보와의 차이는 첫 노드 ID(Compose→DockerCompose)뿐이라 구조 변화가 없고, 사람이 정한 이름을 보존하기 위해 그대로 둔다."
+}

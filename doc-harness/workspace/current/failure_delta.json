@@ -1,0 +1,10 @@
+{
+  "newFailures": [],
+  "updatedFailures": [],
+  "troubleshooting": [],
+  "changelog": [],
+  "unknowns": [
+    "plan/doc_harness_0923.md 7절이 기록한 doc-harness 실전 결함 12건(특히 12번: 수정 루프 회차 이력이 resume 시 복원되지 않아 LLM 재검증 비용 반복)은 하네스 자체(doc-harness/)의 문제이고 분석 대상이 아니다. 이번 델타에는 해당 코드 변경이나 커밋이 없어 새 실패로 기록하지 않는다. 기존 FAIL012와의 관계도 확인되지 않았다.",
+    "TagEndpoints.cs의 추가 한 줄은 주석뿐이고 임시 점검용이라고 적혀 있다. 되돌려졌는지는 이 입력으로 확인할 수 없다."
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "sequenceDiagram\n    participant Browser\n    participant PostModel\n    participant PublicQueries\n    participant RenderedPostCache\n    participant RenderGate\n    participant MarkdownRenderer\n    participant UseExceptionHandler\n    participant OverloadExceptionHandler\n    Browser->>PostModel: GET /posts/{slug}\n    PostModel->>PublicQueries: GetPostAsync(slug)\n    PublicQueries-->>PostModel: meta(Id, Version)\n    PostModel->>RenderedPostCache: TryGet(Id, Version)\n    alt 캐시 적중\n        RenderedPostCache-->>PostModel: RenderedMarkdown\n        PostModel-->>Browser: 200 Post.cshtml\n    else 캐시 미스\n        PostModel->>PublicQueries: GetContentAsync(Id)\n        PublicQueries-->>PostModel: content(Markdown, Version)\n        PostModel->>RenderedPostCache: GetOrRenderAsync(Id, content.Version, Markdown, ct)\n        RenderedPostCache->>RenderedPostCache: _inflight.GetOrAdd(Lazy)\n        RenderedPostCache->>RenderGate: RenderAsync(markdown, CancellationToken.None)\n        alt 슬롯 획득\n            RenderGate->>MarkdownRenderer: RenderDetailed(markdown)\n            MarkdownRenderer-->>RenderGate: RenderedMarkdown\n            RenderGate-->>RenderedPostCache: RenderedMarkdown\n            RenderedPostCache->>RenderedPostCache: Store(24h 또는 2분)\n            RenderedPostCache-->>PostModel: RenderedMarkdown\n            PostModel-->>Browser: 200 Post.cshtml\n        else QueueTimeoutMs 초과\n            RenderGate-->>RenderedPostCache: RenderBusyException\n            RenderedPostCache-->>PostModel: RenderBusyException\n            PostModel--)UseExceptionHandler: 예외가 OnGetAsync 밖으로 전파\n            UseExceptionHandler->>OverloadExceptionHandler: TryHandleAsync(httpContext, exception)\n            OverloadExceptionHandler-->>Browser: 503 + Retry-After 5\n        end\n    end",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "PostModel",
+      "code": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.OnGetAsync"
+    },
+    {
+      "node": "RenderedPostCache",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.GetOrRenderAsync"
+    },
+    {
+      "node": "RenderGate",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync"
+    },
+    {
+      "node": "MarkdownRenderer",
+      "code": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed"
+    },
+    {
+      "node": "OverloadExceptionHandler",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync"
+    },
+    {
+      "node": "UseExceptionHandler",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "app.UseExceptionHandler"
+    }
+  ],
+  "reason": "기존 다이어그램이 새 분석(실행 흐름 5~9, 18단계)과 일치한다. 호출 순서, 캐시 적중·미스 분기, 슬롯 획득과 RenderBusyException 분기, 503 + Retry-After 5 응답이 모두 코드와 맞는다. 새 후보는 UseExceptionHandler participant를 뺐을 뿐이다. 이 participant는 Program.cs가 파이프라인에 붙이는 미들웨어라서 사람이 넣은 표현을 그대로 두었다."
+}

@@ -1,0 +1,12 @@
+{
+  "$id": "feature_delta.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "newFeatures": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/featureSummary" } },
+    "changedFeatureIds": { "$ref": "common.schema.json#/$defs/stringList" },
+    "removedFeatures": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+      "properties": { "id": { "type": "string" }, "disposition": { "type": "string", "enum": ["REMOVED", "DEPRECATED", "MIGRATED", "PARTIAL"] }, "replacedBy": { "type": "string" }, "reason": { "$ref": "common.schema.json#/$defs/claim" } },
+      "required": ["id", "disposition", "reason"] } },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["newFeatures", "changedFeatureIds", "removedFeatures", "unknowns"]
+}

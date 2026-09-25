@@ -1,0 +1,23 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart TD\n    Start[AdminSurfaceMiddleware.InvokeAsync] --> IsApi{Path StartsWithSegments /api}\n    IsApi -- 아니오 --> Next[_next]\n    IsApi -- 예 --> NoStore[Cache-Control no-store]\n    NoStore --> HostCheck{Host == SiteOptions.HostOf AdminOrigin}\n    HostCheck -- 아니오 --> Reject404[Reject 404 찾을 수 없음]\n    HostCheck -- 예 --> IpCheck{IpAllowlistAdminAccessPolicy.IsAllowed}\n    IpCheck -- 아니오 --> RejectIp[Reject 403 접근 거부]\n    IpCheck -- 예 --> CsrfCheck{X-Requested-With == XMLHttpRequest}\n    CsrfCheck -- 아니오 --> RejectCsrf[Reject 403 교차 출처 요청 거부]\n    CsrfCheck -- 예 --> SafeMethod{GET 또는 HEAD}\n    SafeMethod -- 예 --> Next\n    SafeMethod -- 아니오 --> OriginCheck{Origin == AdminOrigin}\n    OriginCheck -- 아니오 --> RejectOrigin[Reject 403 Origin 불일치]\n    OriginCheck -- 예 --> Next",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "AdminSurfaceMiddleware.InvokeAsync",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "InvokeAsync"
+    },
+    {
+      "node": "IpAllowlistAdminAccessPolicy.IsAllowed",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/IpAllowlistAdminAccessPolicy.cs",
+      "symbol": "IsAllowed"
+    },
+    {
+      "node": "Reject404",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "Reject"
+    }
+  ],
+  "reason": "새 후보와 기존 다이어그램은 시작 노드 라벨(Start/InvokeAsync ID)만 다르고 분기·순서는 같다. 새 분석의 실행 흐름(6~11단계)도 기존 판정 순서와 일치하며 관련 코드 변경이 없어 기존을 그대로 둔다."
+}

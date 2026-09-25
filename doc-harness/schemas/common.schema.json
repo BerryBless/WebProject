@@ -1,0 +1,107 @@
+{
+  "$id": "common.schema.json",
+  "$defs": {
+    "status": { "type": "string", "enum": ["CONFIRMED", "INFERRED", "UNKNOWN", "POSSIBLE_LEGACY", "POTENTIAL_ISSUE"] },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "file": { "type": "string" }, "symbol": { "type": "string" }, "lines": { "type": "string" }, "commit": { "type": "string" } },
+      "required": ["file"]
+    },
+    "evidenceList": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/evidence" } },
+    "claim": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "text": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["text", "status", "evidence"]
+    },
+    "claimList": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/claim" } },
+    "stringList": { "type": "array", "items": { "type": "string" } },
+    "diagramNode": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "node": { "type": "string" }, "code": { "type": "string" }, "symbol": { "type": "string" } },
+      "required": ["node", "code"]
+    },
+    "diagram": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+        "type": { "type": "string", "enum": ["architecture", "sequence", "flowchart", "dataflow", "state", "er", "class"] },
+        "title": { "type": "string" }, "summary": { "type": "string" }, "mermaid": { "type": "string" }, "details": { "type": "string" },
+        "nodes": { "type": "array", "minItems": 1, "items": { "$ref": "common.schema.json#/$defs/diagramNode" } },
+        "status": { "$ref": "common.schema.json#/$defs/status" }
+      },
+      "required": ["id", "type", "title", "summary", "mermaid", "details", "nodes", "status"]
+    },
+    "diagramList": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/diagram" } },
+    "featureSummary": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^F[0-9]{3}$" }, "name": { "type": "string" }, "slug": { "type": "string", "pattern": "^[A-Z0-9_]+$" },
+        "summary": { "type": "string" }, "entryPoints": { "$ref": "common.schema.json#/$defs/stringList" }, "relatedFiles": { "$ref": "common.schema.json#/$defs/stringList" },
+        "dependencies": { "$ref": "common.schema.json#/$defs/stringList" }, "importance": { "type": "string", "enum": ["CORE", "SUPPORTING", "INFRA"] },
+        "analysisStatus": { "type": "string", "enum": ["PENDING", "SUCCESS", "FAILED", "STALE"] }, "status": { "type": "string", "enum": ["ACTIVE", "DEPRECATED", "REMOVED"] }
+      },
+      "required": ["id", "name", "slug", "summary", "entryPoints", "relatedFiles", "dependencies", "importance", "analysisStatus", "status"]
+    },
+    "historyEntry": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "date": { "type": "string" }, "title": { "type": "string" }, "classification": { "$ref": "common.schema.json#/$defs/stringList" },
+        "before": { "type": "string" }, "after": { "type": "string" }, "reason": { "$ref": "common.schema.json#/$defs/claim" },
+        "impact": { "$ref": "common.schema.json#/$defs/stringList" }, "significance": { "type": "string", "enum": ["MAJOR", "MINOR", "TRIVIAL"] },
+        "commits": { "$ref": "common.schema.json#/$defs/stringList" }
+      },
+      "required": ["date", "title", "classification", "before", "after", "reason", "impact", "significance", "commits"]
+    },
+    "issue": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "document": { "type": "string" }, "section": { "type": "string" }, "type": { "type": "string" }, "description": { "type": "string" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["document", "type", "description", "evidence"]
+    },
+    "issueList": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/issue" } },
+    "diagramIssue": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "document": { "type": "string" }, "section": { "type": "string" }, "diagram": { "type": "string" },
+        "type": { "type": "string", "enum": ["INCORRECT_DIAGRAM_RELATION", "DIAGRAM_NODE_NOT_IN_CODE", "MERMAID_SYNTAX_ERROR", "MERMAID_UNCLOSED_BLOCK", "MERMAID_STYLE_FORBIDDEN", "DIAGRAM_ABSTRACT_NODE", "DIAGRAM_TOO_COMPLEX", "SECTION_ANCHOR_MISMATCH", "DIAGRAM_MISSING"] },
+        "description": { "type": "string" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" }
+      },
+      "required": ["document", "diagram", "type", "description", "evidence"]
+    },
+    "operationsItem": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" }, "title": { "type": "string" }, "classification": { "type": "string", "enum": ["CONFIRMED_ISSUE", "POTENTIAL_RISK", "IMPROVEMENT"] },
+        "description": { "type": "string" }, "recommendation": { "type": "string" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" }, "featureIds": { "$ref": "common.schema.json#/$defs/stringList" }
+      },
+      "required": ["id", "title", "classification", "description", "recommendation", "evidence", "featureIds"]
+    },
+    "operationsArea": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/operationsItem" } },
+        "summary": { "type": "string" }, "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+      },
+      "required": ["items", "summary", "unknowns"]
+    },
+    "failureRecord": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^FAIL[0-9]{3}$" }, "title": { "type": "string" }, "problem": { "type": "string" }, "attempt": { "type": "string" }, "symptom": { "type": "string" }, "cause": { "type": "string" },
+        "causeConfidence": { "type": "string", "enum": ["CONFIRMED", "INFERRED", "UNKNOWN"] }, "failedSolutions": { "$ref": "common.schema.json#/$defs/stringList" }, "currentWorkaround": { "type": "string" }, "finalSolution": { "type": "string" },
+        "relatedFiles": { "$ref": "common.schema.json#/$defs/stringList" }, "relatedCommits": { "$ref": "common.schema.json#/$defs/stringList" }, "recurrenceProcedure": { "$ref": "common.schema.json#/$defs/stringList" }, "longTermSolution": { "type": "string" },
+        "troubleshootingWorthy": { "type": "boolean" }, "sources": { "type": "array", "items": { "type": "string", "enum": ["code", "commit", "doc", "session"] } }, "discoveredAt": { "type": "string" }
+      },
+      "required": ["id", "title", "problem", "attempt", "symptom", "cause", "causeConfidence", "failedSolutions", "currentWorkaround", "finalSolution", "relatedFiles", "relatedCommits", "recurrenceProcedure", "longTermSolution", "troubleshootingWorthy", "sources", "discoveredAt"]
+    },
+    "troubleshootingEntry": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "id": { "type": "string" }, "symptom": { "type": "string" }, "cause": { "type": "string" }, "howToConfirm": { "$ref": "common.schema.json#/$defs/stringList" }, "resolution": { "$ref": "common.schema.json#/$defs/stringList" }, "relatedCode": { "$ref": "common.schema.json#/$defs/stringList" }, "status": { "$ref": "common.schema.json#/$defs/status" } },
+      "required": ["id", "symptom", "cause", "howToConfirm", "resolution", "relatedCode", "status"]
+    },
+    "changelogEntry": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "title": { "type": "string" }, "classification": { "$ref": "common.schema.json#/$defs/stringList" }, "description": { "type": "string" }, "impact": { "$ref": "common.schema.json#/$defs/stringList" }, "relatedDocs": { "$ref": "common.schema.json#/$defs/stringList" }, "commits": { "$ref": "common.schema.json#/$defs/stringList" }, "significance": { "type": "string", "enum": ["MAJOR", "MINOR", "TRIVIAL"] } },
+      "required": ["title", "classification", "description", "impact", "relatedDocs", "commits", "significance"]
+    }
+  }
+}

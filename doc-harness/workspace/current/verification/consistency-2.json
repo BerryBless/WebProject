@@ -1,0 +1,72 @@
+{
+  "summary": "모순 4건. (1) 13_SECURITY의 근거 표는 SiteEndpoints를 `PortfolioBlog.Api/Features/SiteEndpoints.cs`에 있다고 적었지만, 실제 파일은 `PortfolioBlog.Api/Pages/SiteEndpoints.cs`다. 03·08·18 문서도 Pages 경로로 적고 있다. (2) 11_FAILURE_HISTORY의 FAIL005는 서브넷 겹침 위험이 '운영 문서에 기재'됐다고 하지만 deploy/OPERATIONS.md에는 해당 서술이 없다. 00_EXECUTIVE_SUMMARY는 이 점을 맞게 적었다. (3) 00_EXECUTIVE_SUMMARY의 status 절은 '알려진 확정 문제는 검색 성능 한 건'이라고 하지만, 14_PERFORMANCE는 PERF001을 POTENTIAL_RISK로 분류하고 10_ERROR_HANDLING은 ERR004를 CONFIRMED_ISSUE로 둔다. (4) 17_TECH_DEBT는 확인된 문제를 0건으로 두고 같은 409 처리 문제(DEBT004)를 POTENTIAL_RISK로 분류한다. 반면 10_ERROR_HANDLING은 ERR004를 CONFIRMED_ISSUE로 둔다. 코드상으로도 status만 보고 분기하고 detail을 숨기는 동작이 확인된다.",
+  "issues": [
+    {
+      "document": "13_SECURITY.md",
+      "section": "evidence",
+      "type": "CONTRADICTION",
+      "description": "근거 표에는 사이트 엔드포인트의 RequireHost 근거가 `PortfolioBlog.Api/Features/SiteEndpoints.cs` (71-80)로 적혀 있다. 그러나 03_DIRECTORY_STRUCTURE(트리의 PortfolioBlog.Api/Pages/SiteEndpoints.cs), 08_API, 18_GLOSSARY는 모두 `PortfolioBlog.Api/Pages/SiteEndpoints.cs`로 적는다. 코드에서도 SiteEndpoints.cs는 Pages 아래에만 있다(Features 아래에는 없음). 66-80행에서 MapMethods(...).RequireHost(publicHost)로 공개 호스트 제약을 건다. 틀린 쪽은 13_SECURITY의 경로다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+          "lines": "66-80"
+        }
+      ]
+    },
+    {
+      "document": "11_FAILURE_HISTORY.md",
+      "section": "FAIL005",
+      "type": "CONTRADICTION",
+      "description": "FAIL005의 현재 workaround(요약 표와 본문)는 '운영 public 서브넷은 자동 할당(호스트 LAN과 겹치면 기동 실패, 운영 문서에 기재)'라고 적는다. 갱신된 00_EXECUTIVE_SUMMARY(status)는 이 겹침 서술이 docs/worklog.md·plan 기록에서 옮긴 것이고 deploy/OPERATIONS.md에는 없다고 적는다. 코드와 문서를 확인한 결과 deploy/docker-compose.yml 128-129행은 public 네트워크에 ipam이 없다고 적고 있다. deploy/OPERATIONS.md에서는 '서브넷'·'LAN'·'겹치' 서술이 검색되지 않는다(3절은 remote_ip가 게이트웨이로 보이는 문제만 다룬다). '운영 문서에 기재'라는 출처는 docs/worklog.md 778행의 주장일 뿐 실제 운영 문서와 맞지 않는다. 00 쪽이 맞다.",
+      "evidence": [
+        {
+          "file": "deploy/docker-compose.yml",
+          "lines": "127-129"
+        },
+        {
+          "file": "deploy/OPERATIONS.md",
+          "lines": "50-61"
+        },
+        {
+          "file": "docs/worklog.md",
+          "lines": "778"
+        }
+      ]
+    },
+    {
+      "document": "00_EXECUTIVE_SUMMARY.md",
+      "section": "status",
+      "type": "CONTRADICTION",
+      "description": "현재 상태 절은 '알려진 확정 문제는 검색 성능 한 건이다'라고 하며 PERF001을 그 확정 문제로 든다. 그러나 갱신된 14_PERFORMANCE는 PERF001(검색 ILIKE 풀스캔)을 '조건부 위험(POTENTIAL_RISK)'으로 분류한다. 갱신된 10_ERROR_HANDLING은 확정 결함(CONFIRMED_ISSUE)으로 PERF001이 아니라 ERR004(에디터 409 처리)를 든다. 코드상 PublicQueries.SearchAsync의 ILIKE 스캔은 존재하지만 문서 체계에서는 잠재 위험이다. 반면 PostEditorPage.tsx의 409 분기는 코드로 확인된다(217-225, 307). 00의 '확정 문제 한 건 = 검색 성능' 서술은 두 문서와 모순된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.SearchAsync"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onError",
+          "lines": "217-225"
+        }
+      ]
+    },
+    {
+      "document": "17_TECH_DEBT.md",
+      "section": "confirmed",
+      "type": "CONTRADICTION",
+      "description": "17_TECH_DEBT는 확인된 문제(CONFIRMED_ISSUE)를 '없음'으로 두고, 에디터 409 처리 문제를 DEBT004(POTENTIAL_RISK)로 분류한다(15_TESTING도 이를 인용). 같은 문제를 갱신된 10_ERROR_HANDLING은 ERR004 CONFIRMED_ISSUE로 분류해 두 문서가 서로 맞지 않는다. 코드 확인 결과는 다음과 같다. PostEditorPage.tsx의 onError는 `error.status === 409 && postId !== null`만 보고 최신본을 재조회해 ConflictPanel을 띄운다(221-222). conflict가 설정되면 ErrorNotice가 렌더되지 않아 서버 detail이 숨겨진다(307). 따라서 'status만으로 분기하고 detail을 숨긴다'는 핵심 동작은 코드로 확정된다. 추론에 그치는 것은 태그 삭제 경쟁으로 생기는 StaleVersion 오탐 부분뿐이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onError",
+          "lines": "217-225"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "306-307"
+        }
+      ]
+    }
+  ]
+}

@@ -76,6 +76,7 @@ plan/<기능명>_<MMDD>.md
 | plan/tech_blog_3_report_0922.md | 2026-09-22 | 기술 블로그 3단계(관리 에디터 SPA) 실행 보고서: 만든 것, 실제 호스트 공격 결과와 거기서 찾은 결함 5건, 검증하고 쓴 계획에서도 나온 계획 코드의 결함 약 20건과 교훈(보안 통제 자체의 결함·틀린 판정 R5), 질문 없이 내린 판정 16건, 수용한 잔여 위험, Plan 4 인계 |
 | plan/tech_blog_4_report_0923.md | 2026-09-23 | 기술 블로그 4단계(배포) 실행 보고서: 만든 것(compose 3망·Caddyfile·DB 롤·백업/복원·스모크+스택 E2E·CI), 리뷰가 실측으로 찾은 결함과 교훈 6가지, 질문 없이 내린 판정 22건, 수용한 잔여 위험, 알려진 문제, 최종 리뷰·PR·CI 결과 |
 | plan/resume_guide_0921.md | 2026-09-21 | 작업 재개 가이드(갱신형): 단계별 진행 상태와 기준 커밋(1~4단계 master 병합), 재시작 5분 점검, 4단계 커밋 표와 실행하며 확인된 사실, SDD 실행이 끊겼을 때 복구(ledger·센티널), 자주 밟는 함정, 문서·코드 지도, 사용자가 정해 둔 결정, 다음 작업(노션식 편집·보기) |
+| plan/doc_harness_0923.md | 2026-09-23 | 문서화 하네스(doc-harness) 구현·실전 실행 보고서: 설계 결정과 실행 중 내린 판정, 컴포넌트 구조, 사용법, INITIAL 실전 결과(기능 29·문서 61·Mermaid 101·비용 약 $347)와 INCREMENTAL 실전 결과(run-0002: 소스 한 줄 → 기능 2·문서 15·다이어그램 3 갱신, $149), 실전에서 잡은 결함 17건과 교훈, 잔여 위험(잔여 지적 61건·회차 미영속화·되돌린 주석의 baseline), 향후 확장 |
 
 ---
 
@@ -195,3 +196,15 @@ private readonly SemaphoreSlim _sendGate = new SemaphoreSlim(1, 1);
 **트리거:** TDD, 테스트 먼저 작성, Red-Green-Refactor, TDD 사이클, 기능 구현(TDD) 요청 시 `tdd-orchestrator` 스킬을 사용하라. 진화 리포트는 `/harness-evolve`로 수동 실행 가능.
 
 **변경 이력:** `plan/harness_changelog.md` 의 "하네스: TDD (테스트 주도 개발)" 절 참조.
+
+---
+
+## 하네스: 문서화 (Documentation Harness)
+
+**목표:** `doc-harness/`(TypeScript)가 프로젝트 전체를 다단계 Claude 파이프라인(Inventory → Architecture → Feature Discovery → Feature 심층 분석 × N → Data/API → Failure History → 횡단 분석 → 문서 생성 → Verification 루프)으로 분석해 `docs/generated/`에 신규 개발자용 문서를 만들고, 이후에는 baseline 대비 변경분(커밋·스테이지·미커밋·untracked 포함)만 증분 갱신한다. 코드가 Source of Truth, 모든 다이어그램은 Mermaid로 문서 안에 원본 그대로, 에이전트에는 쓰기 도구가 없다(프로덕션 코드 수정 불가).
+
+**트리거:** 메시지 전체가 정확히 `문서화`·`문서화 전체`·`문서화 상태`·`문서화 검증`일 때 `doc-harness` 스킬을 사용하라. 되묻지 않고 모드를 자동 판정한다(최초면 INITIAL, 이후 INCREMENTAL, 변경 없으면 "문서화 확인 완료"). 문장 속 단어(예: "문서화 규칙 알려줘")에는 실행하지 않는다.
+
+**규칙:** 실행 없이 "문서화 완료" 보고 금지(증빙 `doc-harness/workspace/runs/<run>/run.json`·`report.txt`). Baseline은 Verification 통과 후에만 갱신된다. `docs/generated/`의 관리 섹션(HTML 주석 앵커)을 사람이 고치면 증분 실행이 보존하고, 코드와 충돌이 검증으로 확인될 때만 교체한다. 하네스 코드를 고치면 `cd doc-harness && npm test && npm run typecheck`.
+
+**변경 이력:** `plan/harness_changelog.md` 의 "하네스: 문서화 (Documentation Harness)" 절 참조.

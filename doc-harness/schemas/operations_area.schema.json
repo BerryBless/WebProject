@@ -1,0 +1,8 @@
+{
+  "$id": "operations_area.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "items": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/operationsItem" } },
+    "summary": { "type": "string" }, "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["items", "summary", "unknowns"]
+}

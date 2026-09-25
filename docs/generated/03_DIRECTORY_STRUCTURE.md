@@ -1,0 +1,544 @@
+# 디렉터리 구조
+
+<!-- doc-harness:section id="summary" hash="12ec2ce95a31ca4963bcd5d1ee5c1dd26d770a14b55d037256fcae4be3b0410e" -->
+## 한 줄 요약
+
+디렉터리 10개의 역할. 파일 트리는 문서화 시점의 스냅샷이다.
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="roles" hash="a7d8fa14bda2ca9ba82aee74b1379a4a182e489401321e63ee1ddb0170b10cb2" -->
+## 디렉터리 역할
+
+| 경로 | 역할 | 상태 |
+|---|---|---|
+| `PortfolioBlog.Api` | ASP.NET Core 10 백엔드 — 관리용 최소 API(Features/)와 공개 페이지(Pages/, Razor Pages), 인프라(Infrastructure/Access,Data,Markdown,Storage,Web) | CONFIRMED |
+| `PortfolioBlog.Api.Tests` | xUnit + WebApplicationFactory + Testcontainers.PostgreSql 기반 통합/단위 테스트 | CONFIRMED |
+| `PortfolioBlog.Web` | 관리 에디터 SPA — React 19 + Vite + CodeMirror 6, Vitest/Playwright 테스트 포함 | CONFIRMED |
+| `deploy` | 운영 배포 구성 — docker-compose.yml/.smoke.yml, Caddyfile, backup.sh/restore.sh, postgres-init, smoke 테스트, OPERATIONS.md | CONFIRMED |
+| `docs` | 제품·아키텍처·보안·설정·배포·테스트 문서, docs/superpowers 하위에 구현 계획·스펙 문서 | CONFIRMED |
+| `plan` | 설계 스펙, 단계별 실행 보고서, 재개 가이드, 하네스 관련 감사/변경 기록 등 프로젝트 진행 문서 | CONFIRMED |
+| `.github/workflows` | GitHub Actions CI 정의(ci.yml) | CONFIRMED |
+| `.claude / .agents / .codex` | AI 개발 하네스 — Claude Code 에이전트·스킬 정의(.claude), 미러된 스킬(.agents), Codex 에이전트 설정(.codex). 제품 기능이 아니다. | CONFIRMED |
+| `scripts` | 자동 커밋/하네스 감사용 PowerShell 스크립트(auto-commit.ps1, harness-audit.ps1)와 Git 훅 스크립트(hooks/guard-write-scope.ps1) | CONFIRMED |
+| `doc-harness` | 코드 근거 기반 문서 생성/증분 갱신용 문서화 하네스로 README에 언급되나 이 세션의 분석 대상에서 제외된 디렉터리 | INFERRED |
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="tree" hash="2c3a7867b605b8cf6e6c17c795e836489fc6791c809c159f60585bad7e9b1a65" -->
+## 파일 트리(분석 대상만)
+
+```text
+(root)/
+  .dockerignore
+  .gitattributes
+  AGENTS.md
+  CLAUDE.md
+  Directory.Packages.props
+  PortfolioBlog.slnx
+  README.md
+.agents/skills/allocation-peer-review/
+  SKILL.md
+.agents/skills/architecture-review/
+  SKILL.md
+.agents/skills/code-review-orchestrator/
+  SKILL.md
+.agents/skills/commitandpush/
+  SKILL.md
+.agents/skills/commitandpush/references/
+  commit-message-guide.md
+  security-patterns.md
+.agents/skills/concurrency-guard-orchestrator/
+  SKILL.md
+.agents/skills/deadlock-review/
+  SKILL.md
+.agents/skills/deadlock-static-analysis/
+  SKILL.md
+.agents/skills/gc-guard-orchestrator/
+  SKILL.md
+.agents/skills/harness-evolve/
+  SKILL.md
+.agents/skills/heap-allocation-scan/
+  SKILL.md
+.agents/skills/io-loop-design/
+  SKILL.md
+.agents/skills/load-test-audit/
+  SKILL.md
+.agents/skills/lock-free-enforcement/
+  SKILL.md
+.agents/skills/lock-justification-audit/
+  SKILL.md
+.agents/skills/performance-review/
+  SKILL.md
+.agents/skills/pipeline-architect-orchestrator/
+  SKILL.md
+.agents/skills/pooling-enforcement/
+  SKILL.md
+.agents/skills/security-review/
+  SKILL.md
+.agents/skills/style-review/
+  SKILL.md
+.agents/skills/tdd-green-phase/
+  SKILL.md
+.agents/skills/tdd-orchestrator/
+  SKILL.md
+.agents/skills/tdd-red-phase/
+  SKILL.md
+.agents/skills/tdd-refactor-phase/
+  SKILL.md
+.agents/skills/thread-dispatch-design/
+  SKILL.md
+.claude/
+  settings.json
+  settings.local.json
+.claude/agents/
+  allocation-peer-reviewer.md
+  architecture-reviewer.md
+  codex-adapter.md
+  cross-implementer.md
+  cross-planner.md
+  cross-reviewer.md
+  deadlock-analyzer.md
+  deadlock-reviewer.md
+  git-commit-writer.md
+  git-push-controller.md
+  git-security-auditor.md
+  heap-allocation-scanner.md
+  io-loop-designer.md
+  load-test-auditor.md
+  lock-free-enforcer.md
+  lock-justification-auditor.md
+  performance-reviewer.md
+  pipeline-supervisor.md
+  pooling-enforcer.md
+  security-reviewer.md
+  style-reviewer.md
+  tdd-analyst.md
+  tdd-builder.md
+  tdd-qa.md
+  thread-dispatcher-designer.md
+.claude/skills/allocation-peer-review/
+  SKILL.md
+.claude/skills/architecture-review/
+  SKILL.md
+.claude/skills/code-review-orchestrator/
+  SKILL.md
+.claude/skills/codex/
+  SKILL.md
+.claude/skills/commitandpush/
+  SKILL.md
+.claude/skills/commitandpush/references/
+  commit-message-guide.md
+  security-patterns.md
+.claude/skills/concurrency-guard-orchestrator/
+  SKILL.md
+.claude/skills/cross-verify/
+  SKILL.md
+.claude/skills/cross-verify/references/
+  usage.md
+.claude/skills/cross-verify/references/prompts/
+  adjudicate.md
+  final_check.md
+  plan.md
+  plan_check.md
+  reverify.md
+  review.md
+.claude/skills/cross-verify/scripts/
+  invoke-codex.ps1
+.claude/skills/deadlock-review/
+  SKILL.md
+.claude/skills/deadlock-static-analysis/
+  SKILL.md
+.claude/skills/gc-guard-orchestrator/
+  SKILL.md
+.claude/skills/harness-evolve/
+  SKILL.md
+.claude/skills/heap-allocation-scan/
+  SKILL.md
+.claude/skills/io-loop-design/
+  SKILL.md
+.claude/skills/load-test-audit/
+  SKILL.md
+.claude/skills/lock-free-enforcement/
+  SKILL.md
+.claude/skills/lock-justification-audit/
+  SKILL.md
+.claude/skills/performance-review/
+  SKILL.md
+.claude/skills/pipeline-architect-orchestrator/
+  SKILL.md
+.claude/skills/pooling-enforcement/
+  SKILL.md
+.claude/skills/security-review/
+  SKILL.md
+.claude/skills/style-review/
+  SKILL.md
+.claude/skills/tdd-green-phase/
+  SKILL.md
+.claude/skills/tdd-orchestrator/
+  SKILL.md
+.claude/skills/tdd-red-phase/
+  SKILL.md
+.claude/skills/tdd-refactor-phase/
+  SKILL.md
+.claude/skills/thread-dispatch-design/
+  SKILL.md
+.codex/
+  config.toml
+.codex/agents/
+  allocation-peer-reviewer.toml
+  architecture-reviewer.toml
+  deadlock-analyzer.toml
+  deadlock-reviewer.toml
+  git-commit-writer.toml
+  git-push-controller.toml
+  git-security-auditor.toml
+  heap-allocation-scanner.toml
+  io-loop-designer.toml
+  load-test-auditor.toml
+  lock-free-enforcer.toml
+  lock-justification-auditor.toml
+  performance-reviewer.toml
+  pipeline-supervisor.toml
+  pooling-enforcer.toml
+  security-reviewer.toml
+  style-reviewer.toml
+  tdd-analyst.toml
+  tdd-builder.toml
+  tdd-qa.toml
+  thread-dispatcher-designer.toml
+.github/workflows/
+  ci.yml
+deploy/
+  Caddyfile
+  OPERATIONS.md
+  backup.sh
+  docker-compose.smoke.yml
+  docker-compose.yml
+  restore.sh
+deploy/postgres-init/
+  10-roles.sh
+deploy/smoke/
+  run.sh
+  smoke.test.mjs
+docs/
+  architecture.md
+  configuration.md
+  deployment.md
+  development.md
+  harness.md
+  history.md
+  security.md
+  testing.md
+  worklog.md
+docs/superpowers/plans/
+  2026-09-20-tech-blog-backend-core.md
+  2026-09-21-tech-blog-admin-spa.md
+  2026-09-21-tech-blog-content-pipeline.md
+  2026-09-21-tech-blog-public-site.md
+  2026-09-22-tech-blog-deploy.md
+  2026-09-23-doc-harness.md
+docs/superpowers/specs/
+  2026-09-23-doc-harness-design.md
+plan/
+  code_review_harness_fix_0912.md
+  doc_harness_0923.md
+  gc_guard_harness_fix_0912.md
+  harness_audit_0911.md
+  harness_changelog.md
+  harness_cross_check_0913.md
+  para_notes_0917.md
+  resume_guide_0921.md
+  tech_blog_0920.md
+  tech_blog_2a_report_0921.md
+  tech_blog_2b_report_0921.md
+  tech_blog_3_report_0922.md
+  tech_blog_4_report_0923.md
+PortfolioBlog.Api/
+  Dockerfile
+  PortfolioBlog.Api.csproj
+  PortfolioBlog.Api.http
+  Program.cs
+  appsettings.Development.json
+  appsettings.json
+PortfolioBlog.Api.Tests/
+  HealthEndpointTests.cs
+  PortfolioBlog.Api.Tests.csproj
+PortfolioBlog.Api.Tests/Features/
+  AccessMatrixTests.cs
+  AdminSurfaceTests.cs
+  ApiBodyLimitTests.cs
+  AttachmentEndpointsTests.cs
+  AttachmentIntegrityTests.cs
+  AuthEndpointsTests.cs
+  DisplayNameTests.cs
+  ErrorPipelineTests.cs
+  FeedAndSitemapTests.cs
+  ForwardedHeadersTests.cs
+  HostFilteringTests.cs
+  PostEndpointsCacheGuardTests.cs
+  PostEndpointsTests.cs
+  PreviewEndpointsTests.cs
+  PublicPagesTests.cs
+  PublicRateLimitTests.cs
+  RateLimitHeaderTests.cs
+  SearchPageTests.cs
+  SecurityHeadersTests.cs
+  SeriesEndpointsTests.cs
+  StartupValidationTests.cs
+  TagEndpointsTests.cs
+  ValidationWithinDbConstraintsTests.cs
+PortfolioBlog.Api.Tests/Infrastructure/
+  AdminCredentialTests.cs
+  AdminOptionsTests.cs
+  ApiFactory.cs
+  AttachmentJanitorTests.cs
+  CheckConstraintCoverageTests.cs
+  CidrListTests.cs
+  ClientIpTests.cs
+  ConnectionStringGuardTests.cs
+  DatabaseSchemaTests.cs
+  HealthCheckCommandTests.cs
+  HighlightCssTests.cs
+  HtmlDoc.cs
+  ImageSignatureTests.cs
+  LikePatternTests.cs
+  MarkdownRendererTests.cs
+  MetadataStripperTests.cs
+  MutableTimeProvider.cs
+  PageNumberTests.cs
+  PostgresContainerFixture.cs
+  PreviewCssSnapshotTests.cs
+  PublicDbContextTests.cs
+  PublicQueriesTests.cs
+  PublicRoleGrantsTests.cs
+  PublicSeed.cs
+  PublicUrlsTests.cs
+  RateLimitChainTests.cs
+  RemoteIpStartupFilter.cs
+  RenderGateTests.cs
+  RenderedPostCacheTests.cs
+  SessionRulesTests.cs
+  SiteOptionsTests.cs
+  SlugRulesTests.cs
+  SteppingTimeProvider.cs
+  TagResolverTests.cs
+  TestJson.cs
+  TextRulesTests.cs
+  UrlPolicyTests.cs
+  XmlTextTests.cs
+PortfolioBlog.Api/Contracts/
+  AttachmentDtos.cs
+  AuthDtos.cs
+  PostDtos.cs
+  PreviewDtos.cs
+  SeriesDtos.cs
+  TagDtos.cs
+  TextRules.cs
+  ValidationErrors.cs
+PortfolioBlog.Api/Domain/
+  AdminState.cs
+  Attachment.cs
+  Post.cs
+  PostTag.cs
+  Series.cs
+  Tag.cs
+PortfolioBlog.Api/Features/
+  ApiEndpoints.cs
+PortfolioBlog.Api/Features/Attachments/
+  AttachmentEndpoints.cs
+  PublicAttachmentEndpoints.cs
+PortfolioBlog.Api/Features/Auth/
+  AuthEndpoints.cs
+PortfolioBlog.Api/Features/Posts/
+  PostEndpoints.cs
+  PostValidation.cs
+PortfolioBlog.Api/Features/Preview/
+  PreviewEndpoints.cs
+PortfolioBlog.Api/Features/Series/
+  SeriesEndpoints.cs
+  SeriesValidation.cs
+PortfolioBlog.Api/Features/Tags/
+  TagEndpoints.cs
+PortfolioBlog.Api/Infrastructure/Access/
+  AccessServiceCollectionExtensions.cs
+  AdminCredential.cs
+  AdminOptions.cs
+  AdminSurfaceMiddleware.cs
+  AuthServiceCollectionExtensions.cs
+  CidrList.cs
+  HashPasswordCommand.cs
+  IAdminAccessPolicy.cs
+  IpAllowlistAdminAccessPolicy.cs
+  ProxyOptions.cs
+  SessionRules.cs
+  SessionValidator.cs
+  SiteOptions.cs
+  StartupValidation.cs
+PortfolioBlog.Api/Infrastructure/Data/
+  AppDbContext.cs
+  DataServiceCollectionExtensions.cs
+  DbClock.cs
+  DbConflict.cs
+  LikePattern.cs
+  PostQueries.cs
+  PublicDbContext.cs
+  PublicModels.cs
+  PublicQueries.cs
+  PublicRoleGrants.cs
+  SlugRules.cs
+  TagResolver.cs
+PortfolioBlog.Api/Infrastructure/Data/Migrations/
+  20260920142630_InitialCreate.Designer.cs
+  20260920142630_InitialCreate.cs
+  20260920233704_AddAttachments.Designer.cs
+  20260920233704_AddAttachments.cs
+  AppDbContextModelSnapshot.cs
+PortfolioBlog.Api/Infrastructure/Markdown/
+  BoundedHighlighting.cs
+  HeadingIds.cs
+  HighlightCss.cs
+  HighlightingCodeBlockRenderer.cs
+  HtmlAllowlist.cs
+  MarkdownRenderer.cs
+  MarkdownTooComplexException.cs
+  RenderGate.cs
+  RenderedPostCache.cs
+  RenderingOptions.cs
+  UrlPolicy.cs
+PortfolioBlog.Api/Infrastructure/Storage/
+  AttachmentJanitor.cs
+  AttachmentLock.cs
+  AttachmentOptions.cs
+  FileSystemAttachmentStore.cs
+  ImageKind.cs
+  ImageSignature.cs
+  MetadataStripper.cs
+PortfolioBlog.Api/Infrastructure/Web/
+  ApiBodyLimitMiddleware.cs
+  ClientIp.cs
+  ErrorResponses.cs
+  HealthCheckCommand.cs
+  OverloadExceptionHandler.cs
+  PublicFormat.cs
+  PublicOptions.cs
+  PublicUrls.cs
+  RateLimitPolicy.cs
+  RateLimitingExtensions.cs
+  SecurityHeadersMiddleware.cs
+  XmlText.cs
+PortfolioBlog.Api/Pages/
+  Index.cshtml
+  Index.cshtml.cs
+  PageHead.cs
+  PageNumber.cs
+  PagerModel.cs
+  Post.cshtml
+  Post.cshtml.cs
+  PublicPageConvention.cs
+  PublicPageModel.cs
+  Search.cshtml
+  Search.cshtml.cs
+  Series.cshtml
+  Series.cshtml.cs
+  SiteEndpoints.cs
+  Tag.cshtml
+  Tag.cshtml.cs
+  _ViewImports.cshtml
+  _ViewStart.cshtml
+PortfolioBlog.Api/Pages/Shared/
+  _Layout.cshtml
+  _Pager.cshtml
+  _PostList.cshtml
+  _TagList.cshtml
+PortfolioBlog.Api/Properties/
+  launchSettings.json
+PortfolioBlog.Api/wwwroot/css/
+  site.css
+PortfolioBlog.Web/
+  .oxlintrc.json
+  Dockerfile
+  admin-headers.ts
+  package-lock.json
+  package.json
+  playwright.config.ts
+  playwright.stack.config.ts
+  tsconfig.app.json
+  tsconfig.json
+  tsconfig.node.json
+  vite.config.ts
+  vitest.config.ts
+PortfolioBlog.Web/.e2e/
+  env.json
+PortfolioBlog.Web/e2e/
+  admin.spec.ts
+PortfolioBlog.Web/public/preview/
+  highlight.css
+  site.css
+PortfolioBlog.Web/scripts/
+  e2e-prepare.mjs
+PortfolioBlog.Web/src/
+  App.tsx
+  index.css
+  main.tsx
+PortfolioBlog.Web/src/api/
+  client.test.ts
+  client.ts
+  endpoints.ts
+  errors.ts
+  types.ts
+PortfolioBlog.Web/src/app/
+  queryClient.ts
+  routes.tsx
+PortfolioBlog.Web/src/auth/
+  LoginPage.tsx
+  RequireAuth.tsx
+PortfolioBlog.Web/src/components/
+  ConflictPanel.tsx
+  Layout.tsx
+  MarkdownEditor.tsx
+  PreviewPane.tsx
+  RouteError.tsx
+  TagInput.tsx
+  notices.tsx
+PortfolioBlog.Web/src/lib/
+  drafts.ts
+  lib.test.ts
+  markdownImage.ts
+  previewDoc.ts
+  safeNext.ts
+  useDebounced.ts
+  validation.ts
+PortfolioBlog.Web/src/pages/
+  AttachmentsPage.tsx
+  PostEditorPage.tsx
+  PostsPage.tsx
+  SeriesPage.tsx
+  TagsPage.tsx
+PortfolioBlog.Web/src/test/
+  attachments.test.tsx
+  auth.test.tsx
+  caddyfile.test.ts
+  editor.test.tsx
+  harness.tsx
+  lists.test.tsx
+  preview.test.tsx
+  routeError.test.tsx
+  setup.ts
+  source-guards.test.ts
+  stripComments.test.ts
+  stripComments.ts
+  tagInput.test.tsx
+  unexpected.ts
+scripts/
+  auto-commit.ps1
+  harness-audit.ps1
+scripts/hooks/
+  guard-write-scope.ps1
+```
+<!-- /doc-harness:section -->
+
+<!-- doc-harness:section id="related" hash="6e5567a400fba77562be59ac2c6045509c33df8674ba0b6f0156b55d573f4b8d" -->
+## 관련 문서
+
+- [01_PROJECT_OVERVIEW](01_PROJECT_OVERVIEW.md)
+- [02_ARCHITECTURE](02_ARCHITECTURE.md)
+<!-- /doc-harness:section -->

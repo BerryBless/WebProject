@@ -1,0 +1,1190 @@
+{
+  "feature": {
+    "id": "F011",
+    "name": "마크다운 렌더링·렌더 결과 캐시",
+    "slug": "MARKDOWN_RENDERING_CACHE",
+    "summary": "글 저장(POST/PUT /api/posts), 미리보기(POST /api/preview), 공개 글 상세(/posts/{slug})는 본문을 렌더링할 때 모두 같은 싱글턴 MarkdownRenderer를 쓴다. RenderDetailed는 Markdig(raw HTML 비활성)로 파싱하고, UrlPolicy로 링크·이미지를 걸러 내고, HeadingIds로 제목 id를 선형 시간에 붙인다. 이어서 길이·시간 예산 안에서 ColorCode로 코드를 강조하고, HtmlAllowlist.Create가 만든 _sanitizer로 마지막 정제를 한다. 싱글턴 RenderGate는 SemaphoreSlim으로 프로세스 전체의 동시 렌더 수를 묶는다(기본 2). 대기가 한도(기본 5000ms)를 넘으면 RenderBusyException을 던지고, OverloadExceptionHandler가 이를 503으로 바꾼다. RenderedPostCache는 (PostId, xmin) 키로 전용 MemoryCache(SizeLimit)에 결과를 담는다. 같은 키의 동시 미스는 ConcurrentDictionary+Lazy로 렌더 한 번으로 합친다. 글 저장 경로는 저장 전에 확인용으로 렌더한 결과로 캐시를 미리 채운다.",
+    "entryPoints": [
+      "POST /api/posts",
+      "PUT /api/posts/{id:guid}",
+      "POST /api/preview",
+      "Razor /posts/{slug}"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "PortfolioBlog.Api/Pages/Post.cshtml",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "Directory.Packages.props"
+    ],
+    "dependencies": [
+      "F020",
+      "F021"
+    ],
+    "importance": "CORE",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F011은 공용 렌더링 인프라다. 현재 코드를 다시 확인한 결과 이전 분석과 동작 차이는 없다. 렌더링은 MarkdownRenderer.RenderDetailed 한 곳에서 동기로 실행되며, 도중에 취소할 수 없다. 요청 경로는 모두 RenderGate(SemaphoreSlim, 기본 동시 2·대기 5000ms)를 거친다. 공개 상세 페이지는 RenderedPostCache에서 (PostId, xmin) 키로 조회하고, 적중하면 렌더를 건너뛴다. 방어는 세 겹이다. (1) Markdig DisableHtml. (2) UrlPolicy 허용 목록: 링크는 http/https/mailto, 루트 상대 경로, #앵커만 허용하고, 이미지는 /attachments/{guid}/{파일명}만 허용한다. (3) HTML 정제: RenderDetailed가 마지막에 _sanitizer.Sanitize를 호출한다. _sanitizer는 필드 초기화 때 HtmlAllowlist.Create로 한 번 만든 HtmlSanitizer다. 코드 강조에는 한도가 있다. 한 줄 400자, 문서 누적 60,000자, 누적 시간 2,000ms, 정규식 매치 1건당 250ms다. 한도를 넘은 블록만 이스케이프한 <pre><code>로 대체한다. 시간 때문에 강조를 포기한 결과(HighlightTimedOut)는 캐시에 24시간이 아니라 2분만 남는다. 실패 경로는 이렇다. 중첩 한도(128)를 넘으면 MarkdownTooComplexException이 난다. 이때 저장·미리보기는 400을 내고, 공개 페이지는 본문 없이 '표시할 수 없습니다'를 보여 준다. 게이트 대기가 한도를 넘으면 RenderBusyException이 나고, UseExceptionHandler→OverloadExceptionHandler가 503과 Retry-After: 5로 바꾼다. 실패한 렌더는 캐시하지 않으며, 진행 중 항목은 finally에서 제거한다. HTML은 DB에 저장하지 않으므로 재배포하면 캐시가 비고, 렌더러 수정이 과거 글 전체에 바로 반영된다.",
+  "entryPoints": [
+    {
+      "text": "POST /api/posts → PostEndpoints.CreateAsync: 입력을 검증한 뒤 RenderOrAddErrorAsync(gate)로 저장 전에 렌더가 되는지 확인한다(133행). 커밋 뒤 CanCacheRenderedResult가 참이면 cache.Store로 캐시를 미리 채운다(162행).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "124-164"
+        }
+      ]
+    },
+    {
+      "text": "PUT /api/posts/{id:guid} → PostEndpoints.UpdateAsync: 버전 검사(201행)를 렌더(206행)보다 먼저 하고, 렌더로 확인한 뒤 저장한다. 커밋 뒤에는 캐시를 미리 채운다(243행).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "187-245"
+        }
+      ]
+    },
+    {
+      "text": "POST /api/preview → PreviewEndpoints.Render: null·NUL·크기를 검증한 뒤 gate.RenderAsync 결과 중 Html만 PreviewResponse로 반환한다. 캐시는 쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render",
+          "lines": "56-77"
+        }
+      ]
+    },
+    {
+      "text": "Razor /posts/{slug} → PostModel.OnGetAsync: 먼저 cache.TryGet(meta.Id, meta.Version)으로 조회한다. 미스면 PostModel.RenderAsync가 PublicQueries.GetContentAsync로 본문을 읽고 cache.GetOrRenderAsync를 호출한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.OnGetAsync",
+          "lines": "43-74"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml",
+          "lines": "1,19-27"
+        }
+      ]
+    },
+    {
+      "text": "앱 시작 시 워밍업: Program.cs가 게이트를 거치지 않고 MarkdownRenderer.Render로 csharp 코드블록 1개를 렌더한다. ColorCode 정적 초기화 비용(주석상 약 185ms)을 미리 치르기 위해서다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "90-91"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "30"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "(top-level)",
+      "description": "싱글턴 등록: MarkdownRenderer(TimeProvider.System), RenderGate, RenderedPostCache(58·60·61행). RenderingOptions는 'Rendering' 섹션에 바인딩한다(59행). OverloadExceptionHandler는 AddExceptionHandler로 등록하고(43행) app.UseExceptionHandler로 파이프라인에 붙인다(100행)."
+    },
+    {
+      "step": 2,
+      "component": "StartupValidation",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "description": "RenderingOptions가 허용 범위(Concurrency 1~64, QueueTimeoutMs 1~60000, CacheMegabytes 1~1024)를 벗어나면 InvalidOperationException으로 기동을 멈춘다(103-107행)."
+    },
+    {
+      "step": 3,
+      "component": "MarkdownRenderer",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer._pipeline/_sanitizer (필드 초기화)",
+      "description": "싱글턴 인스턴스를 만들 때 Markdig 파이프라인을 Build하고(44-51행), HtmlAllowlist.Create()를 한 번 호출해 _sanitizer에 둔다(54행). Create가 하는 일은 설정을 마친 HtmlSanitizer를 만들어 반환하는 것뿐이다. 설정 내용: 허용 태그·속성, 스킴 http/https/mailto, CSS·at-rule 비움, data 속성 금지, 클래스 허용 목록, checkbox가 아닌 input을 지우는 PostProcessNode."
+    },
+    {
+      "step": 4,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "(warm-up)",
+      "description": "GetRequiredService<MarkdownRenderer>().Render로 워밍업 렌더를 한 번 한다(91행). 게이트는 거치지 않는다."
+    },
+    {
+      "step": 5,
+      "component": "PostModel",
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.OnGetAsync",
+      "description": "공개 상세 요청을 받으면 slug가 비었는지·형식에 맞는지 검사하고(45-47행), PublicQueries.GetPostAsync로 메타데이터(Id, Version=xmin)를 조회한다. 그다음 RenderedPostCache.TryGet으로 캐시를 조회한다(51행)."
+    },
+    {
+      "step": 6,
+      "component": "PostModel",
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.RenderAsync",
+      "description": "캐시 미스면 PublicQueries.GetContentAsync로 본문과 그 시점의 버전을 읽고, RenderedPostCache.GetOrRenderAsync(id, content.Version, markdown, ct)를 호출한다. 잡는 예외는 MarkdownTooComplexException 하나이며, 이때 null을 반환한다."
+    },
+    {
+      "step": 7,
+      "component": "RenderedPostCache",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.GetOrRenderAsync",
+      "description": "TryGet을 한 번 더 확인한다. 미스면 _inflight.GetOrAdd로 키마다 Lazy<Task> 하나를 공유한다. 호출자는 lazy.Value.WaitAsync(ct)로 기다리므로, 취소하면 자기 대기만 끝난다."
+    },
+    {
+      "step": 8,
+      "component": "RenderedPostCache",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.RenderAndStoreAsync",
+      "description": "Task.Yield로 스레드를 양보한 뒤 RenderGate.RenderAsync(markdown, CancellationToken.None)를 호출한다. 성공하면 Store로 캐시에 넣는다. 성공·실패와 관계없이 finally에서 _inflight 항목을 제거한다."
+    },
+    {
+      "step": 9,
+      "component": "RenderGate",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync",
+      "description": "_slots.WaitAsync(_queueTimeout, ct)로 슬롯을 기다린다. 한도 안에 얻지 못하면 RenderBusyException을 던진다. 슬롯을 얻으면 _renderCount를 올리고 _render(=MarkdownRenderer.RenderDetailed)를 동기로 실행한 뒤, finally에서 Release한다."
+    },
+    {
+      "step": 10,
+      "component": "MarkdownRenderer",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed",
+      "description": "try 밖에서 null 검사와 UTF-8 MaxInputBytes(204,800) 상한 검사를 한다. 걸리면 ArgumentException을 던진다. 통과하면 try 안에서 Markdig.Markdown.Parse(markdown, _pipeline)를 실행한다."
+    },
+    {
+      "step": 11,
+      "component": "MarkdownRenderer",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.ApplyUrlPolicy",
+      "description": "LinkInline마다 이미지는 UrlPolicy.IsAllowedImage, 링크는 UrlPolicy.IsAllowedLink로 판정한다. 통과하지 못하면 자식은 그 자리에 남기고 노드만 제거한다. 허용되지 않은 AutolinkInline은 LiteralInline으로 바꾼다."
+    },
+    {
+      "step": 12,
+      "component": "HeadingIds",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+      "symbol": "HeadingIds.Assign",
+      "description": "HeadingBlock마다 slug id(최대 80자, 비면 'section')를 붙인다. 중복은 nextSuffix 커서로 선형 시간에 해소한다."
+    },
+    {
+      "step": 13,
+      "component": "MarkdownRenderer",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed",
+      "description": "정책을 통과한 첫 이미지 URL을 firstImage로 뽑는다(126행). HtmlRenderer에서 기본 CodeBlockRenderer를 빼고, 렌더마다 새 HighlightingCodeBlockRenderer를 붙여 StringWriter에 렌더링한다(128-135행)."
+    },
+    {
+      "step": 14,
+      "component": "HighlightingCodeBlockRenderer",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+      "symbol": "HighlightingCodeBlockRenderer.Write",
+      "description": "코드블록마다 다음 순서로 판정한다. (1) 언어, 한 줄 400자, 누적 60,000자 길이 예산을 보고, 넘으면 WritePlainEscaped 후 return한다. (2) 누적 2,000ms 시간 예산이 이미 소진됐으면 TimedOut=true로 두고 WritePlainEscaped 후 return한다. (3) 둘 다 통과하면 try에서 DeadlineLanguageParser와 SharedParser(TimeBoundedLanguageCompiler)로 HtmlClassFormatter.GetHtmlString을 호출한다. RegexMatchTimeoutException이나 HighlightBudgetExceededException이 나면 catch에서 TimedOut=true, WritePlainEscaped를 한다. finally에서 걸린 시간을 _highlightMilliseconds에 더한다."
+    },
+    {
+      "step": 15,
+      "component": "MarkdownRenderer",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed",
+      "description": "writer.ToString()을 _sanitizer.Sanitize로 정제하고 RenderedMarkdown(Html, firstImage, highlighter.TimedOut)을 반환한다(136행). try 안에서 난 ArgumentException(Markdig 중첩 한도 128 초과)은 catch에서 MarkdownTooComplexException으로 감싸 다시 던진다(138-143행)."
+    },
+    {
+      "step": 16,
+      "component": "RenderedPostCache",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.Store",
+      "description": "MemoryCache.Set에 Size와 수명을 붙인다. Size는 (Html 길이 + FirstImageUrl 길이)×2 + 512이고, 수명은 HighlightTimedOut이면 2분, 아니면 24시간이다."
+    },
+    {
+      "step": 17,
+      "component": "PostModel",
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.OnGetAsync",
+      "description": "BodyHtml과 OG 이미지(FirstImageUrl, SetHead의 마지막 인자)를 설정한다. Post.cshtml은 Html.Raw로 본문을 출력하고, BodyHtml이 null이면 '이 글의 본문을 표시할 수 없습니다.'를 보여 준다."
+    },
+    {
+      "step": 18,
+      "component": "OverloadExceptionHandler",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync",
+      "description": "(실패 경로) RenderBusyException이 엔드포인트나 페이지 밖으로 전파되면 UseExceptionHandler 파이프라인이 이 핸들러를 호출한다. IsOverload가 InnerException 체인에서 RenderBusyException을 찾으면 503, Retry-After: 5, ErrorResponses.WriteAsync 본문을 쓴다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "RenderedMarkdown",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderBusyException",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "symbol": "RenderingOptions",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+      "symbol": "HtmlAllowlist.Create",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+      "symbol": "UrlPolicy.IsAllowedLink/IsAllowedImage",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+      "symbol": "TimeBoundedLanguageCompiler/DeadlineLanguageParser/HighlightBudgetExceededException",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+      "symbol": "HighlightingCodeBlockRenderer.Write",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+      "symbol": "HeadingIds.Assign/Slug",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+      "symbol": "MarkdownTooComplexException",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "DI 등록·워밍업·UseExceptionHandler",
+      "role": "config"
+    },
+    {
+      "file": "Directory.Packages.props",
+      "symbol": "PackageVersion(Markdig/ColorCode.HTML/HtmlSanitizer)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "symbol": "StartupValidation.Validate",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.RenderOrAddErrorAsync/CanCacheRenderedResult",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "symbol": "PreviewEndpoints.Render",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.OnGetAsync/RenderAsync",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml",
+      "symbol": "Html.Raw(Model.BodyHtml)",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync/IsOverload",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.GetPostAsync/GetContentAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/MarkdownRendererTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RenderGateTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/RenderedPostCacheTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/UrlPolicyTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PreviewEndpointsTests.cs",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력은 마크다운 원문 문자열이다. 저장 경로는 UpsertPostRequest.ContentMarkdown, 미리보기는 PreviewRequest.Markdown, 공개 페이지는 DB에서 읽은 content.Markdown을 쓴다. 출력은 RenderedMarkdown(Html, FirstImageUrl, HighlightTimedOut)이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed",
+          "lines": "16,111-136"
+        }
+      ]
+    },
+    {
+      "text": "변환 순서: Markdig AST → ApplyUrlPolicy(AST 변형) → HeadingIds.Assign → HtmlRenderer 출력(StringWriter) → _sanitizer.Sanitize → 최종 Html. 정제와 RenderedMarkdown 생성은 RenderDetailed 안에서 일어난다(136행). HtmlAllowlist.Create는 필드 초기화 때 _sanitizer 인스턴스를 한 번 만들 뿐이다(54행). FirstImageUrl은 URL 정책을 적용한 뒤의 AST에서 뽑는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed",
+          "lines": "54,119-136"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+          "symbol": "HtmlAllowlist.Create",
+          "lines": "46-73"
+        }
+      ]
+    },
+    {
+      "text": "캐시 키는 (Guid PostId, uint Version=xmin) 튜플이다. 공개 페이지는 메타 조회로 얻은 Version으로 TryGet한다. 미스일 때는 본문과 함께 읽은 content.Version으로 GetOrRenderAsync를 호출하므로, 메타 조회 뒤에 글이 수정돼도 키와 내용이 어긋나지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.OnGetAsync/RenderAsync",
+          "lines": "51,64-68"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.GetOrRenderAsync",
+          "lines": "95-101"
+        }
+      ]
+    },
+    {
+      "text": "글 저장 경로는 저장 전에 렌더한 결과를 버리지 않는다. 커밋 뒤 재조회한 DTO의 본문이 요청 본문과 같을 때만(CanCacheRenderedResult) (dto.Id, dto.Version) 키로 Store한다. 재조회 사이에 다른 저장이 끼어들어 다른 요청의 HTML이 최신 버전 키에 들어가는 캐시 오염을 막기 위해서다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync/UpdateAsync/CanCacheRenderedResult",
+          "lines": "161-162,242-243,347-354"
+        }
+      ]
+    },
+    {
+      "text": "미리보기 결과는 캐시에 넣지 않고 Html만 PreviewResponse로 응답한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render",
+          "lines": "69"
+        }
+      ]
+    },
+    {
+      "text": "FirstImageUrl은 공개 상세 페이지의 OG 이미지(SetHead의 마지막 인자)로 쓰인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.OnGetAsync",
+          "lines": "54"
+        }
+      ]
+    },
+    {
+      "text": "렌더된 HTML은 DB에 저장하지 않고 프로세스 메모리의 전용 MemoryCache에만 둔다. 재배포하면 캐시가 비므로 렌더러 보안 수정이 과거 글 전체에 반영된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "15,35,54"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "캐시 없음(미스)",
+      "to": "진행 중(_inflight에 Lazy<Task> 등록)",
+      "trigger": "GetOrRenderAsync에서 TryGet이 미스한 뒤 _inflight.GetOrAdd",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.GetOrRenderAsync",
+          "lines": "95-101"
+        }
+      ]
+    },
+    {
+      "from": "진행 중",
+      "to": "캐시됨(정상, 24시간)",
+      "trigger": "RenderGate.RenderAsync가 성공하고 HighlightTimedOut=false이면 Store, finally에서 _inflight 제거",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.RenderAndStoreAsync/Store",
+          "lines": "115-122,136-151"
+        }
+      ]
+    },
+    {
+      "from": "진행 중",
+      "to": "캐시됨(강조 포기, 2분)",
+      "trigger": "렌더가 성공했지만 HighlightTimedOut=true이면 DegradedLifetime으로 Store",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store",
+          "lines": "20-23,121"
+        }
+      ]
+    },
+    {
+      "from": "진행 중",
+      "to": "캐시 없음",
+      "trigger": "렌더 예외(RenderBusyException·MarkdownTooComplexException 등)가 나면 Store 없이 finally에서 _inflight를 제거하고, 기다리던 모든 호출자에게 예외를 전파",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.RenderAndStoreAsync",
+          "lines": "141-150"
+        }
+      ]
+    },
+    {
+      "from": "캐시됨",
+      "to": "캐시 없음",
+      "trigger": "AbsoluteExpiration 만료, SizeLimit 초과 시 압축(축출), 프로세스 재시작",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "27-35,115-122"
+        }
+      ]
+    },
+    {
+      "from": "캐시 없음",
+      "to": "캐시됨(선채움)",
+      "trigger": "글 생성·수정을 커밋한 뒤 CanCacheRenderedResult가 참이면 PostEndpoints가 cache.Store 호출",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync/UpdateAsync",
+          "lines": "162,243"
+        }
+      ]
+    },
+    {
+      "from": "슬롯 대기",
+      "to": "렌더 중(슬롯 점유)",
+      "trigger": "SemaphoreSlim.WaitAsync가 queueTimeout 안에 true를 반환",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "86-98"
+        }
+      ]
+    },
+    {
+      "from": "슬롯 대기",
+      "to": "거부(RenderBusyException)",
+      "trigger": "WaitAsync가 false를 반환(대기 한도 초과)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "88"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Posts (PublicDbContext, 본문 제외 메타·Version=xmin·태그·시리즈 이웃)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.GetPostAsync"
+    },
+    {
+      "entity": "Posts (PublicDbContext, ContentMarkdown·Version) — 캐시 미스일 때만",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.GetContentAsync"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "Markdig 1.4.0(NuGet, Directory.Packages.props 중앙 패키지 관리): 마크다운 파싱과 HTML 렌더링을 맡는다. DisableHtml·PipeTables·TaskLists·Footnotes·EmphasisExtras(Strikethrough)·AutoLinks만 켠다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "Directory.Packages.props",
+          "lines": "9"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "44-51,140-141"
+        }
+      ]
+    },
+    {
+      "text": "ColorCode.HTML 2.0.15(NuGet): 코드 강조를 맡는다. HtmlClassFormatter·LanguageParser·LanguageRepository·Languages를 쓰며, 인라인 style 없이 CSS 클래스만 출력한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "Directory.Packages.props",
+          "lines": "10"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "lines": "52-61,112"
+        }
+      ]
+    },
+    {
+      "text": "HtmlSanitizer 9.2.1039(NuGet): HtmlAllowlist.Create가 허용 목록을 설정한 인스턴스를 만들고, MarkdownRenderer.RenderDetailed가 그 인스턴스(_sanitizer)로 최종 HTML을 정제한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "Directory.Packages.props",
+          "lines": "11"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+          "symbol": "HtmlAllowlist.Create",
+          "lines": "46-73"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "54,136"
+        }
+      ]
+    },
+    {
+      "text": "Microsoft.Extensions.Caching.Memory.MemoryCache: 공용 IMemoryCache가 아니라 SizeLimit을 건 전용 인스턴스를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "2,35,54"
+        }
+      ]
+    },
+    {
+      "text": "네트워크·외부 API 호출은 없다. UrlPolicy는 문자열 규칙으로만 판정하며, 첨부 파일이 실제로 있는지는 확인하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+          "lines": "52,55-57"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "RenderGate.RenderAsync",
+      "condition": "QueueTimeoutMs(기본 5000ms) 안에 렌더 슬롯을 얻지 못함",
+      "handling": "RenderBusyException을 던진다. 호출부 어디에서도 잡지 않으므로 엔드포인트나 Razor 페이지 밖으로 전파된다. 그러면 app.UseExceptionHandler 파이프라인이 OverloadExceptionHandler.TryHandleAsync를 호출한다. IsOverload가 InnerException 체인에서 이 예외를 찾으면 503과 Retry-After: 5를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync/IsOverload",
+          "lines": "35-42,63-70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,100"
+        }
+      ]
+    },
+    {
+      "where": "RenderGate.RenderAsync",
+      "condition": "슬롯 대기 중 요청 취소(ct)",
+      "handling": "SemaphoreSlim.WaitAsync가 OperationCanceledException을 던진다. 슬롯을 얻기 전이므로 반납할 것이 없다. 슬롯을 얻은 뒤에는 렌더를 취소할 수 없고, 슬롯은 finally에서 반납한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "86-98"
+        }
+      ]
+    },
+    {
+      "where": "MarkdownRenderer.RenderDetailed",
+      "condition": "Markdig 중첩 한도(128단계)를 넘어 파싱이나 렌더 중에 ArgumentException이 남",
+      "handling": "catch(138-143행)가 MarkdownTooComplexException으로 감싼다. 저장 경로(RenderOrAddErrorAsync)는 contentMarkdown 키로, 미리보기는 markdown 키로 400을 반환한다. 공개 PostModel.RenderAsync는 null을 반환해 본문 없이 안내 문구를 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed",
+          "lines": "138-143"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.RenderOrAddErrorAsync",
+          "lines": "323-334"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render",
+          "lines": "71-76"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.RenderAsync",
+          "lines": "70-73"
+        }
+      ]
+    },
+    {
+      "where": "MarkdownRenderer.RenderDetailed",
+      "condition": "입력이 null이거나 UTF-8 기준 MaxInputBytes를 넘음",
+      "handling": "try 블록 밖에서 ArgumentNullException이나 ArgumentException을 던지며, MarkdownTooComplexException으로 바꾸지 않는다(예외 전파). 저장·미리보기 경로는 사전 검증으로 막는다. 공개 경로는 DB 제약(CK_Posts_Content_Size)에만 기대고, PostModel은 이 예외를 잡지 않는다. 따라서 제약을 우회한 데이터가 있으면 500이 된다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed",
+          "lines": "36-39,113-117"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "lines": "59-63"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.RenderAsync",
+          "lines": "66-73"
+        }
+      ]
+    },
+    {
+      "where": "HighlightingCodeBlockRenderer.Write",
+      "condition": "정규식 매치 1건이 250ms를 넘거나(RegexMatchTimeoutException), 강조 중 누적 시간이 2,000ms에 이름(DeadlineLanguageParser가 HighlightBudgetExceededException을 던짐)",
+      "handling": "catch에서 TimedOut=true로 두고 해당 블록만 이스케이프한 <pre><code>로 대체한다. finally에서 쓴 시간을 _highlightMilliseconds에 더한다. 부분 강조 결과는 로컬 문자열에만 있으므로 출력에 섞이지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.Write",
+          "lines": "104-131"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+          "symbol": "DeadlineLanguageParser",
+          "lines": "68-82"
+        }
+      ]
+    },
+    {
+      "where": "HighlightingCodeBlockRenderer.Write",
+      "condition": "블록에 들어올 때 누적 강조 시간이 이미 2,000ms 이상",
+      "handling": "TimedOut=true로 두고 WritePlainEscaped를 한 뒤 try 밖에서 바로 return한다. 시간은 재지도 누적하지도 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.Write",
+          "lines": "96-101"
+        }
+      ]
+    },
+    {
+      "where": "HighlightingCodeBlockRenderer.Write",
+      "condition": "언어를 모르거나 지정하지 않음, 한 줄이 400자 초과, 또는 문서 누적 강조 문자가 60,000자 초과",
+      "handling": "강조 없이 이스케이프한 일반 코드블록을 쓰고 바로 return한다. 결과가 입력만으로 정해지므로 TimedOut을 세우지 않고 시간도 누적하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.Write",
+          "lines": "84-95"
+        }
+      ]
+    },
+    {
+      "where": "RenderedPostCache.RenderAndStoreAsync",
+      "condition": "공유 렌더가 예외로 끝남",
+      "handling": "Store하지 않고, finally에서 _inflight 항목을 제거해 다음 요청이 다시 시도하게 한다. 같은 키로 기다리던 호출자 모두에게 같은 예외가 전파된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.RenderAndStoreAsync",
+          "lines": "141-150"
+        }
+      ]
+    },
+    {
+      "where": "RenderedPostCache.GetOrRenderAsync",
+      "condition": "기다리던 호출자의 요청이 취소됨",
+      "handling": "lazy.Value.WaitAsync(ct)이므로 그 호출자의 대기만 OperationCanceledException으로 끝난다. 공유 렌더는 CancellationToken.None으로 계속 진행하고, 결과를 캐시에 넣는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.GetOrRenderAsync/RenderAndStoreAsync",
+          "lines": "100,143"
+        }
+      ]
+    },
+    {
+      "where": "RenderedPostCache.Store",
+      "condition": "MemoryCache SizeLimit(CacheMegabytes)을 넘은 상태에서 Set을 호출",
+      "handling": "예외 없이 조용히 거부된다(주석에 적힌 실측 결과). 다음 요청이 다시 렌더하며, 그 비용은 RenderGate가 제한한다. 로그는 남지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "27-35"
+        }
+      ]
+    },
+    {
+      "where": "StartupValidation.Validate",
+      "condition": "Rendering:Concurrency·QueueTimeoutMs·CacheMegabytes 중 하나가 허용 범위를 벗어남",
+      "handling": "InvalidOperationException을 던져 기동을 멈춘다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.Validate",
+          "lines": "103-107"
+        }
+      ]
+    },
+    {
+      "where": "PostModel.RenderAsync",
+      "condition": "메타 조회 직후 글이 삭제돼 GetContentAsync가 null을 반환",
+      "handling": "null을 반환해 본문 없이 페이지를 그린다. 다음 요청부터는 메타 조회 단계에서 404가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.RenderAsync",
+          "lines": "64-65"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "빈 문자열 입력은 허용된다(미리보기는 null만 거부한다). 렌더 결과는 빈 HTML이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "lines": "59"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "85"
+        }
+      ]
+    },
+    {
+      "text": "정책을 통과하지 못한 링크·이미지는 노드만 제거되고, 링크 텍스트와 대체 텍스트는 남는다. 허용되지 않은 자동 링크는 평문(LiteralInline)이 된다. 이메일 자동 링크는 앞에 'mailto:'를 붙여 판정한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.ApplyUrlPolicy",
+          "lines": "147-163"
+        }
+      ]
+    },
+    {
+      "text": "UrlPolicy는 공백·제어문자·백슬래시·'%00'이 들어 있으면 거부하고, 프로토콜 상대 경로('//host')도 거부한다. 이미지 경로에 '..'이나 '%2e'가 있으면 거부한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+          "symbol": "UrlPolicy.IsAllowedLink/IsAllowedImage/IsClean",
+          "lines": "34-68"
+        }
+      ]
+    },
+    {
+      "text": "HtmlSanitizer 인스턴스는 MarkdownRenderer마다 하나이고 모든 렌더가 공유한다. 주석에 따르면 Sanitize는 호출마다 독립 DOM을 만들므로, 구성만 고정돼 있으면 동시에 써도 안전하다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "53-54"
+        }
+      ]
+    },
+    {
+      "text": "조기 반환 경로(길이 예산 초과·언어 없음, 시간 예산 소진)는 _highlightMilliseconds를 누적하지 않는다. 시간은 try/finally 안의 강조 시도 경로에서만 누적된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.Write",
+          "lines": "91-131"
+        }
+      ]
+    },
+    {
+      "text": "강조 결과는 서버 부하에 따라 달라진다. 같은 글이라도 서버가 바쁠 때는 일반 코드블록이 될 수 있고, 그런 결과는 캐시에 2분만 머문다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "lines": "32-34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "22-23,121"
+        }
+      ]
+    },
+    {
+      "text": "같은 키로 GetOrRenderAsync를 동시에 호출하면 ConcurrentDictionary.GetOrAdd가 Lazy를 하나만 저장하므로 렌더는 한 번만 실행된다. 나중 호출자가 넘긴 markdown 인자는 무시된다. 키가 같으면 내용도 같다는 전제에 기댄다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.GetOrRenderAsync",
+          "lines": "37-38,95-101"
+        }
+      ]
+    },
+    {
+      "text": "글 수정은 버전 검사를 렌더보다 먼저 한다. 그래서 오래된 탭에서 온 요청은 렌더 슬롯을 쓰지 않고 409로 끝난다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "199-201,206"
+        }
+      ]
+    },
+    {
+      "text": "게이트를 거치지 않고 렌더하는 앱 코드는 Program.cs의 워밍업 한 곳뿐이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "91"
+        }
+      ]
+    },
+    {
+      "text": "주석에 따르면 Markdig 파서는 인라인·블록 파서 모두 적대적인 약 200KB 입력에서 초선형으로 느려진다. 라이브러리 밖에서는 고칠 수 없어 RenderGate로 동시 실행 수만 제한한다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "24-30"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "F011 컴포넌트(MarkdownRenderer, RenderGate, RenderedPostCache, HighlightingCodeBlockRenderer, HtmlAllowlist)에는 로깅 코드가 없다. 게이트 거부, 캐시 Set 거부, 강조 타임아웃은 어디에도 기록되지 않는다. RenderGate._renderCount는 internal RenderCount로 노출되며 테스트에서만 관측한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "lines": "69-70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs"
+        }
+      ]
+    },
+    {
+      "text": "호출부 PostEndpoints는 저장에 성공하면 'PortfolioBlog.Api.Audit' 로거에 PostId와 Slug만 남긴다. 본문은 기록하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "159,240"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F011_SEQUENCE",
+      "type": "sequence",
+      "title": "공개 글 상세 렌더(캐시 적중·미스·단일 비행·게이트 거부)",
+      "summary": "공개 상세 페이지는 캐시에 적중하면 렌더 없이 응답한다. 미스면 단일 비행 Lazy를 거쳐 RenderGate 슬롯 안에서 한 번만 렌더하고, 슬롯 대기가 한도를 넘으면 503으로 끝난다.",
+      "mermaid": "sequenceDiagram\n    participant Browser\n    participant PostModel\n    participant PublicQueries\n    participant RenderedPostCache\n    participant RenderGate\n    participant MarkdownRenderer\n    participant OverloadExceptionHandler\n    Browser->>PostModel: GET /posts/{slug}\n    PostModel->>PublicQueries: GetPostAsync(slug)\n    PublicQueries-->>PostModel: meta(Id, Version)\n    PostModel->>RenderedPostCache: TryGet(Id, Version)\n    alt 캐시 적중\n        RenderedPostCache-->>PostModel: RenderedMarkdown\n        PostModel-->>Browser: 200 Post.cshtml\n    else 캐시 미스\n        PostModel->>PublicQueries: GetContentAsync(Id)\n        PublicQueries-->>PostModel: content(Markdown, Version)\n        PostModel->>RenderedPostCache: GetOrRenderAsync(Id, content.Version, Markdown, ct)\n        RenderedPostCache->>RenderedPostCache: _inflight.GetOrAdd(Lazy)\n        RenderedPostCache->>RenderGate: RenderAsync(markdown, CancellationToken.None)\n        alt 슬롯 획득\n            RenderGate->>MarkdownRenderer: RenderDetailed(markdown)\n            MarkdownRenderer-->>RenderGate: RenderedMarkdown\n            RenderGate-->>RenderedPostCache: RenderedMarkdown\n            RenderedPostCache->>RenderedPostCache: Store(24h 또는 2분)\n            RenderedPostCache-->>PostModel: RenderedMarkdown\n            PostModel-->>Browser: 200 Post.cshtml\n        else QueueTimeoutMs 초과\n            RenderGate-->>RenderedPostCache: RenderBusyException\n            RenderedPostCache-->>PostModel: RenderBusyException\n            PostModel->>OverloadExceptionHandler: UseExceptionHandler 경유 TryHandleAsync\n            OverloadExceptionHandler-->>Browser: 503 + Retry-After 5\n        end\n    end",
+      "details": "PostModel.OnGetAsync는 메타 조회로 얻은 (Id, Version)으로 먼저 TryGet한다. 미스일 때만 본문을 읽고, 본문과 함께 읽은 content.Version으로 GetOrRenderAsync를 호출한다. RenderedPostCache는 같은 키의 동시 미스를 _inflight의 Lazy<Task> 하나로 합친다. 실제 렌더(RenderAndStoreAsync)는 CancellationToken.None으로 RenderGate를 호출하므로, 한 호출자가 취소해도 공유 렌더는 계속된다. 렌더에 성공하면 HighlightTimedOut 여부에 따라 24시간 또는 2분 수명으로 Store한다. RenderBusyException은 누구도 잡지 않고 페이지 밖으로 전파된다. 그러면 Program.cs 100행의 UseExceptionHandler가 OverloadExceptionHandler를 호출해 503을 쓴다. MarkdownTooComplexException은 PostModel.RenderAsync가 잡아 null로 바꾸며, 이 경우 본문 없이 안내 문구를 보여 준다(다이어그램에서는 생략).",
+      "nodes": [
+        {
+          "node": "PostModel",
+          "code": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+          "symbol": "PostModel.OnGetAsync/RenderAsync"
+        },
+        {
+          "node": "PublicQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.GetPostAsync/GetContentAsync"
+        },
+        {
+          "node": "RenderedPostCache",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.GetOrRenderAsync"
+        },
+        {
+          "node": "RenderGate",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "node": "MarkdownRenderer",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F011_DATAFLOW",
+      "type": "dataflow",
+      "title": "MarkdownRenderer.RenderDetailed 내부 변환 파이프라인",
+      "summary": "세 진입 경로(PostEndpoints·PreviewEndpoints·RenderedPostCache)는 모두 RenderGate를 거쳐 MarkdownRenderer로 모인다. 마크다운은 Markdig AST → URL 정책 → 제목 id → HTML(코드 강조) → 허용 목록 정제 순서로 RenderedMarkdown이 된다.",
+      "mermaid": "flowchart LR\n    PostEndpoints --> RenderGate\n    PreviewEndpoints --> RenderGate\n    RenderedPostCache --> RenderGate\n    RenderGate --> MarkdownRenderer\n    MarkdownRenderer --> MarkdigParse[\"Markdig.Markdown.Parse (DisableHtml)\"]\n    MarkdigParse --> ApplyUrlPolicy\n    UrlPolicy --> ApplyUrlPolicy\n    ApplyUrlPolicy --> HeadingIds\n    HeadingIds --> HtmlRenderer\n    HighlightingCodeBlockRenderer --> HtmlRenderer\n    HtmlRenderer --> SanitizerSanitize[\"MarkdownRenderer._sanitizer.Sanitize\"]\n    HtmlAllowlist -- \"Create: 설정된 HtmlSanitizer\" --> SanitizerSanitize\n    SanitizerSanitize --> RenderedMarkdown\n    RenderedMarkdown --> PostEndpoints\n    RenderedMarkdown --> PreviewEndpoints\n    RenderedMarkdown --> RenderedPostCache",
+      "details": "RenderDetailed는 크기를 검사한 뒤 Markdig로 AST를 만든다. ApplyUrlPolicy가 UrlPolicy 판정으로 정책 밖 링크·이미지 노드를 풀고, HeadingIds.Assign이 제목 id를 붙인다. 이어서 기본 CodeBlockRenderer를 HighlightingCodeBlockRenderer로 바꾼 HtmlRenderer가 중간 HTML을 만든다. HtmlAllowlist.Create로 필드 초기화 때 한 번 만든 _sanitizer가 이 HTML을 정제해 최종 Html이 된다. 결과는 PostEndpoints(저장 전 확인 → 캐시 선채움), PreviewEndpoints(Html만 응답), RenderedPostCache(공개 상세 캐시)로 돌아간다.",
+      "nodes": [
+        {
+          "node": "PostEndpoints",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.RenderOrAddErrorAsync"
+        },
+        {
+          "node": "PreviewEndpoints",
+          "code": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "symbol": "PreviewEndpoints.Render"
+        },
+        {
+          "node": "RenderedPostCache",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.RenderAndStoreAsync"
+        },
+        {
+          "node": "RenderGate",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "node": "MarkdownRenderer",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed"
+        },
+        {
+          "node": "ApplyUrlPolicy",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.ApplyUrlPolicy"
+        },
+        {
+          "node": "UrlPolicy",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+          "symbol": "UrlPolicy.IsAllowedLink/IsAllowedImage"
+        },
+        {
+          "node": "HeadingIds",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+          "symbol": "HeadingIds.Assign"
+        },
+        {
+          "node": "HighlightingCodeBlockRenderer",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.Write"
+        },
+        {
+          "node": "HtmlAllowlist",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+          "symbol": "HtmlAllowlist.Create"
+        },
+        {
+          "node": "RenderedMarkdown",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "RenderedMarkdown"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F011_FLOW",
+      "type": "flowchart",
+      "title": "코드블록 강조 판정과 폴백(HighlightingCodeBlockRenderer.Write)",
+      "summary": "코드블록은 길이 예산 → 시간 예산 → 강조 시도 순서로 판정한다. 어느 단계에서 실패해도 그 블록만 이스케이프한 일반 코드블록으로 대체된다.",
+      "mermaid": "flowchart TD\n    WriteStart[\"HighlightingCodeBlockRenderer.Write\"] --> FindLanguage[\"Languages.FindById(info)\"]\n    FindLanguage --> LengthBudget{\"언어 있음 && 최장 줄<=400 && 누적<=60000\"}\n    LengthBudget -- 아니오 --> EarlyPlain[\"WritePlainEscaped 후 return (누적 없음)\"]\n    LengthBudget -- 예 --> TimeBudget{\"_highlightMilliseconds >= 2000\"}\n    TimeBudget -- 예 --> BudgetSpent[\"TimedOut = true, WritePlainEscaped 후 return (누적 없음)\"]\n    TimeBudget -- 아니오 --> TryHighlight[\"try: HtmlClassFormatter.GetHtmlString\"]\n    TryHighlight --> DeadlineLanguageParser\n    DeadlineLanguageParser --> TimeBoundedLanguageCompiler\n    TryHighlight -- 성공 --> WriteHighlighted[\"_highlightedLength 누적, renderer.Write(html)\"]\n    DeadlineLanguageParser -- HighlightBudgetExceededException --> CatchPlain[\"catch: TimedOut = true, WritePlainEscaped\"]\n    TimeBoundedLanguageCompiler -- RegexMatchTimeoutException --> CatchPlain\n    WriteHighlighted --> AccumulateTime[\"finally: _highlightMilliseconds 누적\"]\n    CatchPlain --> AccumulateTime",
+      "details": "길이 예산(언어 인식, 한 줄 400자, 문서 누적 60,000자)은 입력만으로 결과가 정해지므로 TimedOut을 세우지 않는다. 시간 예산이 이미 소진됐거나 강조 중에 시간 초과가 나면 TimedOut=true가 되고, 호출부 RenderedPostCache는 그 결과를 2분만 캐시한다. TimeBoundedLanguageCompiler는 ColorCode의 언어별 정규식을 매치 제한 250ms를 건 Regex로 다시 만들어 캐시한다. DeadlineLanguageParser는 토큰 콜백마다 누적 시간이 2,000ms를 넘었는지 확인한다. 강조 결과는 로컬 문자열로 먼저 완성하므로, 실패해도 부분 출력이 섞이지 않는다.",
+      "nodes": [
+        {
+          "node": "WriteStart",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.Write"
+        },
+        {
+          "node": "DeadlineLanguageParser",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+          "symbol": "DeadlineLanguageParser.Parse"
+        },
+        {
+          "node": "TimeBoundedLanguageCompiler",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+          "symbol": "TimeBoundedLanguageCompiler.Compile"
+        },
+        {
+          "node": "CatchPlain",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+          "symbol": "HighlightingCodeBlockRenderer.WritePlainEscaped"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "배포 설정(appsettings*.json, deploy/, .env*, docker-compose)에서 'Rendering' 섹션을 찾지 못했다. 참조하는 곳은 Program.cs 59행의 바인딩과 StartupValidation 103-107행뿐이다. 운영에서 기본값(Concurrency=2, QueueTimeoutMs=5000, CacheMegabytes=64)을 그대로 쓰는지, 환경 변수로 덮어쓰는지는 확인하지 못했다.",
+    "주석에 적힌 성능 실측값(인라인 파서 약 8,486ms, 블록 파서 약 6,567ms, ColorCode 초기화 약 185ms, 캐시 항목 오버헤드 약 290바이트, SizeLimit 초과 시 Set이 조용히 거부된다는 관찰 등)은 코드로 재현·검증하지 않았다.",
+    "RenderedPostCache에는 글을 삭제할 때 항목을 명시적으로 무효화하는 경로가 없다(PostEndpoints.DeleteAsync는 cache를 받지 않는다). 따라서 삭제된 글의 항목은 만료(최대 24시간)나 압축 전까지 메모리에 남는다. 다만 메타 조회가 404를 내므로 노출되지는 않는다(PostModel 흐름에서 추론).",
+    "이번 검증 지적 6건은 모두 색인 문서의 '기능 간 의존' 표에서 F006·F008·F002·F007·F018 행에 관한 것이며, F011 자체 분석의 범위 밖이다. 이 가운데 F011과 관련된 사실만 코드로 다시 확인했다. (1) F006은 F011을 쓴다: PostEndpoints가 RenderGate와 RenderedPostCache.Store를 사용한다(PostEndpoints.cs 124·162·187·243행). 이는 F006→F011 방향의 역의존이므로 F011의 dependencies에는 넣지 않는다. (2) 지적 가운데 'F011 행이 의존 표에 없다'는 내용은 색인 쪽 문제다. F011 자체의 의존은 코드로 다시 확인해 두 가지로 유지한다. F020: Program.cs 43·100행의 OverloadExceptionHandler가 RenderBusyException을 503으로 바꾼다. F021: StartupValidation.cs 103-107행이 Rendering 옵션을 검증한다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed",
+      "lines": "54,111-144"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync",
+      "lines": "86-98"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.GetOrRenderAsync",
+      "lines": "95-151"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+      "symbol": "HighlightingCodeBlockRenderer.Write",
+      "lines": "74-132"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+      "lines": "20-82"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+      "symbol": "HtmlAllowlist.Create",
+      "lines": "46-73"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+      "symbol": "UrlPolicy",
+      "lines": "34-68"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+      "symbol": "HeadingIds.Assign",
+      "lines": "17-86"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "symbol": "RenderingOptions",
+      "lines": "15-24"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43,58-61,91,100"
+    },
+    {
+      "file": "Directory.Packages.props",
+      "lines": "9-11"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+      "lines": "103-107"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+      "symbol": "PostModel.OnGetAsync",
+      "lines": "43-74"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.RenderOrAddErrorAsync/CanCacheRenderedResult",
+      "lines": "323-354"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+      "symbol": "PreviewEndpoints.Render",
+      "lines": "56-77"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync/IsOverload",
+      "lines": "35-42,63-70"
+    }
+  ],
+  "history": []
+}

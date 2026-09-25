@@ -1,0 +1,1436 @@
+{
+  "feature": {
+    "id": "F008",
+    "name": "태그 관리",
+    "slug": "ADMIN_TAG_MANAGEMENT",
+    "summary": "관리자는 SPA /tags 화면(TagsPage)에서 태그 목록을 보고 태그를 지운다. 목록은 GET /api/tags가 NormalizedName 순으로 글 수와 함께 준다. 삭제는 DELETE /api/tags/{id:guid}이며, ExecuteDeleteAsync와 DB FK cascade로 PostTags 링크만 함께 지운다. 태그를 만드는 엔드포인트는 없다. 태그는 글 생성·수정 트랜잭션 안에서 TagResolver.ResolveIdsAsync가 이름을 정규화한 뒤 INSERT ... ON CONFLICT DO NOTHING으로 만든다. 모든 요청은 AdminSurfaceMiddleware, 세션 인가, 전역 오류 처리를 거친다.",
+    "entryPoints": [
+      "SPA /tags (TagsPage)",
+      "GET /api/tags (ListTags)",
+      "DELETE /api/tags/{id:guid} (DeleteTag)",
+      "TagResolver.ResolveIdsAsync (PostEndpoints.CreateAsync/UpdateAsync 내부 호출)",
+      "TagResolver.Validate (PostValidation.Validate 내부 호출)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Web/src/api/errors.ts",
+      "PortfolioBlog.Web/src/api/types.ts",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Web/src/components/notices.tsx",
+      "PortfolioBlog.Api/Program.cs",
+      "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "PortfolioBlog.Api/Contracts/TagDtos.cs",
+      "PortfolioBlog.Api/Domain/Tag.cs",
+      "PortfolioBlog.Api/Domain/PostTag.cs",
+      "PortfolioBlog.Api/Domain/Post.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+      "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/TagResolverTests.cs",
+      "PortfolioBlog.Api.Tests/Infrastructure/PublicSeed.cs"
+    ],
+    "dependencies": [
+      "F001",
+      "F018",
+      "F020",
+      "F029"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "태그 관리 API는 조회(GET /api/tags)와 삭제(DELETE /api/tags/{id:guid}) 두 개다. 태그를 만드는 API는 따로 없고, 글 저장(POST /api/posts, PUT /api/posts/{id}) 트랜잭션 안에서 TagResolver.ResolveIdsAsync가 만든다. ResolveIdsAsync는 이름을 정규화(트림·공백 축소·NFC·소문자)하고, 아직 없는 이름만 정규화 이름의 Ordinal 순서로 `INSERT ... ON CONFLICT (\"NormalizedName\") DO NOTHING` 한다. 목록은 AsNoTracking 프로젝션으로 TagDto(Id, Name, NormalizedName, PostCount)를 NormalizedName 순으로 돌려주며 페이징은 없다. 삭제는 ExecuteDeleteAsync 한 문장이다. 지운 행이 0이면 404, 지웠으면 Audit 로그를 남기고 204를 준다. PostTags는 마이그레이션의 FK_PostTags_Tags_TagId ON DELETE CASCADE로 함께 지워지고, 글 행(Version/xmin)은 바뀌지 않는다. 모든 /api/tags 요청은 AdminSurfaceMiddleware(F018)에서 호스트·IP·CSRF 헤더·Origin 검사를 먼저 받고, 이어서 /api 그룹의 세션 인가(F001)를 받는다. 오류 응답은 UseStatusCodePages(ErrorResponses)와 OverloadExceptionHandler(F020)가 ProblemDetails 또는 503으로 만든다. 태그 엔드포인트에는 RateLimitMetadata가 없어서 전역 제한기 체인의 모든 제한기에서 NoLimiter 파티션으로 빠진다. SPA의 TagsPage는 TanStack Query로 목록을 조회한다. 삭제 전에는 window.confirm으로 확인하고, 삭제가 끝나면 성공·실패와 관계없이 ['tags'] 쿼리를 무효화한다. 글 저장 경로에는 트랜잭션을 열기 전 분기가 있다. CreateAsync는 검증(400) → RenderOrAddErrorAsync(400, RenderBusyException이면 503) → slug 중복 사전 검사(409) 순이다. UpdateAsync는 글 조회 Posts.Include(PostTags).SingleOrDefaultAsync(없으면 404) → 검증(400) → version 사전 비교(StaleVersion 409) → RenderOrAddErrorAsync(400/503) 순이다. 이 분기를 모두 통과해야 BeginTransactionAsync와 ResolveIdsAsync가 실행된다. F008_FLOW 다이어그램에서 UpdateAsync는 먼저 글 조회 노드(LoadPost)로 가고, 거기서 404 노드(NotFound404)로 갈라진 뒤에야 검증 노드(PostValidation)에 닿는다. 검증 400, version 409, 렌더 400/503, slug 409도 각각 별도 노드다. PostEndpoints에서 검증으로 곧장 가는 간선이나, 검증에서 트랜잭션으로 곧장 가는 간선은 없다. TagResolver 내부 흐름은 F008_FLOW_RESOLVE로 분리했다. TagEndpoints.cs의 이번 증분 변경은 5행에 들어간 임시 주석 한 줄이며 동작은 바뀌지 않았다.",
+  "entryPoints": [
+    {
+      "text": "SPA 라우트 /tags는 RequireAuth → Layout 아래에서 TagsPage를 렌더한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "23-32",
+          "symbol": "routes"
+        }
+      ]
+    },
+    {
+      "text": "GET /api/tags(엔드포인트 이름 ListTags)는 /api 그룹에 등록된다. 이 그룹에는 RequireHost(adminHost)와 RequireAuthorization(AuthServiceCollectionExtensions.PolicyName)이 걸려 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "30-36",
+          "symbol": "TagEndpoints.MapTagEndpoints"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39, 43",
+          "symbol": "ApiEndpoints.MapApiEndpoints"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "121"
+        }
+      ]
+    },
+    {
+      "text": "DELETE /api/tags/{id:guid}(엔드포인트 이름 DeleteTag)는 경로 값이 Guid가 아니면 라우트 제약 때문에 매칭되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "37-42",
+          "symbol": "TagEndpoints.MapTagEndpoints"
+        }
+      ]
+    },
+    {
+      "text": "태그 생성 전용 엔드포인트는 없으며, 클래스 주석에도 그렇게 적혀 있다. 태그는 POST /api/posts와 PUT /api/posts/{id}의 트랜잭션 안에서 TagResolver.ResolveIdsAsync가 호출될 때 만들어진다. 형식 검증은 PostValidation.Validate가 TagResolver.Validate를 불러 수행한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "8",
+          "symbol": "TagEndpoints"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "138-139",
+          "symbol": "PostEndpoints.CreateAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "212-213",
+          "symbol": "PostEndpoints.UpdateAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "lines": "50",
+          "symbol": "PostValidation.Validate"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "TagsPage",
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "symbol": "TagsPage",
+      "description": "마운트되면 useQuery(queryKey ['tags','list'])가 tags.list(signal)을 호출한다. 기본 옵션은 retry:false, refetchOnWindowFocus:false, staleTime:0이다(queryClient.ts 22-23행)."
+    },
+    {
+      "step": 2,
+      "component": "tags (endpoints.ts)",
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "tags.list",
+      "description": "request<Tag[]>('GET', '/api/tags', { signal })를 호출한다(34행)."
+    },
+    {
+      "step": 3,
+      "component": "request (client.ts)",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "description": "buildUrl로 경로를 조립하고 CSRF 헤더(X-Requested-With)와 Accept를 붙인다. fetch 옵션은 credentials same-origin, cache no-store, redirect error다. 응답이 !ok이면 toApiError로 ApiError를 던지고, 204면 undefined를 반환한다."
+    },
+    {
+      "step": 4,
+      "component": "AdminSurfaceMiddleware",
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "description": "/api로 시작하는 요청에 Cache-Control: no-store를 붙인 뒤 차례로 검사한다. 관리 호스트가 아니면 404, IP 허용 정책에 맞지 않으면 403, CSRF 헤더 값이 다르면 403이다. GET/HEAD가 아닌 요청(DELETE)은 Origin이 관리 origin과 다르면 403이다(75-94행)."
+    },
+    {
+      "step": 5,
+      "component": "Program (UseRateLimiter/UseAuthentication/UseAuthorization/ApiBodyLimitMiddleware)",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인(105-108행)",
+      "description": "전역 제한기 체인(BuildChain)을 통과한다. 태그 엔드포인트는 RateLimitMetadata가 없어 모든 Concurrency/Window 제한기에서 GetNoLimiter(\"none\")로 빠진다. 이어서 세션 인증과 /api 그룹 인가 정책이 적용되고, 그 뒤 ApiBodyLimitMiddleware가 실행된다."
+    },
+    {
+      "step": 6,
+      "component": "TagEndpoints",
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints (ListTags)",
+      "description": "db.Tags.AsNoTracking().OrderBy(NormalizedName).Select(new TagDto(Id, Name, NormalizedName, PostTags.Count)).ToArrayAsync(ct)로 조회해 200 OK를 반환한다(33-36행)."
+    },
+    {
+      "step": 7,
+      "component": "TagsPage",
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "symbol": "TagsPage",
+      "description": "항목마다 이름, /tags/{normalizedName}, 글 수를 표시한다. 로딩 중에는 Loading을, 목록이 비었으면 '태그가 없습니다.'를 표시한다. 목록 오류는 ErrorNotice와 다시 시도 버튼(list.refetch)으로 보여 준다(19-31행)."
+    },
+    {
+      "step": 8,
+      "component": "TagsPage",
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "symbol": "confirmRemove",
+      "description": "삭제 버튼을 누르면 window.confirm으로 태그 이름과 글 수를 알리고, 사용자가 확인하면 remove.mutate(tag)를 호출한다(12-14행)."
+    },
+    {
+      "step": 9,
+      "component": "tags (endpoints.ts)",
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "tags.remove",
+      "description": "request<void>('DELETE', `/api/tags/${id(tagId)}`)를 호출한다(35행, id 헬퍼는 encodeURIComponent). 서버에서는 4~5단계와 같은 파이프라인을 거치며 Origin 검사가 추가된다."
+    },
+    {
+      "step": 10,
+      "component": "TagEndpoints",
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints (DeleteTag)",
+      "description": "db.Tags.Where(Id==id).ExecuteDeleteAsync(ct)를 실행한다(39행). 영향 행이 0이면 본문 없는 404를 반환하고, UseStatusCodePages → ErrorResponses.HandleStatusCodeAsync가 ProblemDetails를 쓴다. 행을 지웠으면 'PortfolioBlog.Api.Audit' 로거에 '태그 삭제. TagId={TagId}'를 남기고 204 NoContent를 반환한다(40-41행). PostTags는 DB의 FK ON DELETE CASCADE로 함께 지워진다."
+    },
+    {
+      "step": 11,
+      "component": "TagsPage",
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "symbol": "remove.onSettled",
+      "description": "성공·실패와 관계없이 client.invalidateQueries({ queryKey: ['tags'] })로 목록을 다시 조회한다(10행). 실패하면 remove.error를 ErrorNotice로 표시한다(20행)."
+    },
+    {
+      "step": 12,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync (글 조회)",
+      "description": "(태그 생성 경로, 수정일 때) 검증보다 먼저 db.Posts.Include(PostTags).SingleOrDefaultAsync로 글을 조회하고, 글이 없으면 404를 반환한다(189-190행). CreateAsync에는 이 단계가 없다."
+    },
+    {
+      "step": 13,
+      "component": "PostValidation",
+      "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate",
+      "description": "글 저장 요청의 tagNames에 TagResolver.Validate를 실행한다(50행). 공백 이름은 건너뛰고, NUL 포함·50자(AppDbContext.TagMax) 초과·'/' 포함·중복 제거 후 20개(MaxTagsPerPost) 초과를 검사한다. 수정이면 slug 변경과 version 누락도 오류로 쌓는다. 이어서 ValidateSeriesAsync가 시리즈가 있는지 확인하고, 오류가 있으면 400 ValidationProblem을 반환한다(Create 126-128행, Update 192-197행)."
+    },
+    {
+      "step": 14,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync (트랜잭션 전 분기)",
+      "description": "CreateAsync는 RenderOrAddErrorAsync(133행)를 실행한다. MarkdownTooComplexException이면 400이고, RenderBusyException이 전파되면 OverloadExceptionHandler가 503을 준다. 그다음 Posts.AnyAsync(Slug)로 slug 중복을 미리 검사해, 이미 있으면 DbConflict.Problem 409를 반환한다(136행). UpdateAsync는 post.Version != req.Version이면 렌더 전에 StaleVersion() 409를 반환한다(201행). 이어서 RenderOrAddErrorAsync(206행, 400/503)를 실행하고, Version OriginalValue를 요청 값으로 고정한다(210행)."
+    },
+    {
+      "step": 15,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync (트랜잭션)",
+      "description": "BeginTransactionAsync(138/212행) 뒤 TagResolver.ResolveIdsAsync(db, req.TagNames, ct)로 태그 Id 목록을 얻어 PostTag 링크를 추가한다. 수정이면 빠진 링크를 RemoveAll로 지우고 새 링크만 추가한다(215-219행). SaveChangesAsync에서 FK/유니크 위반이 나면 DbConflict.Problem 409, 수정 중 동시성 예외가 나면 StaleVersion 409를 반환한다. 이 경우 커밋하지 않고 반환하므로 await using으로 잡은 트랜잭션이 해제되며 롤백된다. 성공하면 CommitAsync한다(157/238행)."
+    },
+    {
+      "step": 16,
+      "component": "TagResolver",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync",
+      "description": "공백 이름은 건너뛴다. Display 결과를 소문자로 만든 키로 중복을 제거하며, 먼저 나온 표기를 우선한다. 키가 0개면 빈 목록을 반환한다. 키가 있으면 기존 NormalizedName을 조회하고, 없는 이름만 Ordinal 순서로 Guid.CreateVersion7() Id를 붙여 INSERT ... ON CONFLICT DO NOTHING 한다. 마지막으로 키 전체에 대응하는 Id를 다시 조회해 반환한다(92-116행)."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "symbol": "TagsPage",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "tags",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/types.ts",
+      "symbol": "Tag",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "describeError / toApiError",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "symbol": "ErrorNotice / Loading",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "createQueryClient / noteAuthFailure",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인(UseExceptionHandler·UseStatusCodePages·AdminSurfaceMiddleware·UseRateLimiter·UseAuthorization)",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.HandleStatusCodeAsync / WriteAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync / IsOverload",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain / Matches",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TagDtos.cs",
+      "symbol": "TagDto",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Tag.cs",
+      "symbol": "Tag",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/PostTag.cs",
+      "symbol": "PostTag",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Post.cs",
+      "symbol": "Post",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating (Tag/PostTag)",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "FK_PostTags_Tags_TagId",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Display / TagResolver.Normalize",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync / ValidateSeriesAsync / RenderOrAddErrorAsync / StaleVersion",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.IsConstraintRace / DbConflict.Problem",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync (TagResolver.Normalize 사용)",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.ByTagAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+      "symbol": "List_ReturnsTagsSortedByNormalizedName_WithPostCounts_AndDeleteRemovesLinksOnly",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "symbol": "ConcurrentCreates_WithSameNewTag_BothSucceed_AndTagIsSingle",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/TagResolverTests.cs",
+      "symbol": "TagResolverTests",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicSeed.cs",
+      "symbol": "PublicSeed (ResolveIdsAsync 직접 호출)",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "목록 조회에서 서버는 Tags 테이블과 PostTags 개수를 TagDto(Id, Name, NormalizedName, PostCount) 배열로 프로젝션한다. 이 배열은 JSON으로 SPA의 Tag 인터페이스(id, name, normalizedName, postCount)에 전달된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "33-35"
+        },
+        {
+          "file": "PortfolioBlog.Api/Contracts/TagDtos.cs",
+          "lines": "8",
+          "symbol": "TagDto"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/types.ts",
+          "lines": "25",
+          "symbol": "Tag"
+        }
+      ]
+    },
+    {
+      "text": "삭제 요청의 입력은 경로의 Guid 하나뿐이며 본문이나 버전 토큰은 없다. SPA는 서버가 준 id를 encodeURIComponent(id 헬퍼)로 인코딩해 경로에 넣는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "lines": "8, 33-36",
+          "symbol": "tags.remove"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "37-42"
+        }
+      ]
+    },
+    {
+      "text": "생성 경로의 정규화 규칙은 이렇다. 원본 문자열에 Display(공백 분할·단일 공백 결합·NFC)를 적용한 값이 표시 이름(Name)이고, 여기에 ToLowerInvariant를 더한 값이 NormalizedName이다. 한 요청에 같은 NormalizedName이 여러 표기로 들어오면 먼저 나온 표기를 쓴다. 이미 있는 태그는 INSERT가 ON CONFLICT DO NOTHING이라 기존 Name이 유지된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "34-48, 94-114",
+          "symbol": "TagResolver.Display/Normalize/ResolveIdsAsync"
+        }
+      ]
+    },
+    {
+      "text": "ResolveIdsAsync는 Guid.CreateVersion7()으로 만든 Id를 ExecuteSqlInterpolatedAsync의 매개변수로 넘겨 INSERT한다. 반환값은 NormalizedName 키 전체에 대응하는 Tag.Id 목록이며 순서는 정해져 있지 않다. PostEndpoints는 이 Id로 PostTag를 추가한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "110-115"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "139-147, 213-219"
+        }
+      ]
+    },
+    {
+      "text": "공개 쪽은 URL의 태그 문자열을 TagResolver.Normalize로 키로 바꾼 뒤 PublicQueries.ByTagAsync로 조회한다. 관리자가 태그를 삭제하면 ByTagAsync가 null을 반환하고 TagPageModel은 NotFound를 반환한다. 코드베이스에 OutputCache/ResponseCaching이 없으므로 삭제 직후부터 404가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "lines": "62-67",
+          "symbol": "TagPageModel.OnGetAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "61-67",
+          "symbol": "PublicQueries.ByTagAsync"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "태그 없음",
+      "to": "Tag 행 존재(PostTags ≥1)",
+      "trigger": "글 생성·수정 때 트랜잭션 전 분기(Update의 글 조회 404, 검증 400, version 409, 렌더 400/503, Create의 slug 409)를 모두 통과하면 TagResolver.ResolveIdsAsync가 INSERT ... ON CONFLICT DO NOTHING을 실행한다. 이어서 PostEndpoints가 PostTag를 추가하고 트랜잭션을 커밋한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "107-114"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "138-157"
+        }
+      ]
+    },
+    {
+      "from": "트랜잭션 안에서 INSERT된 Tag 행(미커밋)",
+      "to": "태그 없음(롤백)",
+      "trigger": "SaveChangesAsync 실패로 409(DbConflict/StaleVersion)를 반환하면 CommitAsync 없이 await using 트랜잭션이 해제된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "138, 149-157, 212, 226-238"
+        }
+      ]
+    },
+    {
+      "from": "Tag 행 존재(PostTags ≥1)",
+      "to": "Tag 행 존재(PostTags 0, 고아 태그)",
+      "trigger": "글 수정으로 태그를 떼거나 글을 삭제(PostTag.PostId FK cascade)해도 태그 행은 자동으로 지워지지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "215, 247"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "138"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "6"
+        }
+      ]
+    },
+    {
+      "from": "Tag 행 존재",
+      "to": "삭제됨(Tag 행과 해당 PostTags 제거, Posts 행은 그대로)",
+      "trigger": "DELETE /api/tags/{id}가 ExecuteDeleteAsync를 실행하고, FK_PostTags_Tags_TagId ON DELETE CASCADE가 링크를 지운다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "37-42"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "139"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+          "lines": "105-110"
+        }
+      ]
+    },
+    {
+      "from": "TagsPage idle",
+      "to": "remove pending(모든 삭제 버튼 disabled)",
+      "trigger": "confirmRemove에서 사용자가 확인하면 remove.mutate가 호출된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "10-13, 26"
+        }
+      ]
+    },
+    {
+      "from": "remove pending",
+      "to": "목록 무효화·재조회(실패 시 remove.error 표시)",
+      "trigger": "mutation onSettled",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "10, 20"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Tags (+ PostTags COUNT)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "ListTags"
+    },
+    {
+      "entity": "Tags",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "DeleteTag (ExecuteDeleteAsync)"
+    },
+    {
+      "entity": "PostTags",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "FK_PostTags_Tags_TagId onDelete Cascade (DB가 수행)"
+    },
+    {
+      "entity": "Tags",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync (기존 NormalizedName 조회, 최종 Id 조회)"
+    },
+    {
+      "entity": "Tags",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync (INSERT ... ON CONFLICT (\"NormalizedName\") DO NOTHING)"
+    },
+    {
+      "entity": "PostTags",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync"
+    },
+    {
+      "entity": "PostTags",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync (post.PostTags.RemoveAll)"
+    },
+    {
+      "entity": "Posts (slug 중복 사전 검사 AnyAsync, 수정 대상 Include(PostTags) 조회)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync(136행) / UpdateAsync(189행)"
+    },
+    {
+      "entity": "Tags (unique index NormalizedName, CK_Tags_Name_NotBlank, CK_Tags_Name_NoSlash)",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating"
+    },
+    {
+      "entity": "PostTags (PK PostId+TagId, FK cascade 2개)",
+      "operation": "DDL",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "symbol": "PostTags 테이블 생성"
+    },
+    {
+      "entity": "Tags (공개 태그 페이지 조회)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.ByTagAsync"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL(Npgsql/EF Core)에 의존한다. 태그 생성은 PostgreSQL 전용 구문인 ON CONFLICT와 NormalizedName 유니크 인덱스를 쓴다. 삭제는 마이그레이션이 만든 DB 수준 FK ON DELETE CASCADE에 기댄다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "112-113"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "123-139"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+          "lines": "105-110"
+        }
+      ]
+    },
+    {
+      "text": "SPA는 @tanstack/react-query의 useQuery/useMutation/useQueryClient로 서버 상태를 관리한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "1, 8-10"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "AdminSurfaceMiddleware (/api/tags 공통)",
+      "condition": "요청 호스트가 관리 호스트가 아님",
+      "handling": "404 ProblemDetails를 반환한다. 라우팅 단계의 RequireHost(adminHost)가 한 번 더 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "77-80",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39"
+        }
+      ]
+    },
+    {
+      "where": "AdminSurfaceMiddleware",
+      "condition": "IP 허용 정책 불일치, CSRF 헤더 없음, DELETE 요청의 Origin이 관리 origin과 다름",
+      "handling": "403 ProblemDetails를 반환한다. SPA의 describeError는 detail이 있으면 그대로 보여 주고, 없으면 기본 문구를 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "81-94",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "75"
+        }
+      ]
+    },
+    {
+      "where": "TagsPage / queryClient",
+      "condition": "세션 만료 등으로 401 응답",
+      "handling": "QueryCache·MutationCache의 onError(noteAuthFailure)가 ME_KEY를 authenticated:false로 설정하고, RequireAuth가 로그인 화면으로 전환한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "11-18"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "106-107"
+        }
+      ]
+    },
+    {
+      "where": "TagEndpoints DeleteTag",
+      "condition": "해당 Id의 태그가 없어(이미 삭제됨 등) ExecuteDeleteAsync 결과가 0",
+      "handling": "본문 없는 404 NotFound를 반환한다. /api 경로이므로 UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync → WriteAsync)가 ProblemDetails를 쓴다. SPA는 '대상을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.'를 표시하고, onSettled에서 목록을 다시 조회한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "lines": "17, 30-31, 45-51"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "76"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+          "lines": "44-45"
+        }
+      ]
+    },
+    {
+      "where": "TagEndpoints ListTags / DeleteTag",
+      "condition": "DB 예외(statement_timeout 57014, 잠금 대기 초과 55P03, 연결 실패 등)",
+      "handling": "엔드포인트 안에 try/catch가 없어 예외가 전파된다. 전역 OverloadExceptionHandler가 예외 체인에서 57014/55P03을 찾으면 503과 Retry-After를 반환한다. 그 밖의 예외는 핸들러가 false를 반환하므로 UseExceptionHandler의 기본 처리로 500이 되는 것으로 보인다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "33-42"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "35-42, 56-58, 63-70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 47, 100"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.UpdateAsync (글 조회, 189-190행)",
+      "condition": "수정 대상 글이 없음",
+      "handling": "검증보다 먼저 404 NotFound를 반환한다. 트랜잭션을 열지 않으므로 태그도 만들어지지 않는다. F008_FLOW의 LoadPost → NotFound404 간선이 이 분기다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "189-190",
+          "symbol": "PostEndpoints.UpdateAsync"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync / UpdateAsync (검증)",
+      "condition": "태그 형식 오류, 없는 시리즈, (수정 시) slug 변경이나 version 누락",
+      "handling": "400 ValidationProblem을 반환한다(Create 128행, Update 197행). ResolveIdsAsync는 호출되지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "126-128, 192-197"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.UpdateAsync (version 사전 비교, 201행)",
+      "condition": "post.Version != req.Version",
+      "handling": "렌더 전에 StaleVersion() 409를 반환한다. 트랜잭션이나 태그 생성은 일어나지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "201, 366-367",
+          "symbol": "PostEndpoints.UpdateAsync / StaleVersion"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.RenderOrAddErrorAsync (Create 133행, Update 206행)",
+      "condition": "MarkdownTooComplexException 또는 RenderBusyException",
+      "handling": "MarkdownTooComplexException이면 contentMarkdown 오류를 추가하고 null을 반환하며, 호출부가 400 ValidationProblem을 반환한다. RenderBusyException은 잡지 않고 전파해 OverloadExceptionHandler가 503으로 바꾼다. 어느 쪽이든 트랜잭션 전이라 태그가 만들어지지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "133-134, 206-207, 323-334",
+          "symbol": "PostEndpoints.RenderOrAddErrorAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "67",
+          "symbol": "OverloadExceptionHandler.IsOverload"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync (slug 사전 검사, 136행)",
+      "condition": "같은 slug의 글이 이미 있음",
+      "handling": "DbConflict.Problem 409를 반환한다. 트랜잭션 전이라 태그가 만들어지지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "136"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync / UpdateAsync SaveChangesAsync",
+      "condition": "ResolveIdsAsync가 Id를 돌려준 뒤 SaveChanges 전에 DELETE /api/tags가 그 태그를 지워 PostTag FK 위반(23503)이 발생",
+      "handling": "DbConflict.IsConstraintRace가 잡아 409 Problem('참조한 시리즈·태그가 방금 삭제되었습니다...')을 반환한다. 커밋 없이 반환하므로 await using 트랜잭션이 해제되며, 이번 요청이 INSERT한 태그도 롤백된다. 서버는 재시도하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "138, 153-155, 212, 234-236"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "lines": "15, 36-37"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.UpdateAsync (RemoveAll → SaveChangesAsync)",
+      "condition": "UpdateAsync가 트랜잭션 밖에서 post.PostTags를 로드한 뒤(189행) SaveChanges 전에 DELETE /api/tags가 그 태그를 지우고 커밋한 경우다. cascade가 링크를 먼저 지우므로, 요청의 wanted에 옛 태그 Id가 없으면 RemoveAll(215행)이 이미 사라진 PostTag 행을 DELETE 대상으로 표시한다.",
+      "handling": "EF가 영향 행 0을 DbUpdateConcurrencyException으로 보고하면 230-233행 catch가 StaleVersion()(409 '다른 곳에서 이 글이 먼저 수정되었습니다')을 반환한다. 그러나 글 Version은 실제로 바뀌지 않았으므로 안내 문구가 원인과 다르다. EF 동작에 기댄 추론이며 재현 테스트는 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "189, 212-219, 230-233, 366-367",
+          "symbol": "PostEndpoints.UpdateAsync / StaleVersion"
+        }
+      ]
+    },
+    {
+      "where": "TagResolver.ResolveIdsAsync",
+      "condition": "기존 태그 조회(existing)와 최종 Id 조회 사이에 다른 요청이 그 태그를 삭제하고 커밋함",
+      "handling": "따로 처리하지 않는다. 최종 SELECT가 그 태그를 찾지 못하면 반환 목록에서 빠지고, 글은 오류 없이 그 태그 없이 저장될 수 있다. 코드 정황에서 한 추론이며 재현 테스트는 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "104-115"
+        }
+      ]
+    },
+    {
+      "where": "TagResolver.ResolveIdsAsync INSERT",
+      "condition": "두 저장 요청이 같은 새 태그를 동시에 만들려 함(유니크 경쟁)",
+      "handling": "ON CONFLICT (\"NormalizedName\") DO NOTHING으로 DB가 경쟁을 흡수한다. 삽입 순서를 정규화 이름의 Ordinal 순으로 고정해 데드락(40P01)을 막는다. 통합 테스트로 검증되어 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "15-16, 105-113"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+          "lines": "323",
+          "symbol": "ConcurrentCreates_WithSameNewTag_BothSucceed_AndTagIsSingle"
+        }
+      ]
+    },
+    {
+      "where": "TagResolver.Validate (PostValidation 경유)",
+      "condition": "NUL 포함, 표시 이름 50자(AppDbContext.TagMax) 초과, '/' 포함, 중복 제거 후 20개(MaxTagsPerPost) 초과",
+      "handling": "ValidationErrors에 'tagNames' 오류를 쌓고, 호출 측이 400 ValidationProblem을 반환한다. DB CHECK 제약(CK_Tags_Name_NotBlank, CK_Tags_Name_NoSlash)이 한 번 더 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "62-77"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "lines": "50"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "128-132"
+        }
+      ]
+    },
+    {
+      "where": "request (client.ts)",
+      "condition": "네트워크 실패, 또는 2xx 응답의 본문이 JSON이 아님",
+      "handling": "각각 ApiError(0, '네트워크 오류')와 ApiError(status, '응답을 해석할 수 없습니다')를 던진다. AbortError는 그대로 다시 던진다. TagsPage는 이 오류를 ErrorNotice로 표시하고, 목록 오류에는 다시 시도 버튼(list.refetch)을 제공한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "59-75"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "19-20"
+        }
+      ]
+    },
+    {
+      "where": "TagsPage 쿼리·뮤테이션",
+      "condition": "일시적 실패(429/503 포함)",
+      "handling": "자동 재시도가 없다(queries/mutations retry:false). 사용자가 직접 다시 시도해야 하며, describeError는 Retry-After 초를 안내한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "20-23"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "70, 80-81"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "태그 삭제는 글 행을 수정하지 않으므로 글의 Version(xmin)이 그대로다. 그래서 삭제 뒤 편집기에 열려 있던 글을 저장해도 버전 충돌이 나지 않는다. 그 저장 요청의 tagNames에 삭제된 태그 이름이 남아 있으면 ResolveIdsAsync가 그 태그를 새 Id로 다시 만든다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "14-15"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "104-114"
+        }
+      ]
+    },
+    {
+      "text": "글 저장이 트랜잭션 전 분기(Update 글 조회 404, 검증 400, version 409, slug 409, 렌더 400/503)에서 끝나면 ResolveIdsAsync가 호출되지 않아 새 태그가 만들어지지 않는다. 트랜잭션 안에서 409로 끝나면 이미 INSERT한 태그도, 커밋 없이 트랜잭션이 해제되면서 롤백된다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "126-138, 149-157, 189-212, 226-238"
+        }
+      ]
+    },
+    {
+      "text": "대소문자나 공백만 다른 이름(예: 'Zebra'와 'zebra')은 NormalizedName이 같아 태그 하나로 합쳐진다. 표시 이름은 처음 만들어질 때의 표기를 유지한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "48, 94-100, 113"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+          "lines": "35-36"
+        }
+      ]
+    },
+    {
+      "text": "공백뿐이거나 빈 태그 이름은 Validate와 ResolveIdsAsync 모두 오류 없이 건너뛴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "68, 97"
+        }
+      ]
+    },
+    {
+      "text": "태그를 떼거나 글을 삭제해 글 수가 0이 된 고아 태그는 자동으로 정리되지 않으므로 TagsPage에서 직접 삭제해야 한다. sitemap은 PostTags.Any()인 태그만 싣는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "6"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "215"
+        }
+      ]
+    },
+    {
+      "text": "고아 태그(글 0편)의 공개 태그 페이지는 404가 아니다. ByTagAsync는 태그 행만 있으면 null이 아닌 결과를 반환한다. TagPageModel은 found가 null이거나 2쪽 이상에서 목록이 비었을 때만 NotFound를 준다. 그래서 1쪽은 빈 목록과 함께 200을 반환하지만 sitemap에는 실리지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "63-67",
+          "symbol": "PublicQueries.ByTagAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "lines": "66-67",
+          "symbol": "TagPageModel.OnGetAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "215"
+        }
+      ]
+    },
+    {
+      "text": "GET /api/tags는 페이징이나 상한 없이 전체 태그를 한 번에 반환한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "33-35"
+        }
+      ]
+    },
+    {
+      "text": "태그 엔드포인트에는 RateLimitMetadata가 없다. BuildChain의 제한기는 모두 Matches(RateLimitMetadata.Policy 비교)가 참일 때만 제한 파티션을 쓰고, 나머지 요청은 GetNoLimiter(\"none\")로 보낸다. 따라서 태그 요청은 사실상 속도 제한을 받지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "lines": "88-101, 128-129, 144-150, 167-170"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "33-42"
+        }
+      ]
+    },
+    {
+      "text": "삭제 확인창의 글 수(postCount)는 마지막으로 조회한 목록의 값이다. 그 사이 다른 저장이 있었으면 실제와 다를 수 있다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "12-14"
+        }
+      ]
+    },
+    {
+      "text": "remove.isPending인 동안 모든 삭제 버튼이 비활성화되므로 한 번에 하나씩만 지울 수 있다. remove.error는 다음 mutate나 언마운트 전까지 화면에 남는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "lines": "20, 26"
+        }
+      ]
+    },
+    {
+      "text": "ResolveIdsAsync는 입력 형식을 스스로 검증하지 않으며, 호출자(PostValidation)가 Validate를 먼저 부른다고 전제한다. 테스트용 PublicSeed는 검증 없이 ResolveIdsAsync를 직접 호출한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "92-116"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicSeed.cs",
+          "lines": "34"
+        }
+      ]
+    },
+    {
+      "text": "ExecuteDeleteAsync는 EF 변경 추적기를 거치지 않는다. 그래서 PostTags 정리는 EF가 아니라 마이그레이션이 만든 DB FK의 ON DELETE CASCADE에 전적으로 기댄다. 통합 테스트가 '글은 남고 링크만 사라진다'를 검증한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+          "lines": "105-110"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+          "lines": "39-43"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "태그를 삭제하면 'PortfolioBlog.Api.Audit' 카테고리에 Information 수준으로 '태그 삭제. TagId={TagId}'를 남긴다. 404일 때와 목록 조회에는 로그가 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "lines": "39-40"
+        }
+      ]
+    },
+    {
+      "text": "태그 생성(ResolveIdsAsync)에는 별도 로그가 없다. 글 생성·수정 때 PostEndpoints가 Audit 로그로 남기는 것은 PostId와 Slug뿐이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "92-116"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "159, 240"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F008_SEQUENCE",
+      "type": "sequence",
+      "title": "태그 목록 조회와 삭제 시퀀스",
+      "summary": "TagsPage는 client.ts request를 거쳐 GET /api/tags로 목록을 받고, 확인창을 거쳐 DELETE /api/tags/{id}로 태그를 지운 뒤 성공·실패와 관계없이 목록을 다시 조회한다.",
+      "details": "요청은 모두 AdminSurfaceMiddleware(호스트·IP·CSRF 헤더, DELETE는 Origin 추가)와 /api 그룹 인가를 통과한 뒤 TagEndpoints에 닿는다. 목록은 AsNoTracking 프로젝션으로 TagDto 배열을 반환한다. 삭제는 ExecuteDeleteAsync 한 문장이며, PostTags 링크는 DB의 FK ON DELETE CASCADE가 지운다. 영향 행이 0이면 404(UseStatusCodePages가 ProblemDetails로 채움), 아니면 Audit 로그 후 204다. 마지막에 onSettled가 ['tags'] 쿼리를 무효화한다.",
+      "mermaid": "sequenceDiagram\n    participant TagsPage\n    participant request as client.ts request\n    participant AdminSurfaceMiddleware\n    participant TagEndpoints\n    participant AppDbContext\n    participant Tags as Tags 테이블\n    TagsPage->>request: tags.list(signal) GET /api/tags\n    request->>AdminSurfaceMiddleware: X-Requested-With, 세션 쿠키\n    AdminSurfaceMiddleware->>TagEndpoints: 호스트·IP·CSRF 통과, 인가 통과\n    TagEndpoints->>AppDbContext: Tags.AsNoTracking().OrderBy(NormalizedName).Select(TagDto)\n    AppDbContext->>Tags: SELECT Tags + COUNT(PostTags)\n    Tags-->>TagEndpoints: rows\n    TagEndpoints-->>TagsPage: 200 TagDto[]\n    TagsPage->>TagsPage: window.confirm\n    TagsPage->>request: tags.remove(id) DELETE /api/tags/{id}\n    request->>AdminSurfaceMiddleware: DELETE + Origin\n    AdminSurfaceMiddleware->>TagEndpoints: Origin 일치, 인가 통과\n    TagEndpoints->>AppDbContext: Tags.Where(Id).ExecuteDeleteAsync\n    AppDbContext->>Tags: DELETE FROM Tags (PostTags ON DELETE CASCADE)\n    alt 삭제 행 0\n        TagEndpoints-->>TagsPage: 404 ProblemDetails\n    else 삭제됨\n        TagEndpoints->>TagEndpoints: Audit 로그 태그 삭제\n        TagEndpoints-->>TagsPage: 204 NoContent\n    end\n    TagsPage->>TagsPage: onSettled invalidateQueries tags",
+      "nodes": [
+        {
+          "node": "TagsPage",
+          "code": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "symbol": "TagsPage"
+        },
+        {
+          "node": "client.ts request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "AdminSurfaceMiddleware",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+        },
+        {
+          "node": "TagEndpoints",
+          "code": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "symbol": "TagEndpoints.MapTagEndpoints"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        },
+        {
+          "node": "Tags 테이블",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+          "symbol": "Tags / PostTags"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F008_FLOW",
+      "type": "flowchart",
+      "title": "글 저장 경로의 태그 생성 흐름(트랜잭션 전 분기 포함)",
+      "summary": "태그는 글 저장이 트랜잭션 전 분기를 모두 통과한 뒤에만 ResolveIdsAsync로 만들어진다. UpdateAsync는 검증보다 먼저 글을 조회하고, 글이 없으면 404로 끝난다.",
+      "details": "UpdateAsync는 Posts.Include(PostTags).SingleOrDefaultAsync(189행)로 글을 먼저 조회한다(LoadPost). null이면 NotFound404로 끝나고, 있을 때만 PostValidation으로 간다. CreateAsync는 곧바로 PostValidation으로 간다. 검증 오류는 400이다. Update는 이어서 version을 비교하고, 다르면 StaleVersion 409다. 렌더 단계(RenderOrAddErrorAsync)에서 MarkdownTooComplexException이면 400, RenderBusyException이면 OverloadExceptionHandler가 503을 준다. Create는 렌더 뒤 slug 중복을 미리 검사해 409를 줄 수 있다. 이 분기를 모두 통과해야 BeginTransactionAsync → ResolveIdsAsync → PostTag 추가 → SaveChangesAsync가 실행된다. SaveChanges에서 FK/유니크 위반이면 DbConflict 409, Update 동시성 예외면 StaleVersion 409이며, 두 경우 모두 커밋 없이 트랜잭션이 해제된다. PostEndpoints에서 검증으로, 또는 검증에서 트랜잭션으로 곧장 가는 간선은 없다.",
+      "mermaid": "flowchart TD\n    CreateAsync[PostEndpoints.CreateAsync] --> PostValidation[PostValidation.Validate + TagResolver.Validate + ValidateSeriesAsync]\n    UpdateAsync[PostEndpoints.UpdateAsync] --> LoadPost[Posts.Include PostTags SingleOrDefaultAsync]\n    LoadPost -->|null| NotFound404[404 NotFound]\n    LoadPost -->|글 있음| PostValidation\n    PostValidation -->|errors.Any| ValidationProblem400[400 ValidationProblem]\n    PostValidation -->|Create 통과| RenderOrAddErrorAsync[PostEndpoints.RenderOrAddErrorAsync]\n    PostValidation -->|Update 통과| VersionCheck[post.Version 대 req.Version 비교]\n    VersionCheck -->|불일치| StaleVersion409[StaleVersion 409]\n    VersionCheck -->|일치| RenderOrAddErrorAsync\n    RenderOrAddErrorAsync -->|MarkdownTooComplexException| ValidationProblem400\n    RenderOrAddErrorAsync -->|RenderBusyException| OverloadExceptionHandler[OverloadExceptionHandler 503]\n    RenderOrAddErrorAsync -->|Create 렌더 성공| SlugCheck[Posts.AnyAsync Slug 사전 검사]\n    RenderOrAddErrorAsync -->|Update 렌더 성공| BeginTransaction[Database.BeginTransactionAsync]\n    SlugCheck -->|존재| SlugConflict409[DbConflict.Problem 409 slug]\n    SlugCheck -->|없음| BeginTransaction\n    BeginTransaction --> ResolveIdsAsync[TagResolver.ResolveIdsAsync]\n    ResolveIdsAsync --> AddPostTags[PostTag 추가, Update는 차집합 RemoveAll]\n    AddPostTags --> SaveChangesAsync[SaveChangesAsync]\n    SaveChangesAsync -->|23503 또는 23505| DbConflict409[DbConflict.Problem 409 참조 삭제]\n    SaveChangesAsync -->|Update DbUpdateConcurrencyException| StaleVersion409\n    SaveChangesAsync -->|성공| Commit[tx.CommitAsync]",
+      "nodes": [
+        {
+          "node": "PostEndpoints.CreateAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync"
+        },
+        {
+          "node": "PostEndpoints.UpdateAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync"
+        },
+        {
+          "node": "Posts.Include PostTags SingleOrDefaultAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync (189-190행)"
+        },
+        {
+          "node": "404 NotFound",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync (190행)"
+        },
+        {
+          "node": "PostValidation.Validate + TagResolver.Validate + ValidateSeriesAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate"
+        },
+        {
+          "node": "post.Version 대 req.Version 비교",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync (201행)"
+        },
+        {
+          "node": "PostEndpoints.RenderOrAddErrorAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.RenderOrAddErrorAsync"
+        },
+        {
+          "node": "OverloadExceptionHandler 503",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        },
+        {
+          "node": "Posts.AnyAsync Slug 사전 검사",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync (136행)"
+        },
+        {
+          "node": "Database.BeginTransactionAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync (138행) / UpdateAsync (212행)"
+        },
+        {
+          "node": "TagResolver.ResolveIdsAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync"
+        },
+        {
+          "node": "DbConflict.Problem 409 참조 삭제",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.IsConstraintRace / Problem"
+        },
+        {
+          "node": "StaleVersion 409",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.StaleVersion"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F008_FLOW_RESOLVE",
+      "type": "flowchart",
+      "title": "TagResolver.ResolveIdsAsync 내부 흐름",
+      "summary": "ResolveIdsAsync는 이름을 정규화해 중복을 없애고, 없는 태그만 Ordinal 순으로 ON CONFLICT DO NOTHING INSERT한 뒤 키 전체의 Id를 다시 조회해 돌려준다.",
+      "details": "공백 이름은 건너뛰고, Display 결과를 ToLowerInvariant한 키로 사전(wanted)을 만든다. 같은 키가 여러 번 나오면 먼저 나온 표기를 쓴다. 키가 없으면 DB를 건드리지 않고 빈 목록을 반환한다. 기존 NormalizedName을 한 번에 조회하고, 없는 키만 Ordinal 순서로 INSERT ... ON CONFLICT (\"NormalizedName\") DO NOTHING 한다(삽입 순서를 고정해 데드락을 막는다). 마지막으로 키 전체의 Id를 다시 조회해 반환한다. 입력 형식 검증은 이 함수가 하지 않는다.",
+      "mermaid": "flowchart TD\n    ResolveIdsAsync[TagResolver.ResolveIdsAsync] --> BuildWanted[wanted 사전 구성 Display 후 ToLowerInvariant 키, 먼저 나온 표기 우선]\n    BuildWanted -->|wanted.Count 0| EmptyList[빈 목록 반환]\n    BuildWanted -->|1개 이상| SelectExisting[SELECT NormalizedName FROM Tags WHERE IN keys]\n    SelectExisting --> OrdinalLoop[wanted를 Ordinal 순으로 반복]\n    OrdinalLoop -->|existing에 있음| OrdinalLoop\n    OrdinalLoop -->|없음| InsertOnConflict[INSERT INTO Tags ON CONFLICT NormalizedName DO NOTHING]\n    InsertOnConflict --> OrdinalLoop\n    OrdinalLoop -->|끝| SelectIds[SELECT Id FROM Tags WHERE NormalizedName IN keys]\n    SelectIds --> ReturnIds[List Guid 반환]",
+      "nodes": [
+        {
+          "node": "TagResolver.ResolveIdsAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync"
+        },
+        {
+          "node": "BuildWanted",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync (94-101행)"
+        },
+        {
+          "node": "SelectExisting",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync (104행)"
+        },
+        {
+          "node": "InsertOnConflict",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync (107-114행)"
+        },
+        {
+          "node": "SelectIds",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync (115행)"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F008_ER",
+      "type": "er",
+      "title": "Tags·PostTags·Posts 관계",
+      "summary": "Tags와 Posts는 PostTags 조인 테이블로 다대다 관계이며, 양쪽 FK 모두 ON DELETE CASCADE라 태그나 글을 지우면 링크만 함께 지워진다.",
+      "details": "Tags.NormalizedName에는 유니크 인덱스가 있어 ResolveIdsAsync의 ON CONFLICT 대상이 된다. Name에는 CK_Tags_Name_NotBlank·CK_Tags_Name_NoSlash CHECK 제약이 걸려 있다. PostTags의 기본 키는 (PostId, TagId) 복합 키다. 태그 삭제는 Posts 행을 바꾸지 않는다.",
+      "mermaid": "erDiagram\n    Tags ||--o{ PostTags : TagId\n    Posts ||--o{ PostTags : PostId\n    Tags {\n        uuid Id PK\n        string Name\n        string NormalizedName UK\n    }\n    PostTags {\n        uuid PostId PK\n        uuid TagId PK\n    }\n    Posts {\n        uuid Id PK\n    }",
+      "nodes": [
+        {
+          "node": "Tags",
+          "code": "PortfolioBlog.Api/Domain/Tag.cs",
+          "symbol": "Tag"
+        },
+        {
+          "node": "PostTags",
+          "code": "PortfolioBlog.Api/Domain/PostTag.cs",
+          "symbol": "PostTag"
+        },
+        {
+          "node": "Posts",
+          "code": "PortfolioBlog.Api/Domain/Post.cs",
+          "symbol": "Post"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "ResolveIdsAsync의 사전 조회(existing)와 최종 Id 조회 사이에 태그가 동시에 삭제되면, 글이 그 태그 없이 조용히 저장될 수 있다. 코드 정황에서 한 추론이며 재현 테스트는 찾지 못했다.",
+    "UpdateAsync가 PostTags를 로드(189행)한 뒤 SaveChangesAsync 전에 태그 삭제가 커밋되는 경우를 추론했다. 이때 RemoveAll이 이미 cascade로 사라진 PostTag를 지우려 하면 EF가 DbUpdateConcurrencyException을 던지고 StaleVersion 409가 나갈 수 있다. EF Core의 영향 행 검사 동작에 기댄 추론이며 코드나 테스트로 확인하지 못했다.",
+    "엔드포인트 밖으로 전파된 일반 DB 예외(57014/55P03 외)가 어떤 응답이 되는지는 코드로 끝까지 확인하지 못했다. Program.cs가 AddProblemDetails와 UseExceptionHandler()를 쓰므로 500 ProblemDetails로 보이지만, 프레임워크 기본 동작에 기댄 추론이다.",
+    "SaveChangesAsync 실패로 409를 반환할 때 await using 트랜잭션이 해제되면서 롤백되어, 이번 요청이 INSERT한 태그도 사라진다고 보았다. 이는 EF Core/Npgsql 트랜잭션 Dispose 동작에 기댄 추론이며 이를 검증하는 테스트는 찾지 못했다.",
+    "입력 기능의 dependencies는 F001·F029뿐이었다. 그러나 /api/tags 요청은 모두 AdminSurfaceMiddleware(Program.cs 104행, F018)를 거치고, 오류는 UseExceptionHandler·OverloadExceptionHandler·UseStatusCodePages(Program.cs 43·100·101행, F020)가 처리한다. 이를 코드로 확인해 의존을 F001·F018·F020·F029로 보정했다.",
+    "검증 지적(F008_FLOW에 UpdateAsync 글 조회·404 노드가 없음)을 PostEndpoints.cs 189-190행으로 다시 확인했다. 코드는 검증 전에 SingleOrDefaultAsync로 글을 조회하고 null이면 NotFound를 반환한다. 다이어그램에는 LoadPost(Posts.Include PostTags SingleOrDefaultAsync)와 NotFound404(404 NotFound) 노드가 검증 노드 앞에 있다. nodes 표에도 두 노드와 코드 위치를 적었고, 요약 문장도 실제 다이어그램 구조에 맞게 고쳤다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+      "lines": "1-34",
+      "symbol": "TagsPage"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "lines": "30-43",
+      "symbol": "TagEndpoints.MapTagEndpoints"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "lines": "34-116",
+      "symbol": "TagResolver"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "lines": "36-43",
+      "symbol": "ApiEndpoints.MapApiEndpoints"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43, 47, 100-108, 121"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "lines": "67-96",
+      "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "lines": "17, 30-56",
+      "symbol": "ErrorResponses"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "lines": "8, 35-70",
+      "symbol": "OverloadExceptionHandler"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "lines": "88-101, 128-129, 144-170",
+      "symbol": "RateLimitingExtensions"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "lines": "123-139",
+      "symbol": "AppDbContext.OnModelCreating"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+      "lines": "89-111"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "lines": "124-164, 187-245, 300-334, 366-367",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync / ValidateSeriesAsync / RenderOrAddErrorAsync / StaleVersion"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "lines": "7-8, 33-36",
+      "symbol": "tags"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "lines": "46-76",
+      "symbol": "request"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "lines": "68-84",
+      "symbol": "describeError"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "lines": "11-27"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+      "lines": "26-46",
+      "symbol": "TagEndpointsTests"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "lines": "17-51",
+      "symbol": "DbConflict"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "lines": "57-67",
+      "symbol": "TagPageModel.OnGetAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "lines": "61-68, 215",
+      "symbol": "PublicQueries.ByTagAsync"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TagDtos.cs",
+      "lines": "8",
+      "symbol": "TagDto"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "lines": "23-32",
+      "symbol": "routes"
+    }
+  ],
+  "history": []
+}

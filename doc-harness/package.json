@@ -1,0 +1,27 @@
+{
+  "name": "doc-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PortfolioBlog 문서화 하네스: 다단계 Claude 파이프라인으로 기술 문서를 생성·검증·증분 갱신한다.",
+  "scripts": {
+    "harness": "tsx src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "commander": "^13.1.0",
+    "jsdom": "^26.1.0",
+    "mermaid": "^12.0.0",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,1794 @@
+{
+  "feature": {
+    "id": "F003",
+    "name": "글 작성·수정(마크다운 에디터)",
+    "slug": "ADMIN_POST_EDITOR",
+    "summary": "관리자는 SPA /posts/new와 /posts/:id 화면(PostEditorPage, route.lazy 지연 로딩)에서 제목·slug·요약·본문·태그·시리즈를 입력해 저장한다. 본문 편집기는 CodeMirror 6 기반 MarkdownEditor다. 새 글은 POST /api/posts(201), 수정은 PUT /api/posts/{id:guid}로 저장하며, 수정은 xmin 기반 version으로 낙관적 동시성을 검사한다. 서버 PostEndpoints의 처리 순서: PostValidation 형식 검증 → 시리즈 존재 검사 → (수정만) version 사전 비교 → RenderGate 렌더 가능성 확인 → 한 트랜잭션 안에서 TagResolver 태그 upsert와 글·태그 링크 저장. 커밋 뒤 재조회한 DTO의 본문이 요청 본문과 같을 때만 RenderedPostCache를 미리 채운다. 초안 상태가 없어 저장이 곧 공개다. 편집 중 붙여넣기·드롭·파일 선택으로 넣은 이미지는 POST /api/attachments로 하나씩 순서대로 업로드되고, 커서 위치에 마크다운 이미지 문법으로 삽입된다.",
+    "entryPoints": [
+      "SPA /posts/new",
+      "SPA /posts/:id",
+      "GET /api/posts/{id:guid}",
+      "POST /api/posts",
+      "PUT /api/posts/{id:guid}"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+      "PortfolioBlog.Web/src/components/TagInput.tsx",
+      "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+      "PortfolioBlog.Web/src/lib/validation.ts",
+      "PortfolioBlog.Web/src/lib/markdownImage.ts",
+      "PortfolioBlog.Web/src/lib/drafts.ts",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Web/src/api/errors.ts",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+      "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "PortfolioBlog.Api/Program.cs"
+    ],
+    "dependencies": [
+      "F001",
+      "F004",
+      "F005",
+      "F006",
+      "F007",
+      "F008",
+      "F009",
+      "F011",
+      "F018",
+      "F020",
+      "F029"
+    ],
+    "importance": "CORE",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F003은 실제로 동작하는 핵심 기능이다(CONFIRMED). 이번 재검증에서 이전 분석을 현재 코드와 다시 대조했고, 동작 변경은 없었다. PostEndpoints.cs·PostEditorPage.tsx·PostValidation.cs·TagResolver.cs·DbConflict.cs·SlugRules.cs·MarkdownEditor.tsx·TagInput.tsx·validation.ts·markdownImage.ts·drafts.ts·client.ts·errors.ts·endpoints.ts·routes.tsx·Program.cs의 근거 줄 번호도 이전 분석과 일치한다. 한 곳만 바로잡았다: RateLimitingExtensions.Matches는 128줄이다. 재검증의 계기인 TagEndpoints.cs 변경은 5줄에 임시 주석 한 줄('doc-harness incremental check')을 넣은 것뿐이다. 편집 화면이 쓰는 GET /api/tags 응답(TagDto)과 태그 삭제 동작은 그대로다.\n\n흐름은 다음과 같다. PostEditorPage의 Editor가 validatePost로 편의 검증을 하고, flushDraft로 임시본을 즉시 기록한 뒤, useMutation으로 posts.create(POST /api/posts)나 posts.update(PUT /api/posts/{id}, baseline.version 포함)를 호출한다.\n\n서버 UpdateAsync의 판정 순서:\n1. 글이 없으면 404.\n2. PostValidation·slug 불변·version 필수·시리즈 존재 검사 중 하나라도 어기면 400.\n3. version 사전 비교가 어긋나면 409.\n4. RenderGate: 중첩이 너무 깊으면 400, 슬롯 대기 시간이 넘으면 RenderBusyException이 나고 OverloadExceptionHandler가 503(Retry-After 5초)으로 바꾼다.\n5. 트랜잭션 안에서 TagResolver upsert, PostTags 차집합 갱신, SaveChanges(UPDATE ... WHERE xmin). DbUpdateConcurrencyException이면 409, 23505·23503이면 409.\n6. 커밋 뒤 재조회, 캐시 조건부 선채움, 200.\n\nCreateAsync는 검증 400 → 렌더 → slug 중복 사전 검사 409 → 트랜잭션 저장(경쟁이면 409) → 201과 Location 순서다. 서버는 재시도하지 않는다.\n\n문제 가능성으로 관찰한 것은 이전과 같다.\n- 커밋 뒤 재조회·응답 단계가 실패하면 저장은 됐는데 화면에는 실패로 보인다.\n- 새 글 화면의 409에는 ConflictPanel이 없다.\n- version 필드의 400 오류를 화면에 표시할 자리가 없다.\n- 23505·23503이 아닌 DbUpdateException(예: CHECK 위반)은 처리되지 않는다.\n- 삭제된 태그가 오래된 편집 화면에서 저장하면 409 없이 다시 만들어진다.\n\n검증에서 지적된 문제는 모두 다른 기능(F002·F006·F007·F008·F011·F018)의 의존 색인 표에 관한 것이다. F003의 의존 목록은 코드로 다시 확인해 그대로 두었다(unknowns 참조).",
+  "entryPoints": [
+    {
+      "text": "SPA 라우트 /posts/new와 /posts/:id는 같은 lazy 모듈 PostEditorPage를 쓴다. 이 모듈은 route.lazy가 찾는 이름(Component)으로 export한다. routes.tsx 주석에 따르면 CodeMirror가 번들의 대부분이라 편집 화면만 지연 로딩한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "12-13,29-30"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "PostEditorPage",
+          "lines": "34-48"
+        }
+      ]
+    },
+    {
+      "text": "GET /api/posts/{id:guid}(GetPost)는 편집 화면을 처음 불러올 때와 409 뒤 최신본을 다시 조회할 때 쓰인다. 응답은 PostQueries.GetDetailAsync가 만든 DTO이고, 글이 없으면 404다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.GetAsync",
+          "lines": "43,101-102"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "37-42,222"
+        }
+      ]
+    },
+    {
+      "text": "POST /api/posts(CreatePost)는 새 글을 만든다. 응답은 201과 Location /api/posts/{id}, PostDetailDto다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "44,124-164"
+        }
+      ]
+    },
+    {
+      "text": "PUT /api/posts/{id:guid}(UpdatePost)는 요청 내용으로 글 전체를 교체한다. version이 필수다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "45,187-245"
+        }
+      ]
+    },
+    {
+      "text": "모든 /api 엔드포인트는 RequireHost(adminHost)와 RequireAuthorization(세션 정책)이 걸린 그룹 아래 등록된다(F001·F018). 파이프라인에서는 UseExceptionHandler(OverloadExceptionHandler 등록), AdminSurfaceMiddleware, UseRateLimiter, 인증·인가, ApiBodyLimitMiddleware를 차례로 거친다(F018·F020).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "symbol": "ApiEndpoints.MapApiEndpoints",
+          "lines": "37-41"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,98-108"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "PostEditorPage",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage",
+      "description": "postId가 있으면 useQuery(['posts','detail',id])로 posts.get을 호출한다(staleTime Infinity, gcTime 0). 대기 중이면 Loading을, 실패하면 ErrorNotice와 재시도 버튼, '목록으로' 링크를 보인다. 조회가 끝나면 key={postId ?? NEW_POST_KEY}로 Editor를 마운트한다."
+    },
+    {
+      "step": 2,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor",
+      "description": "서버 DTO(fromServer)나 EMPTY로 baseline(fields, version)을 만든다. loadDraft로 읽은 임시본이 기준선과 다르면 pendingDraft로 복원을 제안한다. seriesApi.list(GET /api/series)와 tagsApi.list(GET /api/tags)로 시리즈 선택지와 태그 제안 목록을 조회한다. 1초 디바운스로 임시본을 자동 저장한다."
+    },
+    {
+      "step": 3,
+      "component": "MarkdownEditor",
+      "file": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+      "symbol": "MarkdownEditor",
+      "description": "initialValue로 CodeMirror EditorView를 한 번만 만든다(비제어). docChanged 때마다 onChange로 본문을 올려 보낸다. paste·drop에 image/* 파일이 있으면 기본 동작을 막고 onImageFiles를 호출한다. 외부에서 본문을 바꿀 때는 editorKey를 바꿔 다시 마운트한다."
+    },
+    {
+      "step": 4,
+      "component": "TagInput",
+      "file": "PortfolioBlog.Web/src/components/TagInput.tsx",
+      "symbol": "TagInput",
+      "description": "Enter·쉼표·blur 때 입력을 쉼표로 나누고 displayTag로 정리한다. 대소문자만 다른 중복은 빼고 추가한다. 한글 조합 중 Enter는 무시한다. 입력이 비었을 때 Backspace를 누르면 마지막 태그를 지운다."
+    },
+    {
+      "step": 5,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.uploadImages",
+      "description": "uploadingRef로 동시 업로드를 막는다. 이미지마다 validateImageFile로 편의 검사를 한 뒤 attachments.upload(POST /api/attachments)로 하나씩 순서대로 업로드한다. 성공하면 ![altTextOf(fileName)](url)을 editor.insertAtCursor로 넣는다. 서버 호출이 실패하면 남은 파일은 올리지 않고 멈춘다."
+    },
+    {
+      "step": 6,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.submit",
+      "description": "validatePost(fields)로 클라이언트 검증을 한다. 오류가 없으면 flushDraft()로 임시본을 즉시 기록하고 save.mutate(fields)를 호출한다. mutationFn은 postId가 null이면 posts.create를, 아니면 posts.update(postId, {...submitted, version: baseline.version ?? undefined})를 호출한다."
+    },
+    {
+      "step": 7,
+      "component": "request",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "description": "fetch를 보낸다. 옵션은 credentials same-origin, cache no-store, redirect error이고 CSRF 헤더를 붙이며 본문은 JSON이다. 응답이 !res.ok면 toApiError로 만든 ApiError를 던지고, 네트워크 실패는 ApiError(0), AbortError는 그대로 전파한다. 2xx인데 JSON이 아니면 ApiError(status)를 던진다."
+    },
+    {
+      "step": 8,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync",
+      "description": "(수정) Posts.Include(PostTags).SingleOrDefaultAsync로 글을 변경 추적 상태로 불러온다. 글이 없으면 404다."
+    },
+    {
+      "step": 9,
+      "component": "PostValidation",
+      "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate",
+      "description": "slug(필수·NUL 금지·SlugRules.IsValid), 제목(필수·NUL 금지·200자), 요약(NUL 금지·300자), 본문(null 불가·NUL 금지·UTF-8 204800바이트), 태그(TagResolver.Validate), seriesId·seriesOrder 쌍(순서 1 이상)을 검사한다. 수정이면 엔드포인트가 slug 불변과 version 필수를 추가로 검사한다. ValidateSeriesAsync는 Series 존재를 AnyAsync로 확인한다. 오류가 있으면 400 ValidationProblem이다."
+    },
+    {
+      "step": 10,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync",
+      "description": "(수정) 렌더하기 전에 post.Version != req.Version이면 StaleVersion(409)을 돌려준다."
+    },
+    {
+      "step": 11,
+      "component": "RenderGate",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync",
+      "description": "PostEndpoints.RenderOrAddErrorAsync를 거쳐 호출된다. QueueTimeout(기본 5000ms) 안에 SemaphoreSlim 슬롯(기본 동시 2)을 얻으면 동기로 렌더하고 finally에서 슬롯을 반납한다. MarkdownTooComplexException(중첩 한도 128)이면 contentMarkdown 필드 오류로 400이다. 슬롯을 얻지 못하면 RenderBusyException이 나고 OverloadExceptionHandler가 503으로 바꾼다."
+    },
+    {
+      "step": 12,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync",
+      "description": "(생성) 렌더 뒤 Posts.AnyAsync(Slug==req.Slug)로 slug 중복을 확인한다. 중복이면 DbConflict.Problem으로 409다."
+    },
+    {
+      "step": 13,
+      "component": "TagResolver",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync",
+      "description": "BeginTransactionAsync 뒤에 호출된다. 태그 이름을 Display와 ToLowerInvariant로 정규화하고, 이미 있는 NormalizedName을 SELECT한다. 없는 태그는 서수 순서로 INSERT ... ON CONFLICT (NormalizedName) DO NOTHING 한다. 마지막으로 Tag Id 목록을 SELECT해 돌려준다."
+    },
+    {
+      "step": 14,
+      "component": "PostEndpoints",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync / CreateAsync",
+      "description": "(수정) 트랜잭션을 시작하기 전에 Version의 OriginalValue를 req.Version으로 고정한다. post.PostTags는 차집합만 RemoveAll·Add하고, 제목(Trim)·요약(Trim, null이면 빈 문자열)·본문·시리즈·UpdatedAt을 갱신한다. (생성) new Post를 만들고 PostTag 링크를 붙인다. 이어서 SaveChangesAsync를 호출한다."
+    },
+    {
+      "step": 15,
+      "component": "DbConflict",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.IsConstraintRace",
+      "description": "SaveChanges 실패는 이렇게 처리한다. (수정) DbUpdateConcurrencyException이면 409 StaleVersion. InnerException이 SQLSTATE 23505·23503인 DbUpdateException이면 409 DbConflict.Problem. 저장에 성공하면 tx.CommitAsync를 호출한다."
+    },
+    {
+      "step": 16,
+      "component": "PostQueries",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.GetDetailAsync",
+      "description": "커밋 뒤 'PortfolioBlog.Api.Audit' 로거에 PostId·Slug를 기록하고, AsNoTracking 프로젝션으로 상세 DTO를 다시 조회한다."
+    },
+    {
+      "step": 17,
+      "component": "RenderedPostCache",
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.Store",
+      "description": "CanCacheRenderedResult가 참일 때만(재조회 DTO가 있고 그 본문이 요청 본문과 서수 비교로 같을 때) 렌더 결과를 (Id, Version) 키로 캐시에 넣는다. 그 뒤 201 Created나 200 Ok를 돌려준다."
+    },
+    {
+      "step": 18,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onSuccess",
+      "description": "baseline과 version을 서버값으로 맞추고, detail 캐시를 설정하고, posts list·tags·series 쿼리를 무효화한다. 새 글이면 두 경우로 나뉜다. (a) 응답을 기다리는 동안 입력이 그대로면 clearDraft('new') 뒤 /posts/{id}로 replace 이동한다. (b) 입력이 바뀌었으면 saveDraft(saved.id, …)를 시도해, true면 clearDraft('new') 뒤 이동하고, false면 이동하지 않고 createdPostId·draftFailed로 화면을 잠근다. 수정이면 입력이 바뀌지 않았을 때만 서버값을 대입하고 임시본을 지운다(본문이 달라졌으면 editorKey를 올려 다시 마운트). 입력이 바뀌었으면 새 version으로 임시본을 다시 쓴다."
+    },
+    {
+      "step": 19,
+      "component": "Editor",
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.save.onError",
+      "description": "400이면 fieldErrors를 설정한다. 409이고 수정 화면이면 posts.get으로 최신본을 받아 ConflictPanel을 연다. 재조회가 실패하면 noteAuthFailure를 기록하고 conflictRefetchError를 보여 준다. 그 밖의 오류는 ErrorNotice로 표시한다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage / Editor",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+      "symbol": "MarkdownEditor / MarkdownEditorHandle.insertAtCursor",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/TagInput.tsx",
+      "symbol": "TagInput",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "symbol": "ConflictPanel",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+      "symbol": "PreviewPane",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/validation.ts",
+      "symbol": "validatePost / validateImageFile / LIMITS / utf8ByteLength / displayTag",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/markdownImage.ts",
+      "symbol": "altTextOf",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "NEW_POST_KEY / loadDraft / saveDraft / clearDraft / sameFields",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "posts / series / tags / attachments",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "ApiError / toApiError / parseFieldErrors / describeError",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync / GetAsync / ValidateSeriesAsync / RenderOrAddErrorAsync / CanCacheRenderedResult / StaleVersion",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "symbol": "SlugRules.IsValid",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Validate / ResolveIdsAsync / Display",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict.IsConstraintRace / Problem",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.GetDetailAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating (Post, Tag)",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+      "symbol": "UpsertPostRequest / PostDetailDto",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Post.cs",
+      "symbol": "Post",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/PostTag.cs",
+      "symbol": "PostTag",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Domain/Tag.cs",
+      "symbol": "Tag",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync / RenderBusyException",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+      "symbol": "RenderingOptions",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+      "symbol": "MarkdownRenderer.RenderDetailed",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+      "symbol": "MarkdownTooComplexException",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+      "symbol": "RenderedPostCache.Store",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+      "symbol": "ApiBodyLimitMiddleware.JsonLimitBytes",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.Matches",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+      "symbol": "ApiEndpoints.MapApiEndpoints",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints.MapTagEndpoints (ListTags·DeleteTag)",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PostEndpointsCacheGuardTests.cs",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/editor.test.tsx",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력: 화면 상태 DraftFields(slug, title, summary, contentMarkdown, tagNames, seriesId, seriesOrder)는 제출 시점 값 그대로 요청 본문이 된다. 수정이면 baseline.version을 version으로 붙인다. 값이 없으면 undefined라 JSON 직렬화에서 빠진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.mutationFn",
+          "lines": "152-155"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "DraftFields",
+          "lines": "4-13"
+        }
+      ]
+    },
+    {
+      "text": "서버 DTO UpsertPostRequest(Slug, Title, Summary, ContentMarkdown, TagNames, SeriesId, SeriesOrder, uint? Version)는 모든 필드가 nullable이다. 어떤 필드가 필수인지는 PostValidation과 UpdateAsync가 판정한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "UpsertPostRequest",
+          "lines": "47-48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate",
+          "lines": "29-56"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "192-197"
+        }
+      ]
+    },
+    {
+      "text": "요청이 엔티티로 바뀔 때: Title은 Trim하고, Summary는 Trim하되 null이면 빈 문자열이 된다. ContentMarkdown은 원문 그대로 저장한다. CreatedAt/UpdatedAt에는 DbClock.UtcNow()가 들어간다. TagResolver는 Tag 행을 upsert하고 Tag Id 목록만 돌려준다. PostEndpoints는 그 목록으로 post.PostTags.Add/RemoveAll 해 PostTag 링크를 만든다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "139-148"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "213-225"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync",
+          "lines": "92-116"
+        }
+      ]
+    },
+    {
+      "text": "출력: PostDetailDto(Id, Slug, Title, Summary, ContentMarkdown, Tags[], SeriesId, SeriesOrder, CreatedAt, UpdatedAt, uint Version)는 커밋 뒤 AsNoTracking으로 다시 조회한 결과다. Version은 PostgreSQL의 xmin 시스템 컬럼이다(IsRowVersion).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.GetDetailAsync",
+          "lines": "32"
+        },
+        {
+          "file": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "PostDetailDto",
+          "lines": "29-30"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96"
+        }
+      ]
+    },
+    {
+      "text": "렌더 결과 RenderedMarkdown은 저장 전에 렌더 가능 여부를 확인하려고 만든다. 이 결과는 버리지 않는다. 재조회한 DTO의 본문이 요청 본문과 같을 때만 RenderedPostCache에 (Id, Version) 키로 저장된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "CanCacheRenderedResult",
+          "lines": "160-163,241-244,353-354"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store",
+          "lines": "115"
+        }
+      ]
+    },
+    {
+      "text": "응답이 화면에 반영될 때: 응답(saved)을 fromServer로 DraftFields로 바꿔 baseline으로 삼는다. 수정 화면에서는 응답을 기다리는 동안 입력이 바뀌지 않았을 때만 화면 fields도 서버값으로 바꾼다. 서버 본문이 제출 본문과 다르면 editorKey를 올려 CodeMirror를 다시 마운트한다. 새 글 화면에서 입력이 바뀌었으면 현재 입력을 saved.id 키 임시본(localStorage 'pb.draft.v1:' 접두)으로 옮긴다. 이때 slug는 서버값, baseVersion은 saved.version으로 둔다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onSuccess",
+          "lines": "156-216"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "lines": "15-17,41-43"
+        }
+      ]
+    },
+    {
+      "text": "오류가 화면에 반영될 때: toApiError는 ProblemDetails의 errors 객체를 parseFieldErrors로 옮긴다. 키는 변환 없이 그대로 쓰고, 위험 키(__proto__·constructor·prototype)만 건너뛴다. 따라서 서버 키(slug·title·summary·contentMarkdown·tagNames·seriesId·seriesOrder·version)가 그대로 fieldErrors 키가 된다. Retry-After 헤더는 1~3600초로 읽어 retryAfterSeconds에 둔다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "parseFieldErrors / toApiError / parseRetryAfter",
+          "lines": "30-48,54-65"
+        }
+      ]
+    },
+    {
+      "text": "선택 목록: 편집 화면은 GET /api/series(F007)로 시리즈 드롭다운을 채우고, GET /api/tags(F008, TagDto의 name)로 TagInput 제안 목록을 채운다. 저장에 성공하면 ['tags']·['series'] 쿼리를 무효화한다. 서버는 저장할 때 Series 존재를 다시 확인한다(ValidateSeriesAsync).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "95-96,166-168,329,338"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "series.list / tags.list",
+          "lines": "26,34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "symbol": "ListTags",
+          "lines": "33-36"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.ValidateSeriesAsync",
+          "lines": "300-306"
+        }
+      ]
+    },
+    {
+      "text": "이미지 흐름: File은 FormData('file')에 담겨 POST /api/attachments(F009)로 전송된다. 응답의 fileName·url은 `![altTextOf(fileName)](url)\\n` 형태로 본문 커서 위치에 삽입된다. 삽입은 CodeMirror의 docChanged를 일으키므로 onChange로 fields.contentMarkdown에 반영된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "attachments.upload",
+          "lines": "42-46"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.uploadImages",
+          "lines": "257-259"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+          "symbol": "insertAtCursor",
+          "lines": "40,61-69"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/markdownImage.ts",
+          "symbol": "altTextOf",
+          "lines": "4-11"
+        }
+      ]
+    },
+    {
+      "text": "미리보기: 편집 화면은 fields.contentMarkdown을 PreviewPane(F004)에 넘긴다. 저장 흐름과는 독립적이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "11,370"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "(행 없음)",
+      "to": "Post 행 생성·즉시 공개",
+      "trigger": "POST /api/posts가 성공해 커밋될 때. 초안 상태가 없어 저장이 곧 공개다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "138-163"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "282-283"
+        }
+      ]
+    },
+    {
+      "from": "Post.Version = v",
+      "to": "Post.Version = v'(새 xmin)",
+      "trigger": "PUT이 성공할 때. UpdatedAt을 항상 바꾸므로 태그만 고쳐도 Posts 행이 갱신되어 xmin이 바뀐다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "210,225-228"
+        }
+      ]
+    },
+    {
+      "from": "화면: 새 글 저장 중",
+      "to": "화면: /posts/{id} 편집(replace 이동)",
+      "trigger": "생성 201을 받고 두 조건 중 하나일 때. (a) 응답을 기다리는 동안 입력이 그대로다. (b) 입력이 바뀌었고 saveDraft(saved.id, …)가 true를 반환했다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onSuccess",
+          "lines": "169-188"
+        }
+      ]
+    },
+    {
+      "from": "화면: 새 글 저장 중",
+      "to": "화면: 잠금(createdPostId 설정, 저장 버튼 비활성, 경고 배너, draftFailed=true)",
+      "trigger": "생성 201을 받았고 응답을 기다리는 동안 입력이 바뀌었는데, saveDraft(saved.id, …)가 false를 반환했을 때",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onSuccess",
+          "lines": "182,189-202,284,308-314"
+        }
+      ]
+    },
+    {
+      "from": "화면: 저장 중(save.isPending)",
+      "to": "화면: 충돌(conflict 설정, 저장 버튼 비활성)",
+      "trigger": "수정 화면에서 409 응답을 받고 posts.get 재조회에 성공했을 때",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onError",
+          "lines": "217-228,284"
+        }
+      ]
+    },
+    {
+      "from": "화면: 저장 중",
+      "to": "화면: 충돌 재조회 실패 배너(conflictRefetchError)",
+      "trigger": "수정 화면에서 409를 받았고 posts.get 재조회가 실패했을 때(404는 고정 문구, 401은 noteAuthFailure)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onError",
+          "lines": "29-32,221-227,301-305"
+        }
+      ]
+    },
+    {
+      "from": "화면: 충돌",
+      "to": "화면: 편집(baseline을 서버 version으로 갱신)",
+      "trigger": "ConflictPanel에서 onTakeServer(서버본으로 교체하고 임시본 삭제)나 onKeepMine(내 입력은 유지하고 기준만 갱신)을 고를 때",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "296-300"
+        }
+      ]
+    },
+    {
+      "from": "화면: 저장 중",
+      "to": "화면: 필드 오류 표시",
+      "trigger": "400 응답을 받을 때(error.fieldErrors)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onError",
+          "lines": "219"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [
+    {
+      "entity": "Post",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+      "symbol": "PostQueries.GetDetailAsync"
+    },
+    {
+      "entity": "Post",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync (Include PostTags, tracked)"
+    },
+    {
+      "entity": "Post",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync (slug 중복 AnyAsync)"
+    },
+    {
+      "entity": "Series",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.ValidateSeriesAsync"
+    },
+    {
+      "entity": "Tag",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync (기존 NormalizedName 조회, 최종 Id 조회)"
+    },
+    {
+      "entity": "Tag",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync (ON CONFLICT DO NOTHING)"
+    },
+    {
+      "entity": "Post",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync"
+    },
+    {
+      "entity": "PostTag",
+      "operation": "INSERT",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.CreateAsync / UpdateAsync (post.PostTags.Add)"
+    },
+    {
+      "entity": "Post",
+      "operation": "UPDATE",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync (WHERE xmin = req.Version)"
+    },
+    {
+      "entity": "PostTag",
+      "operation": "DELETE",
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints.UpdateAsync (차집합 RemoveAll)"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL(Npgsql)에 대한 의존: xmin 시스템 컬럼(IsRowVersion)을 낙관적 동시성 토큰으로 쓴다. 태그 upsert에는 ON CONFLICT를 쓴다. 경쟁 여부는 SQLSTATE 23505·23503으로 판정한다. 관련 제약은 Posts.Slug 유니크, Tags.NormalizedName 유니크, CK_Posts_* CHECK(Slug 형식·제목 공백·본문 크기·시리즈 쌍·순서 양수)다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "96-108,127"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.IsConstraintRace",
+          "lines": "20-23,36-37"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "112-113"
+        }
+      ]
+    },
+    {
+      "text": "Entity Framework Core에 대한 의존: 명시적 트랜잭션(BeginTransactionAsync/CommitAsync)을 쓰고, SaveChangesAsync가 던지는 DbUpdateConcurrencyException·DbUpdateException을 처리한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "138-157,212-238"
+        }
+      ]
+    },
+    {
+      "text": "CodeMirror 6(codemirror basicSetup, @codemirror/lang-markdown)을 편집기로 쓴다. 코드 주석에 따르면 CodeMirror가 <style>을 주입하므로 관리 SPA CSP에 style-src-elem 'unsafe-inline'이 필요하다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+          "lines": "1-3,22-25"
+        }
+      ]
+    },
+    {
+      "text": "@tanstack/react-query(useQuery/useMutation/useQueryClient)와 react-router(route.lazy, useParams, useNavigate)를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "1-3"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "13,29-30"
+        }
+      ]
+    },
+    {
+      "text": "Markdig 기반 MarkdownRenderer가 RenderGate(SemaphoreSlim)를 거쳐 호출된다. 중첩이 한도(128)를 넘으면 MarkdownTooComplexException을 던진다. RenderingOptions의 코드 기본값은 Concurrency 2, QueueTimeoutMs 5000, CacheMegabytes 64다. StartupValidation이 허용 범위(1~64, 1~60000, 1~1024)를 검사한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync",
+          "lines": "47-48,86-98"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "140-142"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+          "symbol": "RenderingOptions",
+          "lines": "18-24"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "lines": "104-106"
+        }
+      ]
+    },
+    {
+      "text": "임시본 보관에는 브라우저 localStorage('pb.draft.v1:' 접두 키)를 쓴다(F005 소관). saveDraft는 용량 초과·비공개 모드 등으로 setItem이 예외를 던지면 false를 돌려준다. clearDraft는 예외를 삼키는 void다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "saveDraft / clearDraft",
+          "lines": "15-17,40-47"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "PostEndpoints.UpdateAsync",
+      "condition": "id에 해당하는 글이 없음",
+      "handling": "404 NotFound. 검증보다 먼저 판정된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "189-190"
+        }
+      ]
+    },
+    {
+      "where": "PostValidation.Validate / PostEndpoints.ValidateSeriesAsync",
+      "condition": "형식 위반(slug·제목·요약·본문·태그·시리즈 쌍), 수정 시 slug 변경 시도나 version 누락, 존재하지 않는 seriesId",
+      "handling": "400 ValidationProblem(필드별 오류). 수정에서는 이 검사가 version 비교(409)보다 먼저 실행된다. 그래서 오래된 탭에서 보낸 요청이라도 시리즈가 삭제됐으면 400 seriesId가 나온다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "126-128,192-197,300-306"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "lines": "29-56"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.UpdateAsync (사전 version 비교)",
+      "condition": "post.Version != req.Version",
+      "handling": "렌더하기 전에 409 StaleVersion을 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "199-201,366-367"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.RenderOrAddErrorAsync",
+      "condition": "본문 중첩이 한도를 넘어 MarkdownTooComplexException이 발생함",
+      "handling": "contentMarkdown 필드 오류로 400",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "323-334"
+        }
+      ]
+    },
+    {
+      "where": "RenderGate.RenderAsync",
+      "condition": "QueueTimeout(기본 5000ms) 안에 렌더 슬롯을 얻지 못함",
+      "handling": "RenderBusyException을 던진다. OverloadExceptionHandler가 503과 Retry-After 5초로 바꾼다. 서버는 재시도하지 않는다. 클라이언트 describeError는 '서버가 잠시 바쁩니다. N초 뒤에 다시 시도하세요'를 표시하고, 자동 재시도는 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "lines": "88"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "20,39,67"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "describeError",
+          "lines": "70,81"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync (slug 사전 검사)",
+      "condition": "같은 slug가 이미 있음",
+      "handling": "409 DbConflict.Problem을 돌려준다. 이 검사는 렌더 뒤에 실행되므로 slug가 중복된 요청도 렌더 CPU를 먼저 쓴다(관찰).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "133-136"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync / UpdateAsync SaveChangesAsync",
+      "condition": "검증 통과 뒤 경쟁으로 유니크 위반(23505)이나 FK 위반(23503)이 남",
+      "handling": "409 DbConflict.Problem을 돌려준다. 서버는 재시도하지 않는다(DbConflict 주석이 그 이유를 설명한다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "149-156,234-237"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "lines": "15,36-37"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.UpdateAsync SaveChangesAsync",
+      "condition": "조회와 저장 사이에 다른 요청이 행을 바꿔 UPDATE ... WHERE xmin의 영향 행이 0개",
+      "handling": "DbUpdateConcurrencyException을 잡아 409 StaleVersion을 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "209-210,226-233"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints 트랜잭션(await using var tx)",
+      "condition": "SaveChanges가 실패해 409를 반환하거나 예외가 전파되어 CommitAsync에 도달하지 못함",
+      "handling": "명시적 롤백 코드는 없다. await using 해제 때 커밋되지 않은 트랜잭션이 롤백되는 EF Core 동작에 의존한다. TagResolver가 이미 INSERT한 태그도 함께 취소되는 것으로 보인다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "138,157,212,238"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync / UpdateAsync SaveChangesAsync",
+      "condition": "23505·23503·동시성 충돌이 아닌 DbUpdateException(예: CHECK 위반 23514)",
+      "handling": "처리 없음(예외 전파). InnerException 체인에 57014·55P03이 있으면 OverloadExceptionHandler가 503으로 바꾸고, 그 밖에는 기본 예외 처리로 넘어간다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "149-156,226-237"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "lines": "67"
+        }
+      ]
+    },
+    {
+      "where": "PostEndpoints.CreateAsync / UpdateAsync (커밋 이후)",
+      "condition": "tx.CommitAsync 뒤 PostQueries.GetDetailAsync 재조회가 예외를 던지거나(연결 끊김·ct 취소) null을 반환함",
+      "handling": "처리 없음. 행은 이미 저장·공개됐는데 클라이언트는 실패 응답이나 빈 본문을 받을 수 있다. 생성의 경우 다시 저장하면 slug 사전 검사에서 409가 난다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "157-163,238-244"
+        }
+      ]
+    },
+    {
+      "where": "Editor.save.onError",
+      "condition": "새 글 화면(postId null)에서 409(slug 중복·경쟁)를 받음",
+      "handling": "재조회도 ConflictPanel도 없이 일반 ErrorNotice(서버 detail 또는 describeError의 409 문구)로만 표시한다. 409 분기에 postId !== null 조건이 걸려 있기 때문이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "217-228,307"
+        }
+      ]
+    },
+    {
+      "where": "Editor.save.onError / 렌더",
+      "condition": "서버 400의 필드 키가 version이거나, 화면에 FieldError 자리가 없는 키임",
+      "handling": "parseFieldErrors가 키를 그대로 옮기므로 오류는 fieldErrors.version에 들어간다. 그런데 400이면 ErrorNotice가 숨겨지고 version용 FieldError도 없어 아무 안내가 보이지 않는다. 다만 수정 화면의 baseline.version은 항상 서버값이라 실제로 일어날 가능성은 낮다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "155,219,307,318-368"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "parseFieldErrors",
+          "lines": "40-48"
+        }
+      ]
+    },
+    {
+      "where": "Editor.save.onError (409 뒤 재조회)",
+      "condition": "posts.get이 404(그사이 삭제됨), 네트워크 오류, 401로 실패함",
+      "handling": "401은 noteAuthFailure가 기록해 로그인 흐름으로 보낸다. 그 밖의 오류는 conflictRefetchError 배너로 보여 준다(404는 고정 문구).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "29-32,221-227,301-305"
+        }
+      ]
+    },
+    {
+      "where": "Editor.save.onSuccess (새 글, 입력 변경)",
+      "condition": "생성 성공 뒤 saveDraft(saved.id, …)가 false(용량 초과·비공개 모드)",
+      "handling": "이동하지 않는다. clearDraft('new'), skipFlushRef=true, createdPostId 설정, draftFailed=true, pendingDraft 해제를 거쳐 저장 버튼을 잠그고, 경고 배너에 '방금 만든 글 열기' 링크를 띄운다. beforeunload 경고도 켜진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "143-148,182-202,308-314"
+        }
+      ]
+    },
+    {
+      "where": "Editor.uploadImages",
+      "condition": "편의 검사 실패(빈 파일, 10MB 초과, 허용되지 않는 MIME)나 서버 업로드 실패",
+      "handling": "편의 검사에 실패한 파일은 그 파일만 건너뛴다. 서버 업로드가 실패하면 noteAuthFailure를 기록하고 '나머지 N개는 올리지 않았습니다'를 붙여 멈춘다. 이미 업로드 중이면 uploadingRef로 새 업로드를 막고 안내를 띄운다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "241-270"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/validation.ts",
+          "symbol": "validateImageFile",
+          "lines": "71-76"
+        }
+      ]
+    },
+    {
+      "where": "request (client.ts) / toApiError",
+      "condition": "fetch 실패, 2xx가 아닌 응답, 2xx인데 JSON이 아님",
+      "handling": "각각 ApiError(0,'네트워크 오류'), toApiError(res), ApiError(status,'응답을 해석할 수 없습니다')를 던진다. AbortError는 그대로 전파한다. toApiError는 본문이 ProblemDetails가 아니거나 64KB를 넘어도 예외 없이 상태 코드만으로 ApiError를 만든다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request",
+          "lines": "58-75"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "toApiError",
+          "lines": "54-65"
+        }
+      ]
+    },
+    {
+      "where": "ApiBodyLimitMiddleware",
+      "condition": "JSON 요청 본문이 JsonLimitBytes(262144바이트, 256KB)를 넘음",
+      "handling": "선언된 길이가 넘으면 413 PayloadTooLarge(ErrorResponses.WriteAsync)로 답한다. 길이를 선언하지 않았으면 읽는 도중 BadHttpRequestException(413)을 낸다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21,47-55,84"
+        }
+      ]
+    },
+    {
+      "where": "PostEditorPage (초기 상세 조회)",
+      "condition": "GET /api/posts/{id}가 실패함(404 포함)",
+      "handling": "ErrorNotice와 onRetry(refetch), '목록으로' 링크를 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "43-44"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "본문 상한은 서버와 클라이언트 모두 글자 수가 아니라 UTF-8 바이트 수(204800)로 잰다. 화면의 KB 카운터는 상한을 넘으면 빨간색이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "lines": "47-48"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/validation.ts",
+          "lines": "7,17,44"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "272,356"
+        }
+      ]
+    },
+    {
+      "text": "본문이 200KB 이하여도 JSON 이스케이프로 크기가 불어나 256KB JSON 상한을 넘으면, PostValidation에 닿기 전에 413이 난다. 클라이언트 검증은 이 경우를 미리 잡지 않는다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/validation.ts",
+          "lines": "43-44"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "14,21"
+        }
+      ]
+    },
+    {
+      "text": "NUL(U+0000)은 JSON 유니코드 이스케이프로 들어올 수 있다. 서버는 slug·제목·요약·본문·태그 모두에서 NUL을 400으로 걸러 DB 단계의 500을 막는다. 클라이언트도 같은 검사를 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "lines": "33-46"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "70-71"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/validation.ts",
+          "lines": "19-20,31,34,41,43,50"
+        }
+      ]
+    },
+    {
+      "text": "slug 정규식은 \\A...\\z 앵커를 쓴다. $를 쓰면 'abc\\n'이 정규식을 통과한 뒤 DB CHECK(CK_Posts_Slug_Format)에서만 걸려 500이 될 수 있는데, 이 앵커가 그 경우를 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+          "lines": "13-24,38"
+        }
+      ]
+    },
+    {
+      "text": "slug는 생성 뒤 바꿀 수 없다. 수정 화면의 slug 입력은 readOnly이고, 서버도 req.Slug가 기존 값과 다르면 400을 돌려준다. 수정 요청에서도 slug는 필수다(PostValidation이 빈 slug를 거부한다).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "193-194"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "lines": "34"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "322"
+        }
+      ]
+    },
+    {
+      "text": "태그는 대소문자만 다르면 같은 태그로 취급하고 먼저 나온 표기를 쓴다. 이미 있는 태그면 기존 Name을 유지한다. 같은 새 태그를 동시에 만들면 ON CONFLICT가 흡수한다. 삽입을 서수 순서로 해서 데드락(40P01)도 피한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "lines": "94-115"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/TagInput.tsx",
+          "lines": "11-21"
+        }
+      ]
+    },
+    {
+      "text": "태그 삭제(DELETE /api/tags/{id})는 PostTags 링크만 cascade로 지우고 Post 행은 건드리지 않아 글의 Version(xmin)이 그대로다. 그래서 삭제 전에 연 편집 화면이 그 태그 이름을 가진 채 저장해도 409가 나지 않는다. TagResolver가 같은 이름의 태그를 새 Id로 다시 INSERT해 링크하므로, 삭제한 태그가 조용히 되살아난다. 이번 재검증에서도 그대로다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+          "symbol": "TagEndpoints",
+          "lines": "14-15,37-42"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync",
+          "lines": "104-115"
+        }
+      ]
+    },
+    {
+      "text": "태그 링크는 차집합만 바꾼다. 전부 지우고 다시 넣으면 같은 복합 키의 Deleted·Added 엔티티가 변경 추적기에서 충돌하기 때문이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "214-219"
+        }
+      ]
+    },
+    {
+      "text": "저장 응답을 기다리는 동안에도 입력을 막지 않는다. 응답이 왔을 때 입력이 제출값과 다르면 화면 값을 덮어쓰지 않는다. 대신 새 version을 baseVersion으로 삼아 임시본을 다시 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "78-82,204-215"
+        }
+      ]
+    },
+    {
+      "text": "새 글 생성 뒤 서버가 제목 공백을 다듬으면 입력과 기준선이 달라진다. 이때 언마운트 flush가 'new' 임시본을 되살리면 같은 글이 두 번 발행될 수 있는데, skipFlushRef가 이를 막는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "126,170-176,185,196"
+        }
+      ]
+    },
+    {
+      "text": "새 글 생성 뒤 'new' 임시본을 지우는 clearDraft는 예외를 삼키므로 조용히 실패할 수 있다(스토리지가 완전히 막힌 경우). 그러면 임시본을 복원한 뒤 다시 저장해 POST가 중복될 경로가 남는다. 코드 주석은 이를 미검증 잔여 위험으로 적어 두었다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "189-195"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "clearDraft",
+          "lines": "45-47"
+        }
+      ]
+    },
+    {
+      "text": "수정 화면은 dirty가 아니면 저장 버튼이 비활성이다. 새 글 화면은 항상 활성이고, 빈 입력은 검증에서 걸린다. 저장 중·충돌 중·createdPostId 잠금 중에도 비활성이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "284"
+        }
+      ]
+    },
+    {
+      "text": "시리즈를 고르면 seriesOrder 기본값이 1이 되고, (없음)을 고르면 seriesOrder도 null로 비운다. 이렇게 쌍 제약(CK_Posts_Series_Pair)을 맞춘다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "333-336"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "lines": "107"
+        }
+      ]
+    },
+    {
+      "text": "커밋과 재조회 사이에 다른 저장이 끼어들면 재조회 DTO의 본문이 요청 본문과 다를 수 있다. 이때는 캐시 선채움을 건너뛴다. 이번 요청의 HTML이 다른 요청의 최신 버전 키에 들어가는 오염을 막기 위해서다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "CanCacheRenderedResult",
+          "lines": "336-354"
+        }
+      ]
+    },
+    {
+      "text": "POST/PUT /api/posts에는 RateLimitMetadata가 붙어 있지 않다. 속도 제한 체인은 엔드포인트 메타데이터의 정책이 일치할 때만 창을 적용하고, 해당하지 않으면 무제한 파티션('none')으로 보낸다. 그래서 글 저장에는 속도 제한이 적용되지 않는다. 대신 렌더 부하는 RenderGate 동시성(기본 2)이 묶는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.MapPostEndpoints",
+          "lines": "39-47"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.Matches",
+          "lines": "94-101,128,150,170"
+        }
+      ]
+    },
+    {
+      "text": "altTextOf는 파일 이름에서 확장자·대괄호·괄호·제어문자를 빼고 코드포인트 기준 100자로 자른다. 결과가 비면 'image'를 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/lib/markdownImage.ts",
+          "lines": "4-11"
+        }
+      ]
+    },
+    {
+      "text": "TagInput은 한글 IME 조합 중에 누른 Enter를 태그 추가로 처리하지 않는다. 쉼표로 구분된 문자열을 붙여 넣으면 여러 태그로 나눈다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/TagInput.tsx",
+          "lines": "12-25"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "생성·수정에 성공하면 커밋 뒤 'PortfolioBlog.Api.Audit' 카테고리 로거에 '글 생성/글 수정. PostId={PostId} Slug={Slug}'를 Information 수준으로 남긴다. 본문은 기록하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "159,240"
+        }
+      ]
+    },
+    {
+      "text": "검증 실패(400)·충돌(409)·렌더 거부 경로에는 이 기능 코드 안에 별도 로그 호출이 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "124-245"
+        }
+      ]
+    },
+    {
+      "text": "클라이언트(PostEditorPage)는 콘솔 로그를 남기지 않는다. 실패는 화면 표시(ErrorNotice, FieldError, 업로드 오류, 임시본 저장 실패 표시)로만 알린다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "281,296-314,358-368"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F003_SEQUENCE",
+      "type": "sequence",
+      "title": "글 수정 저장(PUT /api/posts/{id}) 정상 경로",
+      "summary": "수정 저장은 PostEditorPage에서 request를 거쳐 PostEndpoints.UpdateAsync로 들어간다. 서버는 검증, version 비교, 렌더, 트랜잭션 저장, 재조회, 캐시 선채움을 차례로 수행한다.",
+      "details": "PostEditorPage(Editor)는 validatePost와 flushDraft 뒤 posts.update를 호출하고, client.ts의 request가 PUT을 보낸다. PostEndpoints는 추적 상태로 글을 불러온 뒤 PostValidation.Validate와 ValidateSeriesAsync(Series.AnyAsync)를 실행하고, version을 렌더보다 먼저 비교한다. RenderGate로 렌더 가능성을 확인한 다음 트랜잭션을 연다. 그 안에서 TagResolver가 태그를 upsert하고, PostTags 차집합 갱신 뒤 SaveChangesAsync(UPDATE WHERE xmin)와 CommitAsync를 한다. 커밋 뒤 PostQueries.GetDetailAsync로 재조회하고, 본문이 같으면 RenderedPostCache.Store를 호출한 뒤 200을 돌려준다. 실패 분기는 F003_FLOW에 있다.",
+      "mermaid": "sequenceDiagram\n  participant PostEditorPage\n  participant request\n  participant PostEndpoints\n  participant PostValidation\n  participant RenderGate\n  participant TagResolver\n  participant AppDbContext\n  participant PostQueries\n  participant RenderedPostCache\n  PostEditorPage->>PostEditorPage: validatePost(fields) and flushDraft()\n  PostEditorPage->>request: posts.update(postId, fields + version)\n  request->>PostEndpoints: PUT /api/posts/id\n  PostEndpoints->>AppDbContext: Posts.Include(PostTags).SingleOrDefaultAsync\n  PostEndpoints->>PostValidation: Validate(req)\n  PostEndpoints->>AppDbContext: Series.AnyAsync (ValidateSeriesAsync)\n  PostEndpoints->>PostEndpoints: post.Version vs req.Version\n  PostEndpoints->>RenderGate: RenderAsync(contentMarkdown)\n  RenderGate-->>PostEndpoints: RenderedMarkdown\n  PostEndpoints->>AppDbContext: BeginTransactionAsync\n  PostEndpoints->>TagResolver: ResolveIdsAsync(TagNames)\n  TagResolver->>AppDbContext: SELECT existing, INSERT Tags ON CONFLICT DO NOTHING, SELECT Ids\n  TagResolver-->>PostEndpoints: Tag Id 목록\n  PostEndpoints->>PostEndpoints: PostTags.RemoveAll / Add (차집합)\n  PostEndpoints->>AppDbContext: SaveChangesAsync (UPDATE WHERE xmin)\n  PostEndpoints->>AppDbContext: CommitAsync\n  PostEndpoints->>PostQueries: GetDetailAsync(id)\n  PostEndpoints->>RenderedPostCache: Store(id, version, rendered) if CanCacheRenderedResult\n  PostEndpoints-->>request: 200 PostDetailDto\n  request-->>PostEditorPage: onSuccess setBaseline and clearDraft",
+      "nodes": [
+        {
+          "node": "PostEditorPage",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.submit / save"
+        },
+        {
+          "node": "request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "PostEndpoints",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync"
+        },
+        {
+          "node": "PostValidation",
+          "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate"
+        },
+        {
+          "node": "RenderGate",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "node": "TagResolver",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        },
+        {
+          "node": "PostQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.GetDetailAsync"
+        },
+        {
+          "node": "RenderedPostCache",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F003_FLOW",
+      "type": "flowchart",
+      "title": "UpdateAsync 분기와 실패 경로",
+      "summary": "수정 요청은 404 → 400 → 409(사전 version) → 400/503(렌더) → 409(xmin·제약 경쟁) 순서로 걸러진다. 모두 통과하면 커밋, 재조회, 조건부 캐시 선채움을 거쳐 200을 돌려준다.",
+      "details": "LoadPost는 Posts.Include(PostTags).SingleOrDefaultAsync 결과다. 검증 묶음은 PostValidation.Validate, slug 불변, version 필수, ValidateSeriesAsync이고, version 비교보다 먼저 실행된다. RenderGate의 MarkdownTooComplexException은 RenderOrAddErrorAsync가 400으로 바꾸고, RenderBusyException은 전파되어 OverloadExceptionHandler가 503과 Retry-After 5초로 바꾼다. SaveChangesAsync의 DbUpdateConcurrencyException은 StaleVersion 409, 23505·23503은 DbConflict.Problem 409가 된다. 그 밖의 DbUpdateException은 처리되지 않아 전파되고, 트랜잭션은 await using 해제 때 롤백되는 것으로 추론된다(POTENTIAL_ISSUE). 커밋 뒤 재조회가 실패하는 경로도 처리 코드가 없다.",
+      "mermaid": "flowchart TD\n  UpdateAsync[\"PostEndpoints.UpdateAsync\"] --> LoadPost{\"post 존재?\"}\n  LoadPost -->|없음| NotFound404[\"404 NotFound\"]\n  LoadPost -->|있음| PostValidation[\"PostValidation.Validate + slug 불변 + version 필수 + ValidateSeriesAsync\"]\n  PostValidation -->|오류| Validation400[\"400 ValidationProblem\"]\n  PostValidation -->|통과| VersionCheck{\"post.Version == req.Version?\"}\n  VersionCheck -->|다름| StaleVersion[\"409 StaleVersion\"]\n  VersionCheck -->|같음| RenderGate[\"RenderGate.RenderAsync\"]\n  RenderGate -->|MarkdownTooComplexException| Validation400\n  RenderGate -->|RenderBusyException| OverloadExceptionHandler[\"OverloadExceptionHandler 503 + Retry-After 5\"]\n  RenderGate -->|성공| TagResolver[\"TagResolver.ResolveIdsAsync (tx 안)\"]\n  TagResolver --> SaveChanges[\"PostTags 차집합 갱신 + SaveChangesAsync WHERE xmin\"]\n  SaveChanges -->|DbUpdateConcurrencyException| StaleVersion\n  SaveChanges -->|23505 or 23503| DbConflict[\"409 DbConflict.Problem\"]\n  SaveChanges -->|그 밖의 DbUpdateException| Unhandled[\"예외 전파 (tx 해제 시 롤백)\"]\n  SaveChanges -->|성공| Commit[\"tx.CommitAsync\"]\n  Commit --> PostQueries[\"PostQueries.GetDetailAsync\"]\n  PostQueries --> CanCache{\"CanCacheRenderedResult?\"}\n  CanCache -->|예| RenderedPostCache[\"RenderedPostCache.Store\"]\n  CanCache -->|아니오| Ok200[\"200 PostDetailDto\"]\n  RenderedPostCache --> Ok200",
+      "nodes": [
+        {
+          "node": "UpdateAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync"
+        },
+        {
+          "node": "PostValidation",
+          "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate"
+        },
+        {
+          "node": "VersionCheck",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync (line 201)"
+        },
+        {
+          "node": "RenderGate",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler"
+        },
+        {
+          "node": "TagResolver",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync"
+        },
+        {
+          "node": "DbConflict",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.Problem"
+        },
+        {
+          "node": "PostQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.GetDetailAsync"
+        },
+        {
+          "node": "CanCache",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CanCacheRenderedResult"
+        },
+        {
+          "node": "RenderedPostCache",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F003_FLOW_CREATE",
+      "type": "flowchart",
+      "title": "CreateAsync 분기와 실패 경로",
+      "summary": "생성은 검증(400) → 렌더(400/503) → slug 중복 사전 검사(409) → 트랜잭션 저장(경쟁 409) 순서로 진행된다. 성공하면 201과 Location을 돌려준다.",
+      "details": "수정과 달리 404·version 검사가 없다. slug 중복 검사는 렌더 뒤에 실행된다. 사전 검사를 통과한 같은 slug의 동시 생성은 SaveChangesAsync의 유니크 위반(23505)이 DbConflict.IsConstraintRace로 판정되어 409가 된다. 그 밖의 DbUpdateException은 처리 없이 전파된다. 커밋 뒤 재조회와 캐시 조건부 선채움은 수정과 같다.",
+      "mermaid": "flowchart TD\n  CreateAsync[\"PostEndpoints.CreateAsync\"] --> PostValidation[\"PostValidation.Validate + ValidateSeriesAsync\"]\n  PostValidation -->|오류| Validation400[\"400 ValidationProblem\"]\n  PostValidation -->|통과| RenderGate[\"RenderGate.RenderAsync\"]\n  RenderGate -->|MarkdownTooComplexException| Validation400\n  RenderGate -->|RenderBusyException| OverloadExceptionHandler[\"OverloadExceptionHandler 503 + Retry-After 5\"]\n  RenderGate -->|성공| SlugCheck{\"Posts.AnyAsync slug 중복?\"}\n  SlugCheck -->|중복| DbConflict[\"409 DbConflict.Problem\"]\n  SlugCheck -->|없음| TagResolver[\"TagResolver.ResolveIdsAsync (tx 안)\"]\n  TagResolver --> SaveChanges[\"new Post + PostTag 링크 + SaveChangesAsync\"]\n  SaveChanges -->|23505 or 23503| DbConflict\n  SaveChanges -->|그 밖의 DbUpdateException| Unhandled[\"예외 전파 (tx 해제 시 롤백)\"]\n  SaveChanges -->|성공| Commit[\"tx.CommitAsync\"]\n  Commit --> PostQueries[\"PostQueries.GetDetailAsync\"]\n  PostQueries --> CanCache{\"CanCacheRenderedResult?\"}\n  CanCache -->|예| RenderedPostCache[\"RenderedPostCache.Store\"]\n  CanCache -->|아니오| Created201[\"201 Created + Location\"]\n  RenderedPostCache --> Created201",
+      "nodes": [
+        {
+          "node": "CreateAsync",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync"
+        },
+        {
+          "node": "PostValidation",
+          "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate"
+        },
+        {
+          "node": "RenderGate",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler"
+        },
+        {
+          "node": "SlugCheck",
+          "code": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync (line 136)"
+        },
+        {
+          "node": "DbConflict",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.IsConstraintRace / Problem"
+        },
+        {
+          "node": "TagResolver",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync"
+        },
+        {
+          "node": "PostQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.GetDetailAsync"
+        },
+        {
+          "node": "RenderedPostCache",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F003_STATE",
+      "type": "state",
+      "title": "편집 화면(Editor) 상태 전이",
+      "summary": "Editor는 불러오기, 편집, 저장 중을 거쳐 응답에 따라 편집 복귀, 이동, 잠금, 필드 오류, 충돌, 재조회 실패, 일반 오류 중 하나로 간다.",
+      "details": "Loading과 LoadError는 PostEditorPage의 useQuery 상태다. Saving은 save.isPending이다. 수정 200은 baseline을 갱신하고 Editing으로 돌아간다. 생성 201은 입력이 그대로이거나 saveDraft가 성공하면 /posts/{id}로 replace 이동하고(Navigated), saveDraft가 실패하면 CreatedLocked(createdPostId 설정, 저장 버튼 비활성)로 간다. 409는 수정 화면에서만 재조회를 거쳐 Conflict(ConflictPanel)나 ConflictRefetchError로 가고, 새 글 화면의 409는 GeneralError(ErrorNotice)로 표시된다. Conflict에서 onTakeServer나 onKeepMine을 고르면 Editing으로 돌아간다.",
+      "mermaid": "stateDiagram-v2\n  [*] --> Loading: postId 있음\n  [*] --> Editing: postId 없음\n  Loading --> LoadError: posts.get 실패\n  LoadError --> Loading: onRetry\n  Loading --> Editing: posts.get 성공\n  Editing --> Editing: validatePost 오류\n  Editing --> Saving: submit\n  Saving --> Editing: 수정 200\n  Saving --> Navigated: 생성 201, 임시본 이관 성공\n  Saving --> CreatedLocked: 생성 201, saveDraft false\n  Saving --> FieldErrors: 400\n  Saving --> Conflict: 수정 409, 재조회 성공\n  Saving --> ConflictRefetchError: 수정 409, 재조회 실패\n  Saving --> GeneralError: 그 밖의 오류 또는 새 글 409\n  Conflict --> Editing: onTakeServer 또는 onKeepMine\n  FieldErrors --> Saving: submit\n  GeneralError --> Saving: submit\n  ConflictRefetchError --> Saving: submit\n  Navigated --> [*]",
+      "nodes": [
+        {
+          "node": "Loading",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "PostEditorPage (detail.isPending)"
+        },
+        {
+          "node": "Editing",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor"
+        },
+        {
+          "node": "Saving",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save (useMutation)"
+        },
+        {
+          "node": "CreatedLocked",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "Editor.save.onSuccess (setCreatedPostId)"
+        },
+        {
+          "node": "Conflict",
+          "code": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+          "symbol": "ConflictPanel"
+        },
+        {
+          "node": "ConflictRefetchError",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "conflictRefetchMessage"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F003_DATAFLOW",
+      "type": "dataflow",
+      "title": "입력 → DTO → 엔티티 → DB → 응답·캐시 데이터 흐름",
+      "summary": "화면의 DraftFields가 UpsertPostRequest가 되어 Post·PostTag·Tag 행으로 저장된다. 커밋 뒤 재조회한 PostDetailDto가 화면 baseline과 렌더 캐시 키가 된다.",
+      "details": "DraftFields는 validatePost를 통과한 뒤 request가 JSON으로 직렬화한다. 서버에서 UpsertPostRequest의 ContentMarkdown은 RenderGate로 렌더되어 RenderedMarkdown이 된다. TagNames는 TagResolver가 Tag 행으로 upsert하고, 돌려받은 Id 목록으로 PostTag 링크를 만든다. 나머지 필드는 Trim 등을 거쳐 Post 엔티티에 대입되고 AppDbContext로 저장된다. 커밋 뒤 PostQueries가 PostDetailDto를 만들고, 본문이 같으면 RenderedMarkdown이 (Id, Version) 키로 RenderedPostCache에 들어간다. 클라이언트는 PostDetailDto를 fromServer로 baseline에 반영한다. 이미지는 attachments.upload 응답이 MarkdownEditor에 삽입되어 다시 DraftFields로 들어온다.",
+      "mermaid": "flowchart LR\n  DraftFields[\"DraftFields (Editor fields)\"] -->|validatePost| request[\"request JSON (client.ts)\"]\n  request -->|POST 또는 PUT /api/posts| UpsertPostRequest\n  UpsertPostRequest --> PostValidation\n  UpsertPostRequest -->|ContentMarkdown| RenderGate\n  RenderGate --> RenderedMarkdown\n  UpsertPostRequest -->|TagNames| TagResolver\n  TagResolver -->|INSERT ON CONFLICT| Tag\n  TagResolver -->|Tag Id 목록| PostTag\n  UpsertPostRequest -->|Trim 후 대입| Post\n  Post --> AppDbContext\n  PostTag --> AppDbContext\n  AppDbContext -->|커밋 뒤 AsNoTracking| PostQueries\n  PostQueries --> PostDetailDto\n  RenderedMarkdown -->|본문 일치 시| RenderedPostCache\n  PostDetailDto -->|Id와 Version 키| RenderedPostCache\n  PostDetailDto -->|fromServer| Baseline[\"baseline (fields, version)\"]\n  ImageFile[\"File (paste, drop, 선택)\"] -->|attachments.upload| AttachmentsApi[\"POST /api/attachments\"]\n  AttachmentsApi -->|altTextOf + url| MarkdownEditor\n  MarkdownEditor -->|onChange| DraftFields",
+      "nodes": [
+        {
+          "node": "DraftFields",
+          "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+          "symbol": "DraftFields"
+        },
+        {
+          "node": "request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "UpsertPostRequest",
+          "code": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "UpsertPostRequest"
+        },
+        {
+          "node": "PostValidation",
+          "code": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate"
+        },
+        {
+          "node": "RenderGate",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "node": "TagResolver",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.ResolveIdsAsync"
+        },
+        {
+          "node": "Post",
+          "code": "PortfolioBlog.Api/Domain/Post.cs",
+          "symbol": "Post"
+        },
+        {
+          "node": "PostTag",
+          "code": "PortfolioBlog.Api/Domain/PostTag.cs",
+          "symbol": "PostTag"
+        },
+        {
+          "node": "Tag",
+          "code": "PortfolioBlog.Api/Domain/Tag.cs",
+          "symbol": "Tag"
+        },
+        {
+          "node": "AppDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext"
+        },
+        {
+          "node": "PostQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+          "symbol": "PostQueries.GetDetailAsync"
+        },
+        {
+          "node": "PostDetailDto",
+          "code": "PortfolioBlog.Api/Contracts/PostDtos.cs",
+          "symbol": "PostDetailDto"
+        },
+        {
+          "node": "RenderedPostCache",
+          "code": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "symbol": "RenderedPostCache.Store"
+        },
+        {
+          "node": "MarkdownEditor",
+          "code": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+          "symbol": "MarkdownEditor.insertAtCursor"
+        },
+        {
+          "node": "AttachmentsApi",
+          "code": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "symbol": "attachments.upload"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "검증에서 지적된 문제는 모두 F003 행이 아니라 다른 기능 행에 관한 것이다: 기능 간 의존 색인 표의 F002·F006·F007·F008·F011·F018 행. 이 세션은 F003 하나만 분석하므로 그 행들을 고칠 수 없다. F003 쪽에서 코드로 확인한 것은 다음과 같다. 모든 /api 요청은 Program.cs 104줄 UseMiddleware<AdminSurfaceMiddleware>(F018)와 43·100줄 OverloadExceptionHandler/UseExceptionHandler(F020)를 거친다. ApiEndpoints.cs 39줄의 RequireAuthorization(F001)도 적용된다. 따라서 지적 내용(/api를 쓰는 기능은 F018·F020에 의존)은 코드와 맞는다. 색인 표 수정은 해당 기능의 분석이나 종합 단계에서 처리해야 한다.",
+    "F003의 dependencies(F001, F004, F005, F006, F007, F008, F009, F011, F018, F020, F029)는 코드로 다시 확인해 유지했다. F019(속도 제한)는 UseRateLimiter를 거치기는 하지만 POST/PUT /api/posts가 무제한 'none' 파티션으로 가므로 의존에서 뺐다.",
+    "입력으로 받은 이전 분석 JSON이 diagrams 중간에서 잘려 이전 history 항목이 있었는지 확인할 수 없다. 이번 재검증에서 F003의 동작 변경은 없어 새 history 항목은 추가하지 않았다.",
+    "TagEndpoints.cs 5줄의 주석 'doc-harness incremental check (temporary, reverted after the test)'은 작업 트리 변경으로 보인다. F003 동작과는 무관하다.",
+    "EF Core의 await using 트랜잭션 해제 시 자동 롤백 동작은 코드에서 직접 볼 수 없다(프레임워크 동작 추론).",
+    "CHECK 위반 등 처리되지 않은 DbUpdateException이 최종적으로 어떤 응답(500 본문 형태)이 되는지는 ErrorResponses·UseStatusCodePages 조합을 실행해 보지 않아 확인하지 못했다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+      "symbol": "PostEndpoints",
+      "lines": "39-47,124-245,300-367"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "PostEditorPage / Editor",
+      "lines": "34-374"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+      "symbol": "PostValidation.Validate",
+      "lines": "29-56"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.ResolveIdsAsync",
+      "lines": "92-116"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+      "symbol": "DbConflict",
+      "lines": "36-51"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+      "symbol": "SlugRules.IsValid",
+      "lines": "24,38"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+      "symbol": "MarkdownEditor",
+      "lines": "26-72"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/TagInput.tsx",
+      "symbol": "TagInput",
+      "lines": "7-42"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/validation.ts",
+      "symbol": "validatePost",
+      "lines": "38-60"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/markdownImage.ts",
+      "symbol": "altTextOf",
+      "lines": "4-11"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+      "symbol": "RenderGate.RenderAsync",
+      "lines": "86-98"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43,98-108"
+    },
+    {
+      "file": "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+      "symbol": "TagEndpoints",
+      "lines": "5,14-15,33-42"
+    }
+  ],
+  "history": []
+}

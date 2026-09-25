@@ -1,0 +1,1362 @@
+{
+  "feature": {
+    "id": "F029",
+    "name": "관리 SPA 셸(라우팅·API 클라이언트·오류/없는 화면)",
+    "slug": "ADMIN_SPA_SHELL",
+    "summary": "관리 SPA의 뼈대다. main.tsx가 StrictMode 아래에 App을 마운트한다. App은 useState 지연 초기화로 createQueryClient와 createBrowserRouter(routes)를 만들어 인스턴스를 하나만 유지한다. createQueryClient는 자동 재시도와 창 포커스 재조회를 끄고, 401을 받으면 ME_KEY를 {authenticated:false}로 기록한다. routes는 경로 없는 루트 라우트(errorElement=RouteError, hydrateFallbackElement=Loading)로 모든 화면을 감싼다. 그 아래에 /login, RequireAuth→Layout으로 감싼 관리 화면, '*' 없는 화면 폴백이 있다. 모든 API 호출은 endpoints.ts를 거쳐 client.ts의 request 하나로 들어간다. request는 /api/ 경로 검사, X-Requested-With 헤더, same-origin 쿠키, redirect 'error', no-store를 적용하고 실패를 ApiError로 바꾼다.",
+    "entryPoints": [
+      "PortfolioBlog.Web/index.html → /src/main.tsx",
+      "PortfolioBlog.Web/src/main.tsx (createRoot().render(<App/>))",
+      "SPA 라우트 * (없는 화면 폴백)",
+      "SPA 루트 라우트 errorElement (RouteError)",
+      "api/endpoints.ts auth/posts/series/tags/attachments/preview → api/client.ts request"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Web/index.html",
+      "PortfolioBlog.Web/src/main.tsx",
+      "PortfolioBlog.Web/src/App.tsx",
+      "PortfolioBlog.Web/src/app/routes.tsx",
+      "PortfolioBlog.Web/src/app/queryClient.ts",
+      "PortfolioBlog.Web/src/components/Layout.tsx",
+      "PortfolioBlog.Web/src/components/RouteError.tsx",
+      "PortfolioBlog.Web/src/components/notices.tsx",
+      "PortfolioBlog.Web/src/api/client.ts",
+      "PortfolioBlog.Web/src/api/errors.ts",
+      "PortfolioBlog.Web/src/api/types.ts",
+      "PortfolioBlog.Web/src/api/endpoints.ts",
+      "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "PortfolioBlog.Web/vite.config.ts",
+      "PortfolioBlog.Web/package.json",
+      "PortfolioBlog.Web/src/api/client.test.ts",
+      "PortfolioBlog.Web/src/test/routeError.test.tsx",
+      "PortfolioBlog.Web/src/test/harness.tsx",
+      "PortfolioBlog.Web/src/test/source-guards.test.ts",
+      "deploy/Caddyfile",
+      "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "PortfolioBlog.Api/Program.cs"
+    ],
+    "dependencies": [
+      "F001",
+      "F018",
+      "F020",
+      "F025"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F029는 관리 SPA의 공통 셸이다. 이번 재검증은 이 기능 파일이 직접 바뀌어서가 아니라, 의존 기능과 의존 표의 정합성을 다시 맞추려고 한 것이다. 관련 파일(main.tsx, App.tsx, routes.tsx, queryClient.ts, Layout.tsx, RouteError.tsx, notices.tsx, client.ts, errors.ts, endpoints.ts, types.ts, RequireAuth.tsx, vite.config.ts, index.html, deploy/Caddyfile, AdminSurfaceMiddleware.cs, Program.cs)을 다시 읽었다. 동작은 이전 분석과 같고, 인용한 줄 범위도 현재 코드와 맞는다. 바뀐 것은 의존 목록 하나다. Program.cs의 파이프라인을 보면 모든 /api 요청이 UseExceptionHandler(OverloadExceptionHandler)·UseStatusCodePages(ErrorResponses)·ApiBodyLimitMiddleware(F020)를 거친다. describeError도 그 응답(503+Retry-After, 413)을 문구로 바꾼다. 그래서 의존을 F001·F018·F025에서 F001·F018·F020·F025로 보정했다. F019 속도 제한은 login·preview·upload 엔드포인트에만 메타데이터로 붙으므로 셸 의존에서 뺐다. 동작 변경이 없으므로 history에는 새 항목을 추가하지 않았다.\n\n1. main.tsx→App이 QueryClient와 브라우저 라우터를 useState 지연 초기화로 만들고, 인스턴스를 하나만 유지해 제공한다.\n2. routes.tsx가 경로 없는 루트 라우트로 모든 화면을 감싼다. 어떤 라우트 오류든 RouteError가 받고, 알 수 없는 경로는 '*' 폴백('없는 화면입니다')이 받는다.\n3. 운영에서 이 셸에 도달하는 것은 허용 CIDR 안의 IP에서 온 요청뿐이다. Caddy는 그 밖의 IP를 경로와 무관하게 404로 끊는다. 허용 IP라도 /api/*·/attachments/*는 백엔드로 가고, /assets/* 누락·점 파일·/.well-known/*은 404가 된다. 나머지 경로만 index.html로 폴백된다.\n4. 모든 네트워크 호출은 api/client.ts의 request 하나를 거친다. source-guards 테스트가 fetch 호출처를 client.ts 하나로 강제한다.\n\nrequest의 동작:\n- buildUrl이 '/api/' 접두사를 요구하고, //·역슬래시·..·%2e·제어 문자가 든 경로를 막는다.\n- X-Requested-With: XMLHttpRequest 헤더를 붙인다. 이 값은 서버 AdminSurfaceMiddleware.CsrfHeaderValue와 같다. credentials same-origin, cache no-store, redirect error도 함께 설정한다.\n- 실패 응답은 toApiError가 ApiError로 바꾼다. 네트워크 실패는 ApiError(0)이 되고, AbortError는 그대로 다시 던진다. 2xx인데 JSON이 아니면 ApiError(status)를 던진다.\n\n인증 상태: 쿼리·뮤테이션 캐시의 onError가 401을 보면 ME_KEY를 {authenticated:false}로 기록하고, RequireAuth가 /login?next=로 보낸다. 자동 재시도는 없다(retry:false). 재시도는 사용자가 버튼으로 한다.\n\n그 밖: DB 접근은 없다. RouteError는 오류 내용을 기록하지 않아서 클라이언트 오류를 관측할 수단이 없다.",
+  "entryPoints": [
+    {
+      "text": "브라우저가 index.html을 받으면 <script type=\"module\" src=\"/src/main.tsx\">가 실행되어 #root에 앱을 마운트한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/index.html",
+          "lines": "11-12"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/main.tsx",
+          "lines": "6-10"
+        }
+      ]
+    },
+    {
+      "text": "운영에서 관리 도메인 요청은 Caddy route가 다음 순서로 나눈다.\n(1) 허용 CIDR 밖 IP(@denied not remote_ip {$ADMIN_ALLOWED_CIDRS})는 경로와 무관하게 404다. 평문 HTTP 블록도 같다.\n(2) /api/*·/attachments/*는 api:8080으로 보낸다.\n(3) /assets/*는 파일이 있으면 영구 캐시로 서빙하고, 없으면 404다.\n(4) 점 파일(/.well-known 제외)은 404다.\n(5) /.well-known/*은 무조건 404다.\n(6) 나머지는 try_files {path} /index.html로 SPA에 넘긴다.\n따라서 정의되지 않은 경로를 포함해 화면 주소가 이 셸의 진입점이 되는 것은 허용 IP에서 온 요청일 때뿐이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "symbol": "{$ADMIN_DOMAIN} route",
+          "lines": "78-99,115-142"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "symbol": "http://{$ADMIN_DOMAIN}",
+          "lines": "163-173"
+        }
+      ]
+    },
+    {
+      "text": "정의되지 않은 경로는 routes의 { path: '*' } 요소가 받아 '없는 화면입니다. 글 목록으로' 화면을 그린다. 이 라우트는 RequireAuth 바깥에 있어서 로그인 여부와 무관하게 표시된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "37"
+        }
+      ]
+    },
+    {
+      "text": "루트 라우트의 errorElement=<RouteError/>가 하위 어디서 던져진 라우트 오류든 받는다(지연 청크 로드 실패, 렌더 예외).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "15-21"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+          "symbol": "RouteError",
+          "lines": "9-20"
+        }
+      ]
+    },
+    {
+      "text": "화면 코드는 api/endpoints.ts의 auth·posts·series·tags·attachments·preview 객체를 통해 request를 호출한다. fetch를 직접 부르는 곳은 api/client.ts 하나뿐이며, source-guards 테스트가 이를 강제한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "lines": "10-52"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+          "lines": "101-103"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "main.tsx",
+      "file": "PortfolioBlog.Web/src/main.tsx",
+      "symbol": "createRoot(...).render",
+      "description": "index.css를 import하고, document.getElementById('root')!에 StrictMode로 감싼 App을 렌더한다."
+    },
+    {
+      "step": 2,
+      "component": "App",
+      "file": "PortfolioBlog.Web/src/App.tsx",
+      "symbol": "App",
+      "description": "useState 지연 초기화로 createQueryClient()와 createBrowserRouter(routes)를 만든다. 컴포넌트 수명 동안 각각 인스턴스 하나만 유지된다. QueryClientProvider 안에 RouterProvider를 둔다."
+    },
+    {
+      "step": 3,
+      "component": "createQueryClient",
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "createQueryClient",
+      "description": "QueryCache와 MutationCache의 onError에 noteAuthFailure를 연결한다. 기본값은 queries {retry:false, refetchOnWindowFocus:false, staleTime:0}, mutations {retry:false}다."
+    },
+    {
+      "step": 4,
+      "component": "routes",
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "description": "경로 없는 루트 라우트(errorElement=RouteError, hydrateFallbackElement=Loading) 아래에서 URL을 매칭한다.\n- /login: LoginPage\n- RequireAuth→Layout 아래: /(PostsPage), /posts/new·/posts/:id(lazy PostEditorPage), /series, /tags, /attachments\n- 나머지: '*' 없는 화면"
+    },
+    {
+      "step": 5,
+      "component": "RequireAuth",
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "symbol": "RequireAuth",
+      "description": "useQuery(ME_KEY, auth.me)로 세션을 확인하고 결과별로 다르게 그린다.\n- pending: '세션 확인 중…'\n- 오류: ErrorNotice와 다시 시도 버튼\n- authenticated=false: /login?next=<현재 경로>로 replace 이동\n- authenticated=true: Outlet(Layout)"
+    },
+    {
+      "step": 6,
+      "component": "Layout",
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout",
+      "description": "헤더('블로그 관리', NavLink 4개: 글·시리즈·태그·첨부)와 로그아웃 버튼을 그리고, Outlet에 하위 페이지를 렌더한다. Layout이 직접 부르는 API는 로그아웃 useMutation(auth.logout) 하나다."
+    },
+    {
+      "step": 7,
+      "component": "PostsPage",
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "PostsPage (useQuery posts.list)",
+      "description": "데이터 호출은 Outlet 안의 페이지 컴포넌트가 한다. 예를 들어 PostsPage는 useQuery의 queryFn에서 posts.list(q, skip, take, signal)를 부른다."
+    },
+    {
+      "step": 8,
+      "component": "endpoints",
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "symbol": "auth/posts/series/tags/attachments/preview",
+      "description": "페이지가 부르는 API 함수들이다. 경로의 id는 encodeURIComponent로 인코딩해 조립하고, 쿼리는 query 옵션으로 넘긴다."
+    },
+    {
+      "step": 9,
+      "component": "request",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request / buildUrl",
+      "description": "헤더(X-Requested-With: XMLHttpRequest, Accept: application/json)와 본문을 준비한다. json이면 Content-Type application/json을 붙이고 JSON.stringify하며, form이면 FormData를 그대로 넘긴다. 그다음 try 블록 밖에서 buildUrl이 경로를 검사하고 쿼리 문자열을 조립한다. 값이 null·undefined·''인 쿼리는 생략한다."
+    },
+    {
+      "step": 10,
+      "component": "request",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "description": "fetch(url, {method, headers, body, signal, credentials:'same-origin', cache:'no-store', redirect:'error'})를 호출한다. 예외가 나면 AbortError는 그대로 다시 던지고, 나머지는 ApiError(0,'네트워크 오류')로 바꾼다."
+    },
+    {
+      "step": 11,
+      "component": "toApiError",
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "toApiError",
+      "description": "res.ok가 아니면 먼저 Retry-After를 1~3600초 범위로 파싱한다. 본문은 텍스트로 읽어 길이가 1~65,536자일 때만 JSON 파싱을 시도한다. 결과가 레코드면 title·detail·errors(위험 키 제외)로 ApiError를 만들고, 아니면 statusText(없으면 '요청 실패')로 만든다."
+    },
+    {
+      "step": 12,
+      "component": "request",
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request",
+      "description": "성공 응답이면 204는 undefined를, 그 밖은 res.json()을 반환한다. JSON 파싱에 실패하면 ApiError(res.status,'응답을 해석할 수 없습니다')를 던진다."
+    },
+    {
+      "step": 13,
+      "component": "noteAuthFailure",
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure",
+      "description": "쿼리·뮤테이션 오류가 ApiError 401이면 ME_KEY를 {authenticated:false}로 설정한다. 그러면 RequireAuth가 로그인 화면으로 보낸다(5단계)."
+    },
+    {
+      "step": 14,
+      "component": "ErrorNotice",
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "symbol": "ErrorNotice / describeError",
+      "description": "화면은 오류를 ErrorNotice(role=alert)로 보여 준다. 문구는 describeError가 status별로 정한다(0·400·401·403·404·409·413·415·429·503·기타). 429·503에는 Retry-After 초를 덧붙인다. onRetry가 있으면 '다시 시도' 버튼도 그린다."
+    },
+    {
+      "step": 15,
+      "component": "RouteError",
+      "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+      "symbol": "RouteError",
+      "description": "라우트 렌더나 lazy import 중 예외가 나면 다음을 그린다: '화면을 불러오지 못했습니다. 새 버전이 배포됐을 수 있습니다.' 문구, 새로고침(window.location.reload) 버튼, '글 목록으로' 링크. 오류 값은 읽지 않는다."
+    },
+    {
+      "step": 16,
+      "component": "Layout",
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout.logout",
+      "description": "로그아웃 버튼을 누르면 auth.logout()(POST /api/auth/logout)을 부른다. 성공하면 ME_KEY를 {authenticated:false}로 설정하고, 'auth' 외 쿼리를 제거하고, mutation 캐시를 비운다. 실패하면 ErrorNotice로 오류를 표시한다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Web/index.html",
+      "role": "entry",
+      "symbol": "#root / script /src/main.tsx"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/main.tsx",
+      "role": "entry",
+      "symbol": "createRoot().render"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/App.tsx",
+      "role": "entry",
+      "symbol": "App"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "role": "config",
+      "symbol": "routes"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "role": "config",
+      "symbol": "createQueryClient / noteAuthFailure / ME_KEY"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "role": "render",
+      "symbol": "Layout"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+      "role": "render",
+      "symbol": "RouteError"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "role": "render",
+      "symbol": "ErrorNotice / FieldError / Loading"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "role": "render",
+      "symbol": "PostsPage (Outlet 안 페이지, posts.list 호출 예)"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "role": "service",
+      "symbol": "request / buildUrl / CSRF_HEADER / CSRF_VALUE"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "role": "validation",
+      "symbol": "ApiError / toApiError / parseRetryAfter / parseFieldErrors / describeError"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/types.ts",
+      "role": "dto",
+      "symbol": "AuthStatus / PostSummary / PostDetail / PagedPosts / UpsertPostRequest / Series / SeriesPost / SeriesDetail / UpsertSeriesRequest / Tag / Attachment / PagedAttachments / PreviewResponse"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "role": "service",
+      "symbol": "auth / posts / series / tags / attachments / preview"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/lib/safeNext.ts",
+      "role": "validation",
+      "symbol": "hasControlChar"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "role": "validation",
+      "symbol": "RequireAuth"
+    },
+    {
+      "file": "PortfolioBlog.Web/vite.config.ts",
+      "role": "config",
+      "symbol": "proxy ^/api/ · ^/attachments/"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "role": "config",
+      "symbol": "{$ADMIN_DOMAIN} @denied / @backend / @asset_miss / @dot / @wellknown / try_files"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "role": "validation",
+      "symbol": "CsrfHeaderName / CsrfHeaderValue"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "role": "config",
+      "symbol": "UseExceptionHandler / UseStatusCodePages / UseMiddleware<AdminSurfaceMiddleware> / UseMiddleware<ApiBodyLimitMiddleware>"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.test.ts",
+      "role": "test",
+      "symbol": "request / errors"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/routeError.test.tsx",
+      "role": "test",
+      "symbol": "라우트 오류 경계"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/harness.tsx",
+      "role": "test",
+      "symbol": "stubApi / renderApp / LOGGED_IN"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+      "role": "test",
+      "symbol": "fetch는 API 클라이언트 한 곳에서만"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "요청 방향: 페이지 컴포넌트(예: PostsPage) → endpoints.ts 함수 → request(method, path, {json|form|query|signal}) → buildUrl → fetch.\n- endpoints.ts 함수는 id를 encodeURIComponent로 인코딩하고, 쿼리는 query 옵션으로 넘긴다.\n- buildUrl은 경로를 검사한 뒤 URLSearchParams로 빈 값을 뺀 쿼리 문자열을 만든다.\n- JSON 본문은 JSON.stringify로 만들며, 비ASCII 문자는 이스케이프하지 않는다.\n- multipart는 FormData를 그대로 넘기고, Content-Type(boundary 포함)은 브라우저가 붙인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "lines": "18-20"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+          "lines": "7-52"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request / buildUrl",
+          "lines": "20-62"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "37-51,81-87"
+        }
+      ]
+    },
+    {
+      "text": "성공 응답: 204는 undefined를 반환한다. 그 밖의 2xx는 res.json() 결과를 types.ts의 인터페이스로 타입 단언(as T)만 한다. 런타임 스키마 검증은 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "69-75"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/types.ts",
+          "lines": "4-32"
+        }
+      ]
+    },
+    {
+      "text": "실패 응답: Response → toApiError → ApiError{status, title, detail, fieldErrors, retryAfterSeconds} → TanStack Query의 error → ErrorNotice(describeError 문구) 또는 FieldError(필드별 목록). 서버가 준 문자열은 JSX 텍스트 노드로만 들어간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "toApiError / describeError",
+          "lines": "54-84"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/notices.tsx",
+          "lines": "3-22"
+        }
+      ]
+    },
+    {
+      "text": "서버 쪽 경로: 모든 /api 요청은 Program.cs 파이프라인에서 UseExceptionHandler(OverloadExceptionHandler)·UseStatusCodePages(ErrorResponses)·AdminSurfaceMiddleware·UseRateLimiter·ApiBodyLimitMiddleware를 거친다. 그래서 셸이 받는 403(CSRF·Origin 거부), 413(본문 상한), 503(과부하)과 ProblemDetails 본문은 이 공통 계층(F018·F020)이 만든다. 속도 제한(429)은 RateLimitMetadata가 붙은 login·preview·upload 엔드포인트에만 걸린다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43,100-108"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "lines": "48"
+        }
+      ]
+    },
+    {
+      "text": "인증 상태: 어떤 호출이든 401을 받으면 QueryCache/MutationCache onError → noteAuthFailure → ME_KEY 캐시 값 {authenticated:false} 순으로 이어지고, RequireAuth가 이 값을 읽어 /login?next=로 이동한다. 로그아웃에 성공해도 같은 키에 같은 값을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "5-18"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "13-19"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "12-22"
+        }
+      ]
+    },
+    {
+      "text": "세션 쿠키(__Host-AdminSession)는 credentials 'same-origin' 설정 때문에 관리 출처로 가는 요청에만 붙는다. 브라우저 저장소에 접근하는 곳은 lib/drafts.ts 하나뿐이고, 이 셸은 세션을 저장소에 두지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "40-62"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+          "lines": "113-115"
+        }
+      ]
+    },
+    {
+      "text": "개발·미리보기 환경에서는 Vite 프록시가 정규식 키 ^/api/와 ^/attachments/만 백엔드로 넘긴다. 운영 Caddy의 경계(path /api/* /attachments/*)와 맞춘 것이다. 단, 운영 Caddy의 IP 허용 목록(@denied)과 /.well-known 404에 해당하는 설정은 Vite 쪽에 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "15-21"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "87-99,136-137"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [
+    {
+      "from": "ME_KEY 없음(RequireAuth pending, '세션 확인 중…')",
+      "to": "ME_KEY {authenticated:true} (Outlet → Layout 렌더)",
+      "trigger": "GET /api/auth/me 200 {authenticated:true}",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "13-20"
+        }
+      ]
+    },
+    {
+      "from": "ME_KEY 없음(pending)",
+      "to": "RequireAuth 오류 화면(ErrorNotice + 다시 시도)",
+      "trigger": "auth.me가 401이 아닌 ApiError로 실패한다. retry:false라 곧바로 오류 상태가 된다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "15"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "22"
+        }
+      ]
+    },
+    {
+      "from": "ME_KEY {authenticated:true}",
+      "to": "ME_KEY {authenticated:false} → /login?next=<경로> (replace)",
+      "trigger": "임의의 쿼리·뮤테이션이 ApiError 401로 실패(noteAuthFailure)",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "noteAuthFailure",
+          "lines": "11-18"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "lines": "16-19"
+        }
+      ]
+    },
+    {
+      "from": "ME_KEY {authenticated:true}, 목록 쿼리·mutation 캐시 보유",
+      "to": "ME_KEY {authenticated:false}, auth 외 쿼리 제거, mutation 캐시 비움 → 로그인 화면",
+      "trigger": "Layout 로그아웃 버튼 → POST /api/auth/logout 성공",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "symbol": "Layout.logout",
+          "lines": "12-23"
+        }
+      ]
+    },
+    {
+      "from": "라우트 매칭(lazy 편집 화면 로딩 중)",
+      "to": "RouteError 화면",
+      "trigger": "lazy import(PostEditorPage) 실패 또는 하위 렌더 예외",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "13,18-30"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/routeError.test.tsx",
+          "lines": "7-20"
+        }
+      ]
+    },
+    {
+      "from": "RouteError 화면",
+      "to": "페이지 전체 재적재 또는 / 라우트",
+      "trigger": "'새로고침' 클릭(window.location.reload) 또는 '글 목록으로' 링크",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+          "lines": "14-17"
+        }
+      ]
+    }
+  ],
+  "databaseAccess": [],
+  "externalDependencies": [
+    {
+      "text": "사용 라이브러리:\n- react 19.2.8 / react-dom 19.2.8: createRoot, StrictMode\n- react-router 8.4.0: createBrowserRouter, RouterProvider, RouteObject, lazy, errorElement, hydrateFallbackElement, NavLink, Outlet, Link, Navigate\n- @tanstack/react-query 5.103.2: QueryClient, QueryCache, MutationCache, useQuery, useMutation",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/package.json",
+          "lines": "21-25"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/App.tsx",
+          "lines": "1-10"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "1"
+        }
+      ]
+    },
+    {
+      "text": "브라우저 fetch API로 같은 출처의 관리 API(PortfolioBlog.Api /api/*)를 호출한다. 서버 AdminSurfaceMiddleware는 X-Requested-With: XMLHttpRequest 헤더를 요구하며, 이 값은 클라이언트 상수와 일치한다. 헤더가 없으면 서버는 403('교차 출처 요청 거부')으로 거부한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "16-18,60-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "CsrfHeaderName / CsrfHeaderValue",
+          "lines": "22-25,85-87"
+        }
+      ]
+    },
+    {
+      "text": "운영에서 정적 서빙과 SPA 폴백은 Caddy의 관리 도메인 블록이 맡는다. route 안의 적용 순서는 다음과 같다.\n(1) 허용 CIDR 밖 IP(@denied): 모든 경로가 404다. 평문 HTTP 블록에서도 같다.\n(2) /api/*·/attachments/*: api:8080으로 프록시하며, request_body 상한은 11MiB다.\n(3) 정적 SPA 응답에는 CSP(script-src 'self', connect-src 'self' 등)·X-Frame-Options DENY·HSTS·COOP 헤더를 붙인다.\n(4) /assets/*: 파일이 있으면 immutable 캐시로 서빙하고, 없으면 404다(index.html로 돌리지 않음).\n(5) 점 파일(/.well-known 제외): 404다.\n(6) /.well-known/*: 무조건 404다.\n(7) 나머지: Cache-Control no-cache와 함께 try_files {path} /index.html로 넘긴다.\n오류 경로(handle_errors)의 응답은 본문 없이 상태 코드만 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "78-159"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "symbol": "http://{$ADMIN_DOMAIN}",
+          "lines": "163-173"
+        }
+      ]
+    },
+    {
+      "text": "개발·미리보기 서버는 Vite다. HTTPS로 뜨고 포트는 5173/4173이며, BLOG_API_ORIGIN(기본 https://localhost:7198)으로 프록시한다. 개발 인증서가 없으면 serve 시 Error를 던진다. preview는 ADMIN_SECURITY_HEADERS를 함께 내보낸다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "7-35"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "deploy/Caddyfile {$ADMIN_DOMAIN} @denied",
+      "condition": "요청 IP가 ADMIN_ALLOWED_CIDRS 밖이다",
+      "handling": "경로와 무관하게 Caddy가 404로 응답하므로 index.html·SPA 셸 자체가 전달되지 않는다. 평문 HTTP 블록도 리다이렉트 전에 같은 방식으로 404를 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "78,87-88,169-170"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/api/client.ts buildUrl",
+      "condition": "path가 '/api/'로 시작하지 않거나, //·\\·..·%2e(대소문자 무관)·제어 문자를 포함한다",
+      "handling": "fetch 전에 Error('API 경로가 아닙니다: …')를 던진다. 이 예외는 ApiError가 아니고 try 블록 밖에서 나므로, 네트워크 오류로 바뀌지도 않는다. 화면에서는 describeError가 '알 수 없는 오류가 발생했습니다.'로 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "26-30,56-57"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "53-61,75-79"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "69"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/api/client.ts request (fetch)",
+      "condition": "네트워크 실패·DNS·TLS 오류 등으로 fetch가 거부된다",
+      "handling": "ApiError(0,'네트워크 오류')로 바꾼다. 화면에는 '서버에 연결할 수 없습니다. 네트워크를 확인하세요.'를 보여 준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "63-67"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "72"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "127-134"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/api/client.ts request (fetch)",
+      "condition": "signal로 요청이 취소된다(AbortError)",
+      "handling": "오류로 바꾸지 않고 원래 예외를 그대로 다시 던진다. TanStack Query의 취소 흐름에 맡기는 것이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "64-65"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "131-133"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/api/client.ts request (fetch, redirect:'error')",
+      "condition": "서버나 중간자가 3xx 리다이렉트로 응답한다",
+      "handling": "fetch가 거부되고, AbortError가 아니므로 ApiError(0,'네트워크 오류')로 바뀐다. 사용자에게는 리다이렉트가 아니라 네트워크 오류로 보인다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "43,60-67"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/api/errors.ts toApiError",
+      "condition": "비2xx 응답의 본문이 ProblemDetails가 아니다(HTML, 빈 본문, 64KB 초과, JSON 파싱 실패. 예: Caddy가 직접 낸 본문 없는 404)",
+      "handling": "예외 없이 statusText(없으면 '요청 실패')로 ApiError를 만들고, fieldErrors는 빈 객체로 둔다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "50-61"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "118-125"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/api/client.ts request (res.json)",
+      "condition": "2xx(204 제외)인데 본문이 JSON이 아니다(예: dev 서버가 index.html을 200으로 반환, 빈 200 본문)",
+      "handling": "ApiError(res.status,'응답을 해석할 수 없습니다')를 던진다. describeError의 default 분기로 처리되어 '요청이 실패했습니다(200).'처럼 보인다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "70-75"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "102-107"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "82"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/app/queryClient.ts noteAuthFailure",
+      "condition": "쿼리나 useMutation의 오류가 ApiError 401이다",
+      "handling": "ME_KEY를 {authenticated:false}로 설정해 RequireAuth가 /login?next=로 보내게 한다. useMutation을 거치지 않고 직접 await하는 호출(PreviewPane·PostEditorPage·SeriesPage)은 각자 noteAuthFailure를 불러야 하는데, 현재 코드는 모두 그렇게 하고 있다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "7-18"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+          "lines": "53"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "lines": "224,261"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "lines": "33"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/app/queryClient.ts defaultOptions",
+      "condition": "429·503 또는 기타 실패",
+      "handling": "자동 재시도는 없다(retry:false). ErrorNotice가 Retry-After 초를 안내하고, 재시도는 사용자가 onRetry 버튼(refetch)으로 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "20-24"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "70,80-81"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/notices.tsx",
+          "lines": "9"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/app/routes.tsx lazy editor / 하위 렌더",
+      "condition": "배포로 청크 해시가 바뀌어 PostEditorPage 청크 로드가 실패하거나(Caddy가 누락된 /assets/*를 404로 응답), 렌더 중 예외가 난다",
+      "handling": "루트 errorElement인 RouteError가 안내 문구, 새로고침 버튼, 목록 링크를 그린다. 오류 내용은 화면·콘솔에 남기지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "12-21"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+          "lines": "3-20"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "115-125"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/routeError.test.tsx",
+          "lines": "11-20"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/components/RouteError.tsx",
+      "condition": "청크 로드 실패가 아닌 일반 렌더 버그로 오류 경계에 도달한다",
+      "handling": "청크 실패 때와 같은 '새 버전이 배포됐을 수 있습니다' 문구를 보여 준다. 원인을 구분하거나 기록하지 않으므로, 같은 버그라면 새로고침해도 반복된다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+          "lines": "6-13"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/components/Layout.tsx logout",
+      "condition": "POST /api/auth/logout이 실패한다",
+      "handling": "logout.isError면 ErrorNotice로 오류를 표시한다. 다시 시도 버튼은 없지만 로그아웃 버튼을 다시 누를 수 있다. 401이면 MutationCache onError가 ME_KEY를 false로 설정해 로그인 화면으로 간다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "12-13,35-39"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "18"
+        }
+      ]
+    },
+    {
+      "where": "PortfolioBlog.Web/src/main.tsx",
+      "condition": "index.html에 #root가 없다",
+      "handling": "처리 없음(예외 전파). 비null 단언(!) 때문에 createRoot(null)이 호출되어 예외가 난다. 현재 index.html에는 #root가 있다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/main.tsx",
+          "lines": "6"
+        },
+        {
+          "file": "PortfolioBlog.Web/index.html",
+          "lines": "11"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "'*' 없는 화면 라우트는 RequireAuth 바깥에 있다. 그래서 비로그인 상태에서도 세션 확인 없이 표시되고, '글 목록으로' 링크를 누른 뒤에야 RequireAuth가 로그인 화면으로 보낸다. PortfolioBlog.Web 전체에서 '없는 화면' 문자열은 routes.tsx에만 있고, 이 폴백 화면을 검증하는 테스트는 찾지 못했다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "22-37"
+        }
+      ]
+    },
+    {
+      "text": "'*' 폴백이 받지 못하는 경로가 있다. 운영에서 /assets/* 누락, 점 파일, /.well-known/*은 Caddy가 SPA 폴백 전에 404로 끊는다. 그래서 이 경로들은 SPA의 '없는 화면'이 아니라 본문 없는 Caddy 404가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "124-141"
+        }
+      ]
+    },
+    {
+      "text": "인코딩된 id에 ..이 남으면(예: '../x' → '..%2Fx') buildUrl이 막는다. 서버 id는 Guid라서 정상 흐름에는 영향이 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "75-79"
+        }
+      ]
+    },
+    {
+      "text": "쿼리 값이 null·undefined·빈 문자열이면 쿼리 문자열에서 빠진다. 예를 들어 posts.list('',0,50)는 /api/posts?skip=0&take=50이 된다. 모든 값이 비면 ?도 붙지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "31-37"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "81-87"
+        }
+      ]
+    },
+    {
+      "text": "fieldErrors를 만들 때 '__proto__'·'constructor'·'prototype' 키는 건너뛴다. 배열이 아닌 값과 문자열이 아닌 메시지도 버린다(프로토타입 오염 방지).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "35-48"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "94-116"
+        }
+      ]
+    },
+    {
+      "text": "Retry-After는 1~9자리 정수만 인정하고 값을 1~3600초로 제한한다. HTTP-date, 음수, 소수, 지수 표기는 null이 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "parseRetryAfter",
+          "lines": "29-33"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.test.ts",
+          "lines": "138-143"
+        }
+      ]
+    },
+    {
+      "text": "QueryClient와 라우터는 useState 지연 초기화로 만들어져 컴포넌트 수명 동안 인스턴스가 하나만 유지된다. 개발 모드 StrictMode에서는 초기화 함수(createQueryClient, createBrowserRouter(routes))가 두 번 호출될 수 있고, 한쪽 결과는 버려진다. 이 이중 호출 동작의 근거는 저장소 밖의 React 문서다. 저장소 코드로는 main.tsx의 StrictMode 사용과 App.tsx의 useState 초기화만 확인된다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/App.tsx",
+          "lines": "8-9"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/main.tsx",
+          "lines": "7"
+        }
+      ]
+    },
+    {
+      "text": "로그아웃 시 client.clear()를 쓰지 않는다. 주석에 따르면, 쿼리 객체를 통째로 지우면 RequireAuth 관찰자가 옛 객체에 남아 화면이 전환되지 않는 문제가 실측으로 확인됐다. 그래서 ME_KEY를 먼저 설정한 뒤 auth 외 쿼리만 제거한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "lines": "15-21"
+        }
+      ]
+    },
+    {
+      "text": "refetchOnWindowFocus:false, staleTime:0이다. 창 포커스로 편집 중인 데이터를 덮어쓰지 않는 대신, 마운트할 때마다 다시 조회한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "lines": "21-22"
+        }
+      ]
+    },
+    {
+      "text": "hydrateFallbackElement(Loading)는 루트 라우트에만 둔다. 첫 진입 경로가 lazy 편집 화면이면 청크를 받는 동안 이 폴백이 보이는 것으로 추론된다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "17-20"
+        }
+      ]
+    },
+    {
+      "text": "lazy로 분리한 화면은 편집 화면(PostEditorPage)뿐이다. 주석에 따르면 전부 한 번들일 때 953KB였고, 대부분이 CodeMirror다. build.chunkSizeWarningLimit는 700이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx",
+          "lines": "12-13"
+        },
+        {
+          "file": "PortfolioBlog.Web/vite.config.ts",
+          "lines": "31"
+        }
+      ]
+    },
+    {
+      "text": "테스트 하네스 renderApp은 실제 routes 표와 createQueryClient를 쓰지만, 라우터는 createMemoryRouter로 만든다. 그래서 App.tsx가 createBrowserRouter로 조립하는 부분은 이 단위 테스트로 검증되지 않는다. 또 stubApi는 표에 없는 호출에서 예외를 던지는데, request가 이를 ApiError(0)으로 바꿔 삼키므로 noteUnexpectedCall로 따로 기록한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/test/harness.tsx",
+          "symbol": "renderApp / stubApi",
+          "lines": "16-49"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/App.tsx",
+          "lines": "9"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "셸 코드에는 console 출력도 원격 오류 수집도 없다. RouteError는 번들·서버 내부 사정이 드러나지 않도록 useRouteError 값을 의도적으로 읽지 않는다. 그래서 라우트 오류가 화면·콘솔 어디에도 남지 않고, 운영에서 클라이언트 오류를 관측할 수단이 없다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+          "lines": "3-8"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/test/routeError.test.tsx",
+          "lines": "18-19"
+        }
+      ]
+    },
+    {
+      "text": "ApiError의 Error.message는 '<status> <title>' 형태지만, 화면에는 describeError 문구만 표시한다. 서버 측 요청 로그는 Caddy 관리 도메인 블록의 log 지시자가 남기며, @denied 404도 이 로그에 포함된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "16-17,68-84"
+        },
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "79-80"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F029_SEQUENCE",
+      "type": "sequence",
+      "title": "관리 SPA 부팅과 보호 화면의 API 호출",
+      "summary": "main.tsx가 App을 마운트하면 RequireAuth가 auth.me로 세션을 확인하고, 통과하면 Layout 안의 페이지가 endpoints.ts→client.ts request를 거쳐 같은 출처 /api를 호출한다.",
+      "mermaid": "sequenceDiagram\n  participant main_tsx as main.tsx\n  participant App\n  participant routes as routes.tsx\n  participant RequireAuth\n  participant Layout\n  participant PostsPage\n  participant endpoints as endpoints.ts\n  participant request as client.ts request\n  participant AdminApi as PortfolioBlog.Api /api\n  main_tsx->>App: createRoot().render(StrictMode App)\n  App->>App: useState(createQueryClient), useState(createBrowserRouter(routes))\n  App->>routes: RouterProvider 경로 매칭\n  routes->>RequireAuth: 보호 라우트 렌더\n  RequireAuth->>endpoints: auth.me(signal)\n  endpoints->>request: GET /api/auth/me\n  request->>request: buildUrl 경로 검사\n  request->>AdminApi: fetch X-Requested-With, same-origin, no-store, redirect error\n  AdminApi-->>request: 200 authenticated true\n  request-->>RequireAuth: AuthStatus\n  RequireAuth->>Layout: Outlet\n  Layout->>PostsPage: Outlet 경로 /\n  PostsPage->>endpoints: posts.list(q, skip, take, signal)\n  endpoints->>request: GET /api/posts?skip&take\n  request->>AdminApi: fetch\n  AdminApi-->>request: JSON 또는 오류\n  request-->>PostsPage: PagedPosts 또는 ApiError\n  opt 로그아웃 버튼\n    Layout->>endpoints: auth.logout() useMutation\n    endpoints->>request: POST /api/auth/logout\n    request->>AdminApi: fetch\n    AdminApi-->>request: 204 또는 오류\n    request-->>Layout: undefined 또는 ApiError\n  end",
+      "details": "App은 QueryClient와 라우터를 useState 지연 초기화로 한 번만 만든다. 보호 라우트는 RequireAuth가 먼저 GET /api/auth/me를 호출해 authenticated가 true일 때만 Layout(Outlet)을 그린다. 데이터 호출은 Outlet 안의 페이지(예: PostsPage)가 useQuery의 queryFn에서 endpoints.ts 함수를 불러 시작하며, 모든 호출은 client.ts의 request 하나를 거친다. request는 fetch 전에 buildUrl로 경로를 검사하고, CSRF 헤더·same-origin 쿠키·no-store·redirect error를 붙인다. 서버 쪽 AdminSurfaceMiddleware가 CSRF 헤더를 검사한다. 로그아웃은 Layout의 useMutation이 POST /api/auth/logout을 호출한다.",
+      "nodes": [
+        {
+          "node": "main.tsx",
+          "code": "PortfolioBlog.Web/src/main.tsx"
+        },
+        {
+          "node": "App",
+          "code": "PortfolioBlog.Web/src/App.tsx",
+          "symbol": "App"
+        },
+        {
+          "node": "routes.tsx",
+          "code": "PortfolioBlog.Web/src/app/routes.tsx",
+          "symbol": "routes"
+        },
+        {
+          "node": "RequireAuth",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth"
+        },
+        {
+          "node": "Layout",
+          "code": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "symbol": "Layout"
+        },
+        {
+          "node": "PostsPage",
+          "code": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "symbol": "PostsPage"
+        },
+        {
+          "node": "endpoints.ts",
+          "code": "PortfolioBlog.Web/src/api/endpoints.ts"
+        },
+        {
+          "node": "client.ts request",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "PortfolioBlog.Api /api",
+          "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F029_FLOW_ERROR",
+      "type": "flowchart",
+      "title": "request 실패 분기와 ApiError 처리",
+      "summary": "request의 실패는 경로 검사 오류(Error), 취소(AbortError 전파), 네트워크 실패(ApiError 0), 비2xx(toApiError), 2xx 파싱 실패(ApiError status)로 나뉜다. 그중 ApiError 401만 로그인 화면으로 이어진다.",
+      "mermaid": "flowchart TD\n  request_call[request 호출] --> buildUrl{buildUrl 경로 검사}\n  buildUrl -- 위반 --> PathError[Error API 경로가 아닙니다]\n  buildUrl -- 통과 --> fetch_call{fetch}\n  fetch_call -- AbortError --> AbortRethrow[AbortError 그대로 전파]\n  fetch_call -- 그 밖 거부 --> NetworkError[ApiError status 0]\n  fetch_call -- 응답 --> res_ok{res.ok}\n  res_ok -- 아니오 --> toApiError[toApiError]\n  toApiError --> ApiError\n  res_ok -- 예 --> is204{status 204}\n  is204 -- 예 --> ReturnUndefined[undefined 반환]\n  is204 -- 아니오 --> parseJson{res.json}\n  parseJson -- 성공 --> ReturnData[T 반환]\n  parseJson -- 실패 --> ParseError[ApiError 응답을 해석할 수 없습니다]\n  NetworkError --> ApiError\n  ParseError --> ApiError\n  ApiError --> noteAuthFailure{noteAuthFailure 401?}\n  noteAuthFailure -- 예 --> ME_KEY[ME_KEY authenticated false]\n  ME_KEY --> RequireAuth[\"RequireAuth Navigate /login?next\"]\n  noteAuthFailure -- 아니오 --> ErrorNotice[ErrorNotice describeError]\n  PathError --> ErrorNotice",
+      "details": "buildUrl 위반은 try 밖에서 일반 Error로 던져지므로 describeError가 '알 수 없는 오류'로 표시한다. fetch 거부 중 AbortError는 그대로 전파되고, 나머지(redirect:'error'로 인한 거부 포함)는 ApiError(0)이 된다. 비2xx 응답은 toApiError가 Retry-After·ProblemDetails를 읽어 ApiError로 만든다. 본문이 ProblemDetails가 아니어도 예외 없이 statusText로 만든다. 2xx인데 JSON이 아니면 ApiError(status)가 된다. ApiError가 401이면 QueryCache/MutationCache onError의 noteAuthFailure가 ME_KEY를 false로 바꾸고, RequireAuth가 로그인 화면으로 보낸다. 그 밖의 오류는 ErrorNotice가 describeError 문구로 보여 준다. 자동 재시도 분기는 없다(retry:false).",
+      "nodes": [
+        {
+          "node": "buildUrl",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "buildUrl"
+        },
+        {
+          "node": "fetch_call",
+          "code": "PortfolioBlog.Web/src/api/client.ts",
+          "symbol": "request"
+        },
+        {
+          "node": "toApiError",
+          "code": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "toApiError"
+        },
+        {
+          "node": "ApiError",
+          "code": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "ApiError"
+        },
+        {
+          "node": "noteAuthFailure",
+          "code": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "noteAuthFailure"
+        },
+        {
+          "node": "ME_KEY",
+          "code": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "ME_KEY"
+        },
+        {
+          "node": "RequireAuth",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth"
+        },
+        {
+          "node": "ErrorNotice",
+          "code": "PortfolioBlog.Web/src/components/notices.tsx",
+          "symbol": "ErrorNotice"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F029_FLOW",
+      "type": "flowchart",
+      "title": "Caddy 분기, 라우트 표와 오류·없는 화면 폴백",
+      "summary": "허용 IP의 화면 경로만 Caddy try_files로 index.html에 도달하고, 그 뒤 routes 루트 라우트가 로그인·보호 화면·'*' 없는 화면으로 나눈다. 라우트 오류는 모두 RouteError가 받는다.",
+      "mermaid": "flowchart TD\n  Caddy_denied{\"Caddyfile @denied 허용 CIDR 밖?\"} -- 예 --> Caddy_404[\"Caddy 404\"]\n  Caddy_denied -- 아니오 --> Caddy_backend{\"@backend /api/* /attachments/*\"}\n  Caddy_backend -- 예 --> ApiBackend[\"reverse_proxy api:8080\"]\n  Caddy_backend -- 아니오 --> Caddy_static{\"@asset_miss @dot @wellknown\"}\n  Caddy_static -- 해당 --> Caddy_404\n  Caddy_static -- 그 밖 --> Caddy_try_files[\"Caddyfile try_files index.html\"]\n  Caddy_try_files --> RootRoute[routes 루트 라우트]\n  RootRoute -- errorElement --> RouteError\n  RootRoute -- hydrateFallbackElement --> Loading\n  RootRoute --> LoginPage[\"/login LoginPage\"]\n  RootRoute --> RequireAuth\n  RootRoute --> NotFound[\"* 없는 화면\"]\n  RequireAuth --> Layout\n  Layout --> PostsPage[\"/ PostsPage\"]\n  Layout --> PostEditorPage[\"/posts/new, /posts/:id lazy PostEditorPage\"]\n  Layout --> SeriesPage\n  Layout --> TagsPage\n  Layout --> AttachmentsPage\n  PostEditorPage -- 청크 로드 실패 --> RouteError\n  RouteError -- 새로고침 --> Reload[window.location.reload]\n  RouteError -- 글 목록으로 --> PostsPage\n  NotFound -- 글 목록으로 --> PostsPage",
+      "details": "Caddy 관리 도메인 블록은 IP 허용 목록 밖 요청을 경로와 무관하게 404로 끊는다. /api/*·/attachments/*는 백엔드로, 누락된 /assets/*·점 파일·/.well-known/*은 404로 보내고, 나머지만 index.html로 폴백한다. SPA 안에서는 경로 없는 루트 라우트가 errorElement(RouteError)와 hydrateFallbackElement(Loading)를 가진다. 그 아래에 /login, RequireAuth→Layout 보호 영역(PostsPage, lazy PostEditorPage, SeriesPage, TagsPage, AttachmentsPage), '*' 없는 화면이 있다. '*'는 RequireAuth 밖이라 비로그인에도 표시된다. 편집 화면 청크 로드가 실패하면 RouteError가 새로고침과 목록 링크를 준다.",
+      "nodes": [
+        {
+          "node": "Caddy_denied",
+          "code": "deploy/Caddyfile",
+          "symbol": "@denied"
+        },
+        {
+          "node": "Caddy_backend",
+          "code": "deploy/Caddyfile",
+          "symbol": "@backend"
+        },
+        {
+          "node": "Caddy_try_files",
+          "code": "deploy/Caddyfile",
+          "symbol": "try_files"
+        },
+        {
+          "node": "RootRoute",
+          "code": "PortfolioBlog.Web/src/app/routes.tsx",
+          "symbol": "routes"
+        },
+        {
+          "node": "RouteError",
+          "code": "PortfolioBlog.Web/src/components/RouteError.tsx",
+          "symbol": "RouteError"
+        },
+        {
+          "node": "Loading",
+          "code": "PortfolioBlog.Web/src/components/notices.tsx",
+          "symbol": "Loading"
+        },
+        {
+          "node": "LoginPage",
+          "code": "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+          "symbol": "LoginPage"
+        },
+        {
+          "node": "RequireAuth",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth"
+        },
+        {
+          "node": "NotFound",
+          "code": "PortfolioBlog.Web/src/app/routes.tsx",
+          "symbol": "routes path '*'"
+        },
+        {
+          "node": "Layout",
+          "code": "PortfolioBlog.Web/src/components/Layout.tsx",
+          "symbol": "Layout"
+        },
+        {
+          "node": "PostsPage",
+          "code": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+          "symbol": "PostsPage"
+        },
+        {
+          "node": "PostEditorPage",
+          "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+          "symbol": "PostEditorPage"
+        },
+        {
+          "node": "SeriesPage",
+          "code": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+          "symbol": "SeriesPage"
+        },
+        {
+          "node": "TagsPage",
+          "code": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+          "symbol": "TagsPage"
+        },
+        {
+          "node": "AttachmentsPage",
+          "code": "PortfolioBlog.Web/src/pages/AttachmentsPage.tsx",
+          "symbol": "AttachmentsPage"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F029_STATE",
+      "type": "state",
+      "title": "ME_KEY 인증 상태 캐시",
+      "summary": "ME_KEY 캐시 값이 셸의 인증 상태다. 어떤 호출의 401이든 로그아웃 성공이든 이 값을 false로 바꾸면 RequireAuth가 로그인 화면으로 보낸다.",
+      "mermaid": "stateDiagram-v2\n  [*] --> Pending\n  Pending --> Authenticated: auth.me 200 true\n  Pending --> Unauthenticated: auth.me 200 false 또는 401\n  Pending --> MeError: auth.me 기타 실패\n  MeError --> Pending: 다시 시도 refetch\n  Authenticated --> Unauthenticated: noteAuthFailure 401\n  Authenticated --> Unauthenticated: Layout logout 성공\n  Unauthenticated --> LoginRedirect: RequireAuth Navigate\n  LoginRedirect --> [*]",
+      "details": "Pending은 RequireAuth의 useQuery(ME_KEY)가 아직 결과를 받지 못한 상태로, '세션 확인 중…'을 표시한다. 200 {authenticated:true}면 Authenticated가 되어 Outlet을 그린다. 401이 아닌 실패는 MeError(ErrorNotice + 다시 시도)가 되고, 다시 시도하면 refetch한다. Authenticated 상태에서 임의 호출이 401을 받으면 noteAuthFailure가, Layout 로그아웃이 성공하면 onSuccess가 ME_KEY를 {authenticated:false}로 바꾼다. 그러면 RequireAuth가 /login?next=<현재 경로>로 replace 이동한다. auth.me 자체가 401일 때 오류 상태를 거치지 않고 곧바로 Unauthenticated가 되는지는 TanStack Query 내부 순서에 달려 있어 확인하지 못했다(unknowns).",
+      "nodes": [
+        {
+          "node": "Pending",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth isPending"
+        },
+        {
+          "node": "Authenticated",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth Outlet"
+        },
+        {
+          "node": "MeError",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "RequireAuth isError"
+        },
+        {
+          "node": "Unauthenticated",
+          "code": "PortfolioBlog.Web/src/app/queryClient.ts",
+          "symbol": "noteAuthFailure"
+        },
+        {
+          "node": "LoginRedirect",
+          "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+          "symbol": "Navigate /login?next="
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "redirect:'error'로 fetch가 거부될 때 브라우저가 던지는 예외 이름은 코드로 확인할 수 없다(TypeError로 추정). AbortError가 아니면 ApiError(0)로 바뀐다는 것만 확인했다.",
+    "hydrateFallbackElement(Loading)가 비SSR createBrowserRouter에서 첫 진입 lazy 라우트를 로딩하는 동안 실제로 표시되는지는 확인하지 못했다. react-router 8.4.0 내부 동작에 달려 있다.",
+    "auth.me 자체가 401로 실패할 때, QueryCache onError의 setQueryData가 오류 상태를 성공 상태({authenticated:false})로 덮어써 곧바로 로그인 화면으로 이동하는지는 코드로 직접 확인하지 못했다. TanStack Query 내부 실행 순서에 달려 있다.",
+    "RouteError가 lazy 청크 실패 외에 어떤 오류까지 받는지는 확인하지 못했다. 테스트는 lazy 실패 한 가지만 다룬다.",
+    "StrictMode 개발 모드에서 useState 초기화 함수가 두 번 호출된다는 근거는 저장소 밖의 React 문서다. 그래서 해당 엣지 케이스는 INFERRED로 두었다.",
+    "의존 보정 근거: Program.cs 100-108행에서 모든 /api 요청이 UseExceptionHandler(OverloadExceptionHandler)·UseStatusCodePages(ErrorResponses)·AdminSurfaceMiddleware·ApiBodyLimitMiddleware를 거친다. client.ts가 CSRF 헤더를 맞추고 describeError가 403·413·503(Retry-After)를 문구로 바꾸므로 F018·F020을 의존에 넣었다. F001(RequireAuth·auth 엔드포인트)과 F025(Caddy SPA 폴백)는 유지했다. F019 속도 제한은 RateLimitMetadata가 login·preview·upload 엔드포인트에만 붙어 있어 셸 공통 의존이 아니라고 보고 뺐다(429 문구 처리는 응답 소비일 뿐이다).",
+    "검증 지적 가운데 F006·F008·F002·F007·F011·F018 행의 의존 표 불일치는 다른 기능의 문서와 색인 표에 관한 것이다. F029 분석 범위 밖이라 여기서는 고치지 않았다. F029 자신의 의존 목록만 같은 기준(/api 공통 파이프라인 F018·F020 포함)으로 맞췄다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Web/src/main.tsx",
+      "lines": "1-10"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/App.tsx",
+      "symbol": "App",
+      "lines": "7-11"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/routes.tsx",
+      "symbol": "routes",
+      "lines": "12-39"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "createQueryClient / noteAuthFailure",
+      "lines": "5-27"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout",
+      "lines": "10-43"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+      "symbol": "PostsPage",
+      "lines": "18-20"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/RouteError.tsx",
+      "symbol": "RouteError",
+      "lines": "3-20"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/components/notices.tsx",
+      "symbol": "ErrorNotice / FieldError / Loading",
+      "lines": "3-26"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request / buildUrl",
+      "lines": "16-76"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/errors.ts",
+      "symbol": "ApiError / toApiError / describeError",
+      "lines": "8-84"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/endpoints.ts",
+      "lines": "7-52"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/types.ts",
+      "lines": "4-32"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "symbol": "RequireAuth",
+      "lines": "11-21"
+    },
+    {
+      "file": "PortfolioBlog.Web/vite.config.ts",
+      "lines": "7-35"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/api/client.test.ts",
+      "lines": "26-150"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/routeError.test.tsx",
+      "lines": "5-21"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/harness.tsx",
+      "symbol": "renderApp / stubApi",
+      "lines": "16-51"
+    },
+    {
+      "file": "PortfolioBlog.Web/src/test/source-guards.test.ts",
+      "lines": "101-115"
+    },
+    {
+      "file": "deploy/Caddyfile",
+      "lines": "78-173"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "lines": "22-25,85-87"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "43,100-108"
+    }
+  ],
+  "history": []
+}

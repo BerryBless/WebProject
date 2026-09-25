@@ -1,0 +1,55 @@
+{
+  "score": {
+    "coverage": 93,
+    "accuracy": 98
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [],
+  "diagramIssues": [
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "diagram": "F008_FLOW",
+      "section": "F008_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "다이어그램은 PostEndpoints가 TagResolver.Validate를 직접 호출하고, 통과하면 곧바로 BeginTransactionAsync로 가는 것처럼 그린다. 코드의 순서는 다르다. CreateAsync·UpdateAsync는 PostValidation.Validate를 부르고, TagResolver.Validate는 그 안(PostValidation.cs 50행)에서 불린다. 트랜잭션 전에는 여러 검사가 더 있다. 두 경로 공통으로 ValidateSeriesAsync와 RenderOrAddErrorAsync(400/503)가 있다. CreateAsync에는 slug AnyAsync 409(136행)가, UpdateAsync에는 404·slug 불변 400·version 사전 비교 409(189-201행)가 있다. 본문 설명은 PostValidation 경유를 맞게 적었으므로 다이어그램의 간선만 코드와 다르다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "126-139"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-213"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate",
+          "lines": "50"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "F008_FLOW",
+      "issue": "PostEndpoints → PostValidation.Validate → TagResolver.Validate 경유를 그리고, 트랜잭션 전에 있는 ValidateSeriesAsync·RenderOrAddErrorAsync·slug 중복 409(Create)·version 사전 비교 409(Update)를 넣거나 생략했다고 밝힌다. section=F008_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync / UpdateAsync",
+          "lines": "126-139, 189-213"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate",
+          "lines": "50"
+        }
+      ]
+    }
+  ]
+}

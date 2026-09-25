@@ -1,0 +1,2789 @@
+{
+  "run": 1,
+  "name": "run-0001",
+  "mode": "INITIAL",
+  "status": "SUCCESS",
+  "startedAt": "2026-09-23T13:09:19.487Z",
+  "completedAt": "2026-09-24T16:53:05.712Z",
+  "baselineBefore": null,
+  "baselineAfter": "432327ff0a67e40596f80e3ea407601605313539",
+  "changedFiles": [
+    ".agents/skills/allocation-peer-review/SKILL.md",
+    ".agents/skills/architecture-review/SKILL.md",
+    ".agents/skills/code-review-orchestrator/SKILL.md",
+    ".agents/skills/commitandpush/references/commit-message-guide.md",
+    ".agents/skills/commitandpush/references/security-patterns.md",
+    ".agents/skills/commitandpush/SKILL.md",
+    ".agents/skills/concurrency-guard-orchestrator/SKILL.md",
+    ".agents/skills/deadlock-review/SKILL.md",
+    ".agents/skills/deadlock-static-analysis/SKILL.md",
+    ".agents/skills/gc-guard-orchestrator/SKILL.md",
+    ".agents/skills/harness-evolve/SKILL.md",
+    ".agents/skills/heap-allocation-scan/SKILL.md",
+    ".agents/skills/io-loop-design/SKILL.md",
+    ".agents/skills/load-test-audit/SKILL.md",
+    ".agents/skills/lock-free-enforcement/SKILL.md",
+    ".agents/skills/lock-justification-audit/SKILL.md",
+    ".agents/skills/performance-review/SKILL.md",
+    ".agents/skills/pipeline-architect-orchestrator/SKILL.md",
+    ".agents/skills/pooling-enforcement/SKILL.md",
+    ".agents/skills/security-review/SKILL.md",
+    ".agents/skills/style-review/SKILL.md",
+    ".agents/skills/tdd-green-phase/SKILL.md",
+    ".agents/skills/tdd-orchestrator/SKILL.md",
+    ".agents/skills/tdd-red-phase/SKILL.md",
+    ".agents/skills/tdd-refactor-phase/SKILL.md",
+    ".agents/skills/thread-dispatch-design/SKILL.md",
+    ".claude/agents/allocation-peer-reviewer.md",
+    ".claude/agents/architecture-reviewer.md",
+    ".claude/agents/codex-adapter.md",
+    ".claude/agents/cross-implementer.md",
+    ".claude/agents/cross-planner.md",
+    ".claude/agents/cross-reviewer.md",
+    ".claude/agents/deadlock-analyzer.md",
+    ".claude/agents/deadlock-reviewer.md",
+    ".claude/agents/git-commit-writer.md",
+    ".claude/agents/git-push-controller.md",
+    ".claude/agents/git-security-auditor.md",
+    ".claude/agents/heap-allocation-scanner.md",
+    ".claude/agents/io-loop-designer.md",
+    ".claude/agents/load-test-auditor.md",
+    ".claude/agents/lock-free-enforcer.md",
+    ".claude/agents/lock-justification-auditor.md",
+    ".claude/agents/performance-reviewer.md",
+    ".claude/agents/pipeline-supervisor.md",
+    ".claude/agents/pooling-enforcer.md",
+    ".claude/agents/security-reviewer.md",
+    ".claude/agents/style-reviewer.md",
+    ".claude/agents/tdd-analyst.md",
+    ".claude/agents/tdd-builder.md",
+    ".claude/agents/tdd-qa.md",
+    ".claude/agents/thread-dispatcher-designer.md",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/skills/allocation-peer-review/SKILL.md",
+    ".claude/skills/architecture-review/SKILL.md",
+    ".claude/skills/code-review-orchestrator/SKILL.md",
+    ".claude/skills/codex/SKILL.md",
+    ".claude/skills/commitandpush/references/commit-message-guide.md",
+    ".claude/skills/commitandpush/references/security-patterns.md",
+    ".claude/skills/commitandpush/SKILL.md",
+    ".claude/skills/concurrency-guard-orchestrator/SKILL.md",
+    ".claude/skills/cross-verify/references/prompts/adjudicate.md",
+    ".claude/skills/cross-verify/references/prompts/final_check.md",
+    ".claude/skills/cross-verify/references/prompts/plan_check.md",
+    ".claude/skills/cross-verify/references/prompts/plan.md",
+    ".claude/skills/cross-verify/references/prompts/reverify.md",
+    ".claude/skills/cross-verify/references/prompts/review.md",
+    ".claude/skills/cross-verify/references/usage.md",
+    ".claude/skills/cross-verify/scripts/invoke-codex.ps1",
+    ".claude/skills/cross-verify/SKILL.md",
+    ".claude/skills/deadlock-review/SKILL.md",
+    ".claude/skills/deadlock-static-analysis/SKILL.md",
+    ".claude/skills/gc-guard-orchestrator/SKILL.md",
+    ".claude/skills/harness-evolve/SKILL.md",
+    ".claude/skills/heap-allocation-scan/SKILL.md",
+    ".claude/skills/io-loop-design/SKILL.md",
+    ".claude/skills/load-test-audit/SKILL.md",
+    ".claude/skills/lock-free-enforcement/SKILL.md",
+    ".claude/skills/lock-justification-audit/SKILL.md",
+    ".claude/skills/performance-review/SKILL.md",
+    ".claude/skills/pipeline-architect-orchestrator/SKILL.md",
+    ".claude/skills/pooling-enforcement/SKILL.md",
+    ".claude/skills/security-review/SKILL.md",
+    ".claude/skills/style-review/SKILL.md",
+    ".claude/skills/tdd-green-phase/SKILL.md",
+    ".claude/skills/tdd-orchestrator/SKILL.md",
+    ".claude/skills/tdd-red-phase/SKILL.md",
+    ".claude/skills/tdd-refactor-phase/SKILL.md",
+    ".claude/skills/thread-dispatch-design/SKILL.md",
+    ".codex/agents/allocation-peer-reviewer.toml",
+    ".codex/agents/architecture-reviewer.toml",
+    ".codex/agents/deadlock-analyzer.toml",
+    ".codex/agents/deadlock-reviewer.toml",
+    ".codex/agents/git-commit-writer.toml",
+    ".codex/agents/git-push-controller.toml",
+    ".codex/agents/git-security-auditor.toml",
+    ".codex/agents/heap-allocation-scanner.toml",
+    ".codex/agents/io-loop-designer.toml",
+    ".codex/agents/load-test-auditor.toml",
+    ".codex/agents/lock-free-enforcer.toml",
+    ".codex/agents/lock-justification-auditor.toml",
+    ".codex/agents/performance-reviewer.toml",
+    ".codex/agents/pipeline-supervisor.toml",
+    ".codex/agents/pooling-enforcer.toml",
+    ".codex/agents/security-reviewer.toml",
+    ".codex/agents/style-reviewer.toml",
+    ".codex/agents/tdd-analyst.toml",
+    ".codex/agents/tdd-builder.toml",
+    ".codex/agents/tdd-qa.toml",
+    ".codex/agents/thread-dispatcher-designer.toml",
+    ".codex/config.toml",
+    ".dockerignore",
+    ".gitattributes",
+    ".github/workflows/ci.yml",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "deploy/backup.sh",
+    "deploy/Caddyfile",
+    "deploy/docker-compose.smoke.yml",
+    "deploy/docker-compose.yml",
+    "deploy/OPERATIONS.md",
+    "deploy/postgres-init/10-roles.sh",
+    "deploy/restore.sh",
+    "deploy/smoke/run.sh",
+    "deploy/smoke/smoke.test.mjs",
+    "Directory.Packages.props",
+    "docs/architecture.md",
+    "docs/configuration.md",
+    "docs/deployment.md",
+    "docs/development.md",
+    "docs/harness.md",
+    "docs/history.md",
+    "docs/security.md",
+    "docs/superpowers/plans/2026-09-20-tech-blog-backend-core.md",
+    "docs/superpowers/plans/2026-09-21-tech-blog-admin-spa.md",
+    "docs/superpowers/plans/2026-09-21-tech-blog-content-pipeline.md",
+    "docs/superpowers/plans/2026-09-21-tech-blog-public-site.md",
+    "docs/superpowers/plans/2026-09-22-tech-blog-deploy.md",
+    "docs/superpowers/plans/2026-09-23-doc-harness.md",
+    "docs/superpowers/specs/2026-09-23-doc-harness-design.md",
+    "docs/testing.md",
+    "docs/worklog.md",
+    "plan/code_review_harness_fix_0912.md",
+    "plan/gc_guard_harness_fix_0912.md",
+    "plan/harness_audit_0911.md",
+    "plan/harness_changelog.md",
+    "plan/harness_cross_check_0913.md",
+    "plan/para_notes_0917.md",
+    "plan/resume_guide_0921.md",
+    "plan/tech_blog_0920.md",
+    "plan/tech_blog_2a_report_0921.md",
+    "plan/tech_blog_2b_report_0921.md",
+    "plan/tech_blog_3_report_0922.md",
+    "plan/tech_blog_4_report_0923.md",
+    "PortfolioBlog.Api.Tests/Features/AccessMatrixTests.cs",
+    "PortfolioBlog.Api.Tests/Features/AdminSurfaceTests.cs",
+    "PortfolioBlog.Api.Tests/Features/ApiBodyLimitTests.cs",
+    "PortfolioBlog.Api.Tests/Features/AttachmentEndpointsTests.cs",
+    "PortfolioBlog.Api.Tests/Features/AttachmentIntegrityTests.cs",
+    "PortfolioBlog.Api.Tests/Features/AuthEndpointsTests.cs",
+    "PortfolioBlog.Api.Tests/Features/DisplayNameTests.cs",
+    "PortfolioBlog.Api.Tests/Features/ErrorPipelineTests.cs",
+    "PortfolioBlog.Api.Tests/Features/FeedAndSitemapTests.cs",
+    "PortfolioBlog.Api.Tests/Features/ForwardedHeadersTests.cs",
+    "PortfolioBlog.Api.Tests/Features/HostFilteringTests.cs",
+    "PortfolioBlog.Api.Tests/Features/PostEndpointsCacheGuardTests.cs",
+    "PortfolioBlog.Api.Tests/Features/PostEndpointsTests.cs",
+    "PortfolioBlog.Api.Tests/Features/PreviewEndpointsTests.cs",
+    "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+    "PortfolioBlog.Api.Tests/Features/PublicRateLimitTests.cs",
+    "PortfolioBlog.Api.Tests/Features/RateLimitHeaderTests.cs",
+    "PortfolioBlog.Api.Tests/Features/SearchPageTests.cs",
+    "PortfolioBlog.Api.Tests/Features/SecurityHeadersTests.cs",
+    "PortfolioBlog.Api.Tests/Features/SeriesEndpointsTests.cs",
+    "PortfolioBlog.Api.Tests/Features/StartupValidationTests.cs",
+    "PortfolioBlog.Api.Tests/Features/TagEndpointsTests.cs",
+    "PortfolioBlog.Api.Tests/Features/ValidationWithinDbConstraintsTests.cs",
+    "PortfolioBlog.Api.Tests/HealthEndpointTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/AdminCredentialTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/AdminOptionsTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/ApiFactory.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/AttachmentJanitorTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/CheckConstraintCoverageTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/CidrListTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/ClientIpTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/ConnectionStringGuardTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/DatabaseSchemaTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/HealthCheckCommandTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/HighlightCssTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/HtmlDoc.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/ImageSignatureTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/LikePatternTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/MarkdownRendererTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/MetadataStripperTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/MutableTimeProvider.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PageNumberTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PostgresContainerFixture.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PreviewCssSnapshotTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PublicDbContextTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PublicQueriesTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PublicRoleGrantsTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PublicSeed.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/PublicUrlsTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/RateLimitChainTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/RemoteIpStartupFilter.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/RenderedPostCacheTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/RenderGateTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/SessionRulesTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/SiteOptionsTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/SlugRulesTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/SteppingTimeProvider.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/TagResolverTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/TestJson.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/TextRulesTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/UrlPolicyTests.cs",
+    "PortfolioBlog.Api.Tests/Infrastructure/XmlTextTests.cs",
+    "PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj",
+    "PortfolioBlog.Api/appsettings.Development.json",
+    "PortfolioBlog.Api/appsettings.json",
+    "PortfolioBlog.Api/Contracts/AttachmentDtos.cs",
+    "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+    "PortfolioBlog.Api/Contracts/PostDtos.cs",
+    "PortfolioBlog.Api/Contracts/PreviewDtos.cs",
+    "PortfolioBlog.Api/Contracts/SeriesDtos.cs",
+    "PortfolioBlog.Api/Contracts/TagDtos.cs",
+    "PortfolioBlog.Api/Contracts/TextRules.cs",
+    "PortfolioBlog.Api/Contracts/ValidationErrors.cs",
+    "PortfolioBlog.Api/Dockerfile",
+    "PortfolioBlog.Api/Domain/AdminState.cs",
+    "PortfolioBlog.Api/Domain/Attachment.cs",
+    "PortfolioBlog.Api/Domain/Post.cs",
+    "PortfolioBlog.Api/Domain/PostTag.cs",
+    "PortfolioBlog.Api/Domain/Series.cs",
+    "PortfolioBlog.Api/Domain/Tag.cs",
+    "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+    "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+    "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+    "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+    "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+    "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+    "PortfolioBlog.Api/Features/Preview/PreviewEndpoints.cs",
+    "PortfolioBlog.Api/Features/Series/SeriesEndpoints.cs",
+    "PortfolioBlog.Api/Features/Series/SeriesValidation.cs",
+    "PortfolioBlog.Api/Features/Tags/TagEndpoints.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/AdminCredential.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/AdminOptions.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/HashPasswordCommand.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/IAdminAccessPolicy.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/IpAllowlistAdminAccessPolicy.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/ProxyOptions.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/SessionRules.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/SiteOptions.cs",
+    "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/DbClock.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/LikePattern.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920142630_InitialCreate.Designer.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/Migrations/20260920233704_AddAttachments.Designer.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/Migrations/AppDbContextModelSnapshot.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/PostQueries.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/PublicRoleGrants.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/SlugRules.cs",
+    "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/BoundedHighlighting.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/HeadingIds.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/HighlightCss.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/HighlightingCodeBlockRenderer.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/HtmlAllowlist.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/RenderingOptions.cs",
+    "PortfolioBlog.Api/Infrastructure/Markdown/UrlPolicy.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/AttachmentOptions.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/FileSystemAttachmentStore.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/ImageKind.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/ImageSignature.cs",
+    "PortfolioBlog.Api/Infrastructure/Storage/MetadataStripper.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/ClientIp.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/PublicFormat.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/RateLimitPolicy.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+    "PortfolioBlog.Api/Infrastructure/Web/XmlText.cs",
+    "PortfolioBlog.Api/Pages/_ViewImports.cshtml",
+    "PortfolioBlog.Api/Pages/_ViewStart.cshtml",
+    "PortfolioBlog.Api/Pages/Index.cshtml",
+    "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+    "PortfolioBlog.Api/Pages/PageHead.cs",
+    "PortfolioBlog.Api/Pages/PageNumber.cs",
+    "PortfolioBlog.Api/Pages/PagerModel.cs",
+    "PortfolioBlog.Api/Pages/Post.cshtml",
+    "PortfolioBlog.Api/Pages/Post.cshtml.cs",
+    "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+    "PortfolioBlog.Api/Pages/PublicPageModel.cs",
+    "PortfolioBlog.Api/Pages/Search.cshtml",
+    "PortfolioBlog.Api/Pages/Search.cshtml.cs",
+    "PortfolioBlog.Api/Pages/Series.cshtml",
+    "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+    "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+    "PortfolioBlog.Api/Pages/Shared/_Pager.cshtml",
+    "PortfolioBlog.Api/Pages/Shared/_PostList.cshtml",
+    "PortfolioBlog.Api/Pages/Shared/_TagList.cshtml",
+    "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+    "PortfolioBlog.Api/Pages/Tag.cshtml",
+    "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+    "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+    "PortfolioBlog.Api/PortfolioBlog.Api.http",
+    "PortfolioBlog.Api/Program.cs",
+    "PortfolioBlog.Api/Properties/launchSettings.json",
+    "PortfolioBlog.Api/wwwroot/css/site.css",
+    "PortfolioBlog.slnx",
+    "PortfolioBlog.Web/.e2e/env.json",
+    "PortfolioBlog.Web/.oxlintrc.json",
+    "PortfolioBlog.Web/admin-headers.ts",
+    "PortfolioBlog.Web/Dockerfile",
+    "PortfolioBlog.Web/e2e/admin.spec.ts",
+    "PortfolioBlog.Web/package-lock.json",
+    "PortfolioBlog.Web/package.json",
+    "PortfolioBlog.Web/playwright.config.ts",
+    "PortfolioBlog.Web/playwright.stack.config.ts",
+    "PortfolioBlog.Web/public/preview/highlight.css",
+    "PortfolioBlog.Web/public/preview/site.css",
+    "PortfolioBlog.Web/scripts/e2e-prepare.mjs",
+    "PortfolioBlog.Web/src/api/client.test.ts",
+    "PortfolioBlog.Web/src/api/client.ts",
+    "PortfolioBlog.Web/src/api/endpoints.ts",
+    "PortfolioBlog.Web/src/api/errors.ts",
+    "PortfolioBlog.Web/src/api/types.ts",
+    "PortfolioBlog.Web/src/App.tsx",
+    "PortfolioBlog.Web/src/app/queryClient.ts",
+    "PortfolioBlog.Web/src/app/routes.tsx",
+    "PortfolioBlog.Web/src/auth/LoginPage.tsx",
+    "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+    "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+    "PortfolioBlog.Web/src/components/Layout.tsx",
+    "PortfolioBlog.Web/src/components/MarkdownEditor.tsx",
+    "PortfolioBlog.Web/src/components/notices.tsx",
+    "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+    "PortfolioBlog.Web/src/components/RouteError.tsx",
+    "PortfolioBlog.Web/src/components/TagInput.tsx",
+    "PortfolioBlog.Web/src/index.css",
+    "PortfolioBlog.Web/src/lib/drafts.ts",
+    "PortfolioBlog.Web/src/lib/lib.test.ts",
+    "PortfolioBlog.Web/src/lib/markdownImage.ts",
+    "PortfolioBlog.Web/src/lib/previewDoc.ts",
+    "PortfolioBlog.Web/src/lib/safeNext.ts",
+    "PortfolioBlog.Web/src/lib/useDebounced.ts",
+    "PortfolioBlog.Web/src/lib/validation.ts",
+    "PortfolioBlog.Web/src/main.tsx",
+    "PortfolioBlog.Web/src/pages/AttachmentsPage.tsx",
+    "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+    "PortfolioBlog.Web/src/pages/PostsPage.tsx",
+    "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+    "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+    "PortfolioBlog.Web/src/test/attachments.test.tsx",
+    "PortfolioBlog.Web/src/test/auth.test.tsx",
+    "PortfolioBlog.Web/src/test/caddyfile.test.ts",
+    "PortfolioBlog.Web/src/test/editor.test.tsx",
+    "PortfolioBlog.Web/src/test/harness.tsx",
+    "PortfolioBlog.Web/src/test/lists.test.tsx",
+    "PortfolioBlog.Web/src/test/preview.test.tsx",
+    "PortfolioBlog.Web/src/test/routeError.test.tsx",
+    "PortfolioBlog.Web/src/test/setup.ts",
+    "PortfolioBlog.Web/src/test/source-guards.test.ts",
+    "PortfolioBlog.Web/src/test/stripComments.test.ts",
+    "PortfolioBlog.Web/src/test/stripComments.ts",
+    "PortfolioBlog.Web/src/test/tagInput.test.tsx",
+    "PortfolioBlog.Web/src/test/unexpected.ts",
+    "PortfolioBlog.Web/tsconfig.app.json",
+    "PortfolioBlog.Web/tsconfig.json",
+    "PortfolioBlog.Web/tsconfig.node.json",
+    "PortfolioBlog.Web/vite.config.ts",
+    "PortfolioBlog.Web/vitest.config.ts",
+    "README.md",
+    "scripts/auto-commit.ps1",
+    "scripts/harness-audit.ps1",
+    "scripts/hooks/guard-write-scope.ps1"
+  ],
+  "affectedFeatures": [
+    "F002",
+    "F001",
+    "F003",
+    "F004",
+    "F006",
+    "F005",
+    "F007",
+    "F008",
+    "F009",
+    "F010",
+    "F011",
+    "F012",
+    "F013",
+    "F014",
+    "F015",
+    "F016",
+    "F017",
+    "F018",
+    "F019",
+    "F020",
+    "F021",
+    "F022",
+    "F023",
+    "F024",
+    "F025",
+    "F027",
+    "F026",
+    "F028",
+    "F029"
+  ],
+  "newFeatures": [],
+  "removedFeatures": [],
+  "updatedDocuments": [
+    "00_EXECUTIVE_SUMMARY.md",
+    "01_PROJECT_OVERVIEW.md",
+    "02_ARCHITECTURE.md",
+    "03_DIRECTORY_STRUCTURE.md",
+    "04_SETUP_AND_RUN.md",
+    "05_CONFIGURATION.md",
+    "06_DEPENDENCIES.md",
+    "07_DATA_MODEL.md",
+    "08_API.md",
+    "09_FEATURES.md",
+    "10_ERROR_HANDLING.md",
+    "11_FAILURE_HISTORY.md",
+    "12_TROUBLESHOOTING.md",
+    "13_SECURITY.md",
+    "14_PERFORMANCE.md",
+    "15_TESTING.md",
+    "16_DEPLOYMENT.md",
+    "17_TECH_DEBT.md",
+    "18_GLOSSARY.md",
+    "19_UNKNOWN_AND_TODO.md",
+    "20_CHANGELOG.md",
+    "README.md",
+    "adr/ADR-001_공개_사이트는_JS_없는_서버_렌더링_관리_화면은_별도_서브도메인의_SP.md",
+    "adr/ADR-002_관리_표면의_다층_방어_Caddy_IP_게이트_앱_필터_쿠키_CSRF.md",
+    "adr/ADR-003_공개_조회_전용_DB_롤과_읽기_전용_컨텍스트.md",
+    "adr/ADR-004_단일_인스턴스_전제의_시작_시_마이그레이션.md",
+    "adr/ADR-005_렌더_HTML은_DB에_저장하지_않고_프로세스_메모리에만_캐시.md",
+    "adr/ADR-006_과부하는_500이_아니라_503_Retry_After로.md",
+    "adr/ADR-007_신뢰_프록시를_Caddy_고정_IP_하나로_제한.md",
+    "adr/ADR-008_내용_주소_첨부_저장과_DB_세션_잠금_기반_직렬화.md",
+    "adr/ADR-009_하드닝된_컨테이너와_앱_내장_헬스체크.md",
+    "adr/ADR-010_모든_응답에_보안_헤더_본문_없는_응답에는_본문을_두지_않음.md",
+    "features/F001_ADMIN_AUTH_SESSION.md",
+    "features/F002_ADMIN_POST_LIST.md",
+    "features/F003_ADMIN_POST_EDITOR.md",
+    "features/F004_MARKDOWN_PREVIEW.md",
+    "features/F005_LOCAL_DRAFT_RECOVERY.md",
+    "features/F006_POST_EDIT_CONFLICT.md",
+    "features/F007_ADMIN_SERIES_MANAGEMENT.md",
+    "features/F008_ADMIN_TAG_MANAGEMENT.md",
+    "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+    "features/F010_PUBLIC_ATTACHMENT_SERVING.md",
+    "features/F011_MARKDOWN_RENDERING_CACHE.md",
+    "features/F012_PUBLIC_HOME_LIST.md",
+    "features/F013_PUBLIC_POST_DETAIL.md",
+    "features/F014_PUBLIC_SEARCH.md",
+    "features/F015_PUBLIC_SERIES_PAGE.md",
+    "features/F016_PUBLIC_TAG_PAGE.md",
+    "features/F017_PUBLIC_SITE_FEEDS.md",
+    "features/F018_ADMIN_SURFACE_ACCESS_CONTROL.md",
+    "features/F019_RATE_LIMITING.md",
+    "features/F020_WEB_PIPELINE_PROTECTION.md",
+    "features/F021_STARTUP_BOOTSTRAP.md",
+    "features/F022_HEALTH_CHECK.md",
+    "features/F023_HASH_PASSWORD_CLI.md",
+    "features/F024_ATTACHMENT_JANITOR.md",
+    "features/F025_EDGE_PROXY_TLS.md",
+    "features/F026_COMPOSE_DEPLOYMENT.md",
+    "features/F027_BACKUP_RESTORE.md",
+    "features/F028_DEPLOY_SMOKE_TEST.md",
+    "features/F029_ADMIN_SPA_SHELL.md"
+  ],
+  "deletedDocuments": [],
+  "updatedDiagrams": [
+    "F001_SEQUENCE",
+    "F001_FLOW",
+    "F001_SEQUENCE_LOGOUT",
+    "F001_STATE",
+    "F002_SEQUENCE",
+    "F002_FLOW_DELETE",
+    "F002_DATAFLOW",
+    "F003_SEQUENCE",
+    "F003_FLOW",
+    "F003_FLOW_CREATE",
+    "F003_STATE",
+    "F003_DATAFLOW",
+    "F004_SEQUENCE",
+    "F004_FLOW",
+    "F004_FLOW_ERROR",
+    "F005_SEQUENCE",
+    "F005_FLOW",
+    "F005_DATAFLOW",
+    "F005_STATE",
+    "F006_SEQUENCE",
+    "F006_FLOW_SERVER",
+    "F006_FLOW",
+    "F006_STATE",
+    "F007_SEQUENCE",
+    "F007_FLOW",
+    "F007_FLOW_UPDATE",
+    "F007_STATE",
+    "F008_SEQUENCE",
+    "F008_FLOW",
+    "F008_ER",
+    "F009_SEQUENCE",
+    "F009_FLOW",
+    "F009_FLOW_DELETE",
+    "F009_STATE",
+    "F010_SEQUENCE",
+    "F010_FLOW",
+    "F011_SEQUENCE",
+    "F011_DATAFLOW",
+    "F011_FLOW",
+    "F012_SEQUENCE",
+    "F012_FLOW",
+    "F013_SEQUENCE",
+    "F013_FLOW",
+    "F014_SEQUENCE",
+    "F014_FLOW",
+    "F014_FLOW_ERROR",
+    "F015_SEQUENCE",
+    "F015_FLOW",
+    "F016_SEQUENCE",
+    "F016_FLOW",
+    "F017_SEQUENCE",
+    "F017_FLOW",
+    "F017_DATAFLOW",
+    "F018_SEQUENCE",
+    "F018_FLOW",
+    "F018_DATAFLOW",
+    "F019_SEQUENCE",
+    "F019_FLOW",
+    "F019_CLASS",
+    "F019_STATE",
+    "F020_SEQUENCE",
+    "F020_FLOW",
+    "F020_FLOW_BODYLIMIT",
+    "F021_SEQUENCE",
+    "F021_FLOW",
+    "F021_DATAFLOW",
+    "F022_SEQUENCE",
+    "F022_FLOW",
+    "F022_STATE",
+    "F023_SEQUENCE",
+    "F023_FLOW",
+    "F023_DATAFLOW",
+    "F024_SEQUENCE",
+    "F024_FLOW",
+    "F025_FLOW",
+    "F025_SEQUENCE",
+    "F025_ARCHITECTURE",
+    "F026_ARCHITECTURE",
+    "F026_SEQUENCE",
+    "F026_FLOW",
+    "F026_DATAFLOW",
+    "F027_SEQUENCE",
+    "F027_FLOW",
+    "F027_DATAFLOW",
+    "F028_SEQUENCE",
+    "F028_FLOW",
+    "F028_FLOW_CLEANUP",
+    "F028_ARCHITECTURE",
+    "F028_STATE",
+    "F029_SEQUENCE",
+    "F029_FLOW_ERROR",
+    "F029_FLOW",
+    "F029_STATE",
+    "DATA_ER",
+    "EXEC_DATAFLOW",
+    "ARCH_SYSTEM",
+    "ARCH_DEPLOY_NETWORK",
+    "ARCH_API_PIPELINE",
+    "ERR_FLOW",
+    "SECURITY_TRUST_BOUNDARY",
+    "DEPLOY_TOPOLOGY"
+  ],
+  "unchangedDiagrams": [],
+  "failuresDiscovered": [
+    "FAIL001",
+    "FAIL002",
+    "FAIL003",
+    "FAIL004",
+    "FAIL005",
+    "FAIL006",
+    "FAIL007",
+    "FAIL008",
+    "FAIL009",
+    "FAIL010",
+    "FAIL011",
+    "FAIL012"
+  ],
+  "manualEditsOverridden": [],
+  "verification": {
+    "score": {
+      "coverage": 92,
+      "accuracy": 96
+    },
+    "hallucinations": [
+      {
+        "document": "06_DEPENDENCIES.md",
+        "section": "packages",
+        "type": "DEPENDENCY_NOT_REFERENCED",
+        "description": "백엔드(PortfolioBlog.Api) 패키지 표에 Microsoft.EntityFrameworkCore.Relational 10.0.12가 들어 있지만, PortfolioBlog.Api.csproj에는 이 PackageReference가 없다. 이 버전은 Directory.Packages.props에서 PackageVersion(전이 고정용)으로만 선언돼 있다. csproj가 직접 참조하는 패키지는 Markdig, ColorCode.HTML, HtmlSanitizer, Microsoft.AspNetCore.OpenApi, Microsoft.EntityFrameworkCore.Design, Npgsql.EntityFrameworkCore.PostgreSQL 여섯 개다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+            "lines": "21-31"
+          },
+          {
+            "file": "Directory.Packages.props",
+            "lines": "14"
+          }
+        ]
+      },
+      {
+        "document": "06_DEPENDENCIES.md",
+        "section": "packages",
+        "type": "WRONG_PACKAGE_NAME_OR_VERSION",
+        "description": "프런트 표에 'playwright 1.63.0'이라고 적었지만 package.json의 실제 패키지는 '@playwright/test' 1.63.0이다. 또 'codemirror (+ @codemirror/lang-markdown·state·view) 6.0.2 계열'이라고 했지만 6.0.2는 codemirror 하나의 버전이다. @codemirror/lang-markdown은 6.5.2, @codemirror/state는 6.7.5, @codemirror/view는 6.43.12다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/package.json",
+            "lines": "18-22,28"
+          }
+        ]
+      },
+      {
+        "document": "18_GLOSSARY.md",
+        "section": "terms",
+        "type": "WRONG_PATH",
+        "description": "RequireAuth의 코드 경로를 `PortfolioBlog.Web/src/routes.tsx`로 적었으나 그 파일은 없다. RequireAuth는 `PortfolioBlog.Web/src/auth/RequireAuth.tsx`에 있고 라우트 정의는 `PortfolioBlog.Web/src/app/routes.tsx`다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/app/routes.tsx"
+          }
+        ]
+      },
+      {
+        "document": "18_GLOSSARY.md",
+        "section": "terms",
+        "type": "WRONG_PATH",
+        "description": "ApiError의 위치를 `PortfolioBlog.Web/src/api/client.ts`로 적었으나 `export class ApiError`는 `PortfolioBlog.Web/src/api/errors.ts` 8행에 정의되어 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/api/errors.ts",
+            "symbol": "ApiError",
+            "lines": "8"
+          }
+        ]
+      }
+    ],
+    "missingItems": [
+      {
+        "document": "03_DIRECTORY_STRUCTURE.md",
+        "section": "tree",
+        "type": "MISSING_FILE_IN_TREE",
+        "description": "파일 트리의 deploy/에 실제로 있는 deploy/.env.example이 빠져 있다. 운영 환경변수 키 13개를 정의하는 파일이다. 05_CONFIGURATION caveats도 이 누락을 지적한다. PortfolioBlog.Api.Tests/Fixtures/Images/(exif-gps.jpg 등 테스트 이미지와 make-fixtures.py)와 루트 .gitignore도 트리에 없다. 테스트 csproj가 Fixtures/**를 출력에 복사하므로 테스트 실행에 필요한 자료다.",
+        "evidence": [
+          {
+            "file": "deploy/.env.example"
+          },
+          {
+            "file": "PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj",
+            "lines": "27-29"
+          },
+          {
+            "file": "PortfolioBlog.Api.Tests/Fixtures/Images/make-fixtures.py"
+          }
+        ]
+      },
+      {
+        "document": "00_EXECUTIVE_SUMMARY.md",
+        "section": "unknowns",
+        "type": "RESOLVABLE_UNKNOWN",
+        "description": "ApiBodyLimitMiddleware의 한도 값을 '확인하지 않음'으로 남겼지만 코드에 상수로 있다: JsonLimitBytes = 262_144(256KB). /api 요청 중 매칭된 엔드포인트가 있고 자체 상한이 없을 때만 적용되며, 초과하면 413이다. 02_ARCHITECTURE unknowns도 같은 항목을 UNKNOWN으로 두었다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "symbol": "ApiBodyLimitMiddleware.JsonLimitBytes",
+            "lines": "21-53"
+          }
+        ]
+      },
+      {
+        "document": "00_EXECUTIVE_SUMMARY.md",
+        "section": "unknowns",
+        "type": "RESOLVABLE_UNKNOWN",
+        "description": "'글 저장 엔드포인트의 세부 호출 순서는 재확인하지 않음'이라고 남겼지만 코드로 확인된다. PostEndpoints.UpdateAsync의 순서는 다음과 같다. 1) Include(PostTags)로 조회(없으면 404) 2) PostValidation과 시리즈 검증(400) 3) 렌더 전에 version 비교(불일치 409) 4) RenderGate.RenderAsync(MarkdownTooComplexException이면 400) 5) 트랜잭션 안에서 TagResolver와 SaveChangesAsync(DbUpdateConcurrencyException이면 409) 6) Commit 7) PostQueries.GetDetailAsync로 재조회 8) CanCacheRenderedResult가 참일 때만 RenderedPostCache.Store.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "187-245"
+          }
+        ]
+      },
+      {
+        "document": "04_SETUP_AND_RUN.md",
+        "section": "caveats",
+        "type": "RESOLVABLE_UNKNOWN",
+        "description": "'dotnet run 실제 포트'를 UNKNOWN으로 두었지만 launchSettings.json에 있다. http 프로필은 http://localhost:5055, https 프로필은 https://localhost:7198;http://localhost:5055다(둘 다 ASPNETCORE_ENVIRONMENT=Development). 개발 DB 연결은 appsettings.Development.json의 ConnectionStrings:Default(localhost:5432, blog_dev)이고, vite 개발 서버의 기본 BLOG_API_ORIGIN도 https://localhost:7198이다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Properties/launchSettings.json",
+            "lines": "4-21"
+          },
+          {
+            "file": "PortfolioBlog.Api/appsettings.Development.json",
+            "lines": "3"
+          },
+          {
+            "file": "PortfolioBlog.Web/vite.config.ts",
+            "lines": "8"
+          }
+        ]
+      },
+      {
+        "document": "05_CONFIGURATION.md",
+        "section": "caveats",
+        "type": "RESOLVABLE_UNKNOWN",
+        "description": "Admin:AllowedCidrs의 구분자 규칙을 UNKNOWN으로 두었지만 CidrList.Parse는 Split((char[]?)null, RemoveEmptyEntries)로 공백 문자 기준으로 나눈다. deploy/.env.example의 주석도 '공백으로 구분'이라고 적는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+            "symbol": "CidrList.Parse",
+            "lines": "52"
+          },
+          {
+            "file": "deploy/.env.example",
+            "lines": "11-12"
+          }
+        ]
+      },
+      {
+        "document": "08_API.md",
+        "section": "table",
+        "type": "MISSING_HTTP_METHOD",
+        "description": "SiteEndpoints는 /css/highlight.css, /feed.xml, /sitemap.xml, /robots.txt를 MapMethods(GetAndHead)로 GET과 HEAD 둘 다 등록한다. 공개 Razor 페이지도 PublicPageConvention이 HttpMethodMetadata([\"GET\",\"HEAD\"])를 붙인다. 그런데 표에는 GET 행만 있다. HEAD를 별도 행으로 적은 곳은 /attachments/{id}/{fileName}뿐이다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+            "lines": "45,66-81"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "32-41"
+          }
+        ]
+      },
+      {
+        "document": "08_API.md",
+        "section": "table",
+        "type": "MISSING_FAILURE_PATH",
+        "description": "ApiBodyLimitMiddleware는 RequestSizeLimit 메타데이터가 없는 /api 엔드포인트의 본문을 JsonLimitBytes(262144바이트)로 제한한다. Content-Length가 이를 넘으면 413을 돌려주고, chunked 본문은 LengthLimitedStream이 BadHttpRequestException(413)을 던진다. 그런데 POST/PUT /api/posts, POST /api/preview, POST /api/auth/login, POST/PUT /api/series의 오류 열에는 413이 없다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+            "lines": "21,36-55"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "108"
+          }
+        ]
+      },
+      {
+        "document": "08_API.md",
+        "section": "table",
+        "type": "MISSING_RATE_LIMIT",
+        "description": "공개 Razor 페이지(/, /posts/{slug}, /series/{slug}, /tags/{tag})에는 PublicPageConvention이 RateLimitMetadata(RateLimitPolicy.PublicPage)를 붙이고, /search에는 RateLimitPolicy.Search를 붙인다. 그런데 표의 인증 열은 '없음(공개 호스트 제한)'으로만 적혀 있어 속도 제한(429) 경로가 빠져 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "34-39"
+          }
+        ]
+      },
+      {
+        "document": "08_API.md",
+        "section": "unknowns",
+        "type": "RESOLVABLE_UNKNOWN",
+        "description": "'확인하지 못한 것'에 남은 두 항목은 코드로 확인된다. (1) 속도 제한을 넘으면 RejectionStatusCode=429다. (2) 세션 없는 /api 요청은 쿠키 인증 이벤트 OnRedirectToLogin이 401로, OnRedirectToAccessDenied가 403으로 바꾼다. login·logout 행의 '상태 코드 확인하지 않음'·'401 예상'도 CONFIRMED로 올릴 수 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+            "lines": "47"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+            "symbol": "AddAdminAuth",
+            "lines": "68-69"
+          }
+        ]
+      },
+      {
+        "document": "07_DATA_MODEL.md",
+        "section": "migrations",
+        "type": "MISSING_FAILURE_PATH",
+        "description": "PublicDbContext.BuildConnectionString은 바탕 연결 문자열에 이미 Options가 있으면 InvalidOperationException을 던진다. 운영자가 넣은 시작 옵션과 합칠 수 없어서다. 그런데 PublicDbContext 연결 행에는 '둘 다 비면 예외'만 있고 이 실패 경로가 없다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+            "symbol": "PublicDbContext.BuildConnectionString",
+            "lines": "46-55"
+          }
+        ]
+      },
+      {
+        "document": "features/F002_ADMIN_POST_LIST.md",
+        "section": "unknowns",
+        "type": "MISSING_CODE_FACT",
+        "description": "문서는 관리 연결(ConnectionStrings:Default)에 statement_timeout 같은 연결 옵션이 있는지를 '설정 값을 보지 않는 규칙 때문에' 확인하지 못했다고 적는다. 그런데 이 부분은 코드로 확인할 수 있다. StartupValidation.CheckConnectionString은 ConnectionStrings:Default에 Npgsql Options가 들어 있으면 기동 시 예외를 던진다. PublicDbContext.BuildConnectionString도 같은 이유로 Options를 거부한다. 따라서 연결 문자열의 Options(-c statement_timeout=…)로 관리 연결에 시간 제한을 걸 수는 없다. 또 Command Timeout을 설정했다면 그 값(초)×1000이 Public:StatementTimeoutMs보다 커야 한다. 남는 미확인 영역은 DB/롤 수준 설정(ALTER ROLE … SET statement_timeout 등)뿐이다. 이 사실이 문서의 외부 의존·엣지 케이스·unknowns에서 빠져 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.CheckConnectionString",
+            "lines": "85-91,151-169"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+            "symbol": "PublicDbContext.BuildConnectionString",
+            "lines": "46-61"
+          }
+        ]
+      },
+      {
+        "document": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+        "section": "F005_STATE",
+        "type": "MISSING_STATE_TRANSITION",
+        "description": "임시본 상태도(F005_STATE)와 데이터 절의 상태 전이 표에 DraftFailed → NoDraft 전이가 없다. 코드에서는 자동 저장 effect가 settled와 기준선이 같다고 판단하면 clearDraft(draftKey)를 부르고 setDraftFailed(false)를 호출한다. 그래서 저장 실패 표시 상태에서 입력을 기준선으로 되돌리면 저장 실패 표시가 풀리고 임시본도 사라진다. 문서에는 DraftFailed에서 빠져나가는 경로로 '다음 saveDraft 성공 → Stored'만 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor 자동 저장 useEffect",
+            "lines": "105-113"
+          }
+        ]
+      },
+      {
+        "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+        "section": "data",
+        "type": "MISSING_CLIENT_CONSUMER",
+        "description": "GET /api/tags를 쓰는 곳은 TagsPage만이 아니다. PostEditorPage도 같은 쿼리 키 ['tags','list']로 tagsApi.list를 불러 태그 목록을 읽는다(96행). 또 글 저장이 성공하면(onSuccess) ['tags']를 무효화한다(167행). 그러니 TagsPage에서 태그를 삭제한 뒤의 ['tags'] 무효화는 편집기 쪽 목록도 갱신하고, 반대로 글을 저장하면 태그 화면의 목록과 글 수가 다시 조회된다. F007 문서는 시리즈에 대한 같은 구조(['series','list'] 공유, 저장 후 무효화)를 적어 두었지만, F008 문서의 데이터 흐름·엣지 케이스·관련 코드 표에는 이 내용이 없다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "96,167",
+            "symbol": "tagList / save.onSuccess"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+            "lines": "9-10",
+            "symbol": "TagsPage"
+          }
+        ]
+      },
+      {
+        "document": "features/F026_COMPOSE_DEPLOYMENT.md",
+        "section": "flow",
+        "type": "MISSING_VALIDATION_RULE",
+        "description": "(경미한 누락) 8단계는 환경과 무관하게 항상 돌리는 검사(48-114행)의 대상을 나열한다. 그런데 실제 코드에 있는 세 가지가 빠졌다. (1) Site:Title이 비어 있으면 거부하는 검사(50행). (2) Rendering:Concurrency·QueueTimeoutMs·CacheMegabytes 범위 검사(103-107행). (3) ConnectionStrings:Public 롤 이름 형식 검사(PublicRoleGrants.RoleOf, 96행). 목록이 전부인 것처럼 읽힌다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.Validate",
+            "lines": "50,96,103-107"
+          }
+        ]
+      },
+      {
+        "document": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "flow",
+        "type": "MISSING_ASSERTION",
+        "description": "(경미한 누락) 7단계는 관리 SPA 헤더 검사를 'admin-headers.ts 값+HSTS'라고만 적었다. 실제 스모크는 Cross-Origin-Opener-Policy: same-origin과 Cache-Control: no-cache도 함께 단언한다.",
+        "evidence": [
+          {
+            "file": "deploy/smoke/smoke.test.mjs",
+            "lines": "145-156"
+          }
+        ]
+      },
+      {
+        "document": "14_PERFORMANCE.md",
+        "section": "details",
+        "type": "MISSING_PERF_PATH",
+        "description": "PERF001과 한 줄 요약은 ILIKE 앞뒤 와일드카드 스캔을 공개 검색(PublicQueries.SearchAsync)에만 있는 '유일한' 문제로 적었다. 그러나 관리 글 목록 PostEndpoints의 검색도 Title·Summary·ContentMarkdown에 같은 EF.Functions.ILike OR 조건을 건다. 관리 연결에는 statement_timeout도 없다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "lines": "79-81"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "symbol": "SearchAsync",
+            "lines": "90-92"
+          }
+        ]
+      },
+      {
+        "document": "10_ERROR_HANDLING.md",
+        "section": "key-points",
+        "type": "INCOMPLETE",
+        "description": "ErrorResponses가 ProblemDetails를 쓰는 경로를 '/api'만으로 적었다. 실제 MachinePrefixes는 /api, /attachments, /health, /openapi 네 개이고 나머지 경로만 고정 HTML을 받는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "symbol": "MachinePrefixes",
+            "lines": "17"
+          }
+        ]
+      }
+    ],
+    "incorrectRelations": [
+      {
+        "document": "02_ARCHITECTURE.md",
+        "section": "ARCH_DEPLOY_NETWORK",
+        "type": "INCORRECT_CONFIG_SCOPE",
+        "description": "'모든 서비스는 x-hardening(no-new-privileges, cap_drop ALL, restart unless-stopped, json-file 로그 10m×5)을 공유한다'는 틀렸다. x-hardening 앵커(<<: *hardening)는 caddy·api·postgres만 병합한다. tools 서비스는 앵커를 쓰지 않고 security_opt no-new-privileges와 cap_drop ALL만 따로 선언하며, restart·logging 설정은 없다.",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "3-13,17,51,89,113-125"
+          }
+        ]
+      },
+      {
+        "document": "02_ARCHITECTURE.md",
+        "section": "runtime",
+        "type": "WRONG_EVIDENCE_LOCATION",
+        "description": "런타임 표에서 api 컨테이너의 'read_only, /tmp 64m tmpfs' 근거를 PortfolioBlog.Api/Dockerfile 23-33으로 달았지만, 이 두 설정은 docker-compose.yml의 services.api(55-59행)에 있다. caddy 컨테이너의 'admin API off' 근거도 docker-compose.yml 16-48로 달았지만 실제 위치는 deploy/Caddyfile 5행의 전역 옵션 admin off다.",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "55-59"
+          },
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "3-5"
+          },
+          {
+            "file": "PortfolioBlog.Api/Dockerfile",
+            "lines": "23-33"
+          }
+        ]
+      },
+      {
+        "document": "03_DIRECTORY_STRUCTURE.md",
+        "section": "roles",
+        "type": "WRONG_ROLE",
+        "description": "scripts/hooks/guard-write-scope.ps1를 'Git 훅 스크립트'라고 했지만 Git 훅이 아니다. Claude Code의 PreToolUse 훅으로, .claude/settings.json의 Write|Edit matcher에서 호출되며 서브에이전트의 쓰기 경로를 제한한다.",
+        "evidence": [
+          {
+            "file": "scripts/hooks/guard-write-scope.ps1",
+            "lines": "1-15"
+          },
+          {
+            "file": ".claude/settings.json",
+            "lines": "15-19"
+          }
+        ]
+      },
+      {
+        "document": "adr/ADR-001_공개_사이트는_JS_없는_서버_렌더링_관리_화면은_별도_서브도메인의_SP.md",
+        "section": "summary",
+        "type": "INCOMPLETE_ROUTING",
+        "description": "관리 도메인에서 Caddy가 '/api만 백엔드로 보낸다'고 했지만 Caddyfile의 @backend 매처는 path /api/* /attachments/* 두 개다. 첨부 공개 경로도 관리 도메인에서 api로 프록시된다.",
+        "evidence": [
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "90-99"
+          }
+        ]
+      },
+      {
+        "document": "adr/ADR-010_모든_응답에_보안_헤더_본문_없는_응답에는_본문을_두지_않음.md",
+        "section": "summary",
+        "type": "OVERGENERALIZATION",
+        "description": "'Caddy가 직접 만드는 응답(handle_errors 포함)에도 같은 헤더를 붙이고 Server·Via를 지운다'는 과잉 일반화다. 관리 도메인의 IP 거부 respond @denied 404는 정적 SPA header 블록보다 앞에서 끝나서 -Server/-Via 외의 보안 헤더가 붙지 않는다. :80/:443 폴백 404와 http:// 리다이렉트도 -Server만 적용된다. 02_ARCHITECTURE decisions는 이 예외를 정확히 적고 있어 두 문서가 서로 맞지 않는다.",
+        "evidence": [
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "81-88,163-195"
+          }
+        ]
+      },
+      {
+        "document": "08_API.md",
+        "section": "details",
+        "type": "INCORRECT_DATA_ACCESS",
+        "description": "GET /sitemap.xml 상세에 'DB 변경: Posts 읽기'라고 되어 있다. 실제로 SitemapAsync는 PublicQueries.SitemapAsync로 글·태그·시리즈 세 종류를 순차 조회한다(PublicSitemap의 Posts·TagKeys·SeriesSlugs). 그 뒤 태그 URL과 시리즈 URL도 함께 직렬화한다. 따라서 Posts, Tags, Series를 읽는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "symbol": "SiteEndpoints.SitemapAsync",
+            "lines": "156-181"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+            "symbol": "PublicSitemap",
+            "lines": "78"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "section": "dependencies",
+        "type": "DEPENDENCY_MISMATCH",
+        "description": "기능 간 의존 표의 F002 행은 'F001, F029'뿐이다. 그러나 F002 문서의 의존 기능은 F001·F018·F020·F029다. 코드도 F002 문서 쪽을 뒷받침한다. 모든 /api 요청은 Program.cs 104행의 AdminSurfaceMiddleware(F018)와 100행 UseExceptionHandler + 43행 OverloadExceptionHandler(F020)를 거치고, ApiEndpoints가 RequireHost를 건다. 따라서 표에서 F018·F020이 빠져 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "symbol": "UseExceptionHandler / UseMiddleware<AdminSurfaceMiddleware>",
+            "lines": "43,100,104,108"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+            "symbol": "ApiEndpoints.MapApiEndpoints",
+            "lines": "39"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "section": "dependencies",
+        "type": "DEPENDENCY_MISMATCH",
+        "description": "F003 행은 'F001, F004, F005, F006, F009, F011, F029'다. 그러나 F003 문서는 F007·F008·F018·F020을 포함한 11개를 의존으로 적는다. 코드에서도 Editor가 seriesApi.list(GET /api/series, F007)와 tagsApi.list(GET /api/tags, F008)를 호출한다. 또 모든 /api 요청은 AdminSurfaceMiddleware(F018)와 OverloadExceptionHandler·ApiBodyLimitMiddleware(F020)를 거친다. 표에서 F007·F008·F018·F020이 빠져 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor (seriesList / tagList)",
+            "lines": "95-96"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "43,100,104,108"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "section": "dependencies",
+        "type": "DEPENDENCY_MISMATCH",
+        "description": "F001 행은 'F018, F019, F029'다. 그러나 F001 문서의 의존 기능은 F018·F019·F020·F021·F029다. 근거는 두 가지다. (1) 401 본문을 쓰는 UseStatusCodePages(ErrorResponses)와 DB 예외를 503으로 바꾸는 OverloadExceptionHandler가 F020 소관이다. (2) StartupValidation의 PasswordHash·DataProtection:KeysPath·SessionHours 검증이 F021 소관이다. 두 문서가 서로 맞지 않는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "symbol": "UseExceptionHandler / UseStatusCodePages / StartupValidation.Validate",
+            "lines": "76,100-101"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.Validate",
+            "lines": "58-64,116-134"
+          }
+        ]
+      },
+      {
+        "document": "features/F012_PUBLIC_HOME_LIST.md",
+        "section": "summary",
+        "type": "OVERGENERALIZED_METADATA",
+        "description": "요약은 PublicPageConvention이 '모든 Razor 페이지 엔드포인트'에 GET/HEAD·공개 호스트·RateLimitPolicy.PublicPage 세 메타데이터를 건다고 쓴다. 실제 코드는 ViewEnginePath가 \"/Search\"인 페이지에만 RateLimitPolicy.Search를 걸고, 나머지 페이지에는 PublicPage를 건다. Index(/)가 PublicPage를 받는다는 결론은 맞지만, '모든 페이지 = PublicPage'라는 일반화는 틀렸다. 같은 문서의 flow 2단계와 F013 진입점 근거는 이 구분을 정확히 적고 있다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "32-41"
+          }
+        ]
+      },
+      {
+        "document": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_FLOW",
+        "type": "INCORRECT_EXCEPTION_SOURCE",
+        "description": "설명문과 플로차트는 UriFormatException을 SendAsync에서 나는 예외로 묶는다('SendAsync에서 난 HttpRequestException(연결 거부), TaskCanceledException(3초 타임아웃), UriFormatException은 catch 필터가 잡아'). 코드에서 try 블록 안에 UriFormatException이 날 수 있는 곳은 요청 URI를 만드는 `new HttpRequestMessage(HttpMethod.Get, $\"http://127.0.0.1:{port}/health\")`(51행)뿐이다. origin 해석은 예외를 던지지 않는 Uri.TryCreate(42행)를 쓰고, 전송은 53행 http.SendAsync다. 세 예외 모두 58행의 같은 catch 필터로 모이는 것은 맞다. 다만 UriFormatException의 발생 지점은 SendAsync가 아니라 그보다 앞의 요청 생성 단계다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+            "symbol": "HealthCheckCommand.RunAsync",
+            "lines": "42-62"
+          }
+        ]
+      },
+      {
+        "document": "features/F029_ADMIN_SPA_SHELL.md",
+        "section": "F029_FLOW_ERROR",
+        "type": "OVERGENERALIZED_RELATION",
+        "description": "설명문은 '모든 ApiError는 QueryCache/MutationCache onError의 noteAuthFailure를 거친다'고 쓴다. 코드는 다르다. useQuery·useMutation을 거치지 않고 request를 직접 await하는 호출이 있다. PreviewPane.tsx:53, PostEditorPage.tsx:224·261, SeriesPage.tsx:33이 그렇다. 이 호출들의 ApiError는 캐시 onError에 닿지 않고, 각 catch 블록이 noteAuthFailure(client, cause)를 직접 부른다. 문서의 failures 표는 이 점을 맞게 설명하므로, 다이어그램 설명만 이 표와 어긋난다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+            "symbol": "createQueryClient",
+            "lines": "15-27"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+            "lines": "53"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "224,261"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+            "lines": "33"
+          }
+        ]
+      },
+      {
+        "document": "10_ERROR_HANDLING.md",
+        "section": "ERR_FLOW",
+        "type": "WRONG_RESPONSE_PATH",
+        "description": "요약 문장은 '앞단 미들웨어와 엔드포인트가 만든 4xx는 ErrorResponses가 본문을 채운다'고 한다. 코드에서는 두 경로가 ErrorResponses를 거치지 않는다. AdminSurfaceMiddleware.Reject는 Results.Problem(...).ExecuteAsync로 ProblemDetails 본문을 직접 쓴다. DbConflict.Problem은 TypedResults.Problem(409)으로 본문이 있는 결과를 돌려주므로 UseStatusCodePages(본문이 빈 응답에만 동작)도 타지 않는다. ErrorResponses로 가는 것은 ApiBodyLimitMiddleware(직접 호출), OverloadExceptionHandler(직접 호출), 본문 없는 429·404 같은 StatusCodePages 경로다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "symbol": "AdminSurfaceMiddleware.Reject",
+            "lines": "112-113"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "symbol": "DbConflict.Problem",
+            "lines": "50-51"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "lines": "47-51"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "lines": "35-42"
+          }
+        ]
+      }
+    ],
+    "diagramIssues": [
+      {
+        "document": "00_EXECUTIVE_SUMMARY.md",
+        "diagram": "EXEC_DATAFLOW",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "section": "EXEC_DATAFLOW",
+        "description": "간선 'MarkdownRenderer --> AppDbContext'와 'AppDbContext --> RenderedPostCache'는 코드와 다르다. 저장 흐름을 조율하는 것은 PostEndpoints.CreateAsync/UpdateAsync이고, 이 노드가 다이어그램에 없다. 실제 흐름은 PostEndpoints가 RenderGate.RenderAsync(내부에서 MarkdownRenderer.RenderDetailed)로 HTML을 얻고, AppDbContext.SaveChangesAsync로 마크다운 원문만 저장한 뒤, PostQueries.GetDetailAsync로 재조회한 version을 키로 RenderedPostCache.Store를 직접 호출하는 것이다. 렌더된 HTML은 DB로 가지 않는다(ADR-005). AppDbContext가 캐시를 채우지도 않는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "206-244"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+            "symbol": "RenderGate.RenderAsync",
+            "lines": "86-98"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "symbol": "RenderedPostCache.Store",
+            "lines": "115-121"
+          }
+        ]
+      },
+      {
+        "document": "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+        "diagram": "F009_FLOW",
+        "section": "F009_FLOW",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "`ReSave -->|413 또는 415| Reject415` 간선은 재저장 경로의 413 결과까지 415 노드로 보낸다. 실제 코드에서는 잠금 안에서 재저장할 때도 TrySaveAsync를 거친다. 그래서 AttachmentTooLargeException은 TooLarge()(413)로, UnsupportedImageException은 415로 갈린다. 413 경로는 Reject413 노드로 이어져야 한다. 본문 설명은 '한 간선으로 묶었다'고 하지만, 다이어그램만 보면 413이 415 응답이 되는 것처럼 읽힌다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "lines": "123-131,144-152",
+            "symbol": "AttachmentEndpoints.UploadAsync.TrySaveAsync"
+          }
+        ]
+      },
+      {
+        "document": "features/F019_RATE_LIMITING.md",
+        "diagram": "F019_SEQUENCE",
+        "section": "F019_SEQUENCE",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "다이어그램의 `UseRateLimiter->>ErrorResponses: 상태 429 본문 없음 HandleStatusCodeAsync` 간선이 코드와 다르다. RateLimiter 미들웨어는 RejectionStatusCode=429를 설정하고 OnRejected(Retry-After 헤더만 설정)를 실행한 뒤 반환한다. ErrorResponses.HandleStatusCodeAsync는 파이프라인이 되돌아올 때 바깥의 StatusCodePagesMiddleware(Program.cs 101행 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync))가 호출한다. 문서 본문도 '본문은 UseStatusCodePages(101행)에 연결된 ErrorResponses.HandleStatusCodeAsync가 쓴다'고 적고 있어 다이어그램이 본문과도 어긋난다. StatusCodePagesMiddleware participant를 추가하고 그 participant가 ErrorResponses를 호출하도록 고쳐야 한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "101",
+            "symbol": "app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+            "lines": "47-52",
+            "symbol": "AddAppRateLimiting.OnRejected"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "lines": "30-31",
+            "symbol": "ErrorResponses.HandleStatusCodeAsync"
+          }
+        ]
+      },
+      {
+        "document": "features/F020_WEB_PIPELINE_PROTECTION.md",
+        "diagram": "F020_SEQUENCE",
+        "section": "F020_SEQUENCE",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "`AdminSurfaceMiddleware-->>StatusCodePagesMiddleware: 인가 단계에서 401 빈 본문` 간선은 401 응답이 AdminSurfaceMiddleware에서 나오는 것으로 그린다. AdminSurfaceMiddleware.InvokeAsync는 404와 403만 만들고 401을 만들지 않는다. 401은 UseAuthorization(Program.cs 107행)에서 인증 챌린지가 일어날 때 쿠키 인증의 OnRedirectToLogin 이벤트가 StatusCode=401로 설정한 것이다. 이 간선은 경유 단계를 묶어 그린 것이 아니라 응답이 어디서 생기는지를 틀리게 표시한다. UseAuthorization(또는 AuthorizationMiddleware) participant를 따로 두고 401 간선을 그 participant에서 내보내야 한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "lines": "67-96",
+            "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+            "lines": "68",
+            "symbol": "OnRedirectToLogin"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "104-108"
+          }
+        ]
+      },
+      {
+        "document": "features/F022_HEALTH_CHECK.md",
+        "diagram": "F022_FLOW",
+        "section": "F022_FLOW",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "간선 'SendAsync -- HttpRequestException / TaskCanceledException / UriFormatException --> CatchFilter'는 UriFormatException이 HttpClient.SendAsync에서 나는 것처럼 그린다. 실제로 UriFormatException이 날 수 있는 곳은 ResolvePort 뒤 요청을 만드는 단계, 즉 new HttpRequestMessage(..., \"http://127.0.0.1:{port}/health\")(51행)다. SendAsync 호출은 53행이다. 요청 생성 단계에서 CatchFilter로 가는 간선을 따로 두거나, 이 간선에서 UriFormatException을 빼야 한다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+            "symbol": "HealthCheckCommand.RunAsync",
+            "lines": "50-58"
+          }
+        ]
+      },
+      {
+        "document": "10_ERROR_HANDLING.md",
+        "diagram": "ERR_FLOW",
+        "section": "ERR_FLOW",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "간선 `AdminSurfaceMiddleware --> ErrorResponses`가 틀렸다. AdminSurfaceMiddleware는 Results.Problem으로 거부 응답(404/403 ProblemDetails)을 직접 쓰고 ErrorResponses를 호출하지 않는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "symbol": "Reject",
+            "lines": "112-113"
+          }
+        ]
+      },
+      {
+        "document": "10_ERROR_HANDLING.md",
+        "diagram": "ERR_FLOW",
+        "section": "ERR_FLOW",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "간선 `DbConflict -->|409| ErrorResponses`가 틀렸다. DbConflict.Problem은 본문이 있는 TypedResults.Problem(409, title '충돌')을 반환한다. 엔드포인트 결과가 그대로 응답 본문이 되므로 UseStatusCodePages/ErrorResponses를 거치지 않는다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "symbol": "Problem",
+            "lines": "50-51"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "101"
+          }
+        ]
+      }
+    ],
+    "unsupportedClaims": [
+      {
+        "document": "features/F022_HEALTH_CHECK.md",
+        "section": "failures",
+        "type": "STATUS_OVERSTATED",
+        "description": "'Program.cs 기동 부트스트랩' 실패 행은 상태가 CONFIRMED다. 그런데 이 행에는 저장소 코드로 확인할 수 없는 Docker·Compose 엔진 동작이 섞여 있다. 예를 들면 start_period 이후 3회 연속 실패로 starting에서 unhealthy가 되는 전이, caddy가 기동하지 않는 동작, 'restart: unless-stopped가 컨테이너를 다시 띄운다'는 주장이다. 같은 문서의 F022_STATE와 상태 전이 표는 이 내용을 INFERRED로 적고 있어 서로 맞지 않는다. 코드와 설정으로 확인되는 것은 설정 값(interval·retries·start_period·restart·depends_on)과 OPERATIONS.md 153행의 증상 안내뿐이다.",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "3-4, 46-48, 77-83"
+          },
+          {
+            "file": "deploy/OPERATIONS.md",
+            "lines": "153"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "75-91, 126"
+          }
+        ]
+      },
+      {
+        "document": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "failures",
+        "type": "CONFLICTING_SOURCES",
+        "description": "로깅 표의 CONFIRMED 행은 'Caddy 액세스 로그에는 remote_ip·상태 코드·경로만 있고 비밀값은 없다'고 적었다. 근거는 run.sh와 ci.yml의 주석뿐이다. 같은 저장소의 deploy/OPERATIONS.md:146은 이와 다르게 말한다. 액세스 로그가 Cookie·Set-Cookie·Authorization 값을 REDACTED로 남기며, 이것이 실측이라고 적었다. 값을 REDACTED로 남긴다는 것은 요청 헤더가 기록된다는 뜻이다. 따라서 '경로만'이라는 부분은 입증되지 않았고, 저장소 문서끼리 충돌한다. '비밀값이 없다'는 부분은 두 출처가 일치한다.",
+        "evidence": [
+          {
+            "file": "deploy/smoke/run.sh",
+            "symbol": "cleanup",
+            "lines": "49-50"
+          },
+          {
+            "file": ".github/workflows/ci.yml",
+            "lines": "123"
+          },
+          {
+            "file": "deploy/OPERATIONS.md",
+            "lines": "146"
+          }
+        ]
+      },
+      {
+        "document": "features/F026_COMPOSE_DEPLOYMENT.md",
+        "section": "data",
+        "type": "STATUS_INCONSISTENT",
+        "description": "(경미) 데이터 흐름 표의 'api 이미지 안의 소유권' 행은 CONFIRMED로 표시돼 있다. 그런데 /app이 root 소유라는 부분은 Docker COPY 기본 동작에서 나온 추론이라고 본문이 스스로 밝힌다. unknowns 섹션도 실제 이미지의 소유권은 확인하지 못했다고 적었다. 코드로 확인되는 것은 /data만 --chown=1654:1654로 복사된다는 사실뿐이다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Dockerfile",
+            "lines": "25-26"
+          }
+        ]
+      },
+      {
+        "document": "20_CHANGELOG.md",
+        "section": "d-2026-09-23",
+        "type": "INCONSISTENT_RECORD",
+        "description": "2026-09-23과 2026-09-24 두 항목이 모두 '최초 문서화(INITIAL) · 실행: run-0001'이다. 그런데 실패 기록 수가 9건과 12건으로 서로 다르다. 같은 실행 ID의 INITIAL이 두 번 기록된 근거를 찾을 수 없다. 11_FAILURE_HISTORY(기록일 2026-09-24)와 12_TROUBLESHOOTING(기록일 2026-09-23)의 기록일도 서로 어긋난다.",
+        "evidence": [
+          {
+            "file": "doc-harness/config/harness.yaml"
+          }
+        ]
+      },
+      {
+        "document": "18_GLOSSARY.md",
+        "section": "terms",
+        "type": "WRONG_CODE_REFERENCE",
+        "description": "MarkdownTooComplexException의 코드 이름·경로 칸이 'PostModel'로 되어 있다. 예외 타입은 Infrastructure/Markdown/MarkdownTooComplexException.cs에 정의되어 있고, PostModel은 이 예외를 잡는 쪽일 뿐이다.",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs"
+          }
+        ]
+      }
+    ],
+    "fixRequired": [
+      {
+        "doc": "00_EXECUTIVE_SUMMARY.md",
+        "section": "EXEC_DATAFLOW",
+        "issue": "다이어그램에 PostEndpoints 노드를 넣는다. 간선을 PostEndpoints→RenderGate→MarkdownRenderer, PostEndpoints→AppDbContext, PostEndpoints→RenderedPostCache로 고치고, MarkdownRenderer→AppDbContext와 AppDbContext→RenderedPostCache는 지운다. section=EXEC_DATAFLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "187-245"
+          }
+        ]
+      },
+      {
+        "doc": "00_EXECUTIVE_SUMMARY.md",
+        "section": "unknowns",
+        "issue": "ApiBodyLimit 한도(256KB, JsonLimitBytes=262144)와 글 저장 호출 순서는 코드로 확인되므로 unknowns에서 빼고 본문에 반영한다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "lines": "21"
+          }
+        ]
+      },
+      {
+        "doc": "02_ARCHITECTURE.md",
+        "section": "ARCH_DEPLOY_NETWORK",
+        "issue": "x-hardening 공유 대상을 '모든 서비스'에서 'caddy·api·postgres'로 고치고, tools는 no-new-privileges·cap_drop ALL만 따로 선언한다고 적는다. section=ARCH_DEPLOY_NETWORK",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "113-125"
+          }
+        ]
+      },
+      {
+        "doc": "02_ARCHITECTURE.md",
+        "section": "runtime",
+        "issue": "api의 read_only·tmpfs 근거를 docker-compose.yml 55-59로, caddy의 admin off 근거를 deploy/Caddyfile 5로 고친다. section=runtime",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "55-59"
+          },
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "5"
+          }
+        ]
+      },
+      {
+        "doc": "02_ARCHITECTURE.md",
+        "section": "unknowns",
+        "issue": "ApiBodyLimitMiddleware 한도 값(256KB)을 unknowns에서 빼고 본문에 반영한다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "lines": "21"
+          }
+        ]
+      },
+      {
+        "doc": "03_DIRECTORY_STRUCTURE.md",
+        "section": "tree",
+        "issue": "deploy/.env.example, PortfolioBlog.Api.Tests/Fixtures/Images/*, 루트 .gitignore를 트리에 추가한다. section=tree",
+        "evidence": [
+          {
+            "file": "deploy/.env.example"
+          },
+          {
+            "file": "PortfolioBlog.Api.Tests/Fixtures/Images/make-fixtures.py"
+          }
+        ]
+      },
+      {
+        "doc": "03_DIRECTORY_STRUCTURE.md",
+        "section": "roles",
+        "issue": "guard-write-scope.ps1의 설명을 'Git 훅'에서 'Claude Code PreToolUse 훅(서브에이전트 쓰기 범위 제한)'으로 고친다. section=roles",
+        "evidence": [
+          {
+            "file": "scripts/hooks/guard-write-scope.ps1",
+            "lines": "1-8"
+          }
+        ]
+      },
+      {
+        "doc": "04_SETUP_AND_RUN.md",
+        "section": "caveats",
+        "issue": "dotnet run 포트(http 5055 / https 7198)와 개발 DB 연결(appsettings.Development.json의 localhost:5432 blog_dev)을 적고 UNKNOWN 표기를 지운다. section=caveats",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Properties/launchSettings.json",
+            "lines": "8,17"
+          }
+        ]
+      },
+      {
+        "doc": "05_CONFIGURATION.md",
+        "section": "caveats",
+        "issue": "Admin:AllowedCidrs의 구분자는 공백 문자(CidrList.Parse가 Split(null) 사용)라고 확정하고 UNKNOWN을 지운다. section=caveats",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+            "lines": "52"
+          }
+        ]
+      },
+      {
+        "doc": "06_DEPENDENCIES.md",
+        "section": "packages",
+        "issue": "Api 표에서 Microsoft.EntityFrameworkCore.Relational을 빼거나 '중앙 버전 고정 전용(직접 참조 아님)'으로 표시한다. playwright를 @playwright/test로 고치고, @codemirror 하위 패키지 버전(6.5.2/6.7.5/6.43.12)을 따로 적는다. section=packages",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+            "lines": "21-31"
+          },
+          {
+            "file": "PortfolioBlog.Web/package.json",
+            "lines": "18-28"
+          }
+        ]
+      },
+      {
+        "doc": "adr/ADR-001_공개_사이트는_JS_없는_서버_렌더링_관리_화면은_별도_서브도메인의_SP.md",
+        "section": "summary",
+        "issue": "관리 도메인에서 백엔드로 가는 경로를 '/api만'에서 '/api/*와 /attachments/*'로 고친다. section=summary",
+        "evidence": [
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "92"
+          }
+        ]
+      },
+      {
+        "doc": "adr/ADR-010_모든_응답에_보안_헤더_본문_없는_응답에는_본문을_두지_않음.md",
+        "section": "summary",
+        "issue": "Caddy가 직접 만드는 응답 중 관리 도메인 IP 거부 404, :80/:443 폴백 404, http 리다이렉트에는 Server 제거 외 보안 헤더가 붙지 않는다는 예외를 적는다(02_ARCHITECTURE decisions와 일치시킨다). section=summary",
+        "evidence": [
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "81-88,163-195"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "details",
+        "issue": "GET /sitemap.xml의 DB 변경을 'Posts 읽기'에서 'Posts, Tags, Series 읽기(PublicQueries.SitemapAsync 3회 조회)'로 고친다. section=details",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "symbol": "SiteEndpoints.SitemapAsync",
+            "lines": "160-181"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "table",
+        "issue": "/css/highlight.css, /feed.xml, /sitemap.xml, /robots.txt와 공개 Razor 페이지가 GET과 HEAD를 함께 받는다는 사실을 표에 반영한다. section=table",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "lines": "45,66-81"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "lines": "37"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "table",
+        "issue": "JSON 본문을 받는 /api 엔드포인트(posts POST/PUT, preview, auth/login, series POST/PUT)의 오류 열에 ApiBodyLimitMiddleware의 413(256KB 초과)을 추가한다. section=table",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "lines": "21,41-55"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "table",
+        "issue": "공개 Razor 페이지 행의 인증 열에 속도 제한 정책을 적는다. /search는 RateLimitPolicy.Search, 나머지는 RateLimitPolicy.PublicPage이며 초과 시 429다. section=table",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "lines": "34-39"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "unknowns",
+        "issue": "속도 제한 초과 429(RejectionStatusCode)와 미인증 401(OnRedirectToLogin)은 코드로 확인되므로 unknowns에서 빼고 CONFIRMED로 적는다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+            "lines": "47"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+            "lines": "68-69"
+          }
+        ]
+      },
+      {
+        "doc": "07_DATA_MODEL.md",
+        "section": "migrations",
+        "issue": "PublicDbContext 연결 행에 BuildConnectionString의 실패 경로를 추가한다. 바탕 연결 문자열에 Options가 이미 있으면 InvalidOperationException이다. section=migrations",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+            "lines": "46-55"
+          }
+        ]
+      },
+      {
+        "doc": "09_FEATURES.md",
+        "section": "dependencies",
+        "issue": "F002 행의 의존 기능을 F002 문서와 코드(Program.cs 100·104행, ApiEndpoints.cs 39행)에 맞춰 F001, F018, F020, F029로 고친다. section=dependencies",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "43,100,104"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+            "lines": "39"
+          }
+        ]
+      },
+      {
+        "doc": "09_FEATURES.md",
+        "section": "dependencies",
+        "issue": "F003 행의 의존 기능에 F007·F008·F018·F020을 추가해 F003 문서의 11개 목록과 맞춘다. section=dependencies",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "95-96"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "100,104,108"
+          }
+        ]
+      },
+      {
+        "doc": "09_FEATURES.md",
+        "section": "dependencies",
+        "issue": "F001 행의 의존 기능에 F020·F021을 추가해 F001 문서의 의존 목록(F018, F019, F020, F021, F029)과 맞춘다. section=dependencies",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "76,100-101"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "lines": "58-64,116-134"
+          }
+        ]
+      },
+      {
+        "doc": "features/F002_ADMIN_POST_LIST.md",
+        "section": "unknowns",
+        "issue": "StartupValidation.CheckConnectionString이 ConnectionStrings:Default의 Options를 기동 시 거부한다는 사실을 적는다. 그러면 연결 문자열로는 관리 연결에 statement_timeout을 걸 수 없음이 코드로 확인된다. 미확인 범위는 DB·롤 수준 설정으로 좁힌다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.CheckConnectionString",
+            "lines": "151-169"
+          }
+        ]
+      },
+      {
+        "doc": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+        "section": "F005_STATE",
+        "issue": "상태도에 'DraftFailed --> NoDraft: settled equals baseline clearDraft, setDraftFailed(false)' 전이를 추가한다(PostEditorPage.tsx 110행). section=F005_STATE",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor 자동 저장 useEffect",
+            "lines": "110"
+          }
+        ]
+      },
+      {
+        "doc": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+        "section": "data",
+        "issue": "상태 전이 표에 '저장 실패 표시(draftFailed=true) → 임시본 없음' 행을 추가한다. 트리거는 settled가 기준선과 같아져 clearDraft와 setDraftFailed(false)가 실행되는 경우다. section=data",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor 자동 저장 useEffect",
+            "lines": "110"
+          }
+        ]
+      },
+      {
+        "doc": "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+        "section": "F009_FLOW",
+        "issue": "ReSave의 결과를 두 간선으로 나눠 `ReSave -->|AttachmentTooLargeException| Reject413`과 `ReSave -->|UnsupportedImageException| Reject415`로 고친다. section=F009_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "lines": "123-131,144-152",
+            "symbol": "AttachmentEndpoints.UploadAsync"
+          }
+        ]
+      },
+      {
+        "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+        "section": "data",
+        "issue": "PostEditorPage가 ['tags','list'] 쿼리 키를 공유하고(96행) 글 저장 onSuccess에서 ['tags']를 무효화한다는 사실(167행)을 데이터 흐름(클라이언트 캐시)과 관련 코드 표에 추가한다. section=data",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "96,167",
+            "symbol": "tagList / save.onSuccess"
+          }
+        ]
+      },
+      {
+        "doc": "features/F012_PUBLIC_HOME_LIST.md",
+        "section": "summary",
+        "issue": "PublicPageConvention이 거는 속도 제한 메타데이터를 '모든 페이지에 RateLimitPolicy.PublicPage'가 아니라 '/Search는 RateLimitPolicy.Search, 나머지(Index 포함)는 RateLimitPolicy.PublicPage'로 고친다. section=summary",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "34"
+          }
+        ]
+      },
+      {
+        "doc": "features/F019_RATE_LIMITING.md",
+        "section": "F019_SEQUENCE",
+        "issue": "UseRateLimiter->>ErrorResponses 간선을 지우고, StatusCodePagesMiddleware participant가 429 빈 본문 응답을 받아 ErrorResponses.HandleStatusCodeAsync를 호출하도록 고친다. section=F019_SEQUENCE",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "101"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+            "lines": "47-52"
+          }
+        ]
+      },
+      {
+        "doc": "features/F020_WEB_PIPELINE_PROTECTION.md",
+        "section": "F020_SEQUENCE",
+        "issue": "401 빈 본문 간선의 출발점을 AdminSurfaceMiddleware에서 UseAuthorization(인가 미들웨어, 쿠키 인증 OnRedirectToLogin) participant로 옮긴다. section=F020_SEQUENCE",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "lines": "67-96"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+            "lines": "68"
+          }
+        ]
+      },
+      {
+        "doc": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_FLOW",
+        "issue": "UriFormatException은 SendAsync가 아니라 HttpRequestMessage 생성(51행)에서 나므로, 플로차트 간선과 설명문의 발생 지점을 고친다. section=F022_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+            "symbol": "HealthCheckCommand.RunAsync",
+            "lines": "50-58"
+          }
+        ]
+      },
+      {
+        "doc": "features/F022_HEALTH_CHECK.md",
+        "section": "failures",
+        "issue": "'Program.cs 기동 부트스트랩' 행은 Docker·Compose 엔진 동작(unhealthy 전이, caddy 미기동, restart 재기동)을 담고 있으므로 상태를 INFERRED로 낮추거나, 확인된 설정 값과 추론한 엔진 동작을 나눠 적는다. section=failures",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "3-4, 46-48, 77-83"
+          }
+        ]
+      },
+      {
+        "doc": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "failures",
+        "issue": "로깅 표의 Caddy 액세스 로그 행을 INFERRED로 낮춘다. 그리고 OPERATIONS.md:146(Cookie·Set-Cookie·Authorization을 REDACTED로 기록)과 충돌한다는 점을 함께 적고, '경로만 있다'는 표현은 뺀다. section=failures",
+        "evidence": [
+          {
+            "file": "deploy/smoke/run.sh",
+            "lines": "49-50"
+          },
+          {
+            "file": "deploy/OPERATIONS.md",
+            "lines": "146"
+          }
+        ]
+      },
+      {
+        "doc": "features/F026_COMPOSE_DEPLOYMENT.md",
+        "section": "flow",
+        "issue": "8단계의 '항상 검사' 목록에 세 검사를 더한다. Site:Title 비어 있음 거부, Rendering 범위 검사, 공개 롤 이름 형식 검사다. section=flow",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "lines": "50,96,103-107"
+          }
+        ]
+      },
+      {
+        "doc": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "flow",
+        "issue": "7단계의 관리 SPA 헤더 검사 설명에 COOP(same-origin)와 Cache-Control(no-cache) 단언을 더한다. section=flow",
+        "evidence": [
+          {
+            "file": "deploy/smoke/smoke.test.mjs",
+            "lines": "145-156"
+          }
+        ]
+      },
+      {
+        "doc": "features/F026_COMPOSE_DEPLOYMENT.md",
+        "section": "data",
+        "issue": "/app 소유권 행의 상태를 INFERRED로 바꾸거나 둘로 나눈다. /data의 --chown은 CONFIRMED, /app이 root 소유라는 부분은 INFERRED로 둔다. section=data",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Dockerfile",
+            "lines": "25-26"
+          }
+        ]
+      },
+      {
+        "doc": "features/F029_ADMIN_SPA_SHELL.md",
+        "section": "F029_FLOW_ERROR",
+        "issue": "'모든 ApiError는 QueryCache/MutationCache onError의 noteAuthFailure를 거친다'를 고친다. 쿼리·뮤테이션 경유 호출은 캐시 onError를 거치고, 직접 await하는 호출(PreviewPane·PostEditorPage·SeriesPage)은 catch에서 noteAuthFailure를 직접 부른다고 적는다. section=F029_FLOW_ERROR",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+            "lines": "11-18"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "261"
+          }
+        ]
+      },
+      {
+        "doc": "10_ERROR_HANDLING.md",
+        "section": "ERR_FLOW",
+        "issue": "AdminSurfaceMiddleware→ErrorResponses 간선과 DbConflict→ErrorResponses 간선을 지운다. 둘 다 ProblemDetails를 직접 쓴다고 표시하고, 요약 문장 '4xx는 ErrorResponses가 본문을 채운다'를 본문 없는 응답(429 등)과 ApiBodyLimit·Overload 경로로 한정한다. section=ERR_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "lines": "112-113"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "lines": "50-51"
+          }
+        ]
+      },
+      {
+        "doc": "10_ERROR_HANDLING.md",
+        "section": "key-points",
+        "issue": "ErrorResponses의 ProblemDetails 대상 경로를 /api·/attachments·/health·/openapi로 고친다. section=key-points",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "lines": "17"
+          }
+        ]
+      },
+      {
+        "doc": "18_GLOSSARY.md",
+        "section": "terms",
+        "issue": "RequireAuth 경로를 PortfolioBlog.Web/src/auth/RequireAuth.tsx로, ApiError 경로를 PortfolioBlog.Web/src/api/errors.ts로, MarkdownTooComplexException 경로를 Infrastructure/Markdown/MarkdownTooComplexException.cs로 고친다. section=terms",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/api/errors.ts",
+            "lines": "8"
+          }
+        ]
+      },
+      {
+        "doc": "14_PERFORMANCE.md",
+        "section": "details",
+        "issue": "관리 글 목록 검색(PostEndpoints 79-81행)도 같은 ILIKE 전표 스캔을 한다는 사실을 PERF001에 추가하고, '유일한 문제' 표현을 고친다. section=details",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "lines": "79-81"
+          }
+        ]
+      },
+      {
+        "doc": "20_CHANGELOG.md",
+        "section": "d-2026-09-23",
+        "issue": "같은 run-0001 INITIAL이 두 날짜에 서로 다른 실패 건수로 중복 기록된 것을 정리한다. section=d-2026-09-23",
+        "evidence": [
+          {
+            "file": "doc-harness/config/harness.yaml"
+          }
+        ]
+      },
+      {
+        "doc": "06_DEPENDENCIES.md",
+        "section": "packages",
+        "issue": "[hallucination:DEPENDENCY_NOT_REFERENCED] 백엔드(PortfolioBlog.Api) 패키지 표에 Microsoft.EntityFrameworkCore.Relational 10.0.12가 들어 있지만, PortfolioBlog.Api.csproj에는 이 PackageReference가 없다. 이 버전은 Directory.Packages.props에서 PackageVersion(전이 고정용)으로만 선언돼 있다. csproj가 직접 참조하는 패키지는 Markdig, ColorCode.HTML, HtmlSanitizer, Microsoft.AspNetCore.OpenApi, Microsoft.EntityFrameworkCore.Design, Npgsql.EntityFrameworkCore.PostgreSQL 여섯 개다. section=packages",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/PortfolioBlog.Api.csproj",
+            "lines": "21-31"
+          },
+          {
+            "file": "Directory.Packages.props",
+            "lines": "14"
+          }
+        ]
+      },
+      {
+        "doc": "06_DEPENDENCIES.md",
+        "section": "packages",
+        "issue": "[hallucination:WRONG_PACKAGE_NAME_OR_VERSION] 프런트 표에 'playwright 1.63.0'이라고 적었지만 package.json의 실제 패키지는 '@playwright/test' 1.63.0이다. 또 'codemirror (+ @codemirror/lang-markdown·state·view) 6.0.2 계열'이라고 했지만 6.0.2는 codemirror 하나의 버전이다. @codemirror/lang-markdown은 6.5.2, @codemirror/state는 6.7.5, @codemirror/view는 6.43.12다. section=packages",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/package.json",
+            "lines": "18-22,28"
+          }
+        ]
+      },
+      {
+        "doc": "18_GLOSSARY.md",
+        "section": "terms",
+        "issue": "[hallucination:WRONG_PATH] RequireAuth의 코드 경로를 `PortfolioBlog.Web/src/routes.tsx`로 적었으나 그 파일은 없다. RequireAuth는 `PortfolioBlog.Web/src/auth/RequireAuth.tsx`에 있고 라우트 정의는 `PortfolioBlog.Web/src/app/routes.tsx`다. section=terms",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/app/routes.tsx"
+          }
+        ]
+      },
+      {
+        "doc": "18_GLOSSARY.md",
+        "section": "terms",
+        "issue": "[hallucination:WRONG_PATH] ApiError의 위치를 `PortfolioBlog.Web/src/api/client.ts`로 적었으나 `export class ApiError`는 `PortfolioBlog.Web/src/api/errors.ts` 8행에 정의되어 있다. section=terms",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/api/errors.ts",
+            "symbol": "ApiError",
+            "lines": "8"
+          }
+        ]
+      },
+      {
+        "doc": "03_DIRECTORY_STRUCTURE.md",
+        "section": "tree",
+        "issue": "[missing:MISSING_FILE_IN_TREE] 파일 트리의 deploy/에 실제로 있는 deploy/.env.example이 빠져 있다. 운영 환경변수 키 13개를 정의하는 파일이다. 05_CONFIGURATION caveats도 이 누락을 지적한다. PortfolioBlog.Api.Tests/Fixtures/Images/(exif-gps.jpg 등 테스트 이미지와 make-fixtures.py)와 루트 .gitignore도 트리에 없다. 테스트 csproj가 Fixtures/**를 출력에 복사하므로 테스트 실행에 필요한 자료다. section=tree",
+        "evidence": [
+          {
+            "file": "deploy/.env.example"
+          },
+          {
+            "file": "PortfolioBlog.Api.Tests/PortfolioBlog.Api.Tests.csproj",
+            "lines": "27-29"
+          },
+          {
+            "file": "PortfolioBlog.Api.Tests/Fixtures/Images/make-fixtures.py"
+          }
+        ]
+      },
+      {
+        "doc": "00_EXECUTIVE_SUMMARY.md",
+        "section": "unknowns",
+        "issue": "[missing:RESOLVABLE_UNKNOWN] ApiBodyLimitMiddleware의 한도 값을 '확인하지 않음'으로 남겼지만 코드에 상수로 있다: JsonLimitBytes = 262_144(256KB). /api 요청 중 매칭된 엔드포인트가 있고 자체 상한이 없을 때만 적용되며, 초과하면 413이다. 02_ARCHITECTURE unknowns도 같은 항목을 UNKNOWN으로 두었다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "symbol": "ApiBodyLimitMiddleware.JsonLimitBytes",
+            "lines": "21-53"
+          }
+        ]
+      },
+      {
+        "doc": "00_EXECUTIVE_SUMMARY.md",
+        "section": "unknowns",
+        "issue": "[missing:RESOLVABLE_UNKNOWN] '글 저장 엔드포인트의 세부 호출 순서는 재확인하지 않음'이라고 남겼지만 코드로 확인된다. PostEndpoints.UpdateAsync의 순서는 다음과 같다. 1) Include(PostTags)로 조회(없으면 404) 2) PostValidation과 시리즈 검증(400) 3) 렌더 전에 version 비교(불일치 409) 4) RenderGate.RenderAsync(MarkdownTooComplexException이면 400) 5) 트랜잭션 안에서 TagResolver와 SaveChangesAsync(DbUpdateConcurrencyException이면 409) 6) Commit 7) PostQueries.GetDetailAsync로 재조회 8) CanCacheRenderedResult가 참일 때만 RenderedPostCache.Store. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "187-245"
+          }
+        ]
+      },
+      {
+        "doc": "04_SETUP_AND_RUN.md",
+        "section": "caveats",
+        "issue": "[missing:RESOLVABLE_UNKNOWN] 'dotnet run 실제 포트'를 UNKNOWN으로 두었지만 launchSettings.json에 있다. http 프로필은 http://localhost:5055, https 프로필은 https://localhost:7198;http://localhost:5055다(둘 다 ASPNETCORE_ENVIRONMENT=Development). 개발 DB 연결은 appsettings.Development.json의 ConnectionStrings:Default(localhost:5432, blog_dev)이고, vite 개발 서버의 기본 BLOG_API_ORIGIN도 https://localhost:7198이다. section=caveats",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Properties/launchSettings.json",
+            "lines": "4-21"
+          },
+          {
+            "file": "PortfolioBlog.Api/appsettings.Development.json",
+            "lines": "3"
+          },
+          {
+            "file": "PortfolioBlog.Web/vite.config.ts",
+            "lines": "8"
+          }
+        ]
+      },
+      {
+        "doc": "05_CONFIGURATION.md",
+        "section": "caveats",
+        "issue": "[missing:RESOLVABLE_UNKNOWN] Admin:AllowedCidrs의 구분자 규칙을 UNKNOWN으로 두었지만 CidrList.Parse는 Split((char[]?)null, RemoveEmptyEntries)로 공백 문자 기준으로 나눈다. deploy/.env.example의 주석도 '공백으로 구분'이라고 적는다. section=caveats",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/CidrList.cs",
+            "symbol": "CidrList.Parse",
+            "lines": "52"
+          },
+          {
+            "file": "deploy/.env.example",
+            "lines": "11-12"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "table",
+        "issue": "[missing:MISSING_HTTP_METHOD] SiteEndpoints는 /css/highlight.css, /feed.xml, /sitemap.xml, /robots.txt를 MapMethods(GetAndHead)로 GET과 HEAD 둘 다 등록한다. 공개 Razor 페이지도 PublicPageConvention이 HttpMethodMetadata([\"GET\",\"HEAD\"])를 붙인다. 그런데 표에는 GET 행만 있다. HEAD를 별도 행으로 적은 곳은 /attachments/{id}/{fileName}뿐이다. section=table",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+            "lines": "45,66-81"
+          },
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "32-41"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "table",
+        "issue": "[missing:MISSING_FAILURE_PATH] ApiBodyLimitMiddleware는 RequestSizeLimit 메타데이터가 없는 /api 엔드포인트의 본문을 JsonLimitBytes(262144바이트)로 제한한다. Content-Length가 이를 넘으면 413을 돌려주고, chunked 본문은 LengthLimitedStream이 BadHttpRequestException(413)을 던진다. 그런데 POST/PUT /api/posts, POST /api/preview, POST /api/auth/login, POST/PUT /api/series의 오류 열에는 413이 없다. section=table",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+            "lines": "21,36-55"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "108"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "table",
+        "issue": "[missing:MISSING_RATE_LIMIT] 공개 Razor 페이지(/, /posts/{slug}, /series/{slug}, /tags/{tag})에는 PublicPageConvention이 RateLimitMetadata(RateLimitPolicy.PublicPage)를 붙이고, /search에는 RateLimitPolicy.Search를 붙인다. 그런데 표의 인증 열은 '없음(공개 호스트 제한)'으로만 적혀 있어 속도 제한(429) 경로가 빠져 있다. section=table",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "34-39"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "unknowns",
+        "issue": "[missing:RESOLVABLE_UNKNOWN] '확인하지 못한 것'에 남은 두 항목은 코드로 확인된다. (1) 속도 제한을 넘으면 RejectionStatusCode=429다. (2) 세션 없는 /api 요청은 쿠키 인증 이벤트 OnRedirectToLogin이 401로, OnRedirectToAccessDenied가 403으로 바꾼다. login·logout 행의 '상태 코드 확인하지 않음'·'401 예상'도 CONFIRMED로 올릴 수 있다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+            "lines": "47"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+            "symbol": "AddAdminAuth",
+            "lines": "68-69"
+          }
+        ]
+      },
+      {
+        "doc": "07_DATA_MODEL.md",
+        "section": "migrations",
+        "issue": "[missing:MISSING_FAILURE_PATH] PublicDbContext.BuildConnectionString은 바탕 연결 문자열에 이미 Options가 있으면 InvalidOperationException을 던진다. 운영자가 넣은 시작 옵션과 합칠 수 없어서다. 그런데 PublicDbContext 연결 행에는 '둘 다 비면 예외'만 있고 이 실패 경로가 없다. section=migrations",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+            "symbol": "PublicDbContext.BuildConnectionString",
+            "lines": "46-55"
+          }
+        ]
+      },
+      {
+        "doc": "features/F002_ADMIN_POST_LIST.md",
+        "section": "unknowns",
+        "issue": "[missing:MISSING_CODE_FACT] 문서는 관리 연결(ConnectionStrings:Default)에 statement_timeout 같은 연결 옵션이 있는지를 '설정 값을 보지 않는 규칙 때문에' 확인하지 못했다고 적는다. 그런데 이 부분은 코드로 확인할 수 있다. StartupValidation.CheckConnectionString은 ConnectionStrings:Default에 Npgsql Options가 들어 있으면 기동 시 예외를 던진다. PublicDbContext.BuildConnectionString도 같은 이유로 Options를 거부한다. 따라서 연결 문자열의 Options(-c statement_timeout=…)로 관리 연결에 시간 제한을 걸 수는 없다. 또 Command Timeout을 설정했다면 그 값(초)×1000이 Public:StatementTimeoutMs보다 커야 한다. 남는 미확인 영역은 DB/롤 수준 설정(ALTER ROLE … SET statement_timeout 등)뿐이다. 이 사실이 문서의 외부 의존·엣지 케이스·unknowns에서 빠져 있다. section=unknowns",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.CheckConnectionString",
+            "lines": "85-91,151-169"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+            "symbol": "PublicDbContext.BuildConnectionString",
+            "lines": "46-61"
+          }
+        ]
+      },
+      {
+        "doc": "features/F005_LOCAL_DRAFT_RECOVERY.md",
+        "section": "F005_STATE",
+        "issue": "[missing:MISSING_STATE_TRANSITION] 임시본 상태도(F005_STATE)와 데이터 절의 상태 전이 표에 DraftFailed → NoDraft 전이가 없다. 코드에서는 자동 저장 effect가 settled와 기준선이 같다고 판단하면 clearDraft(draftKey)를 부르고 setDraftFailed(false)를 호출한다. 그래서 저장 실패 표시 상태에서 입력을 기준선으로 되돌리면 저장 실패 표시가 풀리고 임시본도 사라진다. 문서에는 DraftFailed에서 빠져나가는 경로로 '다음 saveDraft 성공 → Stored'만 있다. section=F005_STATE",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor 자동 저장 useEffect",
+            "lines": "105-113"
+          }
+        ]
+      },
+      {
+        "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+        "section": "data",
+        "issue": "[missing:MISSING_CLIENT_CONSUMER] GET /api/tags를 쓰는 곳은 TagsPage만이 아니다. PostEditorPage도 같은 쿼리 키 ['tags','list']로 tagsApi.list를 불러 태그 목록을 읽는다(96행). 또 글 저장이 성공하면(onSuccess) ['tags']를 무효화한다(167행). 그러니 TagsPage에서 태그를 삭제한 뒤의 ['tags'] 무효화는 편집기 쪽 목록도 갱신하고, 반대로 글을 저장하면 태그 화면의 목록과 글 수가 다시 조회된다. F007 문서는 시리즈에 대한 같은 구조(['series','list'] 공유, 저장 후 무효화)를 적어 두었지만, F008 문서의 데이터 흐름·엣지 케이스·관련 코드 표에는 이 내용이 없다. section=data",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "96,167",
+            "symbol": "tagList / save.onSuccess"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/TagsPage.tsx",
+            "lines": "9-10",
+            "symbol": "TagsPage"
+          }
+        ]
+      },
+      {
+        "doc": "features/F026_COMPOSE_DEPLOYMENT.md",
+        "section": "flow",
+        "issue": "[missing:MISSING_VALIDATION_RULE] (경미한 누락) 8단계는 환경과 무관하게 항상 돌리는 검사(48-114행)의 대상을 나열한다. 그런데 실제 코드에 있는 세 가지가 빠졌다. (1) Site:Title이 비어 있으면 거부하는 검사(50행). (2) Rendering:Concurrency·QueueTimeoutMs·CacheMegabytes 범위 검사(103-107행). (3) ConnectionStrings:Public 롤 이름 형식 검사(PublicRoleGrants.RoleOf, 96행). 목록이 전부인 것처럼 읽힌다. section=flow",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.Validate",
+            "lines": "50,96,103-107"
+          }
+        ]
+      },
+      {
+        "doc": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "flow",
+        "issue": "[missing:MISSING_ASSERTION] (경미한 누락) 7단계는 관리 SPA 헤더 검사를 'admin-headers.ts 값+HSTS'라고만 적었다. 실제 스모크는 Cross-Origin-Opener-Policy: same-origin과 Cache-Control: no-cache도 함께 단언한다. section=flow",
+        "evidence": [
+          {
+            "file": "deploy/smoke/smoke.test.mjs",
+            "lines": "145-156"
+          }
+        ]
+      },
+      {
+        "doc": "14_PERFORMANCE.md",
+        "section": "details",
+        "issue": "[missing:MISSING_PERF_PATH] PERF001과 한 줄 요약은 ILIKE 앞뒤 와일드카드 스캔을 공개 검색(PublicQueries.SearchAsync)에만 있는 '유일한' 문제로 적었다. 그러나 관리 글 목록 PostEndpoints의 검색도 Title·Summary·ContentMarkdown에 같은 EF.Functions.ILike OR 조건을 건다. 관리 연결에는 statement_timeout도 없다. section=details",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "lines": "79-81"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+            "symbol": "SearchAsync",
+            "lines": "90-92"
+          }
+        ]
+      },
+      {
+        "doc": "10_ERROR_HANDLING.md",
+        "section": "key-points",
+        "issue": "[missing:INCOMPLETE] ErrorResponses가 ProblemDetails를 쓰는 경로를 '/api'만으로 적었다. 실제 MachinePrefixes는 /api, /attachments, /health, /openapi 네 개이고 나머지 경로만 고정 HTML을 받는다. section=key-points",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "symbol": "MachinePrefixes",
+            "lines": "17"
+          }
+        ]
+      },
+      {
+        "doc": "02_ARCHITECTURE.md",
+        "section": "ARCH_DEPLOY_NETWORK",
+        "issue": "[relation:INCORRECT_CONFIG_SCOPE] '모든 서비스는 x-hardening(no-new-privileges, cap_drop ALL, restart unless-stopped, json-file 로그 10m×5)을 공유한다'는 틀렸다. x-hardening 앵커(<<: *hardening)는 caddy·api·postgres만 병합한다. tools 서비스는 앵커를 쓰지 않고 security_opt no-new-privileges와 cap_drop ALL만 따로 선언하며, restart·logging 설정은 없다. section=ARCH_DEPLOY_NETWORK",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "3-13,17,51,89,113-125"
+          }
+        ]
+      },
+      {
+        "doc": "02_ARCHITECTURE.md",
+        "section": "runtime",
+        "issue": "[relation:WRONG_EVIDENCE_LOCATION] 런타임 표에서 api 컨테이너의 'read_only, /tmp 64m tmpfs' 근거를 PortfolioBlog.Api/Dockerfile 23-33으로 달았지만, 이 두 설정은 docker-compose.yml의 services.api(55-59행)에 있다. caddy 컨테이너의 'admin API off' 근거도 docker-compose.yml 16-48로 달았지만 실제 위치는 deploy/Caddyfile 5행의 전역 옵션 admin off다. section=runtime",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "55-59"
+          },
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "3-5"
+          },
+          {
+            "file": "PortfolioBlog.Api/Dockerfile",
+            "lines": "23-33"
+          }
+        ]
+      },
+      {
+        "doc": "03_DIRECTORY_STRUCTURE.md",
+        "section": "roles",
+        "issue": "[relation:WRONG_ROLE] scripts/hooks/guard-write-scope.ps1를 'Git 훅 스크립트'라고 했지만 Git 훅이 아니다. Claude Code의 PreToolUse 훅으로, .claude/settings.json의 Write|Edit matcher에서 호출되며 서브에이전트의 쓰기 경로를 제한한다. section=roles",
+        "evidence": [
+          {
+            "file": "scripts/hooks/guard-write-scope.ps1",
+            "lines": "1-15"
+          },
+          {
+            "file": ".claude/settings.json",
+            "lines": "15-19"
+          }
+        ]
+      },
+      {
+        "doc": "adr/ADR-001_공개_사이트는_JS_없는_서버_렌더링_관리_화면은_별도_서브도메인의_SP.md",
+        "section": "summary",
+        "issue": "[relation:INCOMPLETE_ROUTING] 관리 도메인에서 Caddy가 '/api만 백엔드로 보낸다'고 했지만 Caddyfile의 @backend 매처는 path /api/* /attachments/* 두 개다. 첨부 공개 경로도 관리 도메인에서 api로 프록시된다. section=summary",
+        "evidence": [
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "90-99"
+          }
+        ]
+      },
+      {
+        "doc": "adr/ADR-010_모든_응답에_보안_헤더_본문_없는_응답에는_본문을_두지_않음.md",
+        "section": "summary",
+        "issue": "[relation:OVERGENERALIZATION] 'Caddy가 직접 만드는 응답(handle_errors 포함)에도 같은 헤더를 붙이고 Server·Via를 지운다'는 과잉 일반화다. 관리 도메인의 IP 거부 respond @denied 404는 정적 SPA header 블록보다 앞에서 끝나서 -Server/-Via 외의 보안 헤더가 붙지 않는다. :80/:443 폴백 404와 http:// 리다이렉트도 -Server만 적용된다. 02_ARCHITECTURE decisions는 이 예외를 정확히 적고 있어 두 문서가 서로 맞지 않는다. section=summary",
+        "evidence": [
+          {
+            "file": "deploy/Caddyfile",
+            "lines": "81-88,163-195"
+          }
+        ]
+      },
+      {
+        "doc": "08_API.md",
+        "section": "details",
+        "issue": "[relation:INCORRECT_DATA_ACCESS] GET /sitemap.xml 상세에 'DB 변경: Posts 읽기'라고 되어 있다. 실제로 SitemapAsync는 PublicQueries.SitemapAsync로 글·태그·시리즈 세 종류를 순차 조회한다(PublicSitemap의 Posts·TagKeys·SeriesSlugs). 그 뒤 태그 URL과 시리즈 URL도 함께 직렬화한다. 따라서 Posts, Tags, Series를 읽는다. section=details",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+            "symbol": "SiteEndpoints.SitemapAsync",
+            "lines": "156-181"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+            "symbol": "PublicSitemap",
+            "lines": "78"
+          }
+        ]
+      },
+      {
+        "doc": "09_FEATURES.md",
+        "section": "dependencies",
+        "issue": "[relation:DEPENDENCY_MISMATCH] 기능 간 의존 표의 F002 행은 'F001, F029'뿐이다. 그러나 F002 문서의 의존 기능은 F001·F018·F020·F029다. 코드도 F002 문서 쪽을 뒷받침한다. 모든 /api 요청은 Program.cs 104행의 AdminSurfaceMiddleware(F018)와 100행 UseExceptionHandler + 43행 OverloadExceptionHandler(F020)를 거치고, ApiEndpoints가 RequireHost를 건다. 따라서 표에서 F018·F020이 빠져 있다. section=dependencies",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "symbol": "UseExceptionHandler / UseMiddleware<AdminSurfaceMiddleware>",
+            "lines": "43,100,104,108"
+          },
+          {
+            "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+            "symbol": "ApiEndpoints.MapApiEndpoints",
+            "lines": "39"
+          }
+        ]
+      },
+      {
+        "doc": "09_FEATURES.md",
+        "section": "dependencies",
+        "issue": "[relation:DEPENDENCY_MISMATCH] F003 행은 'F001, F004, F005, F006, F009, F011, F029'다. 그러나 F003 문서는 F007·F008·F018·F020을 포함한 11개를 의존으로 적는다. 코드에서도 Editor가 seriesApi.list(GET /api/series, F007)와 tagsApi.list(GET /api/tags, F008)를 호출한다. 또 모든 /api 요청은 AdminSurfaceMiddleware(F018)와 OverloadExceptionHandler·ApiBodyLimitMiddleware(F020)를 거친다. 표에서 F007·F008·F018·F020이 빠져 있다. section=dependencies",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "symbol": "Editor (seriesList / tagList)",
+            "lines": "95-96"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "43,100,104,108"
+          }
+        ]
+      },
+      {
+        "doc": "09_FEATURES.md",
+        "section": "dependencies",
+        "issue": "[relation:DEPENDENCY_MISMATCH] F001 행은 'F018, F019, F029'다. 그러나 F001 문서의 의존 기능은 F018·F019·F020·F021·F029다. 근거는 두 가지다. (1) 401 본문을 쓰는 UseStatusCodePages(ErrorResponses)와 DB 예외를 503으로 바꾸는 OverloadExceptionHandler가 F020 소관이다. (2) StartupValidation의 PasswordHash·DataProtection:KeysPath·SessionHours 검증이 F021 소관이다. 두 문서가 서로 맞지 않는다. section=dependencies",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "symbol": "UseExceptionHandler / UseStatusCodePages / StartupValidation.Validate",
+            "lines": "76,100-101"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+            "symbol": "StartupValidation.Validate",
+            "lines": "58-64,116-134"
+          }
+        ]
+      },
+      {
+        "doc": "features/F012_PUBLIC_HOME_LIST.md",
+        "section": "summary",
+        "issue": "[relation:OVERGENERALIZED_METADATA] 요약은 PublicPageConvention이 '모든 Razor 페이지 엔드포인트'에 GET/HEAD·공개 호스트·RateLimitPolicy.PublicPage 세 메타데이터를 건다고 쓴다. 실제 코드는 ViewEnginePath가 \"/Search\"인 페이지에만 RateLimitPolicy.Search를 걸고, 나머지 페이지에는 PublicPage를 건다. Index(/)가 PublicPage를 받는다는 결론은 맞지만, '모든 페이지 = PublicPage'라는 일반화는 틀렸다. 같은 문서의 flow 2단계와 F013 진입점 근거는 이 구분을 정확히 적고 있다. section=summary",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+            "symbol": "PublicPageConvention.Apply",
+            "lines": "32-41"
+          }
+        ]
+      },
+      {
+        "doc": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_FLOW",
+        "issue": "[relation:INCORRECT_EXCEPTION_SOURCE] 설명문과 플로차트는 UriFormatException을 SendAsync에서 나는 예외로 묶는다('SendAsync에서 난 HttpRequestException(연결 거부), TaskCanceledException(3초 타임아웃), UriFormatException은 catch 필터가 잡아'). 코드에서 try 블록 안에 UriFormatException이 날 수 있는 곳은 요청 URI를 만드는 `new HttpRequestMessage(HttpMethod.Get, $\"http://127.0.0.1:{port}/health\")`(51행)뿐이다. origin 해석은 예외를 던지지 않는 Uri.TryCreate(42행)를 쓰고, 전송은 53행 http.SendAsync다. 세 예외 모두 58행의 같은 catch 필터로 모이는 것은 맞다. 다만 UriFormatException의 발생 지점은 SendAsync가 아니라 그보다 앞의 요청 생성 단계다. section=F022_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+            "symbol": "HealthCheckCommand.RunAsync",
+            "lines": "42-62"
+          }
+        ]
+      },
+      {
+        "doc": "features/F029_ADMIN_SPA_SHELL.md",
+        "section": "F029_FLOW_ERROR",
+        "issue": "[relation:OVERGENERALIZED_RELATION] 설명문은 '모든 ApiError는 QueryCache/MutationCache onError의 noteAuthFailure를 거친다'고 쓴다. 코드는 다르다. useQuery·useMutation을 거치지 않고 request를 직접 await하는 호출이 있다. PreviewPane.tsx:53, PostEditorPage.tsx:224·261, SeriesPage.tsx:33이 그렇다. 이 호출들의 ApiError는 캐시 onError에 닿지 않고, 각 catch 블록이 noteAuthFailure(client, cause)를 직접 부른다. 문서의 failures 표는 이 점을 맞게 설명하므로, 다이어그램 설명만 이 표와 어긋난다. section=F029_FLOW_ERROR",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Web/src/app/queryClient.ts",
+            "symbol": "createQueryClient",
+            "lines": "15-27"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+            "lines": "53"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+            "lines": "224,261"
+          },
+          {
+            "file": "PortfolioBlog.Web/src/pages/SeriesPage.tsx",
+            "lines": "33"
+          }
+        ]
+      },
+      {
+        "doc": "10_ERROR_HANDLING.md",
+        "section": "ERR_FLOW",
+        "issue": "[relation:WRONG_RESPONSE_PATH] 요약 문장은 '앞단 미들웨어와 엔드포인트가 만든 4xx는 ErrorResponses가 본문을 채운다'고 한다. 코드에서는 두 경로가 ErrorResponses를 거치지 않는다. AdminSurfaceMiddleware.Reject는 Results.Problem(...).ExecuteAsync로 ProblemDetails 본문을 직접 쓴다. DbConflict.Problem은 TypedResults.Problem(409)으로 본문이 있는 결과를 돌려주므로 UseStatusCodePages(본문이 빈 응답에만 동작)도 타지 않는다. ErrorResponses로 가는 것은 ApiBodyLimitMiddleware(직접 호출), OverloadExceptionHandler(직접 호출), 본문 없는 429·404 같은 StatusCodePages 경로다. section=ERR_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "symbol": "AdminSurfaceMiddleware.Reject",
+            "lines": "112-113"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "symbol": "DbConflict.Problem",
+            "lines": "50-51"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+            "lines": "47-51"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+            "lines": "35-42"
+          }
+        ]
+      },
+      {
+        "doc": "00_EXECUTIVE_SUMMARY.md",
+        "section": "EXEC_DATAFLOW",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] 간선 'MarkdownRenderer --> AppDbContext'와 'AppDbContext --> RenderedPostCache'는 코드와 다르다. 저장 흐름을 조율하는 것은 PostEndpoints.CreateAsync/UpdateAsync이고, 이 노드가 다이어그램에 없다. 실제 흐름은 PostEndpoints가 RenderGate.RenderAsync(내부에서 MarkdownRenderer.RenderDetailed)로 HTML을 얻고, AppDbContext.SaveChangesAsync로 마크다운 원문만 저장한 뒤, PostQueries.GetDetailAsync로 재조회한 version을 키로 RenderedPostCache.Store를 직접 호출하는 것이다. 렌더된 HTML은 DB로 가지 않는다(ADR-005). AppDbContext가 캐시를 채우지도 않는다. section=EXEC_DATAFLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+            "symbol": "PostEndpoints.UpdateAsync",
+            "lines": "206-244"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+            "symbol": "RenderGate.RenderAsync",
+            "lines": "86-98"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+            "symbol": "RenderedPostCache.Store",
+            "lines": "115-121"
+          }
+        ]
+      },
+      {
+        "doc": "features/F009_ADMIN_ATTACHMENT_MANAGEMENT.md",
+        "section": "F009_FLOW",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] `ReSave -->|413 또는 415| Reject415` 간선은 재저장 경로의 413 결과까지 415 노드로 보낸다. 실제 코드에서는 잠금 안에서 재저장할 때도 TrySaveAsync를 거친다. 그래서 AttachmentTooLargeException은 TooLarge()(413)로, UnsupportedImageException은 415로 갈린다. 413 경로는 Reject413 노드로 이어져야 한다. 본문 설명은 '한 간선으로 묶었다'고 하지만, 다이어그램만 보면 413이 415 응답이 되는 것처럼 읽힌다. section=F009_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+            "lines": "123-131,144-152",
+            "symbol": "AttachmentEndpoints.UploadAsync.TrySaveAsync"
+          }
+        ]
+      },
+      {
+        "doc": "features/F019_RATE_LIMITING.md",
+        "section": "F019_SEQUENCE",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] 다이어그램의 `UseRateLimiter->>ErrorResponses: 상태 429 본문 없음 HandleStatusCodeAsync` 간선이 코드와 다르다. RateLimiter 미들웨어는 RejectionStatusCode=429를 설정하고 OnRejected(Retry-After 헤더만 설정)를 실행한 뒤 반환한다. ErrorResponses.HandleStatusCodeAsync는 파이프라인이 되돌아올 때 바깥의 StatusCodePagesMiddleware(Program.cs 101행 app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync))가 호출한다. 문서 본문도 '본문은 UseStatusCodePages(101행)에 연결된 ErrorResponses.HandleStatusCodeAsync가 쓴다'고 적고 있어 다이어그램이 본문과도 어긋난다. StatusCodePagesMiddleware participant를 추가하고 그 participant가 ErrorResponses를 호출하도록 고쳐야 한다. section=F019_SEQUENCE",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "101",
+            "symbol": "app.UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync)"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+            "lines": "47-52",
+            "symbol": "AddAppRateLimiting.OnRejected"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+            "lines": "30-31",
+            "symbol": "ErrorResponses.HandleStatusCodeAsync"
+          }
+        ]
+      },
+      {
+        "doc": "features/F020_WEB_PIPELINE_PROTECTION.md",
+        "section": "F020_SEQUENCE",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] `AdminSurfaceMiddleware-->>StatusCodePagesMiddleware: 인가 단계에서 401 빈 본문` 간선은 401 응답이 AdminSurfaceMiddleware에서 나오는 것으로 그린다. AdminSurfaceMiddleware.InvokeAsync는 404와 403만 만들고 401을 만들지 않는다. 401은 UseAuthorization(Program.cs 107행)에서 인증 챌린지가 일어날 때 쿠키 인증의 OnRedirectToLogin 이벤트가 StatusCode=401로 설정한 것이다. 이 간선은 경유 단계를 묶어 그린 것이 아니라 응답이 어디서 생기는지를 틀리게 표시한다. UseAuthorization(또는 AuthorizationMiddleware) participant를 따로 두고 401 간선을 그 participant에서 내보내야 한다. section=F020_SEQUENCE",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "lines": "67-96",
+            "symbol": "AdminSurfaceMiddleware.InvokeAsync"
+          },
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+            "lines": "68",
+            "symbol": "OnRedirectToLogin"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "104-108"
+          }
+        ]
+      },
+      {
+        "doc": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_FLOW",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] 간선 'SendAsync -- HttpRequestException / TaskCanceledException / UriFormatException --> CatchFilter'는 UriFormatException이 HttpClient.SendAsync에서 나는 것처럼 그린다. 실제로 UriFormatException이 날 수 있는 곳은 ResolvePort 뒤 요청을 만드는 단계, 즉 new HttpRequestMessage(..., \"http://127.0.0.1:{port}/health\")(51행)다. SendAsync 호출은 53행이다. 요청 생성 단계에서 CatchFilter로 가는 간선을 따로 두거나, 이 간선에서 UriFormatException을 빼야 한다. section=F022_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/HealthCheckCommand.cs",
+            "symbol": "HealthCheckCommand.RunAsync",
+            "lines": "50-58"
+          }
+        ]
+      },
+      {
+        "doc": "10_ERROR_HANDLING.md",
+        "section": "ERR_FLOW",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] 간선 `AdminSurfaceMiddleware --> ErrorResponses`가 틀렸다. AdminSurfaceMiddleware는 Results.Problem으로 거부 응답(404/403 ProblemDetails)을 직접 쓰고 ErrorResponses를 호출하지 않는다. section=ERR_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+            "symbol": "Reject",
+            "lines": "112-113"
+          }
+        ]
+      },
+      {
+        "doc": "10_ERROR_HANDLING.md",
+        "section": "ERR_FLOW",
+        "issue": "[diagram:INCORRECT_DIAGRAM_RELATION] 간선 `DbConflict -->|409| ErrorResponses`가 틀렸다. DbConflict.Problem은 본문이 있는 TypedResults.Problem(409, title '충돌')을 반환한다. 엔드포인트 결과가 그대로 응답 본문이 되므로 UseStatusCodePages/ErrorResponses를 거치지 않는다. section=ERR_FLOW",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+            "symbol": "Problem",
+            "lines": "50-51"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "101"
+          }
+        ]
+      },
+      {
+        "doc": "features/F022_HEALTH_CHECK.md",
+        "section": "failures",
+        "issue": "[unsupported:STATUS_OVERSTATED] 'Program.cs 기동 부트스트랩' 실패 행은 상태가 CONFIRMED다. 그런데 이 행에는 저장소 코드로 확인할 수 없는 Docker·Compose 엔진 동작이 섞여 있다. 예를 들면 start_period 이후 3회 연속 실패로 starting에서 unhealthy가 되는 전이, caddy가 기동하지 않는 동작, 'restart: unless-stopped가 컨테이너를 다시 띄운다'는 주장이다. 같은 문서의 F022_STATE와 상태 전이 표는 이 내용을 INFERRED로 적고 있어 서로 맞지 않는다. 코드와 설정으로 확인되는 것은 설정 값(interval·retries·start_period·restart·depends_on)과 OPERATIONS.md 153행의 증상 안내뿐이다. section=failures",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml",
+            "lines": "3-4, 46-48, 77-83"
+          },
+          {
+            "file": "deploy/OPERATIONS.md",
+            "lines": "153"
+          },
+          {
+            "file": "PortfolioBlog.Api/Program.cs",
+            "lines": "75-91, 126"
+          }
+        ]
+      },
+      {
+        "doc": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "failures",
+        "issue": "[unsupported:CONFLICTING_SOURCES] 로깅 표의 CONFIRMED 행은 'Caddy 액세스 로그에는 remote_ip·상태 코드·경로만 있고 비밀값은 없다'고 적었다. 근거는 run.sh와 ci.yml의 주석뿐이다. 같은 저장소의 deploy/OPERATIONS.md:146은 이와 다르게 말한다. 액세스 로그가 Cookie·Set-Cookie·Authorization 값을 REDACTED로 남기며, 이것이 실측이라고 적었다. 값을 REDACTED로 남긴다는 것은 요청 헤더가 기록된다는 뜻이다. 따라서 '경로만'이라는 부분은 입증되지 않았고, 저장소 문서끼리 충돌한다. '비밀값이 없다'는 부분은 두 출처가 일치한다. section=failures",
+        "evidence": [
+          {
+            "file": "deploy/smoke/run.sh",
+            "symbol": "cleanup",
+            "lines": "49-50"
+          },
+          {
+            "file": ".github/workflows/ci.yml",
+            "lines": "123"
+          },
+          {
+            "file": "deploy/OPERATIONS.md",
+            "lines": "146"
+          }
+        ]
+      },
+      {
+        "doc": "features/F026_COMPOSE_DEPLOYMENT.md",
+        "section": "data",
+        "issue": "[unsupported:STATUS_INCONSISTENT] (경미) 데이터 흐름 표의 'api 이미지 안의 소유권' 행은 CONFIRMED로 표시돼 있다. 그런데 /app이 root 소유라는 부분은 Docker COPY 기본 동작에서 나온 추론이라고 본문이 스스로 밝힌다. unknowns 섹션도 실제 이미지의 소유권은 확인하지 못했다고 적었다. 코드로 확인되는 것은 /data만 --chown=1654:1654로 복사된다는 사실뿐이다. section=data",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Dockerfile",
+            "lines": "25-26"
+          }
+        ]
+      },
+      {
+        "doc": "20_CHANGELOG.md",
+        "section": "d-2026-09-23",
+        "issue": "[unsupported:INCONSISTENT_RECORD] 2026-09-23과 2026-09-24 두 항목이 모두 '최초 문서화(INITIAL) · 실행: run-0001'이다. 그런데 실패 기록 수가 9건과 12건으로 서로 다르다. 같은 실행 ID의 INITIAL이 두 번 기록된 근거를 찾을 수 없다. 11_FAILURE_HISTORY(기록일 2026-09-24)와 12_TROUBLESHOOTING(기록일 2026-09-23)의 기록일도 서로 어긋난다. section=d-2026-09-23",
+        "evidence": [
+          {
+            "file": "doc-harness/config/harness.yaml"
+          }
+        ]
+      },
+      {
+        "doc": "18_GLOSSARY.md",
+        "section": "terms",
+        "issue": "[unsupported:WRONG_CODE_REFERENCE] MarkdownTooComplexException의 코드 이름·경로 칸이 'PostModel'로 되어 있다. 예외 타입은 Infrastructure/Markdown/MarkdownTooComplexException.cs에 정의되어 있고, PostModel은 이 예외를 잡는 쪽일 뿐이다. section=terms",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownTooComplexException.cs"
+          }
+        ]
+      }
+    ],
+    "mermaidParser": "VERIFIED",
+    "iterations": 1,
+    "passed": false,
+    "warnings": [
+      {
+        "document": "features/F010_PUBLIC_ATTACHMENT_SERVING.md",
+        "section": "F010_SEQUENCE",
+        "diagram": "F010_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: RateLimitingMiddleware (PortfolioBlog.Api/Program.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F012_PUBLIC_HOME_LIST.md",
+        "section": "F012_SEQUENCE",
+        "diagram": "F012_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: EndpointRoutingMiddleware (PortfolioBlog.Api/Pages/PublicPageConvention.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F012_PUBLIC_HOME_LIST.md",
+        "section": "F012_SEQUENCE",
+        "diagram": "F012_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: RateLimitingMiddleware (PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F020_WEB_PIPELINE_PROTECTION.md",
+        "section": "F020_SEQUENCE",
+        "diagram": "F020_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: ExceptionHandlerMiddleware (PortfolioBlog.Api/Program.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F020_WEB_PIPELINE_PROTECTION.md",
+        "section": "F020_SEQUENCE",
+        "diagram": "F020_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: StatusCodePagesMiddleware (PortfolioBlog.Api/Program.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_SEQUENCE",
+        "diagram": "F022_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: HostFilteringMiddleware (PortfolioBlog.Api/Program.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_SEQUENCE",
+        "diagram": "F022_SEQUENCE",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "participant SocketsHttpHandler가 기능 F022의 실행 흐름·관련 코드에 없다",
+        "evidence": []
+      },
+      {
+        "document": "features/F022_HEALTH_CHECK.md",
+        "section": "F022_SEQUENCE",
+        "diagram": "F022_SEQUENCE",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "participant Pipeline가 기능 F022의 실행 흐름·관련 코드에 없다",
+        "evidence": []
+      },
+      {
+        "document": "features/F023_HASH_PASSWORD_CLI.md",
+        "section": "F023_SEQUENCE",
+        "diagram": "F023_SEQUENCE",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "participant Console가 기능 F023의 실행 흐름·관련 코드에 없다",
+        "evidence": []
+      },
+      {
+        "document": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "F028_SEQUENCE",
+        "diagram": "F028_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: apiImage (PortfolioBlog.Api/Infrastructure/Access/HashPasswordCommand.cs)",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Infrastructure/Access/HashPasswordCommand.cs"
+          }
+        ]
+      },
+      {
+        "document": "features/F028_DEPLOY_SMOKE_TEST.md",
+        "section": "F028_SEQUENCE",
+        "diagram": "F028_SEQUENCE",
+        "type": "DIAGRAM_NODE_NOT_IN_CODE",
+        "description": "노드 이름이 근거 파일에 등장하지 않는다: apiService (deploy/docker-compose.yml)",
+        "evidence": [
+          {
+            "file": "deploy/docker-compose.yml"
+          }
+        ]
+      },
+      {
+        "document": "features/F029_ADMIN_SPA_SHELL.md",
+        "section": "F029_SEQUENCE",
+        "diagram": "F029_SEQUENCE",
+        "type": "INCORRECT_DIAGRAM_RELATION",
+        "description": "participant AdminApi가 기능 F029의 실행 흐름·관련 코드에 없다",
+        "evidence": []
+      },
+      {
+        "document": "09_FEATURES.md",
+        "type": "ENDPOINT_NOT_IN_FEATURE_DOCS",
+        "description": "엔드포인트 GET /tags/{tag}(기능 F016)를 어떤 기능 문서도 언급하지 않는다",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/Tag.cshtml"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "type": "ENDPOINT_NOT_IN_FEATURE_DOCS",
+        "description": "엔드포인트 GET /sitemap.xml(기능 F017)를 어떤 기능 문서도 언급하지 않는다",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "type": "ENDPOINT_NOT_IN_FEATURE_DOCS",
+        "description": "엔드포인트 GET /robots.txt(기능 F017)를 어떤 기능 문서도 언급하지 않는다",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "type": "ENDPOINT_NOT_IN_FEATURE_DOCS",
+        "description": "엔드포인트 GET /css/highlight.css(기능 F017)를 어떤 기능 문서도 언급하지 않는다",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs"
+          }
+        ]
+      },
+      {
+        "document": "09_FEATURES.md",
+        "type": "ENDPOINT_NOT_IN_FEATURE_DOCS",
+        "description": "엔드포인트 GET /css/site.css(기능 F020)를 어떤 기능 문서도 언급하지 않는다",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api/Program.cs"
+          }
+        ]
+      },
+      {
+        "document": "02_ARCHITECTURE.md",
+        "type": "MISSING_COMPONENT_IN_DOC",
+        "description": "architecture.json 컴포넌트가 문서에 없다: RemoteIpStartupFilter (RemoteIpStartupFilter (테스트 전용))",
+        "evidence": [
+          {
+            "file": "PortfolioBlog.Api.Tests/Infrastructure/RemoteIpStartupFilter.cs",
+            "lines": "19-46",
+            "symbol": "RemoteIpStartupFilter.Configure"
+          }
+        ]
+      }
+    ]
+  },
+  "costUsd": 346.55434340000005,
+  "claudeCalls": 0
+}

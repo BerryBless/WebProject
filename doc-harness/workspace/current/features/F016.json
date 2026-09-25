@@ -1,0 +1,1121 @@
+{
+  "feature": {
+    "id": "F016",
+    "name": "공개 태그별 글 목록",
+    "slug": "PUBLIC_TAG_PAGE",
+    "summary": "방문자가 공개 호스트에서 GET/HEAD /tags/{tag}?page=N을 열면 TagPageModel이 경로 값을 TagResolver.Normalize로 정규화하고, PublicQueries.ByTagAsync로 PublicDbContext(읽기 전용·statement_timeout)에서 태그 1건과 그 태그가 붙은 글을 최신순 20건씩 조회해 Tag.cshtml(_PostList/_TagList/_Pager)로 렌더링한다. 형식 밖 입력·없는 태그·빈 쪽은 404 고정 HTML이다.",
+    "entryPoints": [
+      "Razor GET/HEAD /tags/{tag}?page=N (TagPageModel.OnGetAsync)"
+    ],
+    "relatedFiles": [
+      "PortfolioBlog.Api/Pages/Tag.cshtml",
+      "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "PortfolioBlog.Api/Pages/PageNumber.cs",
+      "PortfolioBlog.Api/Pages/PagerModel.cs",
+      "PortfolioBlog.Api/Pages/PublicPageModel.cs",
+      "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "PortfolioBlog.Api/Pages/Shared/_PostList.cshtml",
+      "PortfolioBlog.Api/Pages/Shared/_TagList.cshtml",
+      "PortfolioBlog.Api/Pages/Shared/_Pager.cshtml",
+      "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+      "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs"
+    ],
+    "dependencies": [
+      "F019",
+      "F020"
+    ],
+    "importance": "SUPPORTING",
+    "analysisStatus": "SUCCESS",
+    "status": "ACTIVE"
+  },
+  "summary": "결론: F016은 읽기 전용 Razor 페이지 하나(TagPageModel)와 정적 조회 헬퍼(PublicQueries.ByTagAsync → PageAsync)로 구현된 동작 중인 기능이다. 요청 1건마다 순차 DB 문장 3개를 실행한다: 태그 SELECT, COUNT, 목록 SELECT(태그 배열은 서브쿼리로 포함). 입력 검증은 모두 404로 끝난다. 404가 나는 경우는 공백뿐·null, 원문 200자 초과·NUL, 정규화 후 0자·50자 초과, '.'·'..', ?page 형식 오류·범위 밖, 없는 태그, 2쪽 이상의 빈 쪽이다. 과부하(statement_timeout 57014)는 OverloadExceptionHandler가 503 + Retry-After 5로 바꾼다. 속도 제한은 PublicPageConvention이 붙인 RateLimitPolicy.PublicPage(IP당 분당 기본 120)로 걸리고 초과하면 429다. 초안·비공개 개념이 없어 태그가 붙은 Post 행은 전부 보인다. 기능 코드 안에는 명시적 로깅·재시도·폴백·트랜잭션이 없다.",
+  "entryPoints": [
+    {
+      "text": "Razor 페이지 라우트 @page \"/tags/{tag}\"이며 모델은 TagPageModel이다. 핸들러는 OnGetAsync(string? tag, CancellationToken ct)다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml",
+          "lines": "1-2"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "57-72"
+        }
+      ]
+    },
+    {
+      "text": "모든 Razor 페이지에 GET/HEAD 전용 메타데이터, 공개 호스트(HostAttribute) 메타데이터, RateLimitPolicy.PublicPage 메타데이터가 규약으로 붙는다. /Search만 Search 정책이다. 페이지는 app.MapRazorPages()로 매핑된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "32-41"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "68-71"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "123"
+        }
+      ]
+    },
+    {
+      "text": "들어오는 링크: 목록·상세의 _TagList 부분 뷰가 PublicUrls.Tag(tag.NormalizedName)로 /tags/{인코딩된 정규화명} 링크를 만든다. sitemap은 글이 1건 이상 달린 태그만 싣는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_TagList.cshtml",
+          "lines": "5-17"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.SitemapAsync",
+          "lines": "214-215"
+        }
+      ]
+    }
+  ],
+  "executionFlow": [
+    {
+      "step": 1,
+      "component": "Program",
+      "file": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인",
+      "description": "요청은 다음 순서로 통과한다: SecurityHeadersMiddleware, UseTrustedForwardedHeaders, UseExceptionHandler, UseStatusCodePages(ErrorResponses.HandleStatusCodeAsync), UseStaticFiles, AdminSurfaceMiddleware, UseRateLimiter, 인증·인가, ApiBodyLimitMiddleware, MapRazorPages."
+    },
+    {
+      "step": 2,
+      "component": "PublicPageConvention",
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "symbol": "PublicPageConvention.Apply",
+      "description": "앱 시작 때 /tags/{tag} 선택자에 HttpMethodMetadata(GET, HEAD), HostAttribute(publicHost), RateLimitMetadata(PublicPage)를 추가한다. 라우팅은 다른 메서드를 405로, 다른 호스트를 404로 처리한다."
+    },
+    {
+      "step": 3,
+      "component": "RateLimitingExtensions",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "description": "엔드포인트 메타데이터가 PublicPage이면 'page-ip:{IP}' 파티션의 1분 고정 창(PublicOptions.PagePerIpPerMinute, 기본 120, QueueLimit 0)이 적용된다. 한도를 넘으면 429와 Retry-After를 돌려준다."
+    },
+    {
+      "step": 4,
+      "component": "TagPageModel",
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync",
+      "description": "tag가 null이거나 공백뿐이면 NotFound()를 돌려준다. 모델 바인딩이 공백뿐인 경로 값을 null로 바꾸므로 null을 허용한다."
+    },
+    {
+      "step": 5,
+      "component": "TagPageModel",
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync",
+      "description": "정규화 전에 원문 길이가 AppDbContext.TagMax*4(200)를 넘거나 TextRules.ContainsNul이 참이면 404를 돌려준다."
+    },
+    {
+      "step": 6,
+      "component": "TagResolver",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Normalize",
+      "description": "트림과 연속 공백 1개 축소(Split(null)+Join)를 거쳐 NFC로 정규화하고 ToLowerInvariant를 적용한다. 저장할 때 쓰는 규칙과 같은 유일성 키다."
+    },
+    {
+      "step": 7,
+      "component": "PublicUrls",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "symbol": "PublicUrls.Tag",
+      "description": "키 길이가 0이거나 TagMax(50)를 넘으면 404다. 키가 '.' 또는 '..'이면 PublicUrls.Tag가 null을 돌려주고 역시 404다. 그 밖에는 \"/tags/\" + Uri.EscapeDataString(key)를 정식 경로(path)로 계산한다."
+    },
+    {
+      "step": 8,
+      "component": "PageNumber",
+      "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+      "symbol": "PageNumber.TryRead",
+      "description": "?page를 직접 읽는다. 없으면 1쪽이다. 값이 하나이고 ASCII 숫자 1~4자리이며 1..IndexModel.MaxPage(500) 범위일 때만 통과하고, 실패하면 404다."
+    },
+    {
+      "step": 9,
+      "component": "PublicQueries",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.ByTagAsync",
+      "description": "db.Tags에서 NormalizedName == key인 행을 SingleOrDefaultAsync로 (Name, NormalizedName)으로 투영한다. 없으면 null을 돌려준다."
+    },
+    {
+      "step": 10,
+      "component": "PublicQueries",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.PageAsync",
+      "description": "필터 db.Posts.Where(p => p.PostTags.Any(pt => pt.Tag.NormalizedName == key))를 받는다. page < 1이거나 page > int.MaxValue/20이면 ArgumentOutOfRangeException으로 방어한다. 이어서 CountAsync를 실행하고, CreatedAt DESC, Id 순으로 Skip((page-1)*20).Take(20)을 적용해 Slug·Title·Summary·CreatedAt·Tags 배열을 투영한 뒤 PublicPage<PublicPostSummary>를 만든다."
+    },
+    {
+      "step": 11,
+      "component": "TagPageModel",
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync",
+      "description": "결과가 null이면 404다. page > 1인데 항목이 0건이어도 404다. 그 밖에는 Tag·Posts·_path를 채우고 SetHead(\"태그: {Name}\", null, 1쪽이면 path, 아니면 path?page=N)로 canonical을 설정한 뒤 Page()를 돌려준다."
+    },
+    {
+      "step": 12,
+      "component": "PublicPageModel",
+      "file": "PortfolioBlog.Api/Pages/PublicPageModel.cs",
+      "symbol": "PublicPageModel.SetHead",
+      "description": "ViewData[\"Head\"]에 PageHead를 채운다. 제목은 '태그: X · 사이트제목'이고, canonical은 Site.PublicOrigin + path다."
+    },
+    {
+      "step": 13,
+      "component": "Tag.cshtml",
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml",
+      "description": "h1 '태그: {Name}'을 출력한다. _PostList(Posts.Items)가 글 목록과 각 글의 _TagList를 그리고, _Pager(Pager)가 이전/다음 링크를 그린다. _Layout이 head(canonical, og)를 그린다."
+    },
+    {
+      "step": 14,
+      "component": "TagPageModel",
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.Pager",
+      "description": "new PagerModel(_path, null, Posts.Page, Math.Min(Posts.LastPage, 500))을 만든다. _Pager는 LastPage > 1일 때만 nav를 출력하고, 1쪽 링크는 BasePath 그대로 쓴다."
+    },
+    {
+      "step": 15,
+      "component": "ErrorResponses",
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync",
+      "description": "실패 경로다. NotFound() 같은 본문 없는 상태 코드는 UseStatusCodePages가 고정 HTML(요청 값을 반사하지 않음, HEAD면 본문 생략)로 채운다. PostgresException 57014/55P03은 OverloadExceptionHandler가 503과 Retry-After: 5로 바꾼다."
+    }
+  ],
+  "relatedCode": [
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel",
+      "role": "entry"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.ByTagAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.PageAsync",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+      "symbol": "DataServiceCollectionExtensions.AddBlogData",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.OnModelCreating",
+      "role": "data"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+      "symbol": "PublicTag / PublicPostSummary / PublicPage<T>",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Normalize",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "symbol": "PublicUrls.Tag",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+      "symbol": "PageNumber.TryRead",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Contracts/TextRules.cs",
+      "symbol": "TextRules.ContainsNul",
+      "role": "validation"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PagerModel.cs",
+      "symbol": "PagerModel.Href",
+      "role": "dto"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageModel.cs",
+      "symbol": "PublicPageModel.SetHead",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_PostList.cshtml",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_TagList.cshtml",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_Pager.cshtml",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "symbol": "PublicPageConvention.Apply",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+      "symbol": "IndexModel.MaxPage",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+      "symbol": "PublicOptions",
+      "role": "config"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync",
+      "role": "render"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler.TryHandleAsync",
+      "role": "service"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "symbol": "PublicPagesTests.Tag_And_Series_Pages",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "symbol": "PublicPagesTests.Missing_Is404Html_WithoutReflection",
+      "role": "test"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicUrlsTests.cs",
+      "role": "test"
+    }
+  ],
+  "dataFlow": [
+    {
+      "text": "입력: 경로 값 tag(라우팅이 URL 디코딩한 원문, 공백뿐이면 null)와 쿼리 ?page(PageNumber가 Request.Query에서 직접 읽음). page는 Razor Pages 예약 키라 모델 바인딩으로 읽지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "45-64"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+          "symbol": "PageNumber.TryRead",
+          "lines": "5-43"
+        }
+      ]
+    },
+    {
+      "text": "변환: 원문 tag에 TagResolver.Normalize(트림, 공백 축소, NFC, 소문자)를 적용해 key를 만들고, PublicUrls.Tag(key)로 정식 경로 path를 만든다. 대소문자·공백이 다른 URL도 같은 key로 조회되고 canonical은 정규화 경로로 통일된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.Normalize",
+          "lines": "34-48"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Tag",
+          "lines": "52-53"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "symbol": "PublicPagesTests.Tag_And_Series_Pages",
+          "lines": "179-184"
+        }
+      ]
+    },
+    {
+      "text": "DB → DTO: Tags 행을 익명 형식 (Name, NormalizedName)으로 받아 PublicTag로 바꾼다. Posts 행은 익명 형식(Slug, Title, Summary, CreatedAt, Tags[])으로 받아 메모리에서 PublicPostSummary와 PublicTag[]로 바꾼다. 본문(ContentMarkdown)은 읽지 않는다. 결과는 PublicPage<PublicPostSummary>(Items, Page, Total)이고, LastPage는 max(1, ceil(Total/20))이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync",
+          "lines": "61-68"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.PageAsync",
+          "lines": "250-261"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicModels.cs",
+          "lines": "6-24"
+        }
+      ]
+    },
+    {
+      "text": "출력: Tag.cshtml이 HTML을 출력한다. 제목은 Tag.Name(표시명)이고, 목록 각 줄에는 PublicUrls.Post(slug) 링크, time, 요약, 태그 링크가 있으며, 하단에 pager가 붙는다. head에는 title '태그: {Name} · {Site.Title}', canonical/og:url(Site.PublicOrigin + path[?page=N]), feed 링크가 들어간다. Razor의 @ 출력은 HTML 인코딩된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml",
+          "lines": "1-5"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_PostList.cshtml",
+          "lines": "1-22"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageModel.cs",
+          "symbol": "PublicPageModel.SetHead",
+          "lines": "39-43"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_Layout.cshtml",
+          "lines": "1-42"
+        }
+      ]
+    },
+    {
+      "text": "캐시: 태그 페이지에는 응답 캐시·메모리 캐시가 없다. 요청마다 DB를 3회 조회한다(RenderedPostCache는 글 상세 전용이라 이 경로와 무관).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "54-72"
+        }
+      ]
+    }
+  ],
+  "stateTransitions": [],
+  "databaseAccess": [
+    {
+      "entity": "Tag (Tags)",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.ByTagAsync"
+    },
+    {
+      "entity": "Post (Posts) + PostTag (PostTags) + Tag (Tags) — COUNT",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.PageAsync"
+    },
+    {
+      "entity": "Post (Posts) + PostTag (PostTags) + Tag (Tags) — 목록·태그 서브쿼리",
+      "operation": "SELECT",
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.PageAsync"
+    }
+  ],
+  "externalDependencies": [
+    {
+      "text": "PostgreSQL(EF Core + Npgsql)을 PublicDbContext로 조회한다. 연결 문자열 Options에 '-c statement_timeout={Public:StatementTimeoutMs} -c default_transaction_read_only=on'을 붙이고 ApplicationName을 PortfolioBlog.Public으로 둔다. ConnectionStrings:Public이 없으면 Default를 바탕으로 쓴다(PublicOrDefaultConnectionString).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext.BuildConnectionString",
+          "lines": "46-62"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "symbol": "DataServiceCollectionExtensions.AddBlogData",
+          "lines": "33-34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "symbol": "PublicOptions.StatementTimeoutMs",
+          "lines": "30"
+        }
+      ]
+    },
+    {
+      "text": "ASP.NET Core Razor Pages, 라우팅, RateLimiter 미들웨어(PartitionedRateLimiter 체인)에 의존한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "68-71"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "98-123"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.BuildChain",
+          "lines": "88-101"
+        }
+      ]
+    },
+    {
+      "text": "외부 HTTP API 호출, 파일 I/O, 이벤트 발행, 백그라운드 작업은 이 기능 경로에 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync"
+        }
+      ]
+    }
+  ],
+  "failurePoints": [
+    {
+      "where": "TagPageModel.OnGetAsync (Tag.cshtml.cs:59)",
+      "condition": "경로 값이 null이거나 공백뿐인 경우(/tags/%20, %09, %C2%A0, %E3%80%80 → 모델 바인딩이 null로 변환)",
+      "handling": "NotFound()를 돌려주고, UseStatusCodePages → ErrorResponses가 고정 404 HTML(noindex, 요청 값 반사 없음)을 쓴다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "59"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "symbol": "PublicPagesTests.Missing_Is404Html_WithoutReflection",
+          "lines": "105-125"
+        }
+      ]
+    },
+    {
+      "where": "TagPageModel.OnGetAsync (Tag.cshtml.cs:61)",
+      "condition": "원문 길이가 200(TagMax*4)을 넘거나 NUL 문자를 포함하는 경우",
+      "handling": "정규화 비용과 DB 오류(NUL은 PostgreSQL text에 저장 불가)를 피하려고 404를 먼저 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "60-61"
+        }
+      ]
+    },
+    {
+      "where": "TagPageModel.OnGetAsync (Tag.cshtml.cs:63)",
+      "condition": "정규화 key가 0자이거나 50자를 넘는 경우, 또는 key가 '.'·'..'라서 PublicUrls.Tag가 null인 경우",
+      "handling": "404를 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "62-63"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Tag",
+          "lines": "41-53"
+        }
+      ]
+    },
+    {
+      "where": "PageNumber.TryRead (Tag.cshtml.cs:64)",
+      "condition": "?page가 비었거나, 여러 개이거나, 숫자가 아니거나, 5자리 이상이거나, 0이거나, 500을 넘는 경우",
+      "handling": "false를 반환하고 호출부가 404를 돌려준다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+          "symbol": "PageNumber.TryRead",
+          "lines": "30-43"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "64"
+        }
+      ]
+    },
+    {
+      "where": "PublicQueries.ByTagAsync → TagPageModel.OnGetAsync (Tag.cshtml.cs:67)",
+      "condition": "정규화 key와 일치하는 태그가 없는 경우",
+      "handling": "ByTagAsync가 null을 반환하고 404가 된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync",
+          "lines": "63-65"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "67"
+        }
+      ]
+    },
+    {
+      "where": "TagPageModel.OnGetAsync (Tag.cshtml.cs:67)",
+      "condition": "page > 1인데 해당 쪽에 항목이 0건인 경우(LastPage를 넘는 쪽)",
+      "handling": "404를 돌려준다. 1쪽은 0건이어도 200이다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "67"
+        }
+      ]
+    },
+    {
+      "where": "PublicQueries.PageAsync (PublicQueries.cs:241,249)",
+      "condition": "page < 1이거나 page > int.MaxValue/20인 경우(호출부 가드가 뚫렸을 때만)",
+      "handling": "ArgumentOutOfRangeException을 던진다. 호출부는 이미 1..500으로 제한하므로 정상 경로에서는 도달하지 않는다. 도달하면 예외 처리 파이프라인의 기본 500이다(OverloadExceptionHandler 대상 아님).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.PageAsync",
+          "lines": "239-249"
+        }
+      ]
+    },
+    {
+      "where": "PublicDbContext 조회 3회(ByTagAsync/PageAsync)",
+      "condition": "문장 하나가 statement_timeout(기본 3000ms)을 넘어 PostgresException 57014가 나거나 잠금 대기 초과 55P03이 나는 경우",
+      "handling": "OverloadExceptionHandler.IsOverload가 InnerException 체인을 훑어 잡는다. 응답은 503, Retry-After: 5, ErrorResponses의 고정 HTML(503 문구)이다. 재시도·폴백은 없다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync",
+          "lines": "35-70"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100-101"
+        }
+      ]
+    },
+    {
+      "where": "PublicDbContext 조회(연결 실패, 권한 오류 등 57014/55P03 외의 DB 예외)",
+      "condition": "DB 연결 불가, 공개 롤 권한 누락 등",
+      "handling": "처리 없음(예외 전파). UseExceptionHandler의 기본 처리로 500이 된다고 보지만, 이 경로의 응답 본문 형식(ProblemDetails인지 HTML인지)은 확인하지 못했다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43-47"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.IsOverload",
+          "lines": "63-70"
+        }
+      ]
+    },
+    {
+      "where": "UseRateLimiter (RateLimitPolicy.PublicPage)",
+      "condition": "같은 IP 파티션이 1분 창에 PagePerIpPerMinute(기본 120)를 넘은 경우",
+      "handling": "429와 Retry-After(lease 메타데이터 기반)를 돌려준다. 본문은 ErrorResponses의 429 HTML이다. 대기열은 0이라 즉시 거부된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions",
+          "lines": "47-50"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.BuildChain",
+          "lines": "100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicOptions.cs",
+          "symbol": "PublicOptions.PagePerIpPerMinute",
+          "lines": "18"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.Html",
+          "lines": "59-77"
+        }
+      ]
+    },
+    {
+      "where": "라우팅(PublicPageConvention 메타데이터)",
+      "condition": "GET/HEAD가 아닌 메서드이거나 관리 호스트 등 공개 호스트가 아닌 Host인 경우",
+      "handling": "405(Allow 포함) 또는 404다. 테스트는 '/'로 검증했고, 같은 규약이 모든 페이지에 걸린다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "16-41"
+        },
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "symbol": "PublicPagesTests.Pages_AreReadOnly_AndBoundToThePublicHost",
+          "lines": "127-140"
+        }
+      ]
+    },
+    {
+      "where": "PublicQueries.ByTagAsync / PageAsync의 CancellationToken",
+      "condition": "클라이언트가 요청 도중 연결을 끊어 ct가 취소된 경우",
+      "handling": "OperationCanceledException을 전파하며, 이 기능 코드에는 별도 처리가 없다. 최종 응답·로깅 동작은 확인하지 못했다.",
+      "status": "UNKNOWN",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync",
+          "lines": "61-68"
+        }
+      ]
+    }
+  ],
+  "edgeCases": [
+    {
+      "text": "태그는 있지만 글이 0건인 경우(예: 글 삭제로 고아가 된 태그), 1쪽은 200과 '글이 없습니다.' 빈 목록이다. 이런 태그는 sitemap에서는 빠진다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "67"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_PostList.cshtml",
+          "lines": "2-5"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.SitemapAsync",
+          "lines": "214-215"
+        }
+      ]
+    },
+    {
+      "text": "대소문자·연속 공백 변형(/tags/Tag%20Page%20C%23, /tags/TAG%20%20PAGE%20C%23)은 같은 태그로 200이 된다. canonical은 정규화 경로(/tags/tag%20page%20c%23)로 통일된다. 변형 URL을 정식 경로로 리다이렉트하지는 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+          "symbol": "PublicPagesTests.Tag_And_Series_Pages",
+          "lines": "169-184"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "70"
+        }
+      ]
+    },
+    {
+      "text": "정규화명이 정확히 '.' 또는 '..'인 태그는 DB에 있어도 태그 페이지로 도달할 수 없다(404). _TagList는 이런 태그를 링크 없이 span으로 표시한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Tag",
+          "lines": "43-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Shared/_TagList.cshtml",
+          "lines": "7-16"
+        }
+      ]
+    },
+    {
+      "text": "'#', '?', '%', 공백, 역슬래시, 한글이 들어간 정규화명은 Uri.EscapeDataString으로 경로 세그먼트 하나로 인코딩된다(c# → /tags/c%23).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api.Tests/Infrastructure/PublicUrlsTests.cs",
+          "lines": "20-26"
+        }
+      ]
+    },
+    {
+      "text": "페이지 상한은 IndexModel.MaxPage(500)이고 쪽당 20건이다. 한 태그의 글이 10,000건을 넘으면 그 뒤의 글은 태그 페이지 페이지네이션으로 도달할 수 없다. Pager의 LastPage도 500으로 잘린다.",
+      "status": "POTENTIAL_ISSUE",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.Pager",
+          "lines": "42"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "64"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.PageSize",
+          "lines": "20"
+        }
+      ]
+    },
+    {
+      "text": "태그 조회, COUNT, 목록 SELECT는 명시적 트랜잭션 없이 문장 3개로 따로 실행된다. 그 사이에 관리자가 태그를 지우거나 글을 수정하면 태그가 찾아진 뒤 목록이 비거나(1쪽이면 200 빈 목록) Total과 Items가 어긋날 수 있다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync",
+          "lines": "63-66"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.PageAsync",
+          "lines": "250-258"
+        }
+      ]
+    },
+    {
+      "text": "도메인(Post/Tag/PostTag)에 초안·공개 여부 필드(Publish/Draft/IsPublic/Visible)가 없다. 그래서 태그가 붙은 Post 행은 모두 공개 목록에 나온다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Domain/Post.cs",
+          "symbol": "Post"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync",
+          "lines": "66"
+        }
+      ]
+    },
+    {
+      "text": "정렬은 CreatedAt DESC, Id ASC이며 같은 시각의 글도 결정적으로 정렬된다. 목록 필터는 태그 Id가 아니라 pt.Tag.NormalizedName == key로 다시 조인한다(첫 조회의 태그 Id를 재사용하지 않음).",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync",
+          "lines": "66"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.PageAsync",
+          "lines": "251-252"
+        }
+      ]
+    },
+    {
+      "text": "HEAD 요청도 허용된다. 오류 응답에서 ErrorResponses는 HEAD면 본문을 쓰지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "symbol": "PublicPageConvention.Apply",
+          "lines": "37"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync",
+          "lines": "53-54"
+        }
+      ]
+    },
+    {
+      "text": "2쪽 이상에서는 canonical이 path?page=N이고, 1쪽 링크는 ?page 없이 BasePath다. Pager는 OnGetAsync가 계산한 _path를 재사용해 '.'·'..' 가드와 어긋나지 않게 한다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel._path",
+          "lines": "29-42"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/PagerModel.cs",
+          "symbol": "PagerModel.Href",
+          "lines": "21-25"
+        }
+      ]
+    },
+    {
+      "text": "성능 상한: statement_timeout은 문장 하나에만 적용된다. 요청 1건이 문장 3개를 순차 실행하므로 요청 전체의 DB 시간은 최대 약 3배(기본 3000ms 기준 약 9초)까지 늘 수 있다. 관련 인덱스는 Tags.NormalizedName UNIQUE, PostTags(TagId, PostId), Posts(CreatedAt DESC, Id)다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+          "symbol": "AppDbContext.OnModelCreating",
+          "lines": "98-137"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "54"
+        }
+      ]
+    }
+  ],
+  "logging": [
+    {
+      "text": "TagPageModel·PublicQueries에는 ILogger 사용이 없다. 404·빈 결과는 기록하지 않는다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries"
+        }
+      ]
+    },
+    {
+      "text": "처리되지 않은 예외(503으로 바뀐 과부하 포함)는 ASP.NET Core ExceptionHandlerMiddleware의 기본 로깅에 맡겨진 것으로 보인다. 앱 차원의 명시적 로그 코드는 없다.",
+      "status": "INFERRED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "100"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync",
+          "lines": "35-42"
+        }
+      ]
+    },
+    {
+      "text": "공개 DB 연결은 ApplicationName=PortfolioBlog.Public이라 PostgreSQL 쪽(pg_stat_activity, 로그)에서 관리 연결과 구분된다.",
+      "status": "CONFIRMED",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext.BuildConnectionString",
+          "lines": "59-60"
+        }
+      ]
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "F016_SEQUENCE",
+      "type": "sequence",
+      "title": "태그 페이지 요청 처리 순서",
+      "summary": "정상 경로에서 요청은 속도 제한을 통과한 뒤 TagPageModel이 정규화와 검증을 하고, PublicQueries가 PublicDbContext에 문장 3개를 순차 실행한 다음 Tag.cshtml이 렌더링한다. 과부하 예외는 OverloadExceptionHandler가 503으로 바꾼다.",
+      "mermaid": "sequenceDiagram\n    participant Browser\n    participant RateLimitingExtensions\n    participant TagPageModel\n    participant TagResolver\n    participant PublicUrls\n    participant PageNumber\n    participant PublicQueries\n    participant PublicDbContext\n    participant TagCshtml as Tag.cshtml\n    participant OverloadExceptionHandler\n    Browser->>RateLimitingExtensions: GET /tags/c%23?page=2\n    alt page-ip 창 초과\n        RateLimitingExtensions-->>Browser: 429 + Retry-After\n    else 허용\n        RateLimitingExtensions->>TagPageModel: OnGetAsync(tag, ct)\n        TagPageModel->>TagResolver: Normalize(tag)\n        TagResolver-->>TagPageModel: key\n        TagPageModel->>PublicUrls: Tag(key)\n        PublicUrls-->>TagPageModel: path 또는 null\n        TagPageModel->>PageNumber: TryRead(Request.Query, 500)\n        TagPageModel->>PublicQueries: ByTagAsync(db, key, page, ct)\n        PublicQueries->>PublicDbContext: SELECT Tags WHERE NormalizedName = key\n        PublicQueries->>PublicDbContext: COUNT Posts WHERE PostTags.Any\n        PublicQueries->>PublicDbContext: SELECT Posts ORDER BY CreatedAt DESC, Id LIMIT 20\n        alt statement_timeout 57014\n            PublicDbContext-->>OverloadExceptionHandler: PostgresException\n            OverloadExceptionHandler-->>Browser: 503 + Retry-After 5\n        else 정상\n            PublicQueries-->>TagPageModel: PublicTag, PublicPage\n            TagPageModel->>TagCshtml: SetHead + Page()\n            TagCshtml-->>Browser: 200 HTML\n        end\n    end",
+      "details": "1) UseRateLimiter가 PublicPageConvention이 붙인 RateLimitPolicy.PublicPage 메타데이터를 보고 'page-ip:{IP}' 고정 창을 적용한다. 2) TagPageModel.OnGetAsync가 null·공백, 길이·NUL, 정규화 key 길이, '.'·'..', ?page를 차례로 검사한다. 실패하면 NotFound()이고 이 그림에서는 생략했다(F016_FLOW 참고). 3) PublicQueries.ByTagAsync가 태그 1건을 찾고, PageAsync가 COUNT와 목록 SELECT를 순차 await한다. 목록의 각 행은 태그 배열을 서브쿼리로 포함한다. 4) DB 문장이 statement_timeout을 넘으면 PostgresException(57014)이 올라오고, UseExceptionHandler에 등록된 OverloadExceptionHandler가 503과 Retry-After: 5를 쓴다. 5) 정상이면 SetHead로 canonical을 설정하고 Tag.cshtml이 _PostList, _TagList, _Pager, _Layout으로 HTML을 만든다.",
+      "nodes": [
+        {
+          "node": "RateLimitingExtensions",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+          "symbol": "RateLimitingExtensions.BuildChain"
+        },
+        {
+          "node": "TagPageModel",
+          "code": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync"
+        },
+        {
+          "node": "TagResolver",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.Normalize"
+        },
+        {
+          "node": "PublicUrls",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Tag"
+        },
+        {
+          "node": "PageNumber",
+          "code": "PortfolioBlog.Api/Pages/PageNumber.cs",
+          "symbol": "PageNumber.TryRead"
+        },
+        {
+          "node": "PublicQueries",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync"
+        },
+        {
+          "node": "PublicDbContext",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+          "symbol": "PublicDbContext"
+        },
+        {
+          "node": "Tag.cshtml",
+          "code": "PortfolioBlog.Api/Pages/Tag.cshtml"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.TryHandleAsync"
+        }
+      ],
+      "status": "CONFIRMED"
+    },
+    {
+      "id": "F016_FLOW",
+      "type": "flowchart",
+      "title": "태그 페이지 검증·분기 흐름",
+      "summary": "입력 검증 실패, 없는 태그, 범위 밖 쪽은 모두 같은 404 고정 HTML로 모인다. DB 과부하만 503으로 갈라진다.",
+      "mermaid": "flowchart TD\n    Start[GET /tags/tag] --> NullCheck{tag가 null 또는 공백뿐}\n    NullCheck -->|예| NotFound[404 ErrorResponses HTML]\n    NullCheck -->|아니오| LenCheck{원문 200자 초과 또는 NUL}\n    LenCheck -->|예| NotFound\n    LenCheck -->|아니오| Normalize[TagResolver.Normalize]\n    Normalize --> KeyCheck{key 0자 또는 50자 초과 또는 PublicUrls.Tag가 null}\n    KeyCheck -->|예| NotFound\n    KeyCheck -->|아니오| PageCheck{PageNumber.TryRead 실패}\n    PageCheck -->|예| NotFound\n    PageCheck -->|아니오| ByTag[PublicQueries.ByTagAsync]\n    ByTag -->|57014 또는 55P03| Overload[503 OverloadExceptionHandler]\n    ByTag --> Found{태그 없음 또는 2쪽 이상 빈 쪽}\n    Found -->|예| NotFound\n    Found -->|아니오| Render[SetHead 후 Tag.cshtml 200]",
+      "details": "TagPageModel.OnGetAsync(Tag.cshtml.cs 57-72)의 분기를 그대로 옮겼다. 검사 순서: (1) null·공백 (2) 원문 길이 200(TagMax*4)·NUL을 정규화 전에 검사해 비용 상한을 둔다 (3) TagResolver.Normalize 후 key 길이 1~50, PublicUrls.Tag가 '.'·'..'를 거부 (4) PageNumber.TryRead로 1..500 범위 확인 (5) PublicQueries.ByTagAsync가 null이거나 page > 1이면서 항목 0건이면 404. 404는 모두 NotFound()로 본문 없이 반환된다. UseStatusCodePages가 ErrorResponses.WriteAsync로 고정 HTML(noindex, 요청 값 반사 없음)을 쓴다. DB 예외 가운데 57014·55P03만 OverloadExceptionHandler가 503으로 바꾸고, 그 밖의 예외는 처리 없이 전파된다. 재시도·폴백은 없다.",
+      "nodes": [
+        {
+          "node": "TagResolver.Normalize",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+          "symbol": "TagResolver.Normalize"
+        },
+        {
+          "node": "PublicUrls.Tag",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+          "symbol": "PublicUrls.Tag"
+        },
+        {
+          "node": "PageNumber.TryRead",
+          "code": "PortfolioBlog.Api/Pages/PageNumber.cs",
+          "symbol": "PageNumber.TryRead"
+        },
+        {
+          "node": "PublicQueries.ByTagAsync",
+          "code": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "symbol": "PublicQueries.ByTagAsync"
+        },
+        {
+          "node": "ErrorResponses",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.WriteAsync"
+        },
+        {
+          "node": "OverloadExceptionHandler",
+          "code": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+          "symbol": "OverloadExceptionHandler.IsOverload"
+        },
+        {
+          "node": "Tag.cshtml",
+          "code": "PortfolioBlog.Api/Pages/Tag.cshtml"
+        }
+      ],
+      "status": "CONFIRMED"
+    }
+  ],
+  "unknowns": [
+    "클라이언트 연결 종료로 CancellationToken이 취소될 때(OperationCanceledException) 최종 응답 상태와 로깅 동작은 코드에서 확인하지 못했다.",
+    "57014·55P03이 아닌 DB 예외(연결 실패, 공개 롤 권한 누락 등)가 공개 경로에서 날 때 응답 본문 형식(AddProblemDetails + UseExceptionHandler 조합의 ProblemDetails인지, ErrorResponses의 HTML인지)을 확인하지 못했다.",
+    "경로 세그먼트 안의 인코딩된 슬래시(%2F)가 {tag} 라우트 값으로 어떻게 디코딩·매칭되는지 확인하지 못했다. 태그 이름에는 CK_Tags_Name_NoSlash 제약으로 '/'가 없다.",
+    "공개 전용 DB 롤(ConnectionStrings:Public, PublicRoleGrants)을 설정했을 때 Tags/Posts/PostTags SELECT 권한이 이 조회를 모두 덮는지는 이 세션에서 PublicRoleGrants를 읽지 않아 확인하지 못했다."
+  ],
+  "evidence": [
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml",
+      "lines": "1-5"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+      "symbol": "TagPageModel.OnGetAsync",
+      "lines": "21-73"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.ByTagAsync",
+      "lines": "61-68"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+      "symbol": "PublicQueries.PageAsync",
+      "lines": "239-262"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/PublicDbContext.cs",
+      "symbol": "PublicDbContext.BuildConnectionString",
+      "lines": "46-62"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Data/TagResolver.cs",
+      "symbol": "TagResolver.Normalize",
+      "lines": "34-48"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/PublicUrls.cs",
+      "symbol": "PublicUrls.Tag",
+      "lines": "52-53"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PageNumber.cs",
+      "symbol": "PageNumber.TryRead",
+      "lines": "30-43"
+    },
+    {
+      "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+      "symbol": "PublicPageConvention.Apply",
+      "lines": "32-41"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/OverloadExceptionHandler.cs",
+      "symbol": "OverloadExceptionHandler",
+      "lines": "35-70"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+      "symbol": "ErrorResponses.WriteAsync",
+      "lines": "45-77"
+    },
+    {
+      "file": "PortfolioBlog.Api/Infrastructure/Web/RateLimitingExtensions.cs",
+      "symbol": "RateLimitingExtensions.BuildChain",
+      "lines": "88-101"
+    },
+    {
+      "file": "PortfolioBlog.Api/Program.cs",
+      "lines": "98-123"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "symbol": "PublicPagesTests.Tag_And_Series_Pages",
+      "lines": "169-194"
+    },
+    {
+      "file": "PortfolioBlog.Api.Tests/Features/PublicPagesTests.cs",
+      "symbol": "PublicPagesTests.Missing_Is404Html_WithoutReflection",
+      "lines": "102-125"
+    }
+  ],
+  "history": []
+}

@@ -1,0 +1,162 @@
+{
+  "score": {
+    "coverage": 92,
+    "accuracy": 88
+  },
+  "hallucinations": [
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "summary",
+      "type": "DIAGRAM_DESCRIPTION_MISMATCH",
+      "description": "요약은 'F008_FLOW 다이어그램에서 UpdateAsync는 먼저 글 조회 노드(LoadPost)로 가고, 거기서 404 노드(NotFound404)로 갈라진 뒤에야 검증 노드(PostValidation)에 닿는다. 검증 400, version 409, 렌더 400/503, slug 409도 각각 별도 노드다. PostEndpoints에서 검증으로 곧장 가는 간선이나, 검증에서 트랜잭션으로 곧장 가는 간선은 없다'고 적는다. 실제 F008_FLOW mermaid 본문에는 LoadPost·NotFound404·PostValidation·version 409·렌더 400/503·slug 409 노드가 하나도 없고, 오히려 `PostEndpoints --> Validate[TagResolver.Validate]`와 `Validate -->|통과| BeginTransaction` 간선이 그대로 있다. 요약이 존재하지 않는 다이어그램 구조를 설명한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-212"
+        }
+      ]
+    },
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "unknowns",
+      "type": "DIAGRAM_DESCRIPTION_MISMATCH",
+      "description": "unknowns의 마지막 항목은 '다이어그램에는 LoadPost(Posts.Include PostTags SingleOrDefaultAsync)와 NotFound404(404 NotFound) 노드가 검증 노드 앞에 있다'고 수정 완료를 주장하지만, 현재 F008_FLOW mermaid에는 두 노드가 없다. 수정이 반영되지 않았는데 반영됐다고 적었다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-190"
+        }
+      ]
+    },
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "F008_FLOW",
+      "type": "DIAGRAM_DESCRIPTION_MISMATCH",
+      "description": "F008_FLOW의 설명 문단('UpdateAsync는 ...글을 먼저 조회한다(LoadPost). null이면 NotFound404로 끝나고 ... PostEndpoints에서 검증으로, 또는 검증에서 트랜잭션으로 곧장 가는 간선은 없다')과 코드 근거 표(Posts.Include PostTags SingleOrDefaultAsync, 404 NotFound, post.Version 비교, RenderOrAddErrorAsync, OverloadExceptionHandler 503, Posts.AnyAsync Slug, StaleVersion)가 mermaid 본문에 없는 노드·간선을 설명한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync / UpdateAsync",
+          "lines": "126-139, 189-213"
+        }
+      ]
+    }
+  ],
+  "missingItems": [
+    {
+      "document": "09_FEATURES.md",
+      "section": "dependencies",
+      "type": "INCONSISTENT_DEPENDENCY",
+      "description": "09_FEATURES 의존 표는 F008의 의존을 'F001, F029'로만 적지만, F008 문서와 코드는 /api/tags 요청이 모두 AdminSurfaceMiddleware(F018)를 거치고 오류가 UseExceptionHandler·OverloadExceptionHandler·UseStatusCodePages(F020)로 처리됨을 보인다. F008 문서의 의존(F001·F018·F020·F029)과 목록 문서가 서로 다르다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 100-104"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "F008_FLOW",
+      "type": "CALL_ORDER",
+      "description": "다이어그램은 PostEndpoints가 곧장 검증으로 가고 검증 통과 시 곧장 BeginTransactionAsync로 간다고 그린다. 실제 코드: UpdateAsync는 검증 전에 Posts.Include(PostTags).SingleOrDefaultAsync로 글을 조회해 없으면 404(189-190), 검증(192-197) 뒤 post.Version != req.Version이면 StaleVersion 409(201), RenderOrAddErrorAsync(206-207, 400 또는 RenderBusyException→503) 후에야 트랜잭션(212)을 연다. CreateAsync도 검증(126-128) → 렌더(133-134) → slug 사전 검사 409(136) → 트랜잭션(138) 순이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "126-139"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-213"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "diagram": "F008_FLOW",
+      "section": "F008_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "간선 `PostEndpoints --> Validate`와 `Validate -->|통과| BeginTransaction`이 코드와 다르다. UpdateAsync의 글 조회·404(189-190), version 사전 비교 409(201), RenderOrAddErrorAsync 400/503(133-134, 206-207), CreateAsync의 slug 사전 검사 409(136)가 검증과 트랜잭션 사이·앞에 있는데 다이어그램에 빠져 있다. 또한 검증 노드 라벨이 TagResolver.Validate인데 실제 검증 단계는 PostValidation.Validate(+ ValidateSeriesAsync, 수정 시 slug·version 검사)이며 TagResolver.Validate는 그 일부다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync / UpdateAsync",
+          "lines": "124-213"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostValidation.cs",
+          "symbol": "PostValidation.Validate",
+          "lines": "50"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "F008_FLOW",
+      "issue": "mermaid 본문에 LoadPost(Posts.Include PostTags SingleOrDefaultAsync)→NotFound404, PostValidation 400, version StaleVersion 409, RenderOrAddErrorAsync 400/503, Create slug AnyAsync 409 노드를 넣고 `PostEndpoints --> Validate`·`Validate -->|통과| BeginTransaction` 직행 간선을 제거해 설명 문단·코드 근거 표와 일치시킨다(노드 수가 넘치면 ResolveIdsAsync 내부 노드는 F008_FLOW_RESOLVE로 넘긴다). section=F008_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-213"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.CreateAsync",
+          "lines": "126-139"
+        }
+      ]
+    },
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "summary",
+      "issue": "F008_FLOW 다이어그램 구조를 설명하는 문장(LoadPost·NotFound404 노드, 직행 간선 없음)을 실제 수정된 다이어그램과 맞추거나, 다이어그램을 고치지 않는다면 삭제한다. section=summary",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-190"
+        }
+      ]
+    },
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "unknowns",
+      "issue": "'다이어그램에는 LoadPost와 NotFound404 노드가 검증 노드 앞에 있다'는 수정 완료 주장이 현재 다이어그램과 다르므로 다이어그램 수정 후에만 남기거나 제거한다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-190"
+        }
+      ]
+    },
+    {
+      "doc": "09_FEATURES.md",
+      "section": "dependencies",
+      "issue": "F008 행의 의존 기능을 F008 문서·코드와 같게 F001, F018, F020, F029로 맞춘다. section=dependencies",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 100-104"
+        }
+      ]
+    }
+  ]
+}

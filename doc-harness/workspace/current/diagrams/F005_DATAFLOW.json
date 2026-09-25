@@ -1,0 +1,52 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "flowchart LR\n    localStorage[\"localStorage pb.draft.v1 key\"] --> loadDraft[\"drafts.ts loadDraft isDraft\"]\n    loadDraft --> pendingDraft[\"Editor pendingDraft Draft\"]\n    pendingDraft --> replaceAll[\"Editor replaceAll setFields\"]\n    replaceAll --> fields[\"Editor fields with baseVersion savedAt\"]\n    fields --> set[\"Editor set prev spread\"]\n    set --> fields\n    fields --> submit[\"Editor submit save.mutate\"]\n    submit --> endpoints[\"endpoints.ts posts.create or posts.update\"]\n    endpoints --> request[\"client.ts request JSON.stringify\"]\n    fields --> settled[\"useDebounced settled\"]\n    settled --> saveDraft[\"drafts.ts saveDraft baseVersion savedAt overwritten\"]\n    saveDraft --> localStorage\n    onSuccess[\"Editor save.onSuccess setFields prev fromServer\"] --> fields\n    onTakeServer[\"ConflictPanel onTakeServer fromServer\"] --> fields",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "localStorage",
+      "code": "PortfolioBlog.Web/src/lib/drafts.ts"
+    },
+    {
+      "node": "loadDraft",
+      "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "loadDraft"
+    },
+    {
+      "node": "pendingDraft",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.pendingDraft"
+    },
+    {
+      "node": "replaceAll",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.replaceAll"
+    },
+    {
+      "node": "fields",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor fields"
+    },
+    {
+      "node": "submit",
+      "code": "PortfolioBlog.Web/src/pages/PostEditorPage.tsx",
+      "symbol": "Editor.submit"
+    },
+    {
+      "node": "settled",
+      "code": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+      "symbol": "useDebounced"
+    },
+    {
+      "node": "saveDraft",
+      "code": "PortfolioBlog.Web/src/lib/drafts.ts",
+      "symbol": "saveDraft"
+    },
+    {
+      "node": "onTakeServer",
+      "code": "PortfolioBlog.Web/src/components/ConflictPanel.tsx",
+      "symbol": "onTakeServer"
+    }
+  ],
+  "reason": "기존 다이어그램의 간선은 현재 코드 흐름과 여전히 맞다. 후보가 더한 request --> UpsertPostRequest 간선은 서버 DTO가 baseVersion·savedAt을 무시한다는 추론에 기대는데, 이 추론은 프레임워크 기본 동작에 의존하고 저장소 코드로는 확인되지 않는다. 이 다이어그램은 클라이언트 측 임시본 데이터 흐름이 범위이고, 서버 DTO 노드를 넣으면 범위가 넓어진다. 그래서 원본을 그대로 둔다."
+}

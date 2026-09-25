@@ -1,0 +1,15 @@
+{
+  "$id": "data.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "entities": { "type": "array", "items": { "type": "object", "additionalProperties": false,
+      "properties": { "name": { "type": "string" }, "table": { "type": "string" }, "file": { "type": "string" },
+        "fields": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "name": { "type": "string" }, "type": { "type": "string" }, "constraints": { "$ref": "common.schema.json#/$defs/stringList" } }, "required": ["name", "type", "constraints"] } },
+        "keys": { "$ref": "common.schema.json#/$defs/stringList" }, "indexes": { "$ref": "common.schema.json#/$defs/stringList" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["name", "file", "fields", "keys", "indexes", "status", "evidence"] } },
+    "relations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "cardinality": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } }, "required": ["from", "to", "cardinality", "status", "evidence"] } },
+    "dtos": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "name": { "type": "string" }, "file": { "type": "string" }, "usedBy": { "$ref": "common.schema.json#/$defs/stringList" }, "status": { "$ref": "common.schema.json#/$defs/status" } }, "required": ["name", "file", "usedBy", "status"] } },
+    "migrations": { "$ref": "common.schema.json#/$defs/claimList" }, "transactions": { "$ref": "common.schema.json#/$defs/claimList" },
+    "diagrams": { "$ref": "common.schema.json#/$defs/diagramList" }, "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["entities", "relations", "dtos", "migrations", "transactions", "diagrams", "unknowns"]
+}

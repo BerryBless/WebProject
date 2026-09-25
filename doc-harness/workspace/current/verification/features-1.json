@@ -1,0 +1,91 @@
+{
+  "score": {
+    "coverage": 95,
+    "accuracy": 97
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [
+    {
+      "document": "09_FEATURES.md",
+      "section": "dependencies",
+      "type": "INCOMPLETE_DEPENDENCY",
+      "description": "기능 간 의존 표가 코드와 개별 기능 문서보다 좁다. F008은 F001·F029만 적혀 있다. 그러나 코드에서는 모든 /api/tags 요청이 AdminSurfaceMiddleware(F018, Program.cs 104행)를 거치고, 오류 응답은 UseExceptionHandler·OverloadExceptionHandler·UseStatusCodePages(F020, Program.cs 43·100·101행)가 만든다. F008 문서도 의존을 F001·F018·F020·F029로 보정했다고 적고 있다. F006은 F003만 적혀 있다. 그러나 PostEndpoints.UpdateAsync는 RenderGate와 RenderedPostCache.Store(F011)를 직접 쓰고, /api 요청은 AdminSurfaceMiddleware(F018)를 거친다. F006 문서의 의존 기능 목록은 F001·F003·F005·F007·F008·F011·F018·F020·F029다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 100-108"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "206, 243"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.InvokeAsync",
+          "lines": "67-96"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "diagram": "F008_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "요약에는 'F008_FLOW 다이어그램은 이 분기를 각각 별도 노드로 담았다'고 적혀 있고, 여기서 말하는 분기에는 UpdateAsync의 글 조회(404)도 들어간다. 그러나 실제 다이어그램에는 404 노드가 없고, PostEndpoints가 곧바로 TagResolver.Validate로 이어진다. 코드의 UpdateAsync는 검증 전에 db.Posts.Include(PostTags).SingleOrDefaultAsync로 글을 조회하고, 글이 없으면 NotFound를 반환한다(189-190행). 따라서 Update 경로에서 PostEndpoints→Validate 간선은 실제 순서의 첫 분기를 빠뜨린 것이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-197"
+        }
+      ],
+      "section": "F008_FLOW"
+    }
+  ],
+  "unsupportedClaims": [],
+  "fixRequired": [
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "F008_FLOW",
+      "issue": "UpdateAsync 경로에 글 조회(SingleOrDefaultAsync)와 404 분기 노드를 검증 앞에 넣는다. 또는 요약의 '이 분기를 각각 별도 노드로 담았다'는 문장을 실제 다이어그램에 맞게 고친다. section=F008_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-190"
+        }
+      ]
+    },
+    {
+      "doc": "features/F008_ADMIN_TAG_MANAGEMENT.md",
+      "section": "summary",
+      "issue": "'F008_FLOW 다이어그램은 이 분기를 각각 별도 노드로 담았다'는 문장이 틀렸다(404 노드가 없다). 다이어그램을 고친 뒤 문장을 맞추거나 문장을 정정한다. section=summary",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "189-190"
+        }
+      ]
+    },
+    {
+      "doc": "09_FEATURES.md",
+      "section": "dependencies",
+      "issue": "F008 의존에 F018·F020을, F006 의존에 F011·F018(및 개별 문서의 나머지 의존)을 추가해 개별 기능 문서·코드와 일치시킨다. section=dependencies",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "43, 100-108"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.UpdateAsync",
+          "lines": "206, 243"
+        }
+      ]
+    }
+  ]
+}

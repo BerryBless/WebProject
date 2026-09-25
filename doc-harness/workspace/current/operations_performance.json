@@ -1,0 +1,210 @@
+{
+  "items": [
+    {
+      "id": "PERF001",
+      "title": "검색이 ILIKE '%term%'로 본문 전체를 선형 스캔한다",
+      "classification": "POTENTIAL_RISK",
+      "description": "공개 검색(PublicQueries.SearchAsync)과 관리 목록 검색(PostEndpoints.ListAsync)은 Title·Summary·ContentMarkdown에 앞뒤 와일드카드 ILIKE를 OR로 건다. 일반 B-tree 인덱스로는 탐색할 수 없어 글 수와 본문 크기에 비례해 풀스캔한다. PageAsync는 같은 조건으로 COUNT와 목록 SELECT를 따로 실행하므로 스캔이 두 번 일어난다. 방어책은 statement_timeout(약 3초), SearchConcurrency(4), 분당 IP 한도, 503 변환이다. 글이 적은 개인 블로그에서는 문제가 되지 않지만 규모가 커지면 타임아웃과 503이 늘어난다.",
+      "recommendation": "글이 늘어나면 pg_trgm GIN 인덱스나 to_tsvector 전문 검색으로 바꾼다. 검색 결과의 총 개수는 상한을 두거나 생략하는 것도 검토한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "89-92",
+          "symbol": "PublicQueries.SearchAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "250-258",
+          "symbol": "PublicQueries.PageAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "78-81",
+          "symbol": "PostEndpoints.ListAsync"
+        }
+      ],
+      "featureIds": [
+        "F014",
+        "F002"
+      ]
+    },
+    {
+      "id": "PERF002",
+      "title": "렌더가 취소·타임아웃이 없는 동기 CPU 작업이라 슬롯을 오래 점유할 수 있다",
+      "classification": "POTENTIAL_RISK",
+      "description": "RenderGate 뒤의 Markdig 렌더는 시작하면 취소할 수 없다. 적대적 입력에서는 문서상 최대 약 8.5초가 걸리며, 그동안 동시성 슬롯(기본 2)과 스레드를 쓴다. 슬롯이 다 차면 다른 렌더는 5초 뒤 RenderBusyException이 되어 503이 된다. 이 503은 공개 글 캐시 미스, 저장, 미리보기에 모두 영향을 준다. 방어는 입력 크기 상한(200KB), 중첩 한도 128, 코드 강조 예산(블록 250ms·문서 2초·60,000자), 미리보기 동시성·분당 한도다.",
+      "recommendation": "파서 단계에 벽시계 상한을 두거나 렌더를 별도 프로세스·워커로 분리하는 것을 검토한다. 공개 렌더와 관리 미리보기의 슬롯을 분리하면 미리보기가 공개 글 렌더를 굶기는 일을 막을 수 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderGate.cs",
+          "symbol": "RenderGate.RenderAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "136-151",
+          "symbol": "RenderedPostCache.RenderAndStoreAsync"
+        }
+      ],
+      "featureIds": [
+        "F004",
+        "F011",
+        "F013",
+        "F003"
+      ]
+    },
+    {
+      "id": "PERF003",
+      "title": "캐시 상한 초과 시 신규 항목이 조용히 거부되어 재렌더가 반복될 수 있다",
+      "classification": "POTENTIAL_RISK",
+      "description": "RenderedPostCache의 MemoryCache는 SizeLimit을 넘으면 축출하지 않고 Set을 거부한다. 압축은 비동기라 지연되므로 그동안 새 글은 요청마다 다시 렌더된다. 로그나 메트릭이 없어 관측할 수 없다. 코드 주석은 비용을 RenderGate가 제한한다고 판단한다. 또 항목 수명이 24시간이고 키에 xmin이 들어가서, 글을 수정하면 옛 버전 항목이 만료까지 남아 상한을 채운다.",
+      "recommendation": "Store가 거부된 경우를 세는 카운터나 로그를 추가한다. 글 수정·삭제 때 이전 (Id, xmin) 항목을 제거하는 것을 검토한다. CacheMegabytes는 글 수 대비 여유 있게 잡는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/RenderedPostCache.cs",
+          "lines": "27-35, 115-122",
+          "symbol": "RenderedPostCache.Store"
+        }
+      ],
+      "featureIds": [
+        "F011",
+        "F013"
+      ]
+    },
+    {
+      "id": "PERF004",
+      "title": "저장 경로에서 렌더가 DB 트랜잭션 앞에 있고, 중복 slug 검사는 렌더 뒤에 있다",
+      "classification": "IMPROVEMENT",
+      "description": "글 생성은 slug 중복 검사(409)를 렌더 뒤에 한다. 그래서 slug가 중복된 요청도 렌더 CPU와 렌더 슬롯을 먼저 쓴다. 다행히 렌더는 트랜잭션 밖이라 DB 연결을 붙잡지 않는다. 관리 API는 인증된 관리자만 부르므로 위험은 낮다.",
+      "recommendation": "slug 사전 검사를 렌더 앞으로 옮겨 실패하는 요청이 렌더 슬롯을 쓰지 않게 한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "lines": "128-136",
+          "symbol": "PostEndpoints.CreateAsync"
+        }
+      ],
+      "featureIds": [
+        "F003"
+      ]
+    },
+    {
+      "id": "PERF005",
+      "title": "목록 페이지가 범위를 넘어도 COUNT와 SELECT를 모두 실행한 뒤 404를 낸다",
+      "classification": "IMPROVEMENT",
+      "description": "마지막 쪽을 넘는 page(예: 글 21개일 때 page=3)는 형식 검사(1..500, 검색은 1..50)는 통과한다. 그래서 COUNT와 목록 SELECT를 실행한 뒤에야 404가 된다. 쪽 수 상한 때문에 비용은 한정적이고 IP별 분당 한도도 있다.",
+      "recommendation": "COUNT를 먼저 실행해 범위를 벗어나면 목록 SELECT를 건너뛴다. 또는 COUNT와 목록을 한 쿼리로 합치는 방안도 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "250-258",
+          "symbol": "PublicQueries.PageAsync"
+        }
+      ],
+      "featureIds": [
+        "F012",
+        "F014",
+        "F016"
+      ]
+    },
+    {
+      "id": "PERF006",
+      "title": "피드·사이트맵·태그 목록이 요청마다 DB를 조회하고 응답 캐시가 없다",
+      "classification": "IMPROVEMENT",
+      "description": "SitemapAsync는 요청마다 SELECT 3회(각 상한 SitemapMax)를 실행한다. 피드도 요청마다 DB를 조회한다. 크롤러가 자주 부르는 경로인데 page-ip 한도(분당 120)만 있다. 공개 글 본문은 RenderedPostCache가 있지만 이 경로들에는 캐시가 없다. 앞단 Caddy에서 캐시하는지는 확인하지 못했다.",
+      "recommendation": "짧은 TTL의 메모리 캐시나 ETag/Cache-Control을 추가하고, 글 변경 때 무효화한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/PublicQueries.cs",
+          "lines": "210-218",
+          "symbol": "PublicQueries.SitemapAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.FeedAsync"
+        }
+      ],
+      "featureIds": [
+        "F017"
+      ]
+    },
+    {
+      "id": "PERF007",
+      "title": "첨부 업로드는 같은 sha256 조회에 advisory lock을 쓰며 전용 연결을 점유한다",
+      "classification": "POTENTIAL_RISK",
+      "description": "AttachmentLock.HoldAsync는 같은 해시의 동시 업로드를 직렬화하려고 전용 DB 연결을 열고 pg_advisory_lock을 건다. 대기는 lock_timeout 10초이고, 초과하면 503이다. 해제(pg_advisory_unlock)가 실패하면 연결만 닫으므로 풀의 물리 연결에서 잠금이 늦게 풀릴 수 있다(코드 주석). 관리자 전용 경로라 동시성이 낮아 실제 위험은 작다. 다만 대기 중에는 풀 연결 하나를 최대 10초 쓴다.",
+      "recommendation": "연결 풀 크기가 관리 동시 업로드 수보다 충분한지 확인한다. 해제 실패 시 연결을 풀로 돌려보내지 말고 폐기(Pooling 우회)하는 방안을 검토한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "symbol": "AttachmentLock.HoldAsync"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/AttachmentEndpoints.cs",
+          "symbol": "AttachmentEndpoints.UploadAsync"
+        }
+      ],
+      "featureIds": [
+        "F009"
+      ]
+    },
+    {
+      "id": "PERF008",
+      "title": "첨부 서빙이 요청마다 DB를 조회하고 파일 스트림을 연다",
+      "classification": "IMPROVEMENT",
+      "description": "PublicAttachmentEndpoints.GetAsync는 매 요청마다 Attachments 행을 조회한 뒤 FileStream을 연다. 첨부는 내용 주소(sha256)라 내용이 바뀌지 않는데도 DB 왕복이 필요하다. 조회 한도는 asset-ip 분당 600이고, 없는 id의 404도 그 한도를 쓴다. 캐시 헤더 설정 여부는 이번 조사에서 코드로 확인하지 못했다(404 응답에는 없음).",
+      "recommendation": "(id → 경로·타입) 메타를 짧게 메모리 캐시한다. 정상 응답에는 ETag와 Cache-Control: immutable을 붙여 Caddy와 브라우저가 캐시하게 한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints.GetAsync"
+        }
+      ],
+      "featureIds": [
+        "F010"
+      ]
+    },
+    {
+      "id": "PERF009",
+      "title": "로그인·세션 검증이 요청마다 AdminStates를 조회한다",
+      "classification": "IMPROVEMENT",
+      "description": "SessionValidator.ValidateAsync는 쿠키가 붙은 관리 요청마다 AdminStates를 SingleAsync로 조회해 epoch를 비교한다. 이는 로그아웃 시 다른 세션을 즉시 폐기하기 위한 설계로 보인다. 관리자 한 명의 트래픽이라 부하는 작다. 그러나 DB가 느려지면 모든 관리 요청이 이 경로에서 함께 실패한다.",
+      "recommendation": "현재 규모에서는 조치가 필요 없다. 필요하면 epoch를 몇 초 단위 메모리 캐시로 두고 로그아웃 시 즉시 갱신한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+          "symbol": "SessionValidator.ValidateAsync"
+        }
+      ],
+      "featureIds": [
+        "F001"
+      ]
+    },
+    {
+      "id": "PERF010",
+      "title": "클라이언트 미리보기는 디바운스와 취소로 서버 부하를 줄인다",
+      "classification": "IMPROVEMENT",
+      "description": "PreviewPane은 useDebounced로 입력을 모아 보내고, 이전 요청은 AbortController로 취소하며, 실패해도 직전 성공 HTML을 유지한다. 다만 취소는 클라이언트 연결만 끊는다. 서버에서 이미 시작한 렌더는 취소되지 않고 미리보기 슬롯을 계속 점유한다(PERF002). 빠르게 타이핑하면 서버 쪽 슬롯이 밀리고 429·503이 생길 수 있다.",
+      "recommendation": "디바운스 간격을 늘리거나, 응답 대기 중에는 새 요청을 보내지 않고 마지막 입력만 큐에 두는 방식을 검토한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/components/PreviewPane.tsx",
+          "symbol": "PreviewPane"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/lib/useDebounced.ts",
+          "symbol": "useDebounced"
+        }
+      ],
+      "featureIds": [
+        "F004"
+      ]
+    }
+  ],
+  "summary": "성능 위험은 대부분 이미 방어되어 있다. 잘 처리된 부분은 다음과 같다. 목록 쿼리는 태그를 서브쿼리로 내장해 N+1이 없고, 본문을 뺀 프로젝션만 가져온다. 공개 DB 조회는 statement_timeout과 lock_timeout을 걸고 57014·55P03을 503+Retry-After로 바꾼다. 코드에서 .Result/.Wait 같은 동기 블로킹 호출은 발견되지 않았다. 동기 파일 I/O는 기동 시 probe와 백그라운드 AttachmentJanitor에만 있다. 렌더는 RenderGate로 동시 실행 수를 제한하고, RenderedPostCache가 (PostId, xmin) 키로 캐시하며 같은 키의 동시 미스를 한 번의 렌더로 합친다. 캐시는 SizeLimit이 있어 무한히 자라지 않는다. 코드 강조에는 시간·크기 예산이 있다. 이 밖에 IP별·전역 속도 제한과 검색·미리보기 동시성 제한, 요청 본문 상한(256KB, 미리보기 200KB, 첨부 10MB)이 있다. 남은 위험은 ILIKE 풀스캔 검색, 취소할 수 없는 동기 렌더, 캐시 거부 관측 부재, 공개 경로에 응답 캐시가 없는 점이다. 이 프로젝트 규모에서는 모두 낮거나 중간 수준이다.",
+  "unknowns": [
+    "실제 데이터 규모(글 수·본문 크기)와 DB 인덱스 사용 여부는 코드만으로 측정하지 못했다(EXPLAIN 미실행).",
+    "Caddy가 피드·사이트맵·첨부 응답을 캐시하는지와 첨부 200 응답의 Cache-Control 헤더 설정은 확인하지 못했다.",
+    "DB 연결 풀 크기(Maximum Pool Size)와 Rendering:Concurrency 운영값이 실제 동시 부하에 충분한지 알 수 없다.",
+    "RenderGate.cs와 PublicAttachmentEndpoints.cs는 직접 읽지 않고 기능 분석 결과에 의존했다."
+  ]
+}

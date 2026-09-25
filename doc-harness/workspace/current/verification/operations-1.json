@@ -1,0 +1,350 @@
+{
+  "score": {
+    "coverage": 76,
+    "accuracy": 87
+  },
+  "hallucinations": [
+    {
+      "document": "18_GLOSSARY.md",
+      "section": "terms",
+      "type": "WRONG_PATH",
+      "description": "RequireAuth 항목의 코드 경로 `PortfolioBlog.Web/src/routes.tsx`는 존재하지 않는다. RequireAuth 컴포넌트는 `PortfolioBlog.Web/src/auth/RequireAuth.tsx`에 있고, 라우트 정의 파일은 `PortfolioBlog.Web/src/app/routes.tsx`다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/app/routes.tsx"
+        }
+      ]
+    },
+    {
+      "document": "18_GLOSSARY.md",
+      "section": "terms",
+      "type": "WRONG_PATH",
+      "description": "ApiError의 코드 경로가 `PortfolioBlog.Web/src/api/client.ts`로 적혀 있다. 클래스는 `errors.ts` 8행 `export class ApiError`에 정의돼 있다. client.ts는 `new ApiError(0, '네트워크 오류')`로 던지기만 한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "symbol": "ApiError",
+          "lines": "8-24"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/client.ts",
+          "lines": "66"
+        }
+      ]
+    },
+    {
+      "document": "13_SECURITY.md",
+      "section": "SECURITY_TRUST_BOUNDARY",
+      "type": "WRONG_PATH",
+      "description": "코드 근거 표에서 Caddyfile의 경로가 `Caddyfile`(저장소 루트)로 적혀 있다. 저장소에 있는 파일은 `deploy/Caddyfile` 하나뿐이다.",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile"
+        }
+      ]
+    }
+  ],
+  "missingItems": [
+    {
+      "document": "14_PERFORMANCE.md",
+      "section": "details",
+      "type": "MISSING_EXISTING_IMPLEMENTATION",
+      "description": "PERF008은 첨부 서빙의 '캐시 헤더는 코드로 확인하지 못했다'고 쓰고 'ETag와 Cache-Control: immutable'을 권고한다. 그러나 GetAsync는 200 응답에 이미 `Cache-Control: public, max-age=31536000, immutable`과 강한 ETag(sha256), Last-Modified를 싣는다. unknowns의 '첨부 200 응답의 Cache-Control 확인 못함'도 코드로 확정할 수 있는 항목이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "symbol": "PublicAttachmentEndpoints.GetAsync",
+          "lines": "106-112"
+        }
+      ]
+    },
+    {
+      "document": "14_PERFORMANCE.md",
+      "section": "details",
+      "type": "MISSING_EXISTING_IMPLEMENTATION",
+      "description": "PERF006은 피드·사이트맵의 응답 캐시가 없다고 보고 'ETag/Cache-Control'을 권고한다. 그러나 FeedAsync·SitemapAsync는 이미 `Cache-Control: public, max-age=300`을 설정하고, highlight.css는 `max-age=86400`을 설정한다. 없는 것은 서버측 메모리 캐시와 ETag뿐이다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "68, 141, 179"
+        }
+      ]
+    },
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "section": "details",
+      "type": "MISSING_FAILURE_PATH",
+      "description": "앱 기동 실패 경로가 오류 처리 문서에 없다. StartupValidation 위반, EnsureRootIsWritable, Migrate, PublicRoleGrants.Apply 실패는 try/catch 없이 프로세스를 종료시킨다. 백그라운드 AttachmentJanitor의 스윕 실패(LogError 후 다음 주기)도 빠져 있다. 문서 caveats는 '워크스페이스 발췌가 잘렸다'며 F017 이후를 제외했지만 이 경로들은 코드에 있다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76-91"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "symbol": "AttachmentJanitor.ExecuteAsync",
+          "lines": "48-66"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "section": "ERR_FLOW",
+      "type": "INCORRECT_CALL_RELATION",
+      "description": "설명문은 '앞단 미들웨어와 엔드포인트의 4xx는 ErrorResponses가 본문을 채운다'고 한다. 코드에서 ErrorResponses를 거치는 것은 ApiBodyLimitMiddleware의 413(직접 WriteAsync 호출)과 본문 없는 상태 코드(429 등, UseStatusCodePages 경유)뿐이다. AdminSurfaceMiddleware는 `Results.Problem(...).ExecuteAsync`로 본문을 직접 쓴다. DbConflict.Problem은 `TypedResults.Problem`으로 본문이 있는 409를 반환하므로 UseStatusCodePages(ErrorResponses)가 관여하지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.Reject",
+          "lines": "112-113"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.Problem",
+          "lines": "50-51"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ErrorResponses.cs",
+          "symbol": "ErrorResponses.HandleStatusCodeAsync",
+          "lines": "30-31"
+        }
+      ]
+    },
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "section": "details",
+      "type": "INCORRECT_LINE_REFERENCE",
+      "description": "ERR015는 MarkdownRenderer.RenderDetailed의 null·UTF-8 한도 검사가 '138-143행 부근'이라고 한다. 실제 검사는 113-117행(ThrowIfNull, GetByteCount > MaxInputBytes → ArgumentException)이다. 138-143행은 try 안의 ArgumentException을 MarkdownTooComplexException으로 바꾸는 catch다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "symbol": "MarkdownRenderer.RenderDetailed",
+          "lines": "113-117, 138-143"
+        }
+      ]
+    },
+    {
+      "document": "13_SECURITY.md",
+      "section": "evidence",
+      "type": "INCORRECT_LINE_REFERENCE",
+      "description": "`PortfolioBlog.Api/Program.cs 34-42, 115-124`를 'HostFiltering, RequireHost'의 근거로 든다. Program.cs 115-124행은 /health MapGet과 Map* 호출일 뿐이고 RequireHost가 없다. RequireHost는 ApiEndpoints.cs 39행과 SiteEndpoints.cs 71-80행에 있다. 공개 Razor 페이지는 PublicPageConvention의 HostAttribute를 쓴다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "115-124"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "71-80"
+        }
+      ]
+    }
+  ],
+  "diagramIssues": [
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "diagram": "ERR_FLOW",
+      "section": "ERR_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "간선 `AdminSurfaceMiddleware --> ErrorResponses`가 틀렸다. AdminSurfaceMiddleware는 거부 시 ErrorResponses를 부르지 않고 `Results.Problem(...).ExecuteAsync(context)`로 ProblemDetails 본문을 직접 쓴다. 본문이 이미 있으므로 UseStatusCodePages도 동작하지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "symbol": "AdminSurfaceMiddleware.Reject",
+          "lines": "112-113"
+        }
+      ]
+    },
+    {
+      "document": "10_ERROR_HANDLING.md",
+      "diagram": "ERR_FLOW",
+      "section": "ERR_FLOW",
+      "type": "INCORRECT_DIAGRAM_RELATION",
+      "description": "간선 `DbConflict -->|409| ErrorResponses`가 틀렸다. DbConflict.Problem은 `TypedResults.Problem(statusCode: 409, title: \"충돌\", detail)`로 본문이 있는 결과를 엔드포인트에 돌려준다. ErrorResponses(StatusCodePages 콜백)는 본문 없는 응답에만 쓰이므로 이 경로에 관여하지 않는다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "symbol": "DbConflict.Problem",
+          "lines": "50-51"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "101"
+        }
+      ]
+    }
+  ],
+  "unsupportedClaims": [
+    {
+      "document": "19_UNKNOWN_AND_TODO.md",
+      "section": "unknowns",
+      "type": "STALE_UNKNOWN",
+      "description": "Architecture 절은 'ApiBodyLimitMiddleware의 실제 바이트 한도 값과 초과 시 상태 코드는 확인하지 않았다(주석상 413 추정)'고 한다. 18_GLOSSARY unknowns도 같은 값을 모른다고 한다. 그러나 코드에 `JsonLimitBytes = 262_144`와 413 응답이 명시돼 있고, 10_ERROR_HANDLING도 256KB·413으로 기술한다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.JsonLimitBytes",
+          "lines": "21, 47-51, 84"
+        }
+      ]
+    },
+    {
+      "document": "19_UNKNOWN_AND_TODO.md",
+      "section": "unknowns",
+      "type": "STALE_UNKNOWN",
+      "description": "보안 절은 'Caddyfile과 배포 헤더는 입력 목록에 없어 에지 측 방어를 확인하지 못했다'고 한다. 그러나 13_SECURITY.md는 deploy/Caddyfile의 줄 범위를 근거로 에지 제한(/api 404, 405, 64KB/11MiB, CIDR 404, 폴백 :80/:443 404)을 기술하며, 이 내용은 코드와 일치한다.",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile",
+          "lines": "36-44, 87-98, 181-193"
+        }
+      ]
+    }
+  ],
+  "fixRequired": [
+    {
+      "doc": "10_ERROR_HANDLING.md",
+      "section": "ERR_FLOW",
+      "issue": "AdminSurfaceMiddleware→ErrorResponses와 DbConflict→ErrorResponses 간선을 지운다. 두 곳 모두 ProblemDetails를 직접 쓴다는 점을 반영하고, 설명문의 '앞단 미들웨어와 엔드포인트의 4xx는 ErrorResponses가 본문을 채운다'를 413·본문 없는 상태 코드(429 등)로 한정한다. section=ERR_FLOW",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+          "lines": "112-113"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DbConflict.cs",
+          "lines": "50-51"
+        }
+      ]
+    },
+    {
+      "doc": "10_ERROR_HANDLING.md",
+      "section": "details",
+      "issue": "ERR015의 null·UTF-8 한도 검사 줄 번호를 138-143에서 113-117로 고친다. section=details",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Markdown/MarkdownRenderer.cs",
+          "lines": "113-117"
+        }
+      ]
+    },
+    {
+      "doc": "14_PERFORMANCE.md",
+      "section": "details",
+      "issue": "PERF008을 고친다. 첨부 200 응답에는 이미 Cache-Control immutable(1년)·강한 ETag·Last-Modified가 있으므로, 남는 비용은 매 요청 DB 조회뿐이라고 적는다. PERF006에는 피드·사이트맵의 Cache-Control max-age=300이 이미 있다는 사실을 넣는다. section=details",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "106-112"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "141, 179"
+        }
+      ]
+    },
+    {
+      "doc": "14_PERFORMANCE.md",
+      "section": "unknowns",
+      "issue": "'첨부 200 응답의 Cache-Control 헤더 설정은 확인하지 못했다'를 지운다. 코드에서 확인된다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "108"
+        }
+      ]
+    },
+    {
+      "doc": "13_SECURITY.md",
+      "section": "SECURITY_TRUST_BOUNDARY",
+      "issue": "코드 근거 표의 Caddyfile 경로를 `deploy/Caddyfile`로 고친다. section=SECURITY_TRUST_BOUNDARY",
+      "evidence": [
+        {
+          "file": "deploy/Caddyfile"
+        }
+      ]
+    },
+    {
+      "doc": "13_SECURITY.md",
+      "section": "evidence",
+      "issue": "RequireHost 근거를 Program.cs 115-124에서 ApiEndpoints.cs 39, SiteEndpoints.cs 71-80, PublicPageConvention.cs 38로 옮긴다. section=evidence",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Features/ApiEndpoints.cs",
+          "lines": "39"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/PublicPageConvention.cs",
+          "lines": "37-39"
+        }
+      ]
+    },
+    {
+      "doc": "18_GLOSSARY.md",
+      "section": "terms",
+      "issue": "RequireAuth 경로를 `PortfolioBlog.Web/src/auth/RequireAuth.tsx`로, ApiError 경로를 `PortfolioBlog.Web/src/api/errors.ts`로 고친다. section=terms",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Web/src/auth/RequireAuth.tsx"
+        },
+        {
+          "file": "PortfolioBlog.Web/src/api/errors.ts",
+          "lines": "8"
+        }
+      ]
+    },
+    {
+      "doc": "18_GLOSSARY.md",
+      "section": "unknowns",
+      "issue": "ApiBodyLimitMiddleware 한도 값 미확인 항목을 지우고 용어 정의에 256KB(262,144바이트)·413을 반영한다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21"
+        }
+      ]
+    },
+    {
+      "doc": "19_UNKNOWN_AND_TODO.md",
+      "section": "unknowns",
+      "issue": "코드로 이미 확인된 항목을 UNKNOWN 목록에서 뺀다. ApiBodyLimitMiddleware 한도·상태 코드, 보안 절의 Caddyfile 미확인, 성능 절의 첨부 Cache-Control 미확인이 해당한다. section=unknowns",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "lines": "21, 47-51"
+        },
+        {
+          "file": "deploy/Caddyfile"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "108"
+        }
+      ]
+    },
+    {
+      "doc": "10_ERROR_HANDLING.md",
+      "section": "details",
+      "issue": "기동 실패 경로(StartupValidation·EnsureRootIsWritable·Migrate·PublicRoleGrants.Apply 예외 시 프로세스 종료)와 AttachmentJanitor 스윕 실패(LogError 후 다음 주기) 경로를 추가한다. section=details",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "76-91"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentJanitor.cs",
+          "lines": "48-66"
+        }
+      ]
+    }
+  ]
+}

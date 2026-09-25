@@ -1,0 +1,11 @@
+{
+  "$id": "failure_delta.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "newFailures": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/failureRecord" } },
+    "updatedFailures": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/failureRecord" } },
+    "troubleshooting": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/troubleshootingEntry" } },
+    "changelog": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/changelogEntry" } },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["newFailures", "updatedFailures", "troubleshooting", "changelog", "unknowns"]
+}

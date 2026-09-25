@@ -70,6 +70,7 @@ dotnet test  PortfolioBlog.slnx -c Release   # 625개 — Docker 필요(Testcont
 | [진행 기록](docs/history.md) | 단계별로 만든 것과 발견한 결함, 이 저장소가 일하는 방식 |
 | [작업일지](docs/worklog.md) | 단계별 고민과 판정, 틀렸던 것, 사용자 흐름·시퀀스·처리 흐름 다이어그램(Mermaid) |
 | [개발 하네스](docs/harness.md) | AI 협업 구성(에이전트·스킬·훅·CI·Codex 교차 검증) |
+| [생성 기술 문서](docs/generated/README.md) | 문서화 하네스가 코드를 근거로 생성·검증한 문서 61개(기능 29개 개별 문서, Mermaid 101개). `문서화`로 증분 갱신 |
 
 설계·계획 원본:
 
@@ -90,11 +91,12 @@ PortfolioBlog.slnx
 ├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers PostgreSQL
 ├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite + CodeMirror 6
 ├─ deploy/                     # docker-compose · Caddyfile · 운영 절차
-├─ docs/                       # 이 문서들 + 구현 계획
+├─ docs/                       # 이 문서들 + 구현 계획 (docs/generated/ 는 문서화 하네스 생성물)
+├─ doc-harness/                # 문서화 하네스 — `문서화` 한마디로 docs/generated 생성·증분 갱신
 ├─ plan/                       # 설계 스펙 · 실행 보고서 · 재개 가이드
 └─ .claude/ .agents/ .codex/ scripts/   # 개발 하네스
 ```
 
 ## 개발 하네스
 
-설계와 구현은 Claude Code가 진행하고 OpenAI Codex CLI가 read-only로 교차 검증합니다. 에이전트 25종·스킬 26종, 커밋 메시지 형식 훅, 쓰기 범위 훅, 자동 커밋의 비밀값 스캐너, 구조 감사 스크립트가 들어 있습니다 → [개발 하네스](docs/harness.md).
+설계와 구현은 Claude Code가 진행하고 OpenAI Codex CLI가 read-only로 교차 검증합니다. 에이전트 25종·스킬 27종, 커밋 메시지 형식 훅, 쓰기 범위 훅, 자동 커밋의 비밀값 스캐너, 구조 감사 스크립트, 그리고 코드를 근거로 기술 문서를 생성·증분 갱신하는 문서화 하네스(`doc-harness/`, 트리거 `문서화`)가 들어 있습니다 → [개발 하네스](docs/harness.md).

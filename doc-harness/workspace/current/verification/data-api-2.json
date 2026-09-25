@@ -1,0 +1,202 @@
+{
+  "score": {
+    "coverage": 90,
+    "accuracy": 94
+  },
+  "hallucinations": [],
+  "missingItems": [
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_FAILURE_PATH",
+      "description": "ApiBodyLimitMiddleware는 자체 크기 상한 메타데이터가 없는 /api 엔드포인트(로그인, 글 POST/PUT, 시리즈 POST/PUT, 미리보기 등)의 JSON 본문을 256KB(JsonLimitBytes=262_144)로 제한합니다. Content-Length가 넘으면 읽기 전에 413을 돌려주고, chunked 본문은 읽는 도중 BadHttpRequestException(413)으로 끊습니다. 업로드처럼 RequestSizeLimit을 가진 엔드포인트와 매칭 라우트가 없는 요청은 제외됩니다. 문서는 이 413을 '확인하지 못한 것'으로만 남기고 오류 열에서는 뺐습니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+          "lines": "21,36-57"
+        },
+        {
+          "file": "PortfolioBlog.Api/Program.cs",
+          "lines": "108"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_DETAIL",
+      "description": "GET / 행은 page 쿼리와 404 조건을 '추정/미확인'으로 적었지만 코드로 확인됩니다. PageNumber.TryRead(Request.Query, MaxPage=500)가 실패하거나(형식 밖 또는 500쪽 초과) page>1인데 결과가 없으면 404입니다. 조회는 PublicQueries.LatestAsync가 COUNT 1회 + 목록 SELECT 1회를 합니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+          "symbol": "IndexModel.OnGetAsync",
+          "lines": "22,49-56"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_DETAIL",
+      "description": "GET /tags/{tag}도 page 쿼리를 받습니다(PageNumber.TryRead, 상한 IndexModel.MaxPage=500). 태그가 공백뿐일 때, TagMax*4 초과·NUL 포함일 때, 정규화 후 길이가 0이거나 TagMax 초과일 때, PublicUrls.Tag가 null일 때, 태그가 없을 때, page>1인데 결과가 없을 때 모두 404입니다. 문서는 요청 열에 page를 적지 않았고 404 조건을 '추정'으로 남겼습니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "symbol": "TagPageModel.OnGetAsync",
+          "lines": "57-72"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_DETAIL",
+      "description": "GET /series/{slug}는 page 쿼리를 받지 않습니다(PageNumber 호출 없음). slug가 공백뿐이거나, SlugRules.IsValid를 통과하지 못하거나, 시리즈가 없으면 404입니다. 문서는 'page 쿼리 여부는 미열람', '404 시리즈 없음(추정)'으로 남겼습니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+          "symbol": "SeriesPageModel.OnGetAsync",
+          "lines": "37-46"
+        }
+      ]
+    },
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "MISSING_FAILURE_PATH",
+      "description": "/css/highlight.css, /feed.xml, /sitemap.xml, /robots.txt는 RequireHost(publicHost)로 등록되어 있습니다. 관리 호스트 요청은 라우팅에서 매칭되지 않아 404입니다. Razor 페이지 행에는 '비공개 호스트 404'가 있지만 이 네 행의 오류 열에는 빠져 있습니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "symbol": "SiteEndpoints.MapPublicSiteEndpoints",
+          "lines": "64-81"
+        }
+      ]
+    }
+  ],
+  "incorrectRelations": [],
+  "diagramIssues": [],
+  "unsupportedClaims": [
+    {
+      "document": "08_API.md",
+      "section": "table",
+      "type": "UNSUPPORTED_FAILURE_PATH",
+      "description": "POST /api/posts와 PUT /api/posts/{id:guid}의 오류 열에 'DB 57014/55P03 → 503'이 있지만, 이 엔드포인트들이 쓰는 관리 연결(AppDbContext)에는 statement_timeout이 설정되어 있지 않습니다. statement_timeout은 PublicDbContext 연결에만 붙고, StartupValidation은 연결 문자열의 Options를 금지합니다. lock_timeout은 AttachmentLock 안에서만 SET되며, deploy 스크립트에도 설정이 없습니다. OverloadExceptionHandler가 이 코드를 503으로 바꾸는 것은 사실이지만, 글 저장 경로에서 이 예외가 나는 코드 경로는 확인되지 않습니다. 이 엔드포인트들에서 확인된 503 원인은 RenderBusyException뿐입니다.",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Access/StartupValidation.cs",
+          "symbol": "StartupValidation.CheckConnectionString",
+          "lines": "151-169"
+        },
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Storage/AttachmentLock.cs",
+          "lines": "55"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Attachments/PublicAttachmentEndpoints.cs",
+          "lines": "74-75"
+        }
+      ]
+    }
+  ],
+  "fixRequired": [
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "POST/PUT /api/posts 오류 열의 'DB 57014/55P03 → 503'을 빼거나 '관리 연결에는 timeout이 설정되어 있지 않아 발생 경로 미확인'으로 고치고, 503 원인은 RenderBusyException으로 한정한다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Data/DataServiceCollectionExtensions.cs",
+          "lines": "34"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Posts/PostEndpoints.cs",
+          "symbol": "PostEndpoints.RenderOrAddErrorAsync",
+          "lines": "323-334"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "JSON 본문을 받는 /api 엔드포인트(login, posts POST/PUT, series POST/PUT, preview)의 오류 열에 ApiBodyLimitMiddleware의 413(256KB 초과)을 추가하고, unknowns의 해당 항목을 지운다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Infrastructure/Web/ApiBodyLimitMiddleware.cs",
+          "symbol": "ApiBodyLimitMiddleware.InvokeAsync",
+          "lines": "36-57"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "GET /, /tags/{tag}, /series/{slug} 행의 '추정·미확인' 표기를 코드 기준으로 확정한다: /와 /tags는 page 쿼리(상한 500, 형식 밖·상한 초과·page>1 빈 결과는 404), /series는 page 쿼리가 없고 slug가 공백·형식 밖이거나 시리즈가 없으면 404. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+          "lines": "49-56"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "lines": "57-72"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+          "lines": "37-46"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "details",
+      "issue": "GET /, GET /series/{slug}, GET /tags/{tag} 상세는 '미열람'이라고 적으면서 상태를 CONFIRMED로 두었다. 코드에서 확인한 검증 규칙(PageNumber.TryRead, SlugRules.IsValid, TagMax·NUL·PublicUrls.Tag 검사)으로 바꿔 쓴다. section=details",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/Index.cshtml.cs",
+          "lines": "51-53"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Tag.cshtml.cs",
+          "lines": "59-67"
+        },
+        {
+          "file": "PortfolioBlog.Api/Pages/Series.cshtml.cs",
+          "lines": "39-42"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "/css/highlight.css, /feed.xml, /sitemap.xml, /robots.txt 행의 오류 열에 'RequireHost(publicHost) 때문에 관리 호스트에서는 404'를 추가한다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Pages/SiteEndpoints.cs",
+          "lines": "71-81"
+        }
+      ]
+    },
+    {
+      "doc": "08_API.md",
+      "section": "table",
+      "issue": "GET /api/auth/me 응답을 'AuthStatusDto{Authenticated}(값은 AuthenticateAsync 결과의 Succeeded)'로 고쳐 DTO 필드 이름이 Authenticated임을 밝힌다. section=table",
+      "evidence": [
+        {
+          "file": "PortfolioBlog.Api/Contracts/AuthDtos.cs",
+          "symbol": "AuthStatusDto",
+          "lines": "5"
+        },
+        {
+          "file": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+          "lines": "40-46"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "$id": "inventory.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "project": { "type": "object", "additionalProperties": false,
+      "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } },
+      "required": ["name", "description", "status", "evidence"] },
+    "languages": { "$ref": "common.schema.json#/$defs/claimList" }, "frameworks": { "$ref": "common.schema.json#/$defs/claimList" }, "runtimes": { "$ref": "common.schema.json#/$defs/claimList" },
+    "entryPoints": { "$ref": "common.schema.json#/$defs/claimList" },
+    "directories": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "path": { "type": "string" }, "role": { "type": "string" }, "status": { "$ref": "common.schema.json#/$defs/status" } }, "required": ["path", "role", "status"] } },
+    "configs": { "$ref": "common.schema.json#/$defs/claimList" }, "environments": { "$ref": "common.schema.json#/$defs/claimList" }, "build": { "$ref": "common.schema.json#/$defs/claimList" },
+    "dependencies": { "$ref": "common.schema.json#/$defs/claimList" }, "databases": { "$ref": "common.schema.json#/$defs/claimList" }, "caches": { "$ref": "common.schema.json#/$defs/claimList" },
+    "queues": { "$ref": "common.schema.json#/$defs/claimList" }, "externalSystems": { "$ref": "common.schema.json#/$defs/claimList" }, "containers": { "$ref": "common.schema.json#/$defs/claimList" },
+    "ci": { "$ref": "common.schema.json#/$defs/claimList" }, "tests": { "$ref": "common.schema.json#/$defs/claimList" }, "scripts": { "$ref": "common.schema.json#/$defs/claimList" },
+    "migrations": { "$ref": "common.schema.json#/$defs/claimList" }, "staticResources": { "$ref": "common.schema.json#/$defs/claimList" }, "tooling": { "$ref": "common.schema.json#/$defs/claimList" },
+    "unknowns": { "$ref": "common.schema.json#/$defs/stringList" }
+  },
+  "required": ["project", "languages", "frameworks", "runtimes", "entryPoints", "directories", "configs", "environments", "build", "dependencies", "databases", "caches", "queues", "externalSystems", "containers", "ci", "tests", "scripts", "migrations", "staticResources", "tooling", "unknowns"]
+}

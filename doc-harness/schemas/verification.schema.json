@@ -1,0 +1,11 @@
+{
+  "$id": "verification.schema.json", "type": "object", "additionalProperties": false,
+  "properties": {
+    "score": { "type": "object", "additionalProperties": false, "properties": { "coverage": { "type": "number", "minimum": 0, "maximum": 100 }, "accuracy": { "type": "number", "minimum": 0, "maximum": 100 } }, "required": ["coverage", "accuracy"] },
+    "hallucinations": { "$ref": "common.schema.json#/$defs/issueList" }, "missingItems": { "$ref": "common.schema.json#/$defs/issueList" }, "incorrectRelations": { "$ref": "common.schema.json#/$defs/issueList" },
+    "diagramIssues": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/diagramIssue" } },
+    "unsupportedClaims": { "$ref": "common.schema.json#/$defs/issueList" },
+    "fixRequired": { "type": "array", "items": { "type": "object", "additionalProperties": false, "properties": { "doc": { "type": "string" }, "section": { "type": "string" }, "issue": { "type": "string" }, "evidence": { "$ref": "common.schema.json#/$defs/evidenceList" } }, "required": ["doc", "issue", "evidence"] } }
+  },
+  "required": ["score", "hallucinations", "missingItems", "incorrectRelations", "diagramIssues", "unsupportedClaims", "fixRequired"]
+}

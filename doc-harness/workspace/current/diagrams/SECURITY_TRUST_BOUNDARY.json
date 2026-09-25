@@ -1,0 +1,41 @@
+{
+  "decision": "UPDATED",
+  "mermaid": "flowchart LR\n  Caddyfile --> Program.cs\n  Program.cs --> HostFiltering\n  Program.cs --> SecurityHeadersMiddleware.cs\n  SecurityHeadersMiddleware.cs --> AdminSurfaceMiddleware.cs\n  AdminSurfaceMiddleware.cs --> SessionValidator.cs",
+  "changedEdges": [
+    "Program.cs --> HostFiltering: 추가 (AllowedHosts를 두 origin 호스트로 설정, Program.cs 32-36)",
+    "SecurityHeadersMiddleware.cs --> AdminSurfaceMiddleware.cs: 추가 (앱 미들웨어 순서 98→104)",
+    "AdminSurfaceMiddleware.cs --> SessionValidator.cs: 추가 (UseAuthentication 단계의 OnValidatePrincipal)"
+  ],
+  "nodes": [
+    {
+      "node": "Caddyfile",
+      "code": "deploy/Caddyfile"
+    },
+    {
+      "node": "Program.cs",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인 98-108"
+    },
+    {
+      "node": "HostFiltering",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "HostFilteringOptions.AllowedHosts (32-36)"
+    },
+    {
+      "node": "SecurityHeadersMiddleware.cs",
+      "code": "PortfolioBlog.Api/Infrastructure/Web/SecurityHeadersMiddleware.cs",
+      "symbol": "SecurityHeadersMiddleware"
+    },
+    {
+      "node": "AdminSurfaceMiddleware.cs",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware"
+    },
+    {
+      "node": "SessionValidator.cs",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync"
+    }
+  ],
+  "reason": "기존 다이어그램은 HostFiltering·AdminSurfaceMiddleware·SessionValidator를 빠뜨렸다. 제안안은 SecurityHeadersMiddleware를 마지막에 두었지만 코드상 앱 미들웨어 중 맨 앞이다(Program.cs 98). HostFiltering은 그보다 바깥의 프레임워크 시작 필터라 400에 보안 헤더가 붙지 않는다(HostFilteringTests 근거). 실제 순서는 SecurityHeaders(98), AdminSurface(104), Authentication(106)이다. SessionValidator는 쿠키 OnValidatePrincipal로 호출된다(AuthServiceCollectionExtensions.cs 70). 그래서 기존 간선은 유지하고 노드 3개만 코드 순서대로 추가했다."
+}

@@ -1,0 +1,28 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "sequenceDiagram\n  participant Browser\n  participant Caddyfile as Caddyfile ({$ADMIN_DOMAIN})\n  participant Program as Program.cs 파이프라인\n  participant UseTrustedForwardedHeaders\n  participant AdminSurfaceMiddleware\n  Browser->>Caddyfile: HTTPS /api/* (TLS 종단)\n  Caddyfile->>Caddyfile: @denied not remote_ip 검사\n  alt 허용 목록 밖\n    Caddyfile-->>Browser: 404 빈 본문\n  else 허용\n    Caddyfile->>Caddyfile: request_body max_size 11MiB\n    Caddyfile->>Program: reverse_proxy api:8080 (X-Forwarded-For, X-Forwarded-Proto)\n    Program->>UseTrustedForwardedHeaders: KnownProxies=172.30.0.2, ForwardLimit=1\n    UseTrustedForwardedHeaders->>AdminSurfaceMiddleware: 원본 IP로 보정된 요청\n    AdminSurfaceMiddleware-->>Caddyfile: 앱 응답(백엔드 보안 헤더 포함)\n    Caddyfile-->>Browser: Server·Via 제거 후 응답\n  end\n  opt api 중단 또는 본문 초과\n    Caddyfile-->>Browser: handle_errors 502/413 + 보안 헤더\n  end",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "Caddyfile",
+      "code": "deploy/Caddyfile",
+      "symbol": "{$ADMIN_DOMAIN} route, handle_errors"
+    },
+    {
+      "node": "Program",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "미들웨어 파이프라인 (98-104행)"
+    },
+    {
+      "node": "UseTrustedForwardedHeaders",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AccessServiceCollectionExtensions.cs",
+      "symbol": "UseTrustedForwardedHeaders"
+    },
+    {
+      "node": "AdminSurfaceMiddleware",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AdminSurfaceMiddleware.cs",
+      "symbol": "AdminSurfaceMiddleware"
+    }
+  ],
+  "reason": "기존 다이어그램의 호출 순서·분기·데이터 이동이 새 분석과 어긋나지 않는다. 새 분석이 더한 SecurityHeadersMiddleware(98행)는 Program.cs 파이프라인 참여자 안에 이미 포함된 단계다. 이 다이어그램 노드의 파일에는 직접 변경이 없어서 사람이 다듬은 표현을 그대로 둔다. 후보안에서는 Caddyfile이 SecurityHeadersMiddleware를 직접 호출하는 것으로 그려졌는데, 실제로는 Caddy가 api:8080으로 프록시하므로 오히려 부정확하다."
+}

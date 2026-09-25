@@ -1,0 +1,53 @@
+{
+  "decision": "UNCHANGED",
+  "mermaid": "sequenceDiagram\n  participant Layout\n  participant request\n  participant UseAuthentication\n  participant SessionValidator\n  participant AppDbContext\n  participant UseAuthorization\n  participant AuthEndpoints\n  participant queryClient\n  participant RequireAuth\n  Layout->>request: auth.logout()\n  request->>UseAuthentication: POST /api/auth/logout\n  alt 쿠키 없음 또는 복호화 실패\n    Note over UseAuthentication: SessionValidator 호출 없음, DB 조회 없음\n  else 쿠키 티켓 복호화 성공\n    UseAuthentication->>SessionValidator: OnValidatePrincipal\n    SessionValidator->>AppDbContext: AdminStates SessionEpoch SingleAsync\n    AppDbContext-->>SessionValidator: epoch\n    alt SessionRules.IsValid 거짓\n      SessionValidator-->>UseAuthentication: RejectPrincipal + SignOutAsync\n    else 참\n      SessionValidator-->>UseAuthentication: 주체 유지\n    end\n  end\n  UseAuthentication->>UseAuthorization: 인증 결과 전달\n  alt 미인증 Admin 정책 실패\n    UseAuthorization-->>request: 401 챌린지 OnRedirectToLogin\n    request-->>queryClient: MutationCache onError noteAuthFailure\n    queryClient->>RequireAuth: ME_KEY authenticated false\n  else 인증됨\n    UseAuthorization->>AuthEndpoints: LogoutAsync\n    AuthEndpoints->>AppDbContext: ExecuteUpdateAsync SessionEpoch + 1\n    AuthEndpoints-->>request: 204 + 쿠키 삭제\n    request-->>Layout: onSuccess\n    Layout->>queryClient: ME_KEY false, removeQueries, MutationCache clear\n    queryClient->>RequireAuth: ME_KEY authenticated false\n  end\n  RequireAuth-->>Layout: /login?next= 로 Navigate",
+  "changedEdges": [],
+  "nodes": [
+    {
+      "node": "Layout",
+      "code": "PortfolioBlog.Web/src/components/Layout.tsx",
+      "symbol": "Layout.logout"
+    },
+    {
+      "node": "request",
+      "code": "PortfolioBlog.Web/src/api/client.ts",
+      "symbol": "request"
+    },
+    {
+      "node": "UseAuthentication",
+      "code": "PortfolioBlog.Api/Program.cs",
+      "symbol": "UseAuthentication"
+    },
+    {
+      "node": "SessionValidator",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/SessionValidator.cs",
+      "symbol": "SessionValidator.ValidateAsync"
+    },
+    {
+      "node": "AppDbContext",
+      "code": "PortfolioBlog.Api/Infrastructure/Data/AppDbContext.cs",
+      "symbol": "AppDbContext.AdminStates"
+    },
+    {
+      "node": "UseAuthorization",
+      "code": "PortfolioBlog.Api/Infrastructure/Access/AuthServiceCollectionExtensions.cs",
+      "symbol": "OnRedirectToLogin"
+    },
+    {
+      "node": "AuthEndpoints",
+      "code": "PortfolioBlog.Api/Features/Auth/AuthEndpoints.cs",
+      "symbol": "AuthEndpoints.LogoutAsync"
+    },
+    {
+      "node": "queryClient",
+      "code": "PortfolioBlog.Web/src/app/queryClient.ts",
+      "symbol": "noteAuthFailure"
+    },
+    {
+      "node": "RequireAuth",
+      "code": "PortfolioBlog.Web/src/auth/RequireAuth.tsx",
+      "symbol": "RequireAuth"
+    }
+  ],
+  "reason": "코드 변경이 없고 기존 다이어그램이 분석 요약과 일치한다. 무효 세션은 SessionValidator가 거부만 하고 401은 UseAuthorization 단계에서 나온다. 새 후보는 이 구분을 흐리고 RequireAuth 이동 흐름을 빠뜨려 기존 것을 유지한다."
+}

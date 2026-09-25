@@ -1,0 +1,12 @@
+{
+  "score": {
+    "coverage": 95,
+    "accuracy": 98
+  },
+  "hallucinations": [],
+  "missingItems": [],
+  "incorrectRelations": [],
+  "diagramIssues": [],
+  "unsupportedClaims": [],
+  "fixRequired": []
+}
