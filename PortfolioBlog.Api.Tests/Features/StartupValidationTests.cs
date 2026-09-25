@@ -262,4 +262,19 @@ public sealed class StartupValidationTests(MySqlContainerFixture mysql)
         Assert.Contains("ConnectionStrings:Default", text, StringComparison.Ordinal);
         Assert.DoesNotContain("db.example", text, StringComparison.Ordinal);
     }
+
+    /// <summary>AllowPublicKeyRetrieval=true는 어느 환경에서도 거부된다(공개키 바꿔치기로 비밀번호 노출, 스펙 D17).</summary>
+    [Fact]
+    public void AnyEnvironment_AllowPublicKeyRetrieval_Fails()
+    {
+        var unsafeCs = new MySqlConnectionStringBuilder(mysql.ConnectionString) { AllowPublicKeyRetrieval = true }.ConnectionString;
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = unsafeCs }, "AllowPublicKeyRetrieval");
+    }
+
+    /// <summary>Development가 아니면 TLS 없는 연결(SslMode=Preferred/None)을 거부한다.</summary>
+    [Theory]
+    [InlineData(MySqlSslMode.Preferred)]
+    [InlineData(MySqlSslMode.None)]
+    public void Production_WeakSslMode_Fails(MySqlSslMode mode) =>
+        AssertStartupFails(Production(s => s["ConnectionStrings:Default"] = new MySqlConnectionStringBuilder(mysql.ConnectionString) { SslMode = mode }.ConnectionString), "SslMode");
 }

@@ -3,9 +3,12 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Web;
+using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
@@ -94,5 +97,40 @@ public sealed class ErrorPipelineTests
         await using var app = await StartAsync(ctx => { ctx.Response.Headers.ContentSecurityPolicy = preset; return Task.CompletedTask; });
         using var res = await app.GetTestClient().GetAsync("/api/x");
         Assert.Equal(expected, res.Headers.GetValues("Content-Security-Policy").Single());
+    }
+
+    /// <summary>실행 시간 초과·잠금 대기·교착은 503 + Retry-After, 중복 키는 500으로 남는다(과대 분류 금지).</summary>
+    [Theory]
+    [InlineData(3024, 503)]
+    [InlineData(1205, 503)]
+    [InlineData(1213, 503)]
+    [InlineData(1062, 500)]
+    public async Task MySqlOverload_MapsTo503(int number, int expected)
+    {
+        await using var app = await StartAsync(_ => throw MySqlErrors.Create(number));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(expected, (int)res.StatusCode);
+        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
+    }
+
+    /// <summary>SaveChanges 경로처럼 감싸여 와도 같게 매핑된다.</summary>
+    [Theory]
+    [InlineData(1205, 503)]
+    [InlineData(1062, 500)]
+    public async Task WrappedMySqlOverload_MapsTo503_ButNotOverWidened(int number, int expected)
+    {
+        await using var app = await StartAsync(_ => throw new DbUpdateException("save failed", MySqlErrors.Create(number)));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(expected, (int)res.StatusCode);
+        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
+    }
+
+    /// <summary>앱이 직접 던지는 GET_LOCK 타임아웃도 503이다.</summary>
+    [Fact]
+    public async Task AppLockTimeout_MapsTo503()
+    {
+        await using var app = await StartAsync(_ => throw new DbLockTimeoutException("wait"));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(503, (int)res.StatusCode);
     }
 }

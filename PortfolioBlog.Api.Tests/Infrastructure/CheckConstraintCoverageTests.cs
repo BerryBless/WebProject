@@ -102,4 +102,19 @@ public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFix
         // (메시지는 서버가 만들고 MySqlConnector는 그대로 Message에 싣는다).
         Assert.Contains($"'{constraint}'", mysql.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>DB 정규식이 끝의 개행을 허용하지 않는다(ICU의 $ 함정, \z 사용). slug·sha256 둘 다.</summary>
+    [Theory]
+    [InlineData("CK_Posts_Slug_Format")]
+    [InlineData("CK_Attachments_Sha256")]
+    public async Task TrailingNewline_IsRejected(string constraint)
+    {
+        using var _ = factory.CreateClient();
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        if (constraint == "CK_Posts_Slug_Format") db.Posts.Add(NewPost("abc\n"));
+        else { var a = NewAttachment('5'); a.Sha256 = new string('a', 63) + "\n"; db.Attachments.Add(a); }
+        var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        Assert.Contains($"'{constraint}'", Assert.IsType<MySqlException>(ex.InnerException).Message, StringComparison.Ordinal);
+    }
 }
