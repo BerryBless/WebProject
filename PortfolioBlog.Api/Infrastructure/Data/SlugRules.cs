@@ -11,16 +11,16 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). I/O 없음.</description></item>
 /// </list>
 /// <b>[<c>^</c>/<c>$</c> 대신 <c>\A</c>/<c>\z</c>를 쓰는 이유]</b> .NET <see cref="Regex"/>의 <c>$</c>는 문자열 끝뿐 아니라 "끝에 오는 단 하나의 <c>\n</c> 바로 앞"에서도 매칭된다(<see cref="RegexOptions.Multiline"/> 여부와 무관).
-/// PostgreSQL의 <c>~</c> 연산자는 이런 예외가 없어 <c>"abc\n"</c>을 <see cref="AppDbContext.SlugPattern"/>(<c>^...$</c>)으로 거부한다.
+/// DB CHECK(<c>REGEXP_LIKE</c>, ICU)의 <c>$</c>도 같은 예외가 있어, DB 쪽은 <see cref="AppDbContext.SlugPatternSql"/>에서 끝 앵커로 <c>\z</c>를 써 <c>"abc\n"</c>을 거부한다.
 /// 두 매처가 이 문자열 하나로 엇갈리면 형식 검증을 통과한 뒤 DB CHECK(<c>CK_Posts_Slug_Format</c>)에서만 막혀 400 대신 500이 된다.
 /// <c>\A</c>(문자열의 절대 시작)·<c>\z</c>(문자열의 절대 끝, 개행 예외 없음)로 앵커링하면 이 차이가 사라진다.
-/// DB CHECK 제약의 문자열(<see cref="AppDbContext.SlugPattern"/>)은 PostgreSQL 쪽 계약이라 그대로 두고, .NET 쪽만 독립적으로 앵커를 바꾼다 — 두 패턴은 문자 집합 규칙이 항상 같도록 함께 수정해야 한다.
+/// 문서·앱 참조용 <see cref="AppDbContext.SlugPattern"/>(<c>^...$</c>)은 그대로 두고 .NET 쪽과 DB 쪽이 각자 절대 끝 앵커를 쓴다 — 세 패턴은 문자 집합 규칙이 항상 같도록 함께 수정해야 한다.
 /// </remarks>
 public static partial class SlugRules
 {
     // GeneratedRegex: 컴파일 타임에 소스 생성된 매처라 런타임 Regex 구성·JIT 비용이 없고, 이 패턴은 역추적 폭발이 없는 단순 반복이다.
     // \A...\z: DB CHECK 제약의 ^...$ 문자열과 문자 집합은 같지만 앵커만 바꾼 것이다. .NET의 $는 끝의 단일 \n 앞에서도 매칭되어
-    // PostgreSQL ~ 연산자와 판정이 갈릴 수 있다(예: "abc\n") — \A·\z는 그런 예외가 없는 절대 시작/끝 앵커다.
+    // DB CHECK(SlugPatternSql, \z 앵커)와 판정이 갈릴 수 있다(예: "abc\n") — \A·\z는 그런 예외가 없는 절대 시작/끝 앵커다.
     [GeneratedRegex(@"\A[a-z0-9]+(-[a-z0-9]+)*\z", RegexOptions.CultureInvariant)]
     private static partial Regex Pattern();
 

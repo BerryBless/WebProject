@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace PortfolioBlog.Api.Infrastructure.Markdown;
 
-/// <summary>공개 글의 렌더 결과를 <c>(PostId, xmin)</c>으로 캐시하고, 같은 키의 동시 미스를 렌더 한 번으로 합친다(단일 비행).</summary>
+/// <summary>공개 글의 렌더 결과를 <c>(PostId, Version)</c>으로 캐시하고, 같은 키의 동시 미스를 렌더 한 번으로 합친다(단일 비행).</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -16,7 +16,7 @@ namespace PortfolioBlog.Api.Infrastructure.Markdown;
 /// </remarks>
 public sealed class RenderedPostCache : IDisposable
 {
-    /// <summary>정상 렌더의 캐시 수명. 키에 xmin이 들어 있어 수정되면 어차피 미스다 — 이 값은 죽은 항목이 남는 시간의 상한이다.</summary>
+    /// <summary>정상 렌더의 캐시 수명. 키에 행 버전이 들어 있어 수정되면 어차피 미스다 — 이 값은 죽은 항목이 남는 시간의 상한이다.</summary>
     public static readonly TimeSpan NormalLifetime = TimeSpan.FromHours(24);
 
     /// <summary>시간 때문에 강조가 빠진 렌더의 수명. 서버가 한가해지면 곧 제대로 된 결과로 바뀐다.</summary>
@@ -56,7 +56,7 @@ public sealed class RenderedPostCache : IDisposable
 
     /// <summary>캐시에서 글 버전의 렌더 결과를 찾는다(렌더를 트리거하지 않는다).</summary>
     /// <param name="postId">글 고유 식별자.</param>
-    /// <param name="version">조회할 버전(DB xmin).</param>
+    /// <param name="version">조회할 버전(<c>Posts.Version</c>, 앱이 관리하는 행 버전).</param>
     /// <param name="rendered">있으면 캐시된 렌더 결과, 없으면 <see langword="null"/>.</param>
     /// <returns>캐시에 있었으면 <see langword="true"/>.</returns>
     /// <remarks>
@@ -80,7 +80,7 @@ public sealed class RenderedPostCache : IDisposable
 
     /// <summary>캐시에 있으면 그것을, 없으면 (같은 키의 동시 호출과 합쳐) 한 번 렌더링해 돌려준다.</summary>
     /// <param name="postId">글 고유 식별자.</param>
-    /// <param name="version">렌더링할 버전(DB xmin).</param>
+    /// <param name="version">렌더링할 버전(<c>Posts.Version</c>, 앱이 관리하는 행 버전).</param>
     /// <param name="markdown">캐시 미스일 때 렌더링할 마크다운 원문.</param>
     /// <param name="ct">이 호출자의 대기만 취소한다. 공유 렌더는 다른 호출자를 위해 계속된다.</param>
     /// <returns>캐시된 또는 새로 렌더링한 결과.</returns>
@@ -102,7 +102,7 @@ public sealed class RenderedPostCache : IDisposable
 
     /// <summary>이미 렌더링한 결과를 넣는다(글 저장 경로가 저장 전 확인용으로 한 렌더를 버리지 않고 선채움한다).</summary>
     /// <param name="postId">글 고유 식별자.</param>
-    /// <param name="version">저장한 결과의 버전(DB xmin).</param>
+    /// <param name="version">저장한 결과의 버전(<c>Posts.Version</c>, 앱이 관리하는 행 버전).</param>
     /// <param name="rendered">캐시에 넣을 렌더 결과.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>

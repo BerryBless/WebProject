@@ -26,6 +26,6 @@ public sealed class PublicOptions
     /// <summary>동시에 실행할 수 있는 검색 수(전역). <c>ILIKE</c> 전체 스캔이 DB 연결을 독점하지 못하게 묶는다.</summary>
     public int SearchConcurrency { get; set; } = 4;
 
-    /// <summary>공개 조회 연결의 <c>statement_timeout</c>(밀리초). 100~60000.</summary>
+    /// <summary>공개 조회 연결의 SELECT 실행 상한 <c>max_execution_time</c>(밀리초). 100~60000. 메타데이터 잠금 대기 <c>lock_wait_timeout</c>은 이 값을 초 단위로 올림한 값이다.</summary>
     public int StatementTimeoutMs { get; set; } = 3000;
 }

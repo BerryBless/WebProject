@@ -84,7 +84,7 @@ using (var scope = app.Services.CreateScope())
     var adminDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     adminDb.Database.Migrate();
     var publicConnection = app.Configuration.GetConnectionString("Public");
-    if (!string.IsNullOrWhiteSpace(publicConnection)) PublicRoleGrants.Apply(adminDb, publicConnection);
+    if (!string.IsNullOrWhiteSpace(publicConnection)) PublicRoleGrants.Apply(adminDb, scope.ServiceProvider.GetRequiredService<PublicDbContext>());
 }
 
 // 워밍업: 첫 렌더에는 ColorCode 등의 정적 초기화(실측 약 185ms — 2A 단계 실측, plan/resume_guide_0921.md)가 붙는다. 첫 방문자가 아니라 시작 시점에 낸다.

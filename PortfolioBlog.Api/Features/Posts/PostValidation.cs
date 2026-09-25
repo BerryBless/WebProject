@@ -30,7 +30,7 @@ public static class PostValidation
     {
         var errors = new ValidationErrors();
 
-        // NUL(U+0000)은 PostgreSQL text 컬럼에 저장할 수 없다(JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 여기서 걸러야 DB에서 500이 되지 않는다).
+        // NUL(U+0000)은 정책상 거부한다(스펙 D15: MySQL은 저장하지만 검색·로그·렌더 경로의 이상 입력을 막는다. JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있다).
         if (string.IsNullOrEmpty(req.Slug)) errors.Add("slug", "slug는 필수입니다.");
         else if (TextRules.ContainsNul(req.Slug)) errors.Add("slug", TextRules.NulMessage);
         else if (!SlugRules.IsValid(req.Slug)) errors.Add("slug", $"slug는 소문자·숫자·하이픈만 쓰고 {AppDbContext.SlugMax}자 이하여야 합니다(예: my-first-post).");

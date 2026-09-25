@@ -1,7 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
@@ -107,7 +106,7 @@ public static class AttachmentEndpoints
     /// <item><description><b>Concurrency:</b> Thread-safe. 무거운 일(수신·메타데이터 제거·해시)은 <see cref="AttachmentLock"/> 밖에서 끝낸 뒤, 같은 내용(sha256)의 행 삽입은
     /// <see cref="AttachmentLock"/> 세션 잠금 안에서 삭제·청소 잡과 직렬화된다 — 잠금을 기다리는 사이 같은 내용이 지워졌으면 잠금 안에서 파일 존재를 다시 확인해 없으면
     /// <see cref="IFormFile.OpenReadStream"/>을 다시 열어 재저장한다(<c>IFormFile</c>은 프레임워크가 버퍼링해 둔 것이라 다시 열 수 있다). 잠금 대기가 10초를 넘으면
-    /// SqlState 55P03 → <c>OverloadExceptionHandler</c>가 503으로 바꾼다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
+    /// <c>DbLockTimeoutException</c>(GET_LOCK 10초) → <c>OverloadExceptionHandler</c>가 503으로 바꾼다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> UploadAsync(IFormFile? file, AppDbContext db, FileSystemAttachmentStore store, ILoggerFactory loggers, CancellationToken ct)
@@ -165,7 +164,7 @@ public static class AttachmentEndpoints
             {
                 await db.SaveChangesAsync(ct);
             }
-            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: DbConflict.UniqueViolation })
+            catch (DbUpdateException ex) when (DbErrorClassifier.Classify(ex) == DbErrorKind.UniqueViolation)
             {
                 // 잠금 아래에서는 일어나지 않아야 한다. 잠금을 거치지 않는 경로(수동 SQL 등)에 대한 방어로 남긴다.
                 db.ChangeTracker.Clear();
@@ -192,7 +191,7 @@ public static class AttachmentEndpoints
     /// <item><description><b>Memory Policy:</b> 행 조회는 <c>Sha256</c>·<c>StoragePath</c> 두 필드만 프로젝션한다(전체 엔티티를 추적하지 않는다).</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 같은 내용(sha256)의 <see cref="AttachmentLock"/> 세션 잠금 안에서 행 삭제(<c>ExecuteDeleteAsync</c>, 자동 커밋)와 파일 삭제를 함께 수행해
     /// 업로드·청소 잡과 직렬화한다 — 잠금 안에서 삭제 대상 행이 이미 없으면(다른 탭이 먼저 지움) 404. 행을 먼저 지운다: 파일 삭제가 실패해도 남는 것은 참조 없는 파일뿐이고
-    /// (청소 잡이 치운다), 반대 순서는 깨진 링크를 만든다. 잠금 대기가 10초를 넘으면 SqlState 55P03 → <c>OverloadExceptionHandler</c>가 503으로 바꾼다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
+    /// (청소 잡이 치운다), 반대 순서는 깨진 링크를 만든다. 잠금 대기가 10초를 넘으면 <c>DbLockTimeoutException</c>(GET_LOCK 10초) → <c>OverloadExceptionHandler</c>가 503으로 바꾼다. Non-blocking: DB 호출은 <c>await</c>한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, FileSystemAttachmentStore store, ILoggerFactory loggers, CancellationToken ct)
@@ -218,7 +217,8 @@ public static class AttachmentEndpoints
     /// <param name="kind">시그니처로 판정한 실제 형식(확장자의 출처).</param>
     /// <returns>경로 조각·제어문자·홀로 남은 서러게이트가 제거되고 확장자가 시그니처 기준으로 교체된 표시용 이름. 저장 경로에는 쓰이지 않는다.
     /// 반환값은 어떤 UTF-16 코드 단위에 대해서도 홀로 남은 서러게이트를 포함하지 않는다(<see cref="RemoveUnpairedSurrogates"/> 참조) —
-    /// 그런 문자열을 그대로 DB에 쓰면 Npgsql의 UTF-8 인코더가 예외 폴백으로 <see cref="System.Text.EncoderFallbackException"/>을 던져 500이 된다(실측).</returns>
+    /// 그런 문자열은 UTF-8로 인코딩할 수 없어 DB 드라이버가 예외를 던지면 500이 된다(PG 판 실측: 드라이버의 UTF-8 인코더가 <see cref="System.Text.EncoderFallbackException"/>을 던졌다.
+    /// MySqlConnector도 매개변수를 UTF-8로 보내므로 같은 이유로 미리 제거한다).</returns>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">

@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Npgsql;
 using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Infrastructure.Storage;
@@ -76,7 +75,7 @@ public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAtt
     /// <item><description><b>Thread Context:</b> 배경 루프(스레드 풀) 또는 테스트 스레드에서 호출된다. 매 호출마다 <see cref="IServiceScopeFactory.CreateAsyncScope"/>로 전용 <see cref="AppDbContext"/>를 연다 — 배경 루프와 요청 파이프라인이 DbContext를 공유하지 않는다.</description></item>
     /// <item><description><b>Memory Policy:</b> 저장 파일·임시 파일 목록을 배열로 모으지 않고 스트리밍 열거한다. 고아로 확정된 파일마다 <see cref="AttachmentLock"/> 잠금 키 문자열 1개를 추가로 할당한다.</description></item>
     /// <item><description><b>Concurrency:</b> 고아 판정을 받은 각 파일은 삭제 직전 <see cref="AttachmentLock"/> 세션 잠금 안에서 "참조 없음"을 다시 확인한다 — 열거 시점과 잠금 획득 사이에 같은 내용의 업로드가 행을 넣었을 수 있기 때문이다(그 업로드는 파일이 이미 있어 옮기지 않고 행만 넣었다). 파일 삭제(<see cref="FileSystemAttachmentStore.TryDelete"/>)는 존재하지 않는 파일에도 <see langword="true"/>를 반환하므로, 열거와 삭제 사이에 다른 요청이 같은 파일을 이미 지웠다면(그 요청도 이 파일을 삭제한 것이므로) 이 스윕의 <see cref="SweepResult.OrphanFilesDeleted"/> 카운트에 함께 잡힌다 — 파일 자체는 어느 쪽이 지웠든 이미 없으므로 수치가 중복 집계될 뿐 안전 문제는 아니다(미검증: 이 경쟁을 재현하는 테스트는 만들지 않았다).</description></item>
-    /// <item><description><b>잠금 대기 초과:</b> 후보 하나의 잠금 대기가 <c>lock_timeout</c>(10초)을 넘어 SqlState 55P03이 나면 그 파일만 경고 로그 후 건너뛰고
+    /// <item><description><b>잠금 대기 초과:</b> 후보 하나의 잠금 대기가 <c>GET_LOCK</c> 상한(10초)을 넘어 <see cref="DbLockTimeoutException"/>이 나면 그 파일만 경고 로그 후 건너뛰고
     /// 스윕은 계속된다(뒤에 오는 "파일 없는 행" 진단이 유실되지 않게). 이 분기는 10초를 실제로 기다려야 재현되므로 테스트하지 않았다(미검증).</description></item>
     /// </list>
     /// </remarks>
@@ -123,18 +122,9 @@ public sealed class AttachmentJanitor(IServiceScopeFactory scopes, FileSystemAtt
         return new SweepResult(temp, orphans, missing);
     }
 
-    // private 헬퍼: OverloadExceptionHandler.IsOverload는 57014(statement_timeout)·RenderBusyException까지 포함하는 더 넓은 판정이라
-    // 여기서는 재사용하지 않는다 — 이 자리는 advisory lock 대기이지 statement_timeout이 아니므로 55P03만 좁게 본다.
-    // ExecuteSqlInterpolatedAsync(AttachmentLock.HoldAsync 내부)는 EF의 SaveChanges 경로가 아니라서 PostgresException이 DbUpdateException에
-    // 감싸이지 않고 그대로 올라온다 — 그래도 InnerException 체인을 훑어 감싸일 가능성까지 방어한다.
-    private static bool IsLockTimeout(Exception exception)
-    {
-        for (var e = exception; e is not null; e = e.InnerException)
-        {
-            if (e is PostgresException { SqlState: "55P03" }) return true;
-        }
-        return false;
-    }
+    // 잠금 대기 초과만 좁게 본다(OverloadExceptionHandler.IsOverload는 실행 시간 초과·렌더 포화까지 포함하는 더 넓은 판정이다).
+    // 분류기가 InnerException 체인을 훑으므로 DbLockTimeoutException(GET_LOCK 타임아웃)과 서버의 1205가 감싸여 와도 잡는다.
+    private static bool IsLockTimeout(Exception exception) => DbErrorClassifier.Classify(exception) == DbErrorKind.LockTimeout;
 
     // private 헬퍼: 상용구 remarks 없이 판단 근거만 인라인으로 남긴다 — 임시 파일 삭제 실패(잠김·권한)는 다음 스윕에서 다시 시도하면 되므로 예외로 스윕 전체를 멈추지 않는다.
     private bool TryDeleteFile(string path)

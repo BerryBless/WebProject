@@ -11,7 +11,7 @@ namespace PortfolioBlog.Api.Features.Tags;
 /// <item><description><b>Thread Safety:</b> 무상태 정적 핸들러. 요청마다 스코프된 <see cref="AppDbContext"/>를 받아 공유 가변 상태가 없다.</description></item>
 /// <item><description><b>Memory Allocation:</b> 목록은 <see cref="TagDto"/> 프로젝션만 수행하며 태그·글 엔티티를 추적 로드하지 않는다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 DB I/O는 async. 삭제는 <c>Tag → PostTag</c> FK가 cascade라 <c>PostTags</c> 링크만 함께 지운다.
-/// 글 행은 바뀌지 않으므로 글의 <c>Version</c>(xmin)도 그대로다.</description></item>
+/// 글 행은 바뀌지 않으므로 글의 <c>Version</c>(행 버전)도 그대로다.</description></item>
 /// </list>
 /// </remarks>
 public static class TagEndpoints

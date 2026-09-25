@@ -8,8 +8,8 @@ namespace PortfolioBlog.Api.Contracts;
 /// <item><description><b>Memory Allocation:</b> Zero-allocation(벡터화된 문자 검색).</description></item>
 /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
 /// </list>
-/// PostgreSQL <c>text</c>는 NUL을 저장할 수 없고(SqlState 22021) JSON·쿼리 문자열은 NUL을 실어 나를 수 있다.
-/// 본문 필드뿐 아니라 쿼리 문자열·경로 값·파일 이름까지 같은 규칙으로 막아 "검증 통과 → DB에서 500"을 없앤다.
+/// NUL은 정책상 거부한다(스펙 D15): MySQL은 NUL을 저장하지만, JSON·쿼리 문자열이 실어 나른 NUL이 검색·로그·렌더 경로에 이상 입력으로 흘러가지 않게 막는다.
+/// 본문 필드뿐 아니라 쿼리 문자열·경로 값·파일 이름까지 같은 규칙으로 막는다.
 /// </remarks>
 public static class TextRules
 {
