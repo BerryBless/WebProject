@@ -43,6 +43,27 @@ dotnet test  PortfolioBlog.slnx -c Release           # 591개 (Docker 필요)
 
 `appsettings.Development.json`은 `Site:PublicOrigin`·`Site:AdminOrigin`을 둘 다 `https://localhost:7198`로 두므로 한 주소가 공개·관리 역할을 겸합니다(Development에서만 허용되는 예외입니다). `https://localhost:7198/`을 열면 공개 첫 쪽이 보이고, 관리 API 호출 예시는 [`PortfolioBlog.Api/PortfolioBlog.Api.http`](../PortfolioBlog.Api/PortfolioBlog.Api.http)에 있습니다(상태 확인·로그인·글 생성·목록·미리보기·첨부 업로드 + 공개 페이지·태그·검색·피드·sitemap).
 
+### Docker 없이 띄우기
+
+Docker가 필요한 것은 개발용 PostgreSQL 하나뿐입니다. Windows에 PostgreSQL을 직접 설치하면 나머지 절차는 같습니다. API가 시작할 때 마이그레이션을 적용하므로 스키마를 따로 만들 필요는 없습니다.
+
+1. PostgreSQL 17을 설치합니다. 설치 중 정한 `postgres` 비밀번호를 기억해 둡니다.
+   ```powershell
+   winget install PostgreSQL.PostgreSQL.17
+   ```
+2. 개발 DB를 만듭니다.
+   ```powershell
+   & "C:\Program Files\PostgreSQL\17\bin\createdb.exe" -U postgres blog_dev
+   ```
+3. 설치 때 정한 비밀번호가 `appsettings.Development.json`의 값과 다르면, 파일을 고치지 말고 user-secrets로 덮어씁니다.
+   ```powershell
+   dotnet user-secrets init --project PortfolioBlog.Api
+   dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=blog_dev;Username=postgres;Password=<설치 때 정한 비밀번호>" --project PortfolioBlog.Api
+   ```
+4. 위 2·3단계(관리자 비밀번호 해시, https 프로필 실행)를 그대로 합니다. `https://localhost:7198/`이 공개 첫 쪽입니다.
+
+관리 SPA도 Docker 없이 아래 절차 그대로 뜹니다. 다만 `dotnet test`(Testcontainers)와 E2E·배포 스모크는 여전히 Docker가 필요합니다.
+
 ## 관리 SPA 띄우기
 
 ```powershell
