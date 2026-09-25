@@ -64,7 +64,7 @@
 - S3b: `SELECT SLEEP(2)`는 `max_execution_time`에 걸려도 오류 없이 0을 반환한다. Task 5의 시간 초과 테스트는 교차 조인 쿼리를 쓴다.
 - S3c: MDL 대기(`LOCK TABLES … WRITE` 뒤 공개 세션의 SELECT)는 **3024**로 끝난다(1205가 아니다). `DbErrorClassifier`는 둘 다 503으로 매핑한다.
 - S4a: 없는 테이블 GRANT는 1146이다(R1 근거 ① 유지). S4e: FILE 권한 없는 `SELECT … INTO OUTFILE`은 **1227**이다(Task 9 스모크 판정 문구).
-- S6b: `ConnectionReset=true`에서 해제하지 않은 `GET_LOCK`은 **반납만으로는 풀리지 않고(0) 같은 물리 연결을 다시 대여할 때 풀린다(1)**. MySqlConnector에서도 같다.
+- S6b: `ConnectionReset=true`에서 해제하지 않은 `GET_LOCK`은 **늦어도 같은 물리 연결을 다시 대여할 때 풀린다**(반납 직후 관측 `IS_FREE_LOCK` 0, 재대여 후 1). 반납 시점 해제는 보장되지 않으므로 판정 기준은 재대여 후 값이다.
 - S14: MySqlConnector의 인자 없는 `BeginTransaction()`은 세션 값과 무관하게 매번 `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`를 보낸다(general_log 실측). 그래서 D7의 `ReadCommittedTransactionInterceptor`는 **필수**다. (Oracle 드라이버는 세션 값을 그대로 두었다.)
 - S15: `MySqlConnector.MySqlException`에는 public 생성자가 없다. 테스트는 non-public `(MySqlErrorCode errorCode, string sqlState, string message, Exception innerException)` 생성자를 리플렉션으로 호출한다. `Number`는 int(예: 1062), `ErrorCode`는 `MySqlErrorCode` 열거형이다.
 - S12/S15b: 알 수 없는 연결 문자열 키워드는 `ArgumentException("Option 'bogus keyword' not supported.")`을 던지고 값을 드러내지 않는다.
@@ -551,9 +551,8 @@ Npgsql EF(EF 10 요구)와 Pomelo(EF 9 요구)는 공존할 수 없으므로 아
 > **`dotnet ef` 도구 버전:** 전역 `dotnet ef`(10.0.12)가 EF 9 프로젝트를 거부하면 로컬 도구 매니페스트로 9.0.20을 고정하고 그것을 쓴다:
 > ```powershell
 > dotnet new tool-manifest; dotnet tool install dotnet-ef --version 9.0.20
-> dotnet tool run dotnet-ef migrations add InitialCreate --project PortfolioBlog.Api --output-dir Infrastructure/Data/Migrations
 > ```
-> 이 경우 Step 8의 `dotnet ef …` 명령도 `dotnet tool run dotnet-ef …`로 바꿔 실행하고, 생성된 `.config/dotnet-tools.json`을 커밋한다.
+> 이 경우 Step 8의 `dotnet ef …` 명령을 `dotnet tool run dotnet-ef …`로 바꿔 실행하고, 생성된 `.config/dotnet-tools.json`을 커밋한다. (이 단계 직후에는 Step 2~7 전이라 프로젝트가 빌드되지 않으므로 도구 호출은 Step 8에서 한다. 거부 여부도 Step 8의 첫 `dotnet ef` 호출에서 드러난다.)
 
 - [ ] **Step 2: 인터셉터 3종 작성**
 
@@ -759,7 +758,7 @@ public sealed class PostVersionInterceptor : SaveChangesInterceptor
     /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
     /// </list>
     /// 리셋이 필요한 이유는 세 가지다. ① 공개 세션 설정(read_only 등)이 같은 풀을 쓰는 관리 연결로 새지 않게 한다(Development는 Public이 없으면 Default를 공유한다).
-    /// ② 해제에 실패한 <c>GET_LOCK</c>이 같은 물리 연결의 다음 대여 때 풀린다(반납만으로는 풀리지 않는다 — 스파이크 S6b: 반납 후 0, 재대여 후 1). ③ 공개 세션이 스스로 끈 read_only가 다음 대여로 이어지지 않는다.
+    /// ② 해제에 실패한 <c>GET_LOCK</c>이 늦어도 같은 물리 연결의 다음 대여 때 풀린다(스파이크 S6b: 반납 직후 관측 0, 재대여 후 1 — 반납 시점 해제는 보장 아님). ③ 공개 세션이 스스로 끈 read_only가 다음 대여로 이어지지 않는다.
     /// 대가는 풀 대여마다 COM_RESET_CONNECTION 왕복 1회다.
     /// </remarks>
     public static string WithSessionReset(string connectionString) =>
@@ -1013,9 +1012,9 @@ remarks의 57014·55P03을 3024·1205·`DbLockTimeoutException`·1213으로 바�
                 }
                 catch
                 {
-                    // 해제 실패 시: 연결이 끊겼으면 세션 종료와 함께 잠금도 풀린다. 연결이 살아 있으면 잠금을 쥔 채 풀에 반납되고
-                    // (반납만으로는 풀리지 않는다), 같은 물리 연결이 다시 대여될 때 ConnectionReset=true의 리셋이 잠금을 푼다
-                    // (스파이크 S6b: 반납 후 IS_FREE_LOCK 0, 재대여 후 1. AttachmentIntegrityTests가 측정).
+                    // 해제 실패 시: 연결이 끊겼으면 세션 종료와 함께 잠금도 풀린다. 연결이 살아 있으면 잠금을 쥔 채 풀에 반납될 수 있고,
+                    // 늦어도 같은 물리 연결이 다시 대여될 때 ConnectionReset=true의 리셋이 잠금을 푼다
+                    // (스파이크 S6b: 반납 직후 관측 IS_FREE_LOCK 0, 재대여 후 1 — 반납 시점 해제는 보장 아님. AttachmentIntegrityTests가 측정).
                     // 그때까지 같은 내용의 요청은 WaitSeconds 뒤 503을 받는다. 다시 던지면 원래 예외를 가리므로 삼킨다.
                 }
             }
@@ -1725,7 +1724,7 @@ git commit -m "테스트: 공개 세션의 읽기 전용·실행 상한·리셋�
 
     /// <summary>
     /// 해제하지 않고 풀에 반납된 잠금은 같은 물리 연결이 다시 대여될 때 ConnectionReset으로 풀린다(Releaser의 해제 실패 경로가 기대는 성질, 스파이크 S6b).
-    /// 반납 직후에는 아직 쥐어져 있을 수 있으므로(리셋은 대여 시점) 재대여 뒤를 단언한다.
+    /// 반납 직후에는 아직 쥐어져 있을 수 있으므로(스파이크 S6b에서 반납 직후 관측값은 0) 재대여 뒤를 단언한다.
     /// </summary>
     [Fact]
     public async Task UnreleasedLock_IsFreedWhenThePooledConnectionIsReused()
@@ -2433,7 +2432,7 @@ const connection = ['Server=localhost', `Port=${prepared.port}`, 'Database=blog_
           MYSQL_DATABASE: blog_e2e
         ports:
           - 3307:3306
-        # 서비스 컨테이너에는 명령 인자를 줄 수 없다 — READ COMMITTED는 앱 인터셉터가 보장한다(스펙 D7).
+        # 서비스 컨테이너에는 명령 인자를 줄 수 없다 — 트랜잭션의 READ COMMITTED는 앱 인터셉터가 보장한다(스펙 D7). 트랜잭션 밖 단일 문장은 이 잡에서만 REPEATABLE READ로 돈다.
         options: >-
           --health-cmd "mysql -h 127.0.0.1 -uroot -pe2e-ci-dummy -N -e 'SELECT 1' blog_e2e"
           --health-interval 5s --health-timeout 5s --health-retries 24
