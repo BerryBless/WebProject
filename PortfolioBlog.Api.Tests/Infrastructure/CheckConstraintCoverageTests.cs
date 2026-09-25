@@ -103,18 +103,39 @@ public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFix
         Assert.Contains($"'{constraint}'", mysql.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>DB 정규식이 끝의 개행을 허용하지 않는다(ICU의 $ 함정, \z 사용). slug·sha256 둘 다.</summary>
-    [Theory]
-    [InlineData("CK_Posts_Slug_Format")]
-    [InlineData("CK_Attachments_Sha256")]
-    public async Task TrailingNewline_IsRejected(string constraint)
+    /// <summary>DB 정규식이 끝의 개행을 허용하지 않는다(ICU의 $ 함정, \z 사용). 슬러그 값으로 실증한다(sha256은 63자+개행이 64자 미달이라 varchar(64) 자체를 통과 못하므로
+    /// 런타임 값으로는 앵커 종류를 구분할 수 없다 — 그 사례는 <see cref="EndAnchor_UsesZNotDollarSign"/>의 스키마 정적 검사로 대신한다).</summary>
+    [Fact]
+    public async Task TrailingNewline_IsRejected()
     {
         using var _ = factory.CreateClient();
         await using var scope = factory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        if (constraint == "CK_Posts_Slug_Format") db.Posts.Add(NewPost("abc\n"));
-        else { var a = NewAttachment('5'); a.Sha256 = new string('a', 63) + "\n"; db.Attachments.Add(a); }
+        db.Posts.Add(NewPost("abc\n"));
         var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        Assert.Contains($"'{constraint}'", Assert.IsType<MySqlException>(ex.InnerException).Message, StringComparison.Ordinal);
+        Assert.Contains("'CK_Posts_Slug_Format'", Assert.IsType<MySqlException>(ex.InnerException).Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>세 정규식 CHECK 제약(슬러그 2개·sha256)이 모두 개행을 허용하는 <c>$</c>가 아니라 절대 끝 앵커 <c>\z</c>로 끝나고,
+    /// 대소문자 구분 플래그 <c>'c'</c>를 명시하는지 <c>information_schema.CHECK_CONSTRAINTS</c>에 실제로 저장된 텍스트로 확인한다(런타임 값으로 판별할 수 없는
+    /// <c>CK_Attachments_Sha256</c>를 위한 스키마 정적 검사).</summary>
+    [Theory]
+    [InlineData("CK_Posts_Slug_Format")]
+    [InlineData("CK_Series_Slug_Format")]
+    [InlineData("CK_Attachments_Sha256")]
+    public async Task EndAnchor_UsesZNotDollarSign(string constraint)
+    {
+        using var _ = factory.CreateClient();
+        await using var connection = new MySqlConnection(factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(
+            "SELECT CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = @c", connection);
+        command.Parameters.AddWithValue("@c", constraint);
+        var clause = (string?)await command.ExecuteScalarAsync();
+        Assert.NotNull(clause);
+        // MySQL은 저장된 CHECK 절 텍스트를 자체 이스케이프 규칙으로 재직렬화한다(따옴표는 \', 소스의 리터럴 백슬래시 1개(\z)는 저장 텍스트에서 백슬래시 4개(\\\\z)로 다시 나타난다 — 실측).
+        Assert.Contains(@"\\\\z\'", clause, StringComparison.Ordinal);
+        Assert.Contains(@"_utf8mb4\'c\'", clause, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"$\'", clause, StringComparison.Ordinal);
     }
 }
