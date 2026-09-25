@@ -16,8 +16,8 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와는 순차 실행된다. <paramref name="factory"/>는 <see cref="IClassFixture{TFixture}"/>로 클래스 내 모든 케이스가 공유하지만, 각 케이스가 <c>using</c>으로 자기 전용 <see cref="HttpClient"/>를 새로 만들어 요청 상태(쿠키·기본 헤더)는 공유하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class SecurityHeadersTests(ApiFactory factory, PostgresContainerFixture pg) : IClassFixture<ApiFactory>
+[Collection("mysql")]
+public sealed class SecurityHeadersTests(ApiFactory factory, MySqlContainerFixture mysql) : IClassFixture<ApiFactory>
 {
     /// <summary>200·라우트 제약 실패 404·관리 게이트 거부 404가 전부 같은 헤더를 지닌다(2A가 남긴 "제약 실패 404에는 nosniff가 없다").</summary>
     [Theory]
@@ -63,7 +63,7 @@ public sealed class SecurityHeadersTests(ApiFactory factory, PostgresContainerFi
             Assert.False(res.Headers.Contains("Strict-Transport-Security"));
         }
 
-        using var production = new ApiFactory(pg, new Dictionary<string, string?>
+        using var production = new ApiFactory(mysql, new Dictionary<string, string?>
         {
             ["Test:Environment"] = "Production", ["Proxy:TrustedIp"] = "172.30.0.2",
         });

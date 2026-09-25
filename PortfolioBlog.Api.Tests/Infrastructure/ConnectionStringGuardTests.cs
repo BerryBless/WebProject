@@ -3,7 +3,7 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// <summary>
 /// <c>ConnectionStrings:Default</c>가 비어 있거나 공백뿐일 때 <c>Program.cs</c>가 명확한 설정 오류로 빠르게 실패하는지 검증한다.
 /// </summary>
-/// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture. 이 테스트는 연결 문자열을 의도적으로 덮어써 실제 DB에 접속하지 않으므로 컨테이너 자체는 사용하지 않지만, <see cref="ApiFactory"/> 생성에 필요하다.</param>
+/// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture. 이 테스트는 연결 문자열을 의도적으로 덮어써 실제 DB에 접속하지 않으므로 컨테이너 자체는 사용하지 않지만, <see cref="ApiFactory"/> 생성에 필요하다.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -16,8 +16,8 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// 예외를 던진다(비동기 I/O 대기 없음).</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class ConnectionStringGuardTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class ConnectionStringGuardTests(MySqlContainerFixture mysql)
 {
     /// <summary>빈 문자열·공백뿐인 연결 문자열이 Npgsql 소켓 오류가 아니라 <c>ConnectionStrings:Default</c>를 언급하는 명확한 설정 오류로 실패하는지 검증한다.</summary>
     /// <param name="value">가드가 거부해야 하는 잘못된 연결 문자열 값(빈 문자열 또는 공백).</param>
@@ -37,7 +37,7 @@ public sealed class ConnectionStringGuardTests(PostgresContainerFixture pg)
     public void EmptyOrBlankConnectionString_FailsFastWithClearMessage(string value)
     {
         // ConfigureWebHost의 설정 루프가 기본 연결 문자열 설정 이후에 실행되므로 여기서 덮어쓴 값이 최종적으로 적용된다.
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["ConnectionStrings:Default"] = value });
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?> { ["ConnectionStrings:Default"] = value });
 
         var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
 

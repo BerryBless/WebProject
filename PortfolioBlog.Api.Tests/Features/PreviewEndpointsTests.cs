@@ -12,11 +12,11 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> 클래스 픽스처 팩토리를 공유하되 속도 제한 테스트는 격리된 팩토리를 만든다(제한기 상태가 다른 테스트를 막지 않게).</description></item>
 /// <item><description><b>Memory Allocation:</b> 가장 큰 요청 본문은 약 200KB.</description></item>
-/// <item><description><b>Blocking:</b> 비동기. 실제 PostgreSQL 컨테이너(세션 검증)에 접속한다.</description></item>
+/// <item><description><b>Blocking:</b> 비동기. 실제 MySQL 컨테이너(세션 검증)에 접속한다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class PreviewEndpointsTests(ApiFactory factory, PostgresContainerFixture pg) : IClassFixture<ApiFactory>
+[Collection("mysql")]
+public sealed class PreviewEndpointsTests(ApiFactory factory, MySqlContainerFixture mysql) : IClassFixture<ApiFactory>
 {
     /// <summary>마크다운을 렌더링해 돌려주고, 위험한 입력은 공개 페이지와 똑같이 중화된다.</summary>
     [Fact]
@@ -73,7 +73,7 @@ public sealed class PreviewEndpointsTests(ApiFactory factory, PostgresContainerF
     [Fact]
     public async Task Preview_IsRateLimited_AndPathVariantsShareTheBudget()
     {
-        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:PreviewPerMinute"] = "2" });
+        using var limited = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:PreviewPerMinute"] = "2" });
         using var client = await limited.CreateLoggedInClientAsync();
         using var first = await client.PostAsJsonAsync("/api/preview", new PreviewRequest("a"));
         using var second = await client.PostAsJsonAsync("/API/Preview/", new PreviewRequest("b"));

@@ -14,7 +14,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 새 로그인 세션을 쓰므로 서로 간섭하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class ApiBodyLimitTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private static string Json(int markdownChars) => "{\"markdown\":\"" + new string('a', markdownChars) + "\"}";

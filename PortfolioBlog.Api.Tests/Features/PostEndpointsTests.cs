@@ -11,13 +11,13 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
-/// <summary><c>/api/posts</c> 관리 엔드포인트의 계약·검증·태그 해석·낙관적 동시성을 실제 PostgreSQL 컨테이너로 검증한다.</summary>
+/// <summary><c>/api/posts</c> 관리 엔드포인트의 계약·검증·태그 해석·낙관적 동시성을 실제 MySQL 컨테이너로 검증한다.</summary>
 /// <param name="factory">컬렉션이 공유하는 컨테이너를 바탕으로 클래스 전용 DB를 갖는 <see cref="ApiFactory"/> 클래스 픽스처.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가
-/// 실제 PostgreSQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
+/// 실제 MySQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 팩토리는 <see cref="IClassFixture{TFixture}"/>로 클래스 단위 1회 생성·공유된다.
 /// 각 테스트 메서드는 로그인 클라이언트·DI 스코프를 자체적으로 만들고 <c>using</c>/<c>await using</c>으로 해제한다.</description></item>
 /// <item><description><b>Concurrency:</b> 팩토리·HttpClient는 Thread-safe하나, 스코프 안 <c>AppDbContext</c>는 단일 스레드 전용이며
@@ -25,7 +25,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Blocking:</b> 모든 HTTP·DB 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private static UpsertPostRequest Request(string slug, string title = "제목", string content = "본문", string[]? tags = null,

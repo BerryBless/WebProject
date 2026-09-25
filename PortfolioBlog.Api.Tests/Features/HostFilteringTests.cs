@@ -16,7 +16,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스 간 공유 가변 상태가 없어 병렬 실행에도 안전하다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class HostFilteringTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     /// <summary>설정된 두 호스트(대소문자 무시)만 통과하고, 그 밖의 호스트·서브도메인 위장·localhost는 400이다.</summary>

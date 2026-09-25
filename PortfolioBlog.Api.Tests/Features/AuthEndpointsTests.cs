@@ -9,23 +9,23 @@ namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>
 /// 아이디 없는 비밀번호 로그인, <c>__Host-</c> 세션 쿠키 경화 속성, 서버 측 세션 폐기(epoch), 절대 만료, 로그인 속도 제한을
-/// 실제 PostgreSQL 컨테이너와 인메모리 TestServer로 검증하는 통합 테스트.
+/// 실제 MySQL 컨테이너와 인메모리 TestServer로 검증하는 통합 테스트.
 /// </summary>
 /// <param name="factory">컬렉션이 공유하는 컨테이너를 바탕으로 클래스 전용 DB를 갖는 <see cref="ApiFactory"/> 클래스 픽스처.</param>
-/// <param name="pg">시계를 독립적으로 돌려야 하는 케이스가 별도 <see cref="ApiFactory"/>를 만들 때 재사용하는 컨테이너 fixture.</param>
+/// <param name="mysql">시계를 독립적으로 돌려야 하는 케이스가 별도 <see cref="ApiFactory"/>를 만들 때 재사용하는 컨테이너 fixture.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 로그인 검증은 서버 측에서 PBKDF2를 동기 실행하므로 각 로그인 호출은 수십 ms가 걸린다.</description></item>
 /// <item><description><b>Memory Policy:</b> 대부분의 케이스는 공유 <paramref name="factory"/>를 쓰지만, 시계 전진·속도 제한처럼 다른 테스트와 상태가 섞이면 안 되는 케이스는
-/// <c>new ApiFactory(pg, ...)</c>로 격리된 인스턴스를 만들고 <c>using</c>으로 해제한다.</description></item>
+/// <c>new ApiFactory(mysql, ...)</c>로 격리된 인스턴스를 만들고 <c>using</c>으로 해제한다.</description></item>
 /// <item><description><b>Concurrency:</b> 격리된 케이스는 자신만의 호스트·DB·시계를 가지므로 병렬 실행에 안전하다. 공유 <paramref name="factory"/>를 쓰는 케이스는
 /// 요청 헤더 조작으로만 상태를 바꾸므로 데이터 간섭이 없다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 HTTP 호출은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixture pg) : IClassFixture<ApiFactory>
+[Collection("mysql")]
+public sealed class AuthEndpointsTests(ApiFactory factory, MySqlContainerFixture mysql) : IClassFixture<ApiFactory>
 {
     private const string Login = "/api/auth/login";
     private const string Logout = "/api/auth/logout";
@@ -195,17 +195,17 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [Fact]
     public async Task HashRotation_RevokesSessions_ButControlFactoryWithSameHashStillAccepts()
     {
-        using var a = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var a = new ApiFactory(mysql, new Dictionary<string, string?>());
         var cookie = await a.LoginAndGetCookieAsync();
 
-        using var b = new ApiFactory(pg, new Dictionary<string, string?>
+        using var b = new ApiFactory(mysql, new Dictionary<string, string?>
         {
             ["Admin:PasswordHash"] = AdminCredential.Hash("dummy-rotated-password-0921"), // 테스트 전용 더미 값(실제 비밀번호 아님)
         });
         using var probeB = b.CreateAdminClient(handleCookies: false);
         Assert.False(await IsAuthenticatedAsync(probeB, cookie)); // 지문이 달라져 거부된다
 
-        using var c = new ApiFactory(pg, new Dictionary<string, string?>()); // 대조군: 해시가 그대로다
+        using var c = new ApiFactory(mysql, new Dictionary<string, string?>()); // 대조군: 해시가 그대로다
         using var probeC = c.CreateAdminClient(handleCookies: false);
         Assert.True(await IsAuthenticatedAsync(probeC, cookie)); // DP 키 링·epoch 문제가 아님을 증명한다
     }
@@ -223,7 +223,7 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [Fact]
     public async Task Session_ExpiresAfterAbsoluteLifetime_NoSliding()
     {
-        using var isolated = new ApiFactory(pg, new Dictionary<string, string?>()); // 시계를 돌리므로 다른 테스트와 호스트를 나눈다
+        using var isolated = new ApiFactory(mysql, new Dictionary<string, string?>()); // 시계를 돌리므로 다른 테스트와 호스트를 나눈다
         var cookie = await isolated.LoginAndGetCookieAsync();
         using var probe = isolated.CreateAdminClient(handleCookies: false);
 
@@ -245,7 +245,7 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [Fact]
     public async Task Login_IsRateLimitedPerIp()
     {
-        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "3" });
+        using var limited = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "3" });
         using var client = limited.CreateAdminClient(handleCookies: false);
         for (var i = 0; i < 3; i++)
         {
@@ -275,7 +275,7 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [Fact]
     public async Task Login_RateLimit_TreatsIpv4MappedAddressAsSameIp()
     {
-        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "1" });
+        using var limited = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "1" });
         using var client = limited.CreateAdminClient(handleCookies: false); // 기본 원본 IP: ApiFactory.AllowedIp(순수 IPv4 표기)
         using var first = await client.PostAsJsonAsync(Login, new { password = "wrong" });
         Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode); // 이 1회로 IP별 예산(1)을 소진한다
@@ -298,7 +298,7 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [Fact]
     public async Task Login_GlobalLimit_AppliesAcrossIps()
     {
-        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginGlobalPerMinute"] = "2" });
+        using var limited = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:LoginGlobalPerMinute"] = "2" });
         using var client = limited.CreateAdminClient(handleCookies: false);
         for (var i = 0; i < 3; i++)
         {
@@ -322,7 +322,7 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [Fact]
     public async Task Login_FromOutsiderIp_Returns403_AndDoesNotConsumeRateLimit()
     {
-        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginGlobalPerMinute"] = "1" });
+        using var limited = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:LoginGlobalPerMinute"] = "1" });
         using var outsider = limited.CreateAdminClient(handleCookies: false);
         outsider.DefaultRequestHeaders.Remove(RemoteIpStartupFilter.HeaderName);
         outsider.DefaultRequestHeaders.Add(RemoteIpStartupFilter.HeaderName, ApiFactory.OutsiderIp);
@@ -352,7 +352,7 @@ public sealed class AuthEndpointsTests(ApiFactory factory, PostgresContainerFixt
     [InlineData("/API/Auth/LOGIN")]
     public async Task Login_RateLimit_CannotBeBypassedWithPathVariants(string variantPath)
     {
-        using var limited = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "2" });
+        using var limited = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "2" });
         using var client = limited.CreateAdminClient(handleCookies: false);
         for (var i = 0; i < 2; i++)
         {

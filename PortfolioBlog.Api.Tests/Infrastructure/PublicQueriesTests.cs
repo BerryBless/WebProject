@@ -3,19 +3,19 @@ using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
-/// <summary>공개 조회의 정렬·페이지·태그·시리즈 이웃·검색 이스케이프를 실제 PostgreSQL로 검증한다. 테스트마다 격리된 DB를 쓴다.</summary>
+/// <summary>공개 조회의 정렬·페이지·태그·시리즈 이웃·검색 이스케이프를 실제 MySQL로 검증한다. 테스트마다 격리된 DB를 쓴다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 컬렉션 픽스처 <see cref="PostgresContainerFixture"/>(컨테이너 자체)만 공유하고,
-/// 각 테스트 케이스는 <c>new ApiFactory(pg, …)</c>로 자신만의 DB를 만들어 <c>using</c>으로 해제한다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 컬렉션 픽스처 <see cref="MySqlContainerFixture"/>(컨테이너 자체)만 공유하고,
+/// 각 테스트 케이스는 <c>new ApiFactory(mysql, …)</c>로 자신만의 DB를 만들어 <c>using</c>으로 해제한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 케이스마다 <see cref="ApiFactory"/>·시드 데이터(<see cref="PublicSeed"/>)·조회 결과 프로젝션을 각각 새로 할당한다.</description></item>
 /// <item><description><b>Concurrency:</b> 케이스 간 공유 가변 상태가 없으므로(DB가 케이스마다 다름) 병렬 실행에 안전하다.</description></item>
 /// <item><description><b>Blocking:</b> 비동기 Non-blocking. 시드·조회 왕복을 모두 <c>await</c>한다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class PublicQueriesTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class PublicQueriesTests(MySqlContainerFixture mysql)
 {
     private static async Task<T> QueryAsync<T>(ApiFactory factory, Func<PublicDbContext, Task<T>> query)
     {
@@ -27,7 +27,7 @@ public sealed class PublicQueriesTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Latest_PagesNewestFirst()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         var t0 = DbClock.UtcNow().AddDays(-1);
         for (var i = 0; i < 25; i++) await PublicSeed.PostAsync(factory, $"post-{i:00}", $"글 {i}", tags: i == 24 ? new[] { "b", "A" } : null, createdAt: t0.AddMinutes(i));
 
@@ -46,7 +46,7 @@ public sealed class PublicQueriesTests(PostgresContainerFixture pg)
     [Fact]
     public async Task GetPost_ResolvesSeriesNeighbors_InStableOrder()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         var series = await PublicSeed.SeriesAsync(factory, "net-internals", ".NET 내부");
         var t0 = DbClock.UtcNow().AddDays(-1);
         await PublicSeed.PostAsync(factory, "part-a", "A", seriesId: series.Id, seriesOrder: 1, createdAt: t0);
@@ -69,7 +69,7 @@ public sealed class PublicQueriesTests(PostgresContainerFixture pg)
     [Fact]
     public async Task ByTag_And_Search_UseNormalizedNames_AndLiteralWildcards()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         await PublicSeed.PostAsync(factory, "sharp", "C# 12", tags: ["C#"]);
         await PublicSeed.PostAsync(factory, "pct", "100% 완료", markdown: "경로는 a_b 이다");
         await PublicSeed.PostAsync(factory, "plain", "100 완료", markdown: "경로는 aXb 이다");
@@ -90,7 +90,7 @@ public sealed class PublicQueriesTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Latest_OutOfRangePage_Throws()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         await using var scope = factory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
 

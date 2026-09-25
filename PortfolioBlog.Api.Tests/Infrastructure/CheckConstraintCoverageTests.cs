@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
+using MySqlConnector;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -13,12 +13,12 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가 실제 PostgreSQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가 실제 MySQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 클래스 픽스처로 1회 생성·공유된다. 각 케이스는 <c>await using</c>으로 자신의 DI 스코프와 <c>AppDbContext</c>를 스코프 종료 시 해제한다.</description></item>
-/// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 고유 slug·이름을 써서 서로 간섭하지 않는다.</description></item>
+/// <item><description><b>Concurrency:</b> <c>mysql</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 고유 slug·이름을 써서 서로 간섭하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     /// <summary>CHECK 제약과 무관한 필수 필드를 채운 최소 유효 글을 만든다(각 위반 사례가 필드 하나만 바꿔 특정 제약만 어기게 하는 기준점).</summary>
@@ -85,7 +85,7 @@ public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFix
         Assert.Equal(declared, Violations.Keys.Order(StringComparer.Ordinal));
     }
 
-    /// <summary><paramref name="constraint"/>의 위반 사례가 SqlState 23514(check_violation)로 거부되고, 그 예외의 제약 이름이 바로 <paramref name="constraint"/>인지 확인한다(다른 제약에 먼저 걸려 통과하는 가짜 통과를 막는다).</summary>
+    /// <summary><paramref name="constraint"/>의 위반 사례가 오류 번호 3819(ER_CHECK_CONSTRAINT_VIOLATED)로 거부되고, 그 예외 메시지의 제약 이름이 바로 <paramref name="constraint"/>인지 확인한다(다른 제약에 먼저 걸려 통과하는 가짜 통과를 막는다).</summary>
     /// <param name="constraint">위반시킬 CHECK 제약 이름.</param>
     [Theory]
     [MemberData(nameof(ConstraintNames))]
@@ -96,8 +96,10 @@ public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFix
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Violations[constraint](db);
         var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        var pg = Assert.IsType<PostgresException>(ex.InnerException);
-        Assert.Equal("23514", pg.SqlState);
-        Assert.Equal(constraint, pg.ConstraintName);
+        var mysql = Assert.IsType<MySqlException>(ex.InnerException);
+        Assert.Equal(3819, mysql.Number);
+        // MySQL은 제약 이름을 별도 속성으로 주지 않는다. 서버 메시지 "Check constraint 'X' is violated."에서 확인한다
+        // (메시지는 서버가 만들고 MySqlConnector는 그대로 Message에 싣는다).
+        Assert.Contains($"'{constraint}'", mysql.Message, StringComparison.Ordinal);
     }
 }

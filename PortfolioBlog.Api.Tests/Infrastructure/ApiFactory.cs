@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Npgsql;
+using MySqlConnector;
 using PortfolioBlog.Api.Infrastructure.Access;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Web;
@@ -17,10 +17,10 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> Not Thread-safe한 구성 단계(생성자)와 Thread-safe한 <see cref="WebApplicationFactory{TEntryPoint}"/> 기반 호스트가 혼재한다. 인스턴스를 여러 테스트 클래스가 공유하지 않는다(클래스 픽스처 1개당 1 인스턴스).</description></item>
 /// <item><description><b>Memory Allocation:</b> 내부 TestServer·DI 컨테이너를 <see cref="Services"/> 최초 접근 시 구성한다. 클래스마다 새 데이터베이스명 문자열만 추가 할당한다.</description></item>
-/// <item><description><b>Blocking:</b> 생성자는 즉시 반환(Non-blocking). 실제 호스트 기동·<c>Migrate()</c>는 <see cref="WebApplicationFactory{TEntryPoint}.CreateClient()"/> 최초 호출 시 지연 실행된다.</description></item>
+/// <item><description><b>Blocking:</b> 생성자는 컨테이너에 공개 사용자를 만드는 동기 DB 왕복 2회(연결·CREATE USER)를 한다. 실제 호스트 기동·<c>Migrate()</c>는 <see cref="WebApplicationFactory{TEntryPoint}.CreateClient()"/> 최초 호출 시 지연 실행된다.</description></item>
 /// </list>
 /// 기본 생성자(xUnit 주입)는 설정 오버라이드 없이 만든다. 다른 설정이 필요한 테스트는
-/// <c>new ApiFactory(pg, settings)</c>로 직접 만들고 <c>using</c>으로 해제한다.
+/// <c>new ApiFactory(mysql, settings)</c>로 직접 만들고 <c>using</c>으로 해제한다.
 /// </remarks>
 public class ApiFactory : WebApplicationFactory<Program>
 {
@@ -42,6 +42,7 @@ public class ApiFactory : WebApplicationFactory<Program>
     // PBKDF2 10만 회라 해시 생성이 수십 ms 걸린다. 프로세스당 한 번만 만든다.
     private static readonly string PasswordHash = AdminCredential.Hash(Password);
 
+    private readonly MySqlContainerFixture _mysql;
     private readonly string _connectionString;
     private readonly string _publicConnectionString;
     private readonly IReadOnlyDictionary<string, string?> _settings;
@@ -49,6 +50,15 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     /// <summary>이 팩토리가 만든 테스트 전용 DB를 가리키는 관리 연결 문자열(잠금·테이블 잠금 테스트가 쓴다).</summary>
     internal string ConnectionString => _connectionString;
+
+    /// <summary>이 팩토리 전용 공개 사용자로 같은 DB를 가리키는 공개 연결 문자열(<see cref="DataServiceCollectionExtensions.WithSessionReset"/> 적용 전 원본).</summary>
+    internal string PublicConnectionString => _publicConnectionString;
+
+    /// <summary>이 팩토리가 컨테이너에 만든 공개 조회 전용 사용자 이름(<c>'이름'@'%'</c>). 팩토리 해제 시 지운다.</summary>
+    internal string PublicUser { get; }
+
+    /// <summary>이 팩토리가 쓰는 테스트 전용 DB 이름(<c>blog_test_</c> + GUID). <c>Migrate()</c>가 만든다.</summary>
+    internal string DatabaseName { get; }
 
     /// <summary>테스트가 앞으로 돌릴 수 있는 시계. <c>TimeProvider</c> 싱글턴으로 등록되어 앱이 이 인스턴스를 통해 "지금"을 읽는다.</summary>
     public MutableTimeProvider Clock { get; } = new();
@@ -61,30 +71,30 @@ public class ApiFactory : WebApplicationFactory<Program>
     public static string DataProtectionKeysRoot { get; } = Path.Combine(Path.GetTempPath(), "portfolioblog-tests", "dpkeys-shared");
 
     /// <summary>xUnit이 클래스 픽스처로 주입하는 기본 생성자. 설정 오버라이드가 없다.</summary>
-    /// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture.</param>
+    /// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> xUnit이 클래스 픽스처 생성 시 1회만 호출한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 연결 문자열 빌더가 문자열 1개를 힙에 할당한다.</description></item>
-    /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking). 네트워크 I/O나 호스트 기동이 없다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> 연결 문자열 빌더 2개와 무작위 사용자 이름 문자열을 힙에 할당한다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 블로킹. root 연결로 공개 사용자를 만든다(<see cref="MySqlContainerFixture.CreateUser"/>). 호스트 기동은 없다.</description></item>
     /// </list>
     /// </remarks>
-    public ApiFactory(PostgresContainerFixture pg) : this(pg, new Dictionary<string, string?>()) { }
+    public ApiFactory(MySqlContainerFixture mysql) : this(mysql, new Dictionary<string, string?>()) { }
 
     // xUnit 2.x는 클래스 픽스처에 public 인스턴스 생성자가 정확히 하나여야 한다. 설정 오버라이드용은 internal로 둔다.
     // attachmentsRootTrailingSeparator: 지정하면 AttachmentsRoot 뒤에 이 구분자 하나를 붙인 값을 Attachments:RootPath로
     // 앱에 넘긴다(트레일링 구분자가 있는 운영 설정값 재현용, F1 회귀 테스트 전용 훅). AttachmentsRoot 프로퍼티 자체(정리용 경로)는
     // 구분자 없이 그대로 둔다 — 같은 파일 시스템 위치를 가리키므로 정리에는 영향이 없다.
-    internal ApiFactory(PostgresContainerFixture pg, IReadOnlyDictionary<string, string?> settings, char? attachmentsRootTrailingSeparator = null)
+    internal ApiFactory(MySqlContainerFixture mysql, IReadOnlyDictionary<string, string?> settings, char? attachmentsRootTrailingSeparator = null)
     {
-        // 클래스마다 새 DB 이름을 써서 테스트 간 데이터 간섭을 없앤다. Migrate()가 DB를 생성한다.
-        var csb = new NpgsqlConnectionStringBuilder(pg.ConnectionString)
-        {
-            Database = "blog_test_" + Guid.NewGuid().ToString("N"),
-        };
-        _connectionString = csb.ToString();
-        _publicConnectionString = new NpgsqlConnectionStringBuilder(_connectionString) { Username = PostgresContainerFixture.PublicRole, Password = PostgresContainerFixture.PublicRoleSecret }.ToString();
+        _mysql = mysql;
+        // 클래스마다 새 DB를 써서 테스트 간 데이터 간섭을 없앤다. Migrate()가 DB를 만든다(root라 CREATE DATABASE 가능).
+        DatabaseName = "blog_test_" + Guid.NewGuid().ToString("N");
+        _connectionString = new MySqlConnectionStringBuilder(mysql.ConnectionString) { Database = DatabaseName }.ConnectionString;
+        // 공개 사용자는 팩토리마다 새로 만든다(권한 없음으로 시작 → 앱이 기동하며 GRANT 후 SHOW GRANTS로 검증).
+        (PublicUser, var secret) = mysql.CreateUser();
+        _publicConnectionString = new MySqlConnectionStringBuilder(_connectionString) { UserID = PublicUser, Password = secret }.ConnectionString;
         _settings = settings;
         _attachmentsRootPathOverride = attachmentsRootTrailingSeparator is { } separator ? AttachmentsRoot + separator : null;
     }
@@ -229,39 +239,31 @@ public class ApiFactory : WebApplicationFactory<Program>
         return setCookie.Split(';', 2)[0];
     }
 
-    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.
-    /// 풀 정리가 예외를 던져도(예: 연결 문자열 조립 실패) 첨부 임시 폴더 정리는 <c>finally</c>로 항상 실행된다.</summary>
+    /// <summary>기반 <see cref="WebApplicationFactory{TEntryPoint}"/>가 호스트를 해제한 뒤, 관리·공개 두 연결 풀을 닫고 공개 사용자를 지운 뒤 이 인스턴스 전용 첨부 임시 폴더를 재귀적으로 지운다.
+    /// 풀 정리·사용자 삭제가 예외를 던져도(예: 컨테이너 연결 실패) 첨부 임시 폴더 정리는 <c>finally</c>로 항상 실행된다.</summary>
     /// <param name="disposing"><see langword="true"/>면 관리 리소스(호스트·연결 풀·임시 폴더)까지 해제한다.</param>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> xUnit이 픽스처 해제 시 1회만 호출한다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> 공개 연결 문자열을 다시 조립하는 문자열 1개(<see cref="PublicDbContext.BuildConnectionString"/>) + 반복용 배열 1개.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 파일 시스템 I/O(디렉터리 재귀 삭제). <c>base.Dispose</c>가 먼저 호스트를 내려 파일 핸들을 놓아야 삭제가 실패하지 않으므로 반드시 그 다음에 호출한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> <see cref="DataServiceCollectionExtensions.WithSessionReset"/>가 만드는 연결 문자열 2개 + 반복용 배열 1개.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 블로킹. 풀 정리·<c>DROP USER</c>(root 연결 DB 왕복)와 파일 시스템 I/O(디렉터리 재귀 삭제). <c>base.Dispose</c>가 먼저 호스트를 내려 파일 핸들을 놓아야 삭제가 실패하지 않으므로 반드시 그 다음에 호출한다.</description></item>
     /// </list>
     /// </remarks>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
         if (!disposing) return;
-        // NpgsqlConnection.ClearPool: 풀은 연결 문자열별 프로세스 전역 상태라 호스트를 내려도 유휴 연결이 Connection Idle Lifetime(기본 300초) 동안
-        // 서버에 남는다. 이 팩토리가 연 두 풀(관리·공개)을 즉시 닫아 공유 컨테이너의 max_connections를 다른 테스트에 돌려준다.
-        // 공개 조회 풀도 닫는다(연결 문자열이 달라 풀이 따로다). 시간 제한 값이 연결 문자열의 일부라 앱과 같은 값으로 조립해야 같은 풀을 가리킨다.
-        // int.TryParse: Dispose 안에서 예외를 던지면 바로 아래 첨부 임시 폴더 정리가 건너뛰어지므로, 파싱 실패를 예외 대신
-        // PublicOptions 기본값으로 흡수한다(정리 자체는 최선 노력이고, 여기서 죽을 이유가 없다).
-        // try/finally: PublicDbContext.BuildConnectionString은 Options가 이미 있으면 예외를 던질 수 있다(정상 경로에서는
-        // _connectionString에 Options가 없어 도달하지 않지만, 그 호출이 실패하더라도 아래 첨부 임시 폴더 정리는 반드시 실행되어야 한다).
         try
         {
-            var timeout = _settings.TryGetValue("Public:StatementTimeoutMs", out var raw) && raw is not null
-                && int.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
-                ? parsed
-                : new PublicOptions().StatementTimeoutMs;
-            foreach (var cs in new[] { _connectionString, PublicDbContext.BuildConnectionString(_publicConnectionString, timeout) })
+            // 풀은 연결 문자열별 프로세스 전역 상태다. 앱이 쓴 것과 같은 키(WithSessionReset 정규화)로 비워야 유휴 연결이 서버에서 즉시 닫힌다.
+            foreach (var cs in new[] { _connectionString, _publicConnectionString })
             {
-                using var connection = new NpgsqlConnection(cs);
-                NpgsqlConnection.ClearPool(connection);
+                using var connection = new MySqlConnection(DataServiceCollectionExtensions.WithSessionReset(cs));
+                // MySqlConnector의 동기 정적 ClearPool(MySqlConnection): 그 연결 문자열 풀의 유휴 연결을 닫는다(Dispose가 동기라 Async 판을 쓰지 않는다).
+                MySqlConnection.ClearPool(connection);
             }
+            _mysql.DropUser(PublicUser);
         }
         finally
         {

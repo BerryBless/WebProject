@@ -17,8 +17,8 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// <item><description><b>Concurrency:</b> 이 클래스 안의 테스트는 각자 자기 <see cref="ApiFactory"/>를 만들어 병렬로 실행돼도 서로 간섭하지 않는다. <see cref="AttachmentOptions.JanitorEnabled"/>가 테스트 기본값에서 꺼져 있어(<see cref="ApiFactory.ConfigureWebHost"/>) 백그라운드 <see cref="AttachmentJanitor"/> 루프가 파일 시각을 조작하는 이 테스트와 경합하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOutputHelper output)
+[Collection("mysql")]
+public sealed class AttachmentJanitorTests(MySqlContainerFixture mysql, ITestOutputHelper output)
 {
     private static async Task<AttachmentDto> UploadAsync(HttpClient client, string fixture)
     {
@@ -33,7 +33,7 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOut
     [Fact]
     public async Task Sweep_DeletesOnlyOldUnreferencedContentFiles_AndReportsMissingOnes()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         using var client = await factory.CreateLoggedInClientAsync();
         var store = factory.Services.GetRequiredService<FileSystemAttachmentStore>();
         var old = DateTime.UtcNow - AttachmentJanitor.MinimumAge - TimeSpan.FromMinutes(5);
@@ -89,7 +89,7 @@ public sealed class AttachmentJanitorTests(PostgresContainerFixture pg, ITestOut
     [Fact]
     public async Task Sweep_DoesNotFollowASymbolicLinkBucket_ToDeleteFilesOutsideTheRoot()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         var root = factory.AttachmentsRoot;
         Directory.CreateDirectory(root);
 

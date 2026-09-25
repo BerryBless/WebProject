@@ -1,10 +1,10 @@
-using Npgsql;
+using MySqlConnector;
 using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>설정 오류는 조용히 넘어가지 않고 시작을 막는다.</summary>
-/// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture. 케이스마다 설정을 다르게 주어야 하므로 클래스 픽스처 대신 케이스마다 <see cref="ApiFactory"/>를 직접 만든다.</param>
+/// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture. 케이스마다 설정을 다르게 주어야 하므로 클래스 픽스처 대신 케이스마다 <see cref="ApiFactory"/>를 직접 만든다.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -14,8 +14,8 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Blocking:</b> <c>CreateClient()</c>는 동기 호출이며 시작 실패를 그 자리에서 예외로 전파한다(비동기 I/O 대기 없음).</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class StartupValidationTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class StartupValidationTests(MySqlContainerFixture mysql)
 {
     /// <summary>Production 환경에서 시작에 필요한 최소 설정 세트를 만들고, <paramref name="mutate"/>로 한 항목만 깨뜨릴 수 있게 한다.</summary>
     /// <param name="mutate">기본 설정 딕셔너리를 수정하는 콜백. 특정 키를 비워 검증 실패를 유도한다.</param>
@@ -56,7 +56,7 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     /// </remarks>
     private void AssertStartupFails(Dictionary<string, string?> settings, string expectedKey)
     {
-        using var factory = new ApiFactory(pg, settings);
+        using var factory = new ApiFactory(mysql, settings);
         var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
         Assert.Contains(expectedKey, ex.ToString(), StringComparison.Ordinal);
     }
@@ -65,7 +65,7 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     [Fact]
     public void Production_ValidSettings_Starts()
     {
-        using var factory = new ApiFactory(pg, Production(_ => { }));
+        using var factory = new ApiFactory(mysql, Production(_ => { }));
         using var client = factory.CreateClient();
     }
 
@@ -194,23 +194,14 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     public void AnyEnvironment_ZeroPreviewConcurrency_Fails() =>
         AssertStartupFails(new Dictionary<string, string?> { ["Admin:PreviewConcurrency"] = "0" }, "PreviewConcurrency");
 
-    /// <summary>환경에 상관없이 <c>ConnectionStrings:Default</c>에 이미 <c>Options</c>가 있으면(공개 조회 전용 옵션과 합칠 수 없다) 시작이
-    /// 실패하고 예외에 그 키가 포함되는지 검증한다 — 첫 공개 요청이 아니라 시작 시점에 드러나는지가 이 테스트의 핵심이다.</summary>
-    [Fact]
-    public void AnyEnvironment_ConnectionStringHasOptions_Fails()
-    {
-        var withOptions = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { Options = "-c work_mem=1MB" }.ConnectionString;
-        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = withOptions }, "ConnectionStrings:Default");
-    }
-
     /// <summary>환경에 상관없이 <c>ConnectionStrings:Default</c>의 Command Timeout(초)이 <c>Public:StatementTimeoutMs</c>(밀리초)보다
-    /// 먼저 끊기면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다 — 그렇지 않으면 클라이언트 취소가 DB의 statement_timeout(57014)보다
+    /// 먼저 끊기면 시작이 실패하고 예외에 그 키가 포함되는지 검증한다 — 그렇지 않으면 클라이언트 취소가 DB의 실행 시간 상한(max_execution_time, 3024)보다
     /// 먼저 발생해 <c>OverloadExceptionHandler</c>의 503 매핑 설계가 성립하지 않는다. 기본 <c>Public:StatementTimeoutMs</c>는
     /// 3000이므로 Command Timeout=1(=1000ms)이면 1000 &lt;= 3000 조건에 걸린다.</summary>
     [Fact]
     public void AnyEnvironment_CommandTimeoutNotLargerThanStatementTimeout_Fails()
     {
-        var shortCommandTimeout = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { CommandTimeout = 1 }.ConnectionString;
+        var shortCommandTimeout = new MySqlConnectionStringBuilder(mysql.ConnectionString) { DefaultCommandTimeout = 1 }.ConnectionString;
         AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Default"] = shortCommandTimeout }, "ConnectionStrings:Default");
     }
 
@@ -228,32 +219,27 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     public void Production_MissingOrRelativeDataProtectionKeysPath_Fails(string path) =>
         AssertStartupFails(Production(s => s["DataProtection:KeysPath"] = path), "DataProtection:KeysPath");
 
-    /// <summary>공개 연결 문자열에 <c>Options</c>가 있으면 환경과 무관하게 시작이 실패하고, 메시지는 그 키를 가리킨다(값은 넣지 않는다).</summary>
-    [Fact]
-    public void PublicConnectionString_WithOptions_Fails() =>
-        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=blog_public_test;Options=-c work_mem=1MB" }, "ConnectionStrings:Public 에 Options");
-
-    /// <summary>공개 연결의 사용자가 관리 연결과 같으면 시작이 실패한다. "postgres"인 이유: 테스트 컨테이너의 관리 연결 사용자가 그 이름이다.</summary>
+    /// <summary>공개 연결의 사용자가 관리 연결과 같으면 시작이 실패한다. "root"인 이유: 테스트 컨테이너의 관리 연결 사용자가 그 이름이다.</summary>
     [Fact]
     public void PublicConnectionString_SameUserAsDefault_Fails() =>
-        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=postgres" }, "별도의 읽기 전용 롤");
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Server=db.example;Database=blog;User ID=root;SslMode=Required" }, "별도의 읽기 전용 사용자");
 
     /// <summary>공개 연결의 사용자 이름이 평범한 소문자 식별자가 아니면 DB에 닿기 전에 시작이 실패한다(GRANT 문장에 직접 들어가는 값이다).</summary>
     [Fact]
     public void PublicConnectionString_WithUnsafeRoleName_Fails() =>
-        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username='blog public'" }, "ConnectionStrings:Public 의 Username");
+        AssertStartupFails(new Dictionary<string, string?> { ["ConnectionStrings:Public"] = "Server=db.example;Database=blog;User ID='blog public';SslMode=Required" }, "ConnectionStrings:Public 의 User ID");
 
-    /// <summary>환경에 상관없이 <c>ConnectionStrings:Public</c>이 Npgsql이 모르는 키워드를 담고 있으면(연결 문자열 자체를 파싱하지 못한다)
+    /// <summary>환경에 상관없이 <c>ConnectionStrings:Public</c>이 MySqlConnector가 모르는 키워드를 담고 있으면(연결 문자열 자체를 파싱하지 못한다)
     /// 시작이 실패하고, 예외 텍스트에 설정 키(<c>ConnectionStrings:Public</c>)는 있지만 연결 문자열 값(호스트 <c>db.example</c>)은 없는지
-    /// 검증한다. Npgsql은 이런 파싱 실패를 <see cref="FormatException"/>이 아니라 <see cref="ArgumentException"/>으로 던지므로(실측:
-    /// <c>"Couldn't set bogus keyword"</c>), <c>StartupValidation.CheckConnectionString</c>이 파서 호출 자체를 <c>Check</c>로 감싸는지가
+    /// 검증한다. MySqlConnector는 이런 파싱 실패를 <see cref="FormatException"/>이 아니라 <see cref="ArgumentException"/>으로 던지므로(스파이크 S12:
+    /// <c>"Option 'bogus keyword' not supported."</c>), <c>StartupValidation.CheckConnectionString</c>이 파서 호출 자체를 감싸는지가
     /// 이 테스트의 핵심이다.</summary>
     [Fact]
     public void PublicConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>
         {
-            ["ConnectionStrings:Public"] = "Host=db.example;Database=blog;Username=blog_public_test;Bogus Keyword=1",
+            ["ConnectionStrings:Public"] = "Server=db.example;Database=blog;User ID=blog_public_test;Bogus Keyword=1;SslMode=Required",
         });
         var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
         var text = ex.ToString();
@@ -262,14 +248,14 @@ public sealed class StartupValidationTests(PostgresContainerFixture pg)
     }
 
     /// <summary>같은 파싱 실패가 <c>ConnectionStrings:Default</c>에서도 그 키로 보고되고 값(호스트)은 새지 않는지 검증한다.
-    /// 사용자 이름 <c>postgres</c>는 테스트 컨테이너의 실제 관리 롤 이름을 흉내만 낸 값이며, 연결 문자열 파싱 자체가 이 지점에서
+    /// 사용자 이름 <c>root</c>는 테스트 컨테이너의 실제 관리 사용자 이름을 흉내만 낸 값이며, 연결 문자열 파싱 자체가 이 지점에서
     /// 이미 실패하므로 실제 DB에 연결을 시도하지 않는다.</summary>
     [Fact]
     public void DefaultConnectionString_WithUnknownKeyword_FailsWithoutLeakingTheValue()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>
         {
-            ["ConnectionStrings:Default"] = "Host=db.example;Database=blog;Username=postgres;Bogus Keyword=1",
+            ["ConnectionStrings:Default"] = "Server=db.example;Database=blog;User ID=root;Bogus Keyword=1;SslMode=Required",
         });
         var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
         var text = ex.ToString();

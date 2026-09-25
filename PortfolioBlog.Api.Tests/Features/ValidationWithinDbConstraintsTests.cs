@@ -15,7 +15,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 새 로그인 세션·고유 slug를 쓰므로 서로 간섭하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class ValidationWithinDbConstraintsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     // Interlocked.Increment: 여러 [Theory] 케이스가 xUnit에 의해 병렬로 실행될 수 있어(클래스 안에서는 기본 순차이지만

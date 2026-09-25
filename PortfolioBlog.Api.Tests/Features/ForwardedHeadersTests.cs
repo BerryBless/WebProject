@@ -4,7 +4,7 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>X-Forwarded-For는 설정된 단 하나의 프록시 IP가 보낸 경우에만 믿는다.</summary>
-/// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture. 이 테스트 클래스는 <c>Proxy:TrustedIp</c> 설정을 케이스마다 다르게 주어야 하므로 클래스 픽스처 대신 케이스마다 <see cref="ApiFactory"/>를 직접 만든다.</param>
+/// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture. 이 테스트 클래스는 <c>Proxy:TrustedIp</c> 설정을 케이스마다 다르게 주어야 하므로 클래스 픽스처 대신 케이스마다 <see cref="ApiFactory"/>를 직접 만든다.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -14,8 +14,8 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Blocking:</b> 모든 HTTP 호출은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class ForwardedHeadersTests(MySqlContainerFixture mysql)
 {
     private const string Proxy = "172.30.0.2";        // Caddy 컨테이너 고정 IP
     private const string OtherContainer = "172.30.0.9"; // 같은 compose 네트워크의 다른 컨테이너
@@ -55,7 +55,7 @@ public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
     [Fact]
     public async Task TrustedProxy_ForwardedFor_IsHonored()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
         Assert.Equal(HttpStatusCode.OK, await GetMeAsync(factory, Proxy, ApiFactory.AllowedIp));
         Assert.Equal(HttpStatusCode.Forbidden, await GetMeAsync(factory, Proxy, ApiFactory.OutsiderIp));
     }
@@ -73,7 +73,7 @@ public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
     [Fact]
     public async Task TrustedProxy_Ipv4MappedAddresses_AreNormalized()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
         // 프록시 자신의 연결 IP가 mapped 표기여도 ForwardedHeadersMiddleware의 KnownProxies 매칭이 정규화해 신뢰한다.
         Assert.Equal(HttpStatusCode.OK, await GetMeAsync(factory, $"::ffff:{Proxy}", ApiFactory.AllowedIp));
         // X-Forwarded-For 안의 클라이언트 IP가 mapped 표기여도 CidrList.Contains가 정규화해 허용 CIDR과 매칭한다.
@@ -93,7 +93,7 @@ public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
     [Fact]
     public async Task TrustedProxy_SpoofedLeftmostEntry_IsIgnored()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
         // 공격자가 보낸 "허용 IP"가 맨 왼쪽, Caddy가 붙인 실제 IP가 맨 오른쪽. ForwardLimit=1이라 오른쪽 하나만 본다.
         Assert.Equal(HttpStatusCode.Forbidden,
             await GetMeAsync(factory, Proxy, $"{ApiFactory.AllowedIp}, {ApiFactory.OutsiderIp}"));
@@ -111,7 +111,7 @@ public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
     [Fact]
     public async Task UntrustedSender_EvenInSameNetwork_ForwardedForIsIgnored()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?> { ["Proxy:TrustedIp"] = Proxy });
         Assert.Equal(HttpStatusCode.Forbidden, await GetMeAsync(factory, OtherContainer, ApiFactory.AllowedIp));
         Assert.Equal(HttpStatusCode.Forbidden, await GetMeAsync(factory, ApiFactory.OutsiderIp, ApiFactory.AllowedIp));
     }
@@ -128,7 +128,7 @@ public sealed class ForwardedHeadersTests(PostgresContainerFixture pg)
     [Fact]
     public async Task NoTrustedProxy_MiddlewareNotRegistered_ForwardedForIgnored()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         // 신뢰 목록이 비면 ASP.NET 기본 동작은 "모든 헤더를 믿음"이다. 그래서 미들웨어를 아예 등록하지 않는다.
         Assert.Equal(HttpStatusCode.Forbidden, await GetMeAsync(factory, ApiFactory.OutsiderIp, ApiFactory.AllowedIp));
         Assert.Equal(HttpStatusCode.OK, await GetMeAsync(factory, ApiFactory.AllowedIp, null));

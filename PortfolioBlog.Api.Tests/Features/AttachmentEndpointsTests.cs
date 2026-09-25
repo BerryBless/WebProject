@@ -5,7 +5,6 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
@@ -22,11 +21,11 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Thread Safety:</b> 첨부는 내용 주소로 중복 제거되므로 같은 픽스처를 올리는 테스트끼리 서로의 결과(201/200)를 바꾼다.
 /// 그래서 <b>테스트마다 격리된 <see cref="ApiFactory"/></b>(자체 DB + 자체 임시 첨부 폴더)를 만든다.</description></item>
 /// <item><description><b>Memory Allocation:</b> 크기 초과 테스트가 10MB+1바이트 버퍼 하나를 만든다.</description></item>
-/// <item><description><b>Blocking:</b> 비동기. 실제 PostgreSQL 컨테이너와 로컬 임시 디렉터리를 쓴다. 팩토리는 <c>using</c>으로 해제되어 임시 폴더를 지운다.</description></item>
+/// <item><description><b>Blocking:</b> 비동기. 실제 MySQL 컨테이너와 로컬 임시 디렉터리를 쓴다. 팩토리는 <c>using</c>으로 해제되어 임시 폴더를 지운다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class AttachmentEndpointsTests(MySqlContainerFixture mysql)
 {
     private static readonly Dictionary<string, string?> NoOverrides = new();
 
@@ -94,7 +93,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Upload_StripsMetadata_AndServesPubliclyWithHardenedHeaders()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var original = Fixture("exif-gps.jpg");
         var dto = await UploadAsync(admin, original, "휴가 사진.JPG");
@@ -131,7 +130,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [InlineData("progressive-trailing.jpg", "image/jpeg", "jpg")]
     public async Task Upload_AcceptsEachFormat(string fixture, string contentType, string extension)
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var dto = await UploadAsync(admin, Fixture(fixture), "wrong-name.exe");
         Assert.Equal(contentType, dto.ContentType);
@@ -142,7 +141,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Upload_SameContent_ReturnsExisting()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var png = Fixture("exif-text.png");
         var first = await UploadAsync(admin, png, "a.png");
@@ -158,7 +157,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Upload_RejectsBadInput_WithSpecificStatus()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var png = Fixture("exif-text.png");
 
@@ -181,7 +180,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Upload_MissingFileField_Returns400_WithFileFieldMessage()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         using var form = new MultipartFormDataContent { { new StringContent("x"), "other" } };
 
@@ -196,7 +195,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task FileName_IsDisplayOnly_NeverAPath()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var dto = await UploadAsync(admin, Fixture("exif-xmp.webp"), "..\\..\\etc/pass\twd.webp");
         Assert.Equal("passwd.webp", dto.FileName);
@@ -217,7 +216,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task List_And_Delete()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var older = await UploadAsync(admin, Fixture("exif-text.png"), "older.png");
         var newer = await UploadAsync(admin, Fixture("comment-animated.gif"), "newer.gif");
@@ -248,7 +247,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task PublicSurface_IsReadOnly()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var visitor = factory.CreatePublicClient();
         using var form = Form(Fixture("exif-text.png"), "x.png");
         using var post = await visitor.PostAsync($"/attachments/{Guid.NewGuid()}/x.png", form);
@@ -261,7 +260,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Upload_FileNameTruncationSplitsSurrogatePair_Returns201_NotServerError()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         // 재현 케이스: 249개의 'a' + 이모지(서러게이트 쌍) + "bbbb.webp" — 255자 길이 제한이 정확히 이모지 한가운데를 자른다.
         var uploadedName = new string('a', 249) + "\U0001F600" + "bbbb.webp";
@@ -289,7 +288,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task PublicGet_HasEtagAndLastModified_AndConditionalGetReturns304()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
 
@@ -319,7 +318,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task PublicGet_Head_ReturnsHeadersWithoutBody_AndReleasesHandle()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
 
@@ -347,7 +346,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
     [Fact]
     public async Task PublicGet_WhenFileIsMissingOnDisk_Returns404()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
 
@@ -380,7 +379,7 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
 
     private async Task AssertUploadAndPublicGetSucceed(char rootTrailingSeparator)
     {
-        using var factory = new ApiFactory(pg, NoOverrides, rootTrailingSeparator);
+        using var factory = new ApiFactory(mysql, NoOverrides, rootTrailingSeparator);
         using var admin = await factory.CreateLoggedInClientAsync();
         var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
 
@@ -389,51 +388,11 @@ public sealed class AttachmentEndpointsTests(PostgresContainerFixture pg)
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
     }
 
-    /// <summary>공개 첨부 GET은 관리 풀이 아니라 공개 조회 연결을 쓴다: <c>Attachments</c>가 <c>ACCESS EXCLUSIVE</c>로 잠긴 동안 요청하면
-    /// 잠금이 풀릴 때까지 매달리지 않고 <c>statement_timeout</c>(이 테스트에서는 200ms)에 SqlState 57014로 끊겨 503 + <c>Retry-After</c>가 온다.
-    /// 핸들러가 관리 컨텍스트를 쓰면(<c>statement_timeout</c> 없음) 이 요청은 잠금이 풀릴 때까지 기다려 아래 5초 유계 대기에서 실패한다 —
-    /// 그 유계 대기가 있어야 사보타주 상태의 테스트가 잠금 해제까지 매달리지 않는다.</summary>
-    [Fact]
-    public async Task PublicGet_WhenTheTableIsLocked_Returns503WithRetryAfter()
-    {
-        using var factory = new ApiFactory(pg, FastPublicTimeout);
-        using var admin = await factory.CreateLoggedInClientAsync();
-        var dto = await UploadAsync(admin, Fixture("exif-text.png"), "a.png");
-
-        // 잠금은 명시적 트랜잭션 안에서만 유지된다(LOCK TABLE은 트랜잭션이 끝나면 풀린다). 관리 연결 문자열을 쓰는
-        // 별도 연결이라 앱의 두 풀(관리·공개)과 물리 연결을 공유하지 않는다 — 앱 요청이 이 잠금을 자기 연결로 우회할 수 없다.
-        await using var holder = new NpgsqlConnection(factory.ConnectionString);
-        await holder.OpenAsync();
-        var tx = await holder.BeginTransactionAsync();
-        try
-        {
-            await using (var lockCmd = new NpgsqlCommand("LOCK TABLE \"Attachments\" IN ACCESS EXCLUSIVE MODE", holder, tx))
-            {
-                await lockCmd.ExecuteNonQueryAsync();
-            }
-
-            using var visitor = factory.CreatePublicClient();
-            // CancellationTokenSource(5초): 200ms 제한이 실제로 걸렸다면 훨씬 먼저 끝난다. 걸리지 않은 구현에서 이 대기가
-            // 테스트를 잠금 해제 시점까지(= finally까지) 붙잡아 교착하는 것을 막는 상한이다.
-            using var bounded = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var res = await visitor.GetAsync(dto.Url, bounded.Token);
-            Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
-            Assert.Equal(TimeSpan.FromSeconds(OverloadExceptionHandler.RetryAfterSeconds), res.Headers.RetryAfter?.Delta);
-        }
-        finally
-        {
-            // 잠금 연결은 어떤 경로로 빠져나가도 되돌리고 닫는다(테스트 DB는 팩토리와 함께 버려지지만, 잠금이 남으면
-            // 같은 팩토리의 뒤이은 정리 작업이 막힐 수 있다).
-            await tx.RollbackAsync();
-            await tx.DisposeAsync();
-        }
-    }
-
     /// <summary>임시 파일이 남지 않는다(성공·거부 어느 경로든).</summary>
     [Fact]
     public async Task Upload_LeavesNoTempFiles()
     {
-        using var factory = new ApiFactory(pg, NoOverrides);
+        using var factory = new ApiFactory(mysql, NoOverrides);
         using var admin = await factory.CreateLoggedInClientAsync();
         await UploadAsync(admin, Fixture("exif-gps.jpg"), "t.jpg");
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, await UploadStatusAsync(admin, Form(Encoding.UTF8.GetBytes("not an image"), "t.png")));

@@ -24,7 +24,7 @@ namespace PortfolioBlog.Api.Tests;
 /// 호스트 초기화 비용·대기가 포함될 수 있다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class HealthEndpointTests : IClassFixture<ApiFactory>
 {
     // WebApplicationFactory<Program>: Program 진입점을 인메모리 TestServer로 호스팅해 커널 소켓·TCP 핸드셰이크 없이
