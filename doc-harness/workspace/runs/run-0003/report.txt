@@ -1,0 +1,9 @@
+문서화 실패
+
+모드: INCREMENTAL
+실행: run-0003
+원인: diagram:F008_FLOW_RESOLVE: QUOTA: claude reported is_error: You've hit your session limit · resets 5:50pm (Asia/Seoul)
+
+Baseline과 기존 문서는 그대로 유지되었습니다. 스테이징 산출물은 workspace/runs/run-0003/staging 에 남아 있습니다.
+
+Verification: (실행되지 않음)
