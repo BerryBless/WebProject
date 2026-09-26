@@ -18,7 +18,7 @@
 | 4 | 09-21 | 2B단계: 공개 Razor 페이지·검색·Atom·sitemap, 보안 헤더, 속도 제한, 읽기 전용 DB 연결, 렌더 게이트·캐시 | PR #3 → `80c8dc4`, 테스트 589 |
 | 5 | 09-21 ~ 09-22 | 3단계: 관리 에디터 SPA(React 19 + Vite + CodeMirror 6), sandbox 미리보기, 임시본, 실제 백엔드 E2E | PR #4 → `16a3d25`, .NET 591 · Vitest 188 · E2E 8 |
 | 6 | 09-22 ~ 09-23 | 4단계: Docker Compose·Caddy·DB 롤 분리·백업/복원·스택 스모크·스택 E2E·CI `deploy-smoke`(Task 1~6), 문서 재구성(README 랜딩 + `docs/`) | PR #5 → `531f207`. .NET 625 · Vitest 194 · 스모크 exit 0 · 스택 E2E 8 |
-| 7 | 09-26 | MySQL 전환: 저장소를 PostgreSQL에서 MySQL 8.4(Pomelo EF Core)로 완전 교체, 보안 통제(공개 롤·세션·잠금·동시성 토큰·오류 분류) 전부 재구현·재증명 | 브랜치 `feat/mysql-migration`, 병합 대기. CI 4잡 green |
+| 7 | 09-26 | MySQL 전환: 저장소를 PostgreSQL에서 MySQL 8.4(Pomelo EF Core)로 완전 교체, 보안 통제(공개 롤·세션·잠금·동시성 토큰·오류 분류) 전부 재구현·재증명 | PR #7 squash 병합(master `37c432c`, 2026-09-27). CI 4잡 green. 보고서 `plan/mysql_migration_report_0927.md` |
 
 ```mermaid
 flowchart LR
@@ -894,7 +894,7 @@ flowchart TD
 - 주요 변경사항: DB 롤 셋 분리(2B 잔여 위험 해소), 비루트·무셸·`read_only`·`cap_drop: ALL` 컨테이너, api는 인터넷으로 나갈 수 없는 3망, 관리 사이트 IP 게이트가 모든 처리보다 앞인 `route` + `:80`/`:443` 폴백, 무중단 백업·복원과 운영 절차, 운영과 같은 이미지로 띄워 복원 리허설까지 도는 스모크, 스택 대상 브라우저 E2E와 CI 게이트
 - 검증 결과: .NET **625개** 통과·경고 0, Vitest **194개**, 기존 E2E **8개**, `SMOKE_E2E=1 bash deploy/smoke/run.sh` **`=== 통과`**(허용 IP 10 · 비허용 IP 6 · 오류 응답 1 · seed 1 · verify-restore 1 · 복원 후 허용 10 · 스택 E2E 8, Chromium·Firefox), 하네스 감사 8/8. 최종 리뷰(브랜치 전체 diff + `SMOKE_KEEP=1` 스택 공격): 관리 우회 시도(Host·SNI·경로 정규화 변형·HTTP/1.0 no-Host·절대 URI·XFF 사칭) 전부 실패, 비허용 IP가 caddy를 건너뛰어 api를 직격해도 403(두 계층 독립 강제), 컨테이너 격리·DB 롤 경계·백업 산출물과 로그에 비밀 0 → **병합 Yes**, Critical 0 · Important 0 · Minor 3. PR #5 → CI 4잡(`test`·`web`·`web-e2e`·`deploy-smoke`) push·PR 실행 모두 통과(첫 Linux `deploy-smoke` 약 2분 20초) → squash 병합 master `531f207`(2026-09-23)
 
-### Step 7: MySQL 전환 (2026-09-26, 브랜치 `feat/mysql-migration`, 병합 대기)
+### Step 7: MySQL 전환 (2026-09-26~27, PR #7 병합 `37c432c`)
 
 **배경.** 사용자 요청 "모든 데이터를 MySQL로 저장한다." PostgreSQL은 연결 문자열 수준을 넘어 **보안 통제의 구현 수단**이었다(읽기 전용 공개 롤, 시작 세션 매개변수, 권고 잠금, `xmin` 동시성 토큰, 정규식 CHECK). 그래서 이번 전환은 드라이버만 바꾸는 일이 아니라 그 통제를 하나씩 대체하고 다시 증명하는 일이었다. 이 단계는 유저 흐름·화면이 바뀌지 않으므로(내부 저장소 교체) 유저 흐름도·화면 시퀀스 다이어그램은 새로 그리지 않았다 — 대신 아래 처리 흐름은 설계 스펙 3절의 컴포넌트 다이어그램을 그대로 가리킨다.
 

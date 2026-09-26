@@ -14,7 +14,7 @@
 | 3 | 관리 에디터 SPA(`PortfolioBlog.Web` — React 19 + Vite): 글·시리즈·태그·첨부 관리, sandbox 미리보기, 임시본, 실제 백엔드 Playwright E2E, CI `web`·`web-e2e` | 완료 | PR #4 → `16a3d25`, 보고서 `plan/tech_blog_3_report_0922.md` |
 | **4** | Docker Compose·Caddy·DB 롤·백업/복원·스택 스모크 | **완료 — PR #5 → `531f207`(master 병합)** | 계획 `docs/superpowers/plans/2026-09-22-tech-blog-deploy.md`(S1~S16·D1~D15), 실행 보고서 `plan/tech_blog_4_report_0923.md` |
 | 문서화 | **문서화 하네스**(`doc-harness/`, TypeScript): `문서화` 한마디로 `docs/generated/` 61개 문서를 생성·증분 갱신. 실제 저장소에 INITIAL(run-0001)·INCREMENTAL(run-0002) 발행 | **완료 — PR #6 → `0e1237d`(squash 병합)** | 설계 `docs/superpowers/specs/2026-09-23-doc-harness-design.md`, 계획 `docs/superpowers/plans/2026-09-23-doc-harness.md`, 보고서 `plan/doc_harness_0923.md`(결함 17건·판정·잔여 위험). 3b절 |
-| MySQL 전환 | 저장소를 PostgreSQL에서 MySQL 8.4(Pomelo EF Core)로 완전 교체(공개 롤·세션·잠금·동시성 토큰·오류 분류 전부 재구현·재증명) | **구현 완료(Task 0~11), 병합 대기** | 브랜치 `feat/mysql-migration`, 스펙 `plan/mysql_migration_0926.md`, 계획 `plan/mysql_migration_impl_0926.md`. 3c절 |
+| MySQL 전환 | 저장소를 PostgreSQL에서 MySQL 8.4(Pomelo EF Core)로 완전 교체(공개 롤·세션·잠금·동시성 토큰·오류 분류 전부 재구현·재증명) | **완료 — PR #7 squash 병합(master `37c432c`, 2026-09-27)** | 보고서 `plan/mysql_migration_report_0927.md`, 스펙 `plan/mysql_migration_0926.md`, 계획 `plan/mysql_migration_impl_0926.md`. 3c절 |
 | TODO | **글쓰기와 보기를 노션처럼**(사용자 요청 2026-09-22, Plan 4 다음). 설계 전 — 브레인스토밍으로 방향부터(편집기 방식, 저장 형식, 공개 페이지는 스크립트 없는 서버 렌더링 유지) | 미착수 | 스펙 7절의 TODO 항목 |
 
 - 기준 커밋: master `c446ef7`(PR #6 병합 `0e1237d` + 보고서 정정). 작업 트리 깨끗함, 열린 PR 없음.
@@ -121,7 +121,9 @@ New-Item -ItemType File .git/harness_commit_in_progress  # 실행 중 Stop 훅 �
 
 **하지 않기로 한 것.** 수정 루프 회차 영속화 — 필요 없음(위 캐시). 문서군 단위 검증 캐시를 문서 단위로 좁히는 개선은 하네스 개발자에게만 이득이라 보류.
 
-## 3c. MySQL 전환 — 구현 완료, 병합 대기
+## 3c. MySQL 전환 — 완료(PR #7, master `37c432c`)
+
+> **2026-09-27 병합됨.** 전체 기록은 `plan/mysql_migration_report_0927.md`(판정 22건·교훈·비용·남은 일). 남은 일: ① `docs/generated/` 문서화(먼저 doc-harness `resume`이 끝난 단계를 재사용하도록 고칠 것 — run-0003이 세션 한도로 2회 중단되며 두 번 전부 다시 돌았다), ② EF Core 9 지원 종료 예정 2026-11-10 대응(Pomelo EF 10 감시), ③ 로컬 개발 DB 볼륨 재생성(마이그레이션 ID 변경). 아래는 병합 전 작성 당시의 기록이다.
 
 **무엇인가.** 저장소를 PostgreSQL에서 **MySQL 8.4로 완전 교체**했다(Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0 + EF Core 9.0.20, 커넥터 MySqlConnector 2.4.0). PostgreSQL은 읽기 전용 공개 롤·시작 세션 매개변수·권고 잠금·`xmin`·정규식 CHECK 같은 **보안 통제의 구현 수단**이었으므로, 드라이버만 바꾸는 일이 아니라 그 통제를 MySQL 수단으로 하나씩 대체하고 다시 증명하는 작업이었다. 설계는 `plan/mysql_migration_0926.md`(D1~D19, R1~R6), 실행은 `plan/mysql_migration_impl_0926.md`(Task 0~11, SDD)를 따랐다.
 

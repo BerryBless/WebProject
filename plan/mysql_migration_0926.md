@@ -1,7 +1,7 @@
 # MySQL 전환 설계 (PostgreSQL 완전 교체)
 
 - 날짜: 2026-09-26
-- 상태: **구현 완료(병합 대기)** — 구현 계획 `plan/mysql_migration_impl_0926.md`(Task 0~11), CI 4잡(test·web·web-e2e·deploy-smoke) green, 브랜치 `feat/mysql-migration`
+- 상태: **완료 — PR #7 squash 병합(master `37c432c`, 2026-09-27)**, 실행 보고서 `plan/mysql_migration_report_0927.md` — 구현 계획 `plan/mysql_migration_impl_0926.md`(Task 0~11), CI 4잡(test·web·web-e2e·deploy-smoke) green, 브랜치 `feat/mysql-migration`
 - 개정(2026-09-26, Task 11 문서화): 2.4절 오류 번호를 구현 중 테스트가 실제로 관측한 값으로 갱신(1205·1213 실측 확정, 1044는 분류 표 단위 테스트만 있고 실서버 미관측이라 예상 유지), 7절에 구현 중 판정을 추가
 - 개정(구현 계획 작성 중 코드 정독 결과): D3 검증 수단을 `SHOW GRANTS`로, D7에 트랜잭션 인터셉터 추가, D13을 `CHAR(36)`으로 확정, D19 서버 설정을 compose 인자로, R6 추가
 - 개정(2026-09-26, 스파이크 결과로 프로바이더를 Pomelo로 변경): Oracle `MySql.EntityFrameworkCore` 10.0.9가 Phase 0에서 no-go(S1·S9)라 **Pomelo.EntityFrameworkCore.MySql 9.0.0 + EF Core 9.0.20(커넥터 MySqlConnector 2.4.0)**으로 바꿨다. 2.1절·D1·D2·D5·D7·D14·D16·2.4절(실측 번호)·R4·5~7절을 함께 고쳤다. 근거: `.superpowers/sdd/mysql_migration_impl_0926/task-0-report.md`(Oracle), `task-0b-report.md`(Pomelo)

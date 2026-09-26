@@ -16,7 +16,7 @@
 | 3 | 관리 에디터 SPA + 실제 백엔드 E2E + CI 확장 | PR #4 → `16a3d25` | [`tech_blog_3_report_0922.md`](../plan/tech_blog_3_report_0922.md) |
 | 4 | 배포 구성(Docker·Caddy·DB 롤·백업/복원·스모크) | PR #5 → `531f207` | [`tech_blog_4_report_0923.md`](../plan/tech_blog_4_report_0923.md) |
 | 문서화 하네스 | `doc-harness/`로 신규 개발자용 기술 문서 생성·증분 갱신 | PR #6 | [`doc_harness_0923.md`](../plan/doc_harness_0923.md) |
-| MySQL 전환 | 저장소를 PostgreSQL에서 MySQL 8.4로 완전 교체(Pomelo EF Core) | `feat/mysql-migration`, 병합 대기 | [`mysql_migration_0926.md`](../plan/mysql_migration_0926.md) |
+| MySQL 전환 | 저장소를 PostgreSQL에서 MySQL 8.4로 완전 교체(Pomelo EF Core) | PR #7 병합 `37c432c`(2026-09-27) | [`mysql_migration_0926.md`](../plan/mysql_migration_0926.md) |
 
 ## 설계 (2026-09-20)
 
@@ -99,7 +99,7 @@ Task 1~6을 브랜치에서 모두 마쳤습니다: 공개 조회 전용 DB 롤�
 
 교훈: 입력 해시에 들어가는 모든 것은 결정적이어야 하고, 비싼 단계(LLM 검증)는 가장 뒤에 한 번씩만 두고 싼 단계(결정적 검사)를 앞뒤로 반복하며, 결정적 차단이 0이면 잔여 LLM 지적을 기록하고 발행하는 것이 한도가 있는 환경에서 끝을 보는 방법이었습니다.
 
-## MySQL 전환 (2026-09-26, 브랜치 `feat/mysql-migration`, 병합 대기)
+## MySQL 전환 (2026-09-26~27, PR #7 병합 `37c432c`)
 
 저장소를 PostgreSQL에서 **MySQL 8.4로 완전 교체**했습니다(둘을 함께 지원하는 구성은 만들지 않았습니다). PostgreSQL은 연결 문자열 수준을 넘어 읽기 전용 공개 롤·시작 세션 매개변수·권고 잠금·`xmin`·정규식 CHECK 같은 **보안 통제의 구현 수단**이었으므로, 이번 전환은 그 통제를 하나씩 대체하고 다시 증명하는 작업이었습니다.
 
