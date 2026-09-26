@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using PortfolioBlog.Api.Contracts;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -185,32 +184,37 @@ public static class SeriesEndpoints
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: 모든 DB I/O를 <c>await</c>한다.
     /// <c>CK_Posts_Series_Pair</c>(<c>SeriesId</c>·<c>SeriesOrder</c>가 함께 null이거나 함께 non-null)를 지키려면 두 컬럼을 같은 UPDATE 문에서 함께 비워야 하므로
     /// "시리즈 행 잠금 + 글 UPDATE + 시리즈 DELETE"를 한 트랜잭션으로 묶는다. 시리즈가 없으면 <c>tx</c>를 커밋하지 않고 <c>await using</c> dispose에서 롤백해 방금 비운 글 UPDATE를 원복한다.
-    /// <c>ExecuteDeleteAsync</c>가 던지는 FK 위반은 <see cref="DbUpdateException"/>이 아니라 <see cref="PostgresException"/>이 그대로 올라온다(변경 추적기를 거치지 않는 벌크 연산이라
-    /// <c>SaveChangesAsync</c> 전용 래핑 경로를 타지 않는다 — <c>ExecuteDeleteAsync</c>로 실제 FK 위반을 재현해 관찰로 확인함).</description></item>
+    /// <c>ExecuteDeleteAsync</c>가 던지는 FK 위반은 <see cref="DbUpdateException"/>으로 감싸이지 않을 수 있다(변경 추적기를 거치지 않는 벌크 연산이라
+    /// <c>SaveChangesAsync</c> 전용 래핑 경로를 타지 않는다). 그래서 예외 형태와 무관하게 체인을 훑는 <see cref="DbErrorClassifier.Classify"/>로 판정한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, ILoggerFactory loggers, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         // [LOCK-REQUIRED] FOR UPDATE로 시리즈 행을 트랜잭션의 첫 문장에서 잠근다: 자식(Posts) INSERT가 FK 참조 무결성을
-        // 검사할 때 부모(Series) 행에 FOR KEY SHARE 락을 거는데, 이는 FOR UPDATE(배타 락)와 충돌한다.
+        // 검사할 때 InnoDB는 부모(Series) 행에 공유 잠금(S)을 거는데, 이는 FOR UPDATE(배타 잠금 X)와 충돌한다.
         // 우리가 이 락을 먼저 쥐면 같은 시리즈를 참조하려는 동시 글 저장의 SaveChangesAsync는 우리가 커밋·롤백할 때까지
         // 블로킹된다 — 우리가 먼저 커밋하면 그 글 저장은 깨진 FK로 실패해 409가 되고(PostEndpoints.CreateAsync의
         // DbConflict.IsConstraintRace가 이미 처리), 우리가 먼저 롤백하면 그 글 저장은 정상 진행된다.
         // 반대로 저 삽입이 우리보다 먼저 시작해 커밋까지 끝냈다면, 우리는 그 뒤에야 락을 얻으므로 아래 ExecuteUpdateAsync가
         // READ COMMITTED 하에서 그 글까지 포함해 비운다. 어느 순서든 매달린(dangling) 참조가 생기지 않는다.
-        await db.Database.ExecuteSqlAsync($"""SELECT 1 FROM "Series" WHERE "Id" = {id} FOR UPDATE""", ct);
+        await db.Database.ExecuteSqlAsync($"SELECT 1 FROM `Series` WHERE `Id` = {id} FOR UPDATE", ct);
 
         // CK_Posts_Series_Pair 때문에 두 필드를 같은 UPDATE에서 함께 비운다. UpdatedAt은 건드리지 않는다(글 내용이 바뀐 게 아니다).
+        // Version은 올린다: 시리즈 내비게이션이 렌더 결과에 들어가므로 RenderedPostCache 키가 바뀌어야 한다(PG 판에서는 시스템 컬럼이 자동으로 바뀌었다).
+        // 벌크 경로라 PostVersionInterceptor를 거치지 않으므로 여기서 직접 올린다(PostVersionTests가 소스 스캔으로 강제).
         await db.Posts.Where(p => p.SeriesId == id)
-            .ExecuteUpdateAsync(u => u.SetProperty(p => p.SeriesId, (Guid?)null).SetProperty(p => p.SeriesOrder, (int?)null), ct);
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.SeriesId, (Guid?)null)
+                .SetProperty(p => p.SeriesOrder, (int?)null)
+                .SetProperty(p => p.Version, p => p.Version + 1), ct);
 
         int deleted;
         try
         {
             deleted = await db.Series.Where(s => s.Id == id).ExecuteDeleteAsync(ct);
         }
-        catch (PostgresException ex) when (ex.SqlState == DbConflict.ForeignKeyViolation)
+        catch (Exception ex) when (DbErrorClassifier.Classify(ex) == DbErrorKind.ForeignKeyViolation)
         {
             // 2차 방어선: 위의 FOR UPDATE 선점으로도 막지 못한 경쟁(예: 격리 수준·제약 지연 변경)이 있다면
             // 500 대신 409로 알린다. IsConstraintRace는 DbUpdateException 전용이라 여기서는 쓸 수 없다.

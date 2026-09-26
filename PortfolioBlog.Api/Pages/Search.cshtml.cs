@@ -7,7 +7,7 @@ using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Pages;
 
-/// <summary>공개 검색. 비용 상한은 세 겹이다: 검색 속도 제한(IP별 분당 + 전역 동시 실행), 쪽 번호 상한, 연결의 statement_timeout.</summary>
+/// <summary>공개 검색. 비용 상한은 세 겹이다: 검색 속도 제한(IP별 분당 + 전역 동시 실행), 쪽 번호 상한, 연결의 max_execution_time.</summary>
 /// <param name="db">검색 조회에 쓸 공개 전용 컨텍스트.</param>
 /// <param name="site">사이트 설정(제목·소개·origin).</param>
 /// <remarks>

@@ -2,7 +2,7 @@ using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
-/// <summary><see cref="LikePattern.Contains"/>가 LIKE/ILIKE 메타문자(<c>\ % _</c>)를 올바르게 이스케이프해 "포함" 패턴을 만드는지 검증한다.</summary>
+/// <summary><see cref="LikePattern.Contains"/>가 <c>LIKE</c> 메타문자(<c>\ % _</c>)를 올바르게 이스케이프해 "포함" 패턴을 만드는지 검증한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">

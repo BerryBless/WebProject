@@ -12,10 +12,10 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, 각 케이스가 <see cref="ApiFactory.CreateLoggedInClientAsync"/>로 실제 로그인 왕복을 거친 클라이언트를 만든다.</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 클래스 픽스처로 1회 생성·공유된다. 경계값 본문 문자열(최대 약 68,268자)은 각 케이스가 <see cref="Json"/>으로 새로 만들어 GC 대상이 된다.</description></item>
-/// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 새 로그인 세션·고유 slug를 쓰므로 서로 간섭하지 않는다.</description></item>
+/// <item><description><b>Concurrency:</b> <c>mysql</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 새 로그인 세션·고유 slug를 쓰므로 서로 간섭하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class ValidationWithinDbConstraintsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     // Interlocked.Increment: 여러 [Theory] 케이스가 xUnit에 의해 병렬로 실행될 수 있어(클래스 안에서는 기본 순차이지만
@@ -33,7 +33,7 @@ public sealed class ValidationWithinDbConstraintsTests(ApiFactory factory) : ICl
     /// <summary><paramref name="unit"/>을 <paramref name="count"/>번 이어붙인다(경계값 길이의 문자열을 만드는 용도).</summary>
     private static string Repeat(string unit, int count) => string.Concat(Enumerable.Repeat(unit, count));
 
-    private static readonly string Emoji = char.ConvertFromUtf32(0x1F600); // UTF-16 2단위, PostgreSQL 1문자, UTF-8 4바이트
+    private static readonly string Emoji = char.ConvertFromUtf32(0x1F600); // UTF-16 2단위, MySQL(CHAR_LENGTH) 1문자, UTF-8 4바이트(utf8mb4)
 
     /// <summary>앱 검증을 통과해야 하는(=201) 경계값 입력 목록.</summary>
     /// <returns>라벨과 요청 본문 오버라이드 쌍의 이론 데이터.</returns>
@@ -103,7 +103,7 @@ public sealed class ValidationWithinDbConstraintsTests(ApiFactory factory) : ICl
     public async Task InputsOutsideTheLimits_Are400_Never500(string label, object overrides) =>
         Assert.True(HttpStatusCode.BadRequest == await PostAsync(overrides), label);
 
-    /// <summary>짝 없는 서로게이트는 JSON 바인딩이 거부한다(DB에 닿으면 Npgsql이 인코딩 예외로 500을 낸다 — 2A 정오표 #10). 원시 JSON으로 보낸다.</summary>
+    /// <summary>짝 없는 서로게이트는 JSON 바인딩이 거부한다(DB에 닿으면 드라이버가 인코딩 예외로 500을 낼 수 있다 — 2A 정오표 #10). 원시 JSON으로 보낸다.</summary>
     [Fact]
     public async Task LoneSurrogate_InJson_Is400()
     {

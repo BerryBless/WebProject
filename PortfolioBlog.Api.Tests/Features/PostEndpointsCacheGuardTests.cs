@@ -3,7 +3,7 @@ using PortfolioBlog.Api.Features.Posts;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
-/// <summary><see cref="PostEndpoints.CanCacheRenderedResult"/>가 저장 뒤 재조회 경쟁(A 커밋 → B가 A의 버전을 읽고 렌더·커밋 → A의 재조회가 B의 xmin을 읽는 경쟁)에서
+/// <summary><see cref="PostEndpoints.CanCacheRenderedResult"/>가 저장 뒤 재조회 경쟁(A 커밋 → B가 A의 버전을 읽고 렌더·커밋 → A의 재조회가 B의 Version을 읽는 경쟁)에서
 /// 남의 본문을 자기 키에 선채움하지 않는지 단위 테스트로 검증한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>

@@ -18,14 +18,14 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가
-/// 실제 PostgreSQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
+/// 실제 MySQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 팩토리는 <see cref="IClassFixture{TFixture}"/>로 클래스 단위 1회 생성·공유된다.
 /// <see cref="Targets"/>는 호출마다 라우트 테이블을 순회해 <see cref="Target"/> 목록을 새로 할당한다(테스트 간 공유 가변 상태 없음).</description></item>
 /// <item><description><b>Concurrency:</b> 팩토리·HttpClient는 Thread-safe하나, 테스트 간에는 클래스별 고유 DB로 격리되어 데이터 간섭이 없다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 HTTP 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed partial class AccessMatrixTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     /// <summary>익명 접근이 허용된 유일한 두 경로. 나머지 <c>/api/*</c>는 전부 세션이 필요하다.</summary>

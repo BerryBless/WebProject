@@ -33,8 +33,8 @@
 
 | 키 | 기본값 | 의미 |
 |---|---|---|
-| `ConnectionStrings:Default` | (빈 값 — 없으면 시작 실패) | 관리 연결 문자열. **`Options`를 넣을 수 없다**(공개 조회 연결이 `statement_timeout`·`default_transaction_read_only`를 시작 옵션으로 붙이므로 합칠 수 없어 시작 실패). `Command Timeout`(초)을 지정하면 ×1000이 `Public:StatementTimeoutMs`보다 **커야** 한다 — 어기면 시작 실패(클라이언트 취소가 DB의 `statement_timeout`보다 먼저 나면 503 매핑이 깨진다). `Command Timeout=0`(무한)은 검사 제외 |
-| `ConnectionStrings:Public` *(브랜치 `feature/blog-deploy`)* | (빈 값 — 비개발 환경에서 필수) | 공개 페이지 조회 전용 연결. **테이블 소유자가 아닌 별도 롤**이어야 한다(사용자 이름은 소문자·숫자·밑줄, 관리 연결과 같으면 시작 실패). 앱이 시작할 때마다 그 롤의 권한을 허용 테이블 5개의 `SELECT`로 다시 맞춘다. 비면(개발) 관리 연결로 조회한다 |
+| `ConnectionStrings:Default` | (빈 값 — 없으면 시작 실패) | 관리 연결 문자열(MySqlConnector). `AllowPublicKeyRetrieval=true`는 **금지**(공개키를 바꿔치기해 비밀번호를 빼낼 수 있어 시작 실패), 비개발 환경은 `SslMode`가 `Required` 이상이어야 한다. `Command Timeout`(초)을 지정하면 ×1000이 `Public:StatementTimeoutMs`보다 **커야** 한다 — 어기면 시작 실패(클라이언트 취소가 DB의 `max_execution_time`보다 먼저 나면 503 매핑이 깨진다). `Command Timeout=0`(무한)은 검사 제외. 이 관리 연결은 추가로 `Command Timeout`이 0이거나 첨부 잠금 대기 상한(10초)보다 **커야** 한다 — 아니면 경합 중인 `GET_LOCK`이 서버의 타임아웃 응답보다 먼저 클라이언트에서 끊겨 503 대신 500이 된다(시작 실패) |
+| `ConnectionStrings:Public` | (빈 값 — 비개발 환경에서 필수) | 공개 페이지 조회 전용 연결. **테이블 소유자가 아닌 별도 DB 사용자**여야 한다(사용자 이름은 소문자·숫자·밑줄, 관리 연결과 같으면 시작 실패). 앱이 시작할 때마다 그 사용자의 권한을 허용 테이블 5개의 `SELECT`로 GRANT하고, 공개 연결 자신의 `SHOW GRANTS`로 정확히 그 집합인지 검증한다(불일치·초과 권한이면 시작 실패, fail-closed). 비면(개발) 관리 연결로 조회한다 |
 | `DataProtection:KeysPath` *(브랜치 `feature/blog-deploy`)* | (빈 값 — 비개발 환경에서 절대 경로 필수) | 세션 쿠키 암호화 키를 둘 경로. 컨테이너에서는 `dpkeys` 볼륨. 비면(개발) 프레임워크 기본 위치 |
 | `Attachments:RootPath` | (빈 값 — 필수) | 첨부 저장 루트. 정적 파일 루트 **밖**이어야 한다. 비개발 환경은 절대 경로 |
 | `Attachments:JanitorEnabled` | `true` | 고아 파일 청소 잡(시작 직후 1회 + 6시간마다). 마지막 쓰기가 1시간 안인 파일, 내용 주소 모양이 아닌 파일, 심볼릭 링크·정션은 건드리지 않는다. 지우는 것은 오래된 `.tmp`와 참조 없는 첨부 파일뿐이며 삭제 직전 잠금 안에서 DB를 다시 조회한다. `파일이 없는 첨부 행 N건` 경고는 **반대 방향 불일치**(행은 있고 파일이 없음)를 알리는 진단이며 청소 잡이 고치지 않는다 |
@@ -63,7 +63,7 @@
 | `Public:AssetPerIpPerMinute` | `600` | 첨부 GET·`/health`·`robots.txt`·`highlight.css`의 IP별 분당 한도 |
 | `Public:SearchPerIpPerMinute` | `20` | `/search`의 IP별 분당 한도 |
 | `Public:SearchConcurrency` | `4` | 검색의 전역 동시 실행 한도 |
-| `Public:StatementTimeoutMs` | `3000` | 공개 조회 연결의 `statement_timeout`(밀리초). 100~60000 밖이면 시작 실패 |
+| `Public:StatementTimeoutMs` | `3000` | 공개 조회 연결이 열릴 때마다 세션에 거는 `max_execution_time`(밀리초, SELECT 전용). 100~60000 밖이면 시작 실패. 메타데이터 잠금(MDL) 대기 상한 `lock_wait_timeout`은 이 값을 초 단위로 올림한 값이다 |
 
 ## 렌더링
 

@@ -41,7 +41,7 @@ public sealed class Post
     /// <summary>마지막 수정 시각. <see cref="Infrastructure.Data.DbClock"/>으로 설정한다.</summary>
     public DateTimeOffset UpdatedAt { get; set; }
 
-    /// <summary>낙관적 동시성 토큰. PostgreSQL 시스템 컬럼 xmin(행을 마지막으로 쓴 트랜잭션 ID)에 매핑된다.</summary>
+    /// <summary>낙관적 동시성 토큰(앱이 관리하는 행 버전, 1부터). SaveChanges 경로는 <c>PostVersionInterceptor</c>가, 벌크 UPDATE 경로는 호출부가 +1 한다.</summary>
     public uint Version { get; set; }
 
     /// <summary>이 글에 연결된 태그 연결 엔티티 목록(다대다 조인).</summary>

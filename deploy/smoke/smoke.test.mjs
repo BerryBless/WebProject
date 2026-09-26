@@ -1,4 +1,4 @@
-// 배포 스택(Caddy + api + postgres) 스모크 테스트. compose 네트워크 안의 컨테이너에서 돈다(docker-compose.smoke.yml).
+// 배포 스택(Caddy + api + mysql) 스모크 테스트. compose 네트워크 안의 컨테이너에서 돈다(docker-compose.smoke.yml).
 // ROLE=allowed: 관리 허용 목록 안의 IP(172.30.0.10). ROLE=denied: 밖의 IP(172.30.0.11).
 // fetch를 쓰지 않는다: Host·경로를 정규화 없이 그대로 보내야 하는 검사가 있다(node:http는 경로를 손대지 않는다).
 import assert from 'node:assert/strict'
@@ -309,7 +309,7 @@ if (ROLE === 'denied') {
 
   test('DB는 edge 네트워크에서 닿지 않는다', async () => {
     const outcome = await new Promise(resolve => {
-      const socket = net.connect({ host: 'postgres', port: 5432 })
+      const socket = net.connect({ host: 'mysql', port: 3306 })
       socket.setTimeout(3000, () => { socket.destroy(); resolve('timeout') })
       socket.on('connect', () => { socket.destroy(); resolve('connected') })
       socket.on('error', error => resolve(error.code))

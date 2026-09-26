@@ -5,6 +5,7 @@
 > **현재 상태 (2026-09-23):** 공개 사이트와 관리 에디터가 **동작합니다** — 도메인·DB 제약, 접근 제어(호스트·IP·CSRF), 로그인·세션, 관리 API, 마크다운 파이프라인·미리보기·이미지 첨부, 공개 페이지·검색·Atom·sitemap·보안 헤더, 관리 에디터 SPA까지 master에 병합됐습니다(.NET 테스트 591개 · Vitest 188개 · 브라우저 E2E 8개, Release 빌드 경고 0).
 > **배포 구성(4단계: Docker Compose + Caddy)도 PR #5로 master에 병합됐습니다**(.NET 테스트 625개 · Vitest 194개 · 브라우저 E2E 8개 · 스택 E2E 8개, 배포 스모크 통과) → [배포 구성](docs/deployment.md) · [재개 가이드](plan/resume_guide_0921.md).
 > **문서화 하네스(2026-09-25, PR #6)**: 코드를 근거로 신규 개발자용 기술 문서 **61개**(기능 29개 개별 문서, Mermaid 101개)를 생성하고 `문서화` 한마디로 증분 갱신합니다 → [생성 기술 문서](docs/generated/README.md) · [5분 요약](docs/generated/00_EXECUTIVE_SUMMARY.md) · [실전 보고서](plan/doc_harness_0923.md).
+> **저장소를 MySQL 8.4로 교체(2026-09-26)**: PostgreSQL을 완전히 걷어내고 EF Core 9.0.20 + Pomelo 9.0.0(MySqlConnector)으로 옮겼습니다. `blog_public`의 읽기 전용 권한은 앱이 기동마다 GRANT하고 `SHOW GRANTS`로 스스로 검증하며, 행 버전은 앱이 관리하는 `Version` 컬럼입니다. `feat/mysql-migration` 브랜치, CI green, PR 병합 대기 → [설계 스펙](plan/mysql_migration_0926.md).
 
 ## 무엇을 만드나
 
@@ -15,7 +16,7 @@
 | 사용자 | 작성자 1명. 회원·댓글 없음 |
 | 공개 표면 | ASP.NET Core 10 Razor Pages(서버 렌더링, JS 없음) + Markdig · ColorCode.HTML · HtmlSanitizer |
 | 관리 표면 | 최소 API + React 19 · Vite · CodeMirror 6 SPA (`admin.<도메인>` 전용) |
-| 데이터 | EF Core 10 + PostgreSQL 17, 첨부는 내용 주소(SHA-256) 파일 저장 |
+| 데이터 | EF Core 9.0.20 + Pomelo 9.0.0 + MySQL 8.4, 첨부는 내용 주소(SHA-256) 파일 저장 |
 | 배포 | Caddy + Docker Compose (4단계, master에 병합됨 — PR #5) |
 
 ## 왜 이렇게 만들었나
@@ -55,7 +56,7 @@ dotnet build PortfolioBlog.slnx -c Release   # 경고 0 / 오류 0
 dotnet test  PortfolioBlog.slnx -c Release   # 625개 — Docker 필요(Testcontainers)
 ```
 
-.NET 10 SDK와 Docker가 필요하고, 관리 SPA를 띄우려면 Node 24가 필요합니다. 실제로 띄워 보는 절차(개발용 PostgreSQL, 비밀번호 해시, HTTPS 프로필, SPA 개발 서버)는 [개발 환경](docs/development.md)에 있습니다.
+.NET 10 SDK와 Docker가 필요하고, 관리 SPA를 띄우려면 Node 24가 필요합니다. 실제로 띄워 보는 절차(개발용 MySQL, 비밀번호 해시, HTTPS 프로필, SPA 개발 서버)는 [개발 환경](docs/development.md)에 있습니다.
 
 > Windows Docker Desktop에서는 드물게 테스트 1개가 DB 연결 타임아웃으로 실패합니다 — 다시 실행하면 통과합니다([테스트](docs/testing.md)).
 
@@ -106,7 +107,7 @@ dotnet test  PortfolioBlog.slnx -c Release   # 625개 — Docker 필요(Testcont
 ```
 PortfolioBlog.slnx
 ├─ PortfolioBlog.Api/          # ASP.NET Core 10 — 관리 API(최소 API) + 공개 페이지(Razor Pages)
-├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers PostgreSQL
+├─ PortfolioBlog.Api.Tests/    # xUnit + WebApplicationFactory + Testcontainers MySQL
 ├─ PortfolioBlog.Web/          # 관리 에디터 SPA — React 19 + Vite + CodeMirror 6
 ├─ deploy/                     # docker-compose · Caddyfile · 운영 절차
 ├─ docs/                       # 이 문서들 + 구현 계획 (docs/generated/ 는 문서화 하네스 생성물)

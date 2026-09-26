@@ -3,7 +3,7 @@ using PortfolioBlog.Api.Infrastructure.Data;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
-/// <summary><see cref="TagResolver"/>의 순수 함수(정규화·표시용 정리·형식 검증)를 DB 없이 검증한다. DB를 쓰는 <c>ResolveIdsAsync</c>의 동시 생성 경합은 <c>PostEndpointsTests</c>에서 통합 테스트로 검증한다.</summary>
+/// <summary><see cref="TagResolver"/>의 순수 함수(정규화·표시용 정리·형식 검증)를 DB 없이 검증한다. DB를 쓰는 <c>ResolveIdsAsync</c>의 동시 생성 경합은 <see cref="TagResolverConcurrencyTests"/>(반대 순서 다중 태그)와 <c>PostEndpointsTests</c>(HTTP 동시 생성)에서 통합 테스트로 검증한다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">

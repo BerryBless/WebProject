@@ -1,10 +1,9 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace PortfolioBlog.Api.Infrastructure.Data;
 
-/// <summary>"검증 → 저장" 사이의 경쟁으로 DB 제약에 걸렸는지 판정한다: 유니크(23505, 같은 slug 동시 생성)와 FK(23503, 검증 직후 시리즈가 삭제됨).</summary>
+/// <summary>"검증 → 저장" 사이의 경쟁으로 DB 제약에 걸렸는지 판정한다: 유니크(1062, 같은 slug 동시 생성)와 FK(1452·1451, 검증 직후 시리즈가 삭제됨).</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -16,12 +15,6 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// </remarks>
 public static class DbConflict
 {
-    /// <summary>PostgreSQL 유니크 제약 위반 SQLSTATE.</summary>
-    public const string UniqueViolation = "23505";
-
-    /// <summary>PostgreSQL 외래키 제약 위반 SQLSTATE.</summary>
-    public const string ForeignKeyViolation = "23503";
-
     /// <summary><paramref name="ex"/>가 유니크 또는 외래키 위반으로 인한 저장 실패인지 판정한다.</summary>
     /// <param name="ex"><c>SaveChangesAsync</c>가 던진 예외.</param>
     /// <returns>검증 뒤 발생한 동시성 경쟁으로 볼 수 있으면 <c>true</c>.</returns>
@@ -29,12 +22,13 @@ public static class DbConflict
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Thread-safe. 전달받은 예외 인스턴스만 읽는다.</description></item>
-    /// <item><description><b>Memory Allocation:</b> Zero-allocation. 패턴 매칭만 수행한다.</description></item>
+    /// <item><description><b>Memory Allocation:</b> Zero-allocation. 예외 체인을 훑으며 오류 번호를 비교만 한다.</description></item>
     /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
     /// </list>
+    /// 오류 번호 판정은 <see cref="DbErrorClassifier"/> 한곳에 모여 있다.
     /// </remarks>
     public static bool IsConstraintRace(DbUpdateException ex) =>
-        ex.InnerException is PostgresException { SqlState: UniqueViolation or ForeignKeyViolation };
+        DbErrorClassifier.Classify(ex) is DbErrorKind.UniqueViolation or DbErrorKind.ForeignKeyViolation;
 
     /// <summary>409 Conflict <see cref="ProblemDetails"/> 응답을 만든다.</summary>
     /// <param name="detail">사용자에게 보여줄 상세 설명.</param>

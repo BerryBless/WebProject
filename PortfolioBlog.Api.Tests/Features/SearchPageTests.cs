@@ -8,19 +8,19 @@ namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>공개 검색: 입력 경계, 와일드카드 리터럴 처리, 반사 인코딩, 자원 한도.</summary>
 /// <param name="factory">컬렉션이 공유하는 컨테이너를 바탕으로 클래스 전용 DB를 갖는 <see cref="ApiFactory"/> 클래스 픽스처.</param>
-/// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture. 속도 제한 테스트가 격리된 <see cref="ApiFactory"/>를 새로 만들 때 재사용한다.</param>
+/// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture. 속도 제한 테스트가 격리된 <see cref="ApiFactory"/>를 새로 만들 때 재사용한다.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <paramref name="factory"/>가 호스팅하는 TestServer가 실제 PostgreSQL 컨테이너에 TCP로 접속한다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <paramref name="factory"/>가 호스팅하는 TestServer가 실제 MySQL 컨테이너에 TCP로 접속한다.</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 <see cref="IClassFixture{TFixture}"/>로 클래스 단위 1회 생성·공유된다.
 /// <see cref="Search_HasItsOwnRateLimit"/>만 속도 제한 한도를 격리하려고 새 <see cref="ApiFactory"/>를 만들어 <c>using</c>으로 해제한다 — 다른 테스트 메서드와 한도·DB를 공유하지 않는다.</description></item>
 /// <item><description><b>Concurrency:</b> 공유 <paramref name="factory"/>를 쓰는 테스트 메서드들은 서로 다른 slug를 시드해 데이터가 섞이지 않는다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 HTTP·DB 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture pg) : IClassFixture<ApiFactory>
+[Collection("mysql")]
+public sealed class SearchPageTests(ApiFactory factory, MySqlContainerFixture mysql) : IClassFixture<ApiFactory>
 {
     /// <summary>검색어 없이 열면 빈 폼이다. GET 폼이며 숨은 필드(antiforgery 토큰)가 없다.</summary>
     [Fact]
@@ -104,7 +104,7 @@ public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture
     [Fact]
     public async Task Search_HasItsOwnRateLimit()
     {
-        using var isolated = new ApiFactory(pg, new Dictionary<string, string?> { ["Public:SearchPerIpPerMinute"] = "2" });
+        using var isolated = new ApiFactory(mysql, new Dictionary<string, string?> { ["Public:SearchPerIpPerMinute"] = "2" });
         using var client = isolated.CreatePublicClient();
         var endpoint = isolated.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().Single(e => e.RoutePattern.RawText == "search");
         Assert.Equal(RateLimitPolicy.Search, endpoint.Metadata.GetMetadata<RateLimitMetadata>()?.Policy);
@@ -124,7 +124,7 @@ public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture
     [Fact]
     public async Task Page51_IsRejectedByTheCap_NotByEmptyFallback()
     {
-        using var isolated = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var isolated = new ApiFactory(mysql, new Dictionary<string, string?>());
         const string term = "zzz-bulk-term";
         await PublicSeed.ManyPostsAsync(isolated, 1001, term);
         using var client = isolated.CreatePublicClient();
@@ -141,7 +141,7 @@ public sealed class SearchPageTests(ApiFactory factory, PostgresContainerFixture
     [Fact]
     public async Task PagerLinks_EncodeTheQueryString_AndReflectNoElements()
     {
-        using var isolated = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var isolated = new ApiFactory(mysql, new Dictionary<string, string?>());
         const string term = "a\"b<c&d #e";
         await PublicSeed.ManyPostsAsync(isolated, 21, term);
         using var client = isolated.CreatePublicClient();

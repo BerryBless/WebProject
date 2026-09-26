@@ -9,20 +9,20 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
-/// <summary><c>/api/series</c> 관리 엔드포인트의 계약·검증·정렬·삭제 시 글 보존을 실제 PostgreSQL 컨테이너로 검증한다.</summary>
+/// <summary><c>/api/series</c> 관리 엔드포인트의 계약·검증·정렬·삭제 시 글 보존을 실제 MySQL 컨테이너로 검증한다.</summary>
 /// <param name="factory">컬렉션이 공유하는 컨테이너를 바탕으로 클래스 전용 DB를 갖는 <see cref="ApiFactory"/> 클래스 픽스처.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가
-/// 실제 PostgreSQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
+/// 실제 MySQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 팩토리는 <see cref="IClassFixture{TFixture}"/>로 클래스 단위 1회 생성·공유된다.
 /// 각 테스트 메서드는 로그인 클라이언트를 자체적으로 만들고 <c>using</c>으로 해제한다.</description></item>
 /// <item><description><b>Concurrency:</b> 팩토리·HttpClient는 Thread-safe하나, 테스트 간에는 클래스별 고유 DB로 격리되어 데이터 간섭이 없다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 HTTP 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     /// <summary>시리즈를 생성하고 201·<c>Location</c> 헤더를 검증한 뒤 생성된 <see cref="SeriesDto"/>를 돌려준다.</summary>
@@ -155,7 +155,7 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
     }
 
     /// <summary>제목·설명에 NUL(U+0000) 문자가 있으면 500이 아니라 해당 필드 키를 가진 400을 돌려주는지 검증한다.
-    /// PostgreSQL <c>text</c> 컬럼은 NUL을 저장할 수 없지만 JSON은 유니코드 이스케이프로 이를 실어 나를 수 있으므로, 검증 단계에서 걸러야 한다.</summary>
+    /// JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있으므로, MySQL이 NUL을 저장할 수 있어도 검증 단계에서 걸러야 한다.</summary>
     [Fact]
     public async Task Create_NulCharacter_Returns400_NotServerError()
     {
@@ -173,7 +173,7 @@ public sealed class SeriesEndpointsTests(ApiFactory factory) : IClassFixture<Api
     }
 
     /// <summary>slug 끝에 개행(<c>\n</c>)이 있으면 400을 돌려주는지 검증한다. .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는
-    /// 문자열 끝의 단일 개행 앞에서도 매칭되지만 PostgreSQL <c>~</c> 연산자는 그렇지 않으므로, 글·시리즈가 공유하는 <c>SlugRules</c>가 <c>\A</c>/<c>\z</c> 앵커로 이 차이를 없앤다.</summary>
+    /// 문자열 끝의 단일 개행 앞에서도 매칭되므로, 글·시리즈가 공유하는 <c>SlugRules</c>가 <c>\A</c>/<c>\z</c> 앵커로 DB CHECK(<c>REGEXP_LIKE</c>, ICU)와의 이 차이를 없앤다.</summary>
     [Fact]
     public async Task Create_SlugWithTrailingNewline_Returns400()
     {

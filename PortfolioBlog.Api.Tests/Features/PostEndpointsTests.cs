@@ -11,13 +11,13 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
-/// <summary><c>/api/posts</c> 관리 엔드포인트의 계약·검증·태그 해석·낙관적 동시성을 실제 PostgreSQL 컨테이너로 검증한다.</summary>
+/// <summary><c>/api/posts</c> 관리 엔드포인트의 계약·검증·태그 해석·낙관적 동시성을 실제 MySQL 컨테이너로 검증한다.</summary>
 /// <param name="factory">컬렉션이 공유하는 컨테이너를 바탕으로 클래스 전용 DB를 갖는 <see cref="ApiFactory"/> 클래스 픽스처.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가
-/// 실제 PostgreSQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
+/// 실제 MySQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 팩토리는 <see cref="IClassFixture{TFixture}"/>로 클래스 단위 1회 생성·공유된다.
 /// 각 테스트 메서드는 로그인 클라이언트·DI 스코프를 자체적으로 만들고 <c>using</c>/<c>await using</c>으로 해제한다.</description></item>
 /// <item><description><b>Concurrency:</b> 팩토리·HttpClient는 Thread-safe하나, 스코프 안 <c>AppDbContext</c>는 단일 스레드 전용이며
@@ -25,7 +25,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Blocking:</b> 모든 HTTP·DB 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private static UpsertPostRequest Request(string slug, string title = "제목", string content = "본문", string[]? tags = null,
@@ -144,8 +144,8 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
     }
 
     /// <summary>후행 개행이 붙은 slug가 500(DB CHECK 위반)이 아니라 필드 키 <c>slug</c>를 가진 400으로 거부되는지 검증한다.
-    /// .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는 문자열 끝의 단일 <c>\n</c> 앞에서도 매칭되지만
-    /// PostgreSQL <c>~</c> 연산자는 그렇지 않아, 앵커를 맞추지 않으면 형식 검증을 통과한 뒤 DB CHECK에서만 걸린다.</summary>
+    /// .NET <see cref="System.Text.RegularExpressions.Regex"/>의 <c>$</c>는 문자열 끝의 단일 <c>\n</c> 앞에서도 매칭되므로,
+    /// 앱과 DB CHECK(<c>REGEXP_LIKE</c>, ICU)가 똑같이 <c>\A</c>/<c>\z</c>로 앵커링하지 않으면 형식 검증을 통과한 뒤 DB CHECK에서만 걸린다(<see cref="SlugRules"/>).</summary>
     [Fact]
     public async Task Create_SlugWithTrailingNewline_Returns400()
     {
@@ -154,8 +154,8 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Contains("slug", (await ErrorsAsync(res)).Keys);
     }
 
-    /// <summary>제목·본문·태그 이름에 NUL(U+0000)이 섞여 있으면 500(PostgreSQL <c>text</c>가 NUL을 저장할 수 없어 발생)이 아니라
-    /// 해당 필드 키를 가진 400으로 거부되는지 검증한다. JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 입력에서 걸러야 한다.</summary>
+    /// <summary>제목·본문·태그 이름에 NUL(U+0000)이 섞여 있으면 500이 아니라 해당 필드 키를 가진 400으로 거부되는지 검증한다.
+    /// JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 입력에서 걸러야 한다(MySQL도 NUL을 저장은 하지만, 검색·로그·렌더 경로의 이상 입력을 막는 정책으로 유지한다).</summary>
     [Fact]
     public async Task Create_NulCharacter_Returns400_NotServerError()
     {
@@ -304,8 +304,8 @@ public sealed class PostEndpointsTests(ApiFactory factory) : IClassFixture<ApiFa
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
-    /// <summary>검색어(<c>q</c>)에 NUL(U+0000)이 섞여 있으면 500(PostgreSQL ILIKE 매개변수가 NUL을 실어 나를 수 없어 SqlState 22021로 실패)이 아니라
-    /// 필드 키 <c>q</c>를 가진 400으로 거부되는지 검증한다. <paramref name="rawQuery"/>는 테스트 안에서 <see cref="Uri.EscapeDataString(string)"/>으로
+    /// <summary>검색어(<c>q</c>)에 NUL(U+0000)이 섞여 있으면 500이 아니라 필드 키 <c>q</c>를 가진 400으로 거부되는지 검증한다(NUL 거부는
+    /// DB 저장 실패를 막기 위해서가 아니라 검색 입력의 이상값을 막는 정책이다). <paramref name="rawQuery"/>는 테스트 안에서 <see cref="Uri.EscapeDataString(string)"/>으로
     /// 퍼센트 인코딩한다(손으로 퍼센트 시퀀스를 쓰지 않는다).</summary>
     /// <param name="rawQuery">NUL을 포함한 원본 검색어(인코딩 전).</param>
     [Theory]

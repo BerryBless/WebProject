@@ -30,7 +30,7 @@ public sealed record PublicLink(string Slug, string Title);
 
 /// <summary>글 상세 페이지의 메타데이터(본문 제외). 본문은 캐시 미스일 때만 <see cref="PublicQueries.GetContentAsync"/>로 따로 읽는다.</summary>
 /// <param name="Id">글의 내부 식별자. 캐시 키 조립과 <see cref="PublicQueries.GetContentAsync"/> 호출에 쓰며, 공개 URL에는 노출하지 않는다.</param>
-/// <param name="Version">낙관적 동시성 토큰(xmin). 캐시 키로만 쓰고 응답에는 노출하지 않는다.</param>
+/// <param name="Version">낙관적 동시성 토큰(앱이 관리하는 행 버전 <c>Posts.Version</c>). 캐시 키로만 쓰고 응답에는 노출하지 않는다.</param>
 /// <param name="Slug">공개 URL 식별자.</param>
 /// <param name="Title">글 제목.</param>
 /// <param name="Summary">목록 발췌·meta description 공용 요약.</param>
@@ -45,7 +45,7 @@ public sealed record PublicPostMeta(Guid Id, uint Version, string Slug, string T
 
 /// <summary>글 본문과 그 본문의 버전(캐시 키용).</summary>
 /// <param name="Markdown">본문 원문 마크다운(최대 200KB).</param>
-/// <param name="Version">낙관적 동시성 토큰(xmin). 캐시 키로만 쓰고 응답에는 노출하지 않는다.</param>
+/// <param name="Version">낙관적 동시성 토큰(앱이 관리하는 행 버전 <c>Posts.Version</c>). 캐시 키로만 쓰고 응답에는 노출하지 않는다.</param>
 public sealed record PublicContent(string Markdown, uint Version);
 
 /// <summary>시리즈 목록 한 줄.</summary>

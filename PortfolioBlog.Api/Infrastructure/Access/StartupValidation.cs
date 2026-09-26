@@ -1,6 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Options;
-using Npgsql;
+using MySqlConnector;
 using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Markdown;
 using PortfolioBlog.Api.Infrastructure.Storage;
@@ -23,19 +23,21 @@ public static class StartupValidation
     /// 운영에 필수인 값의 누락·두 origin의 동일 여부·origin의 https 스킴 여부·공개 조회 연결(<c>ConnectionStrings:Public</c>)의 누락·
     /// Data Protection 키 경로(<c>DataProtection:KeysPath</c>)의 누락·상대 경로 여부는 <c>Development</c>가 아닌 모든 환경에서 시작 실패로 처리한다
     /// (<c>Staging</c>이나 오타난 환경 이름이 <c>IsProduction()</c> 검사만으로는 걸러지지 않고 그대로 통과하는 것을 막는다).
-    /// 공개 조회 연결의 <c>Options</c>·<c>Command Timeout</c> 규칙과 관리 연결과의 동일 사용자 여부는 환경과 무관하게 항상 검사한다.</summary>
+    /// 두 연결 문자열의 형식·<c>AllowPublicKeyRetrieval</c> 금지·<c>Default Command Timeout</c> 규칙(관리 연결은 추가로 0 또는 <see cref="AttachmentLock.WaitSeconds"/>초 초과)과
+    /// 관리 연결과의 동일 사용자 여부는 환경과 무관하게 항상 검사하고,
+    /// <c>SslMode</c> Required 이상은 <c>Development</c>가 아닌 환경에서만 요구한다.</summary>
     /// <param name="services">검증 대상 옵션을 조회할 <see cref="IServiceProvider"/>. <c>builder.Build()</c> 이후의 <c>app.Services</c>여야 한다.</param>
     /// <param name="environment">현재 호스팅 환경. <see cref="IHostEnvironment.IsDevelopment"/> 판정에 쓰인다.</param>
     /// <exception cref="InvalidOperationException">설정 값의 형식이 잘못되었거나, <c>Development</c>가 아닌 환경에서 필수 설정이 비어 있거나,
-    /// 두 origin이 같거나, origin의 스킴이 <c>https</c>가 아니거나, <c>ConnectionStrings:Public</c>의 사용자 이름이 롤 이름 형식이 아니거나
-    /// <c>ConnectionStrings:Default</c>와 같거나, 두 연결 문자열 중 하나에 <c>Options</c>가 있거나 <c>Command Timeout</c>이 <c>Public:StatementTimeoutMs</c>보다
-    /// 작거나 같을 때. 메시지에 문제가 된 설정 키를 포함한다.</exception>
+    /// 두 origin이 같거나, origin의 스킴이 <c>https</c>가 아니거나, <c>ConnectionStrings:Public</c>의 사용자 이름이 허용 형식이 아니거나
+    /// <c>ConnectionStrings:Default</c>와 같거나, 두 연결 문자열 중 하나가 형식 오류이거나 <c>AllowPublicKeyRetrieval=true</c>이거나 <c>Default Command Timeout</c>이
+    /// <c>Public:StatementTimeoutMs</c>보다 작거나 같거나, <c>ConnectionStrings:Default</c>의 <c>Default Command Timeout</c>이 0이 아니면서 <see cref="AttachmentLock.WaitSeconds"/>초 이하이거나, <c>Development</c>가 아닌 환경에서 <c>SslMode</c>가 Required 미만일 때. 메시지에 문제가 된 설정 키를 포함한다(값은 넣지 않는다).</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
     /// <item><description><b>Thread Safety:</b> Program.cs의 시작 흐름에서 단일 스레드로 1회만 호출된다. 공유 가변 상태를 만들지 않는다.</description></item>
     /// <item><description><b>Memory Allocation:</b> <see cref="IOptions{TOptions}.Value"/> 조회와 <see cref="CidrList.Parse"/>·<see cref="IPAddress.TryParse(string?, out IPAddress?)"/> 호출로 시작 시 1회성 할당만 발생한다.</description></item>
-    /// <item><description><b>Blocking:</b> 동기 실행이며 I/O가 없다. <c>app.Services.CreateScope()</c>로 <c>AppDbContext</c>를 여는 마이그레이션 블록보다 반드시 먼저 호출해야, 연결 문자열이 잘못됐을 때 나는 Npgsql 오류가 아니라 이 메서드의 명확한 설정 오류가 먼저 보인다.</description></item>
+    /// <item><description><b>Blocking:</b> 동기 실행이며 I/O가 없다. <c>app.Services.CreateScope()</c>로 <c>AppDbContext</c>를 여는 마이그레이션 블록보다 반드시 먼저 호출해야, 연결 문자열이 잘못됐을 때 나는 DB 드라이버 오류가 아니라 이 메서드의 명확한 설정 오류가 먼저 보인다.</description></item>
     /// </list>
     /// </remarks>
     public static void Validate(IServiceProvider services, IHostEnvironment environment)
@@ -81,23 +83,30 @@ public static class StartupValidation
             throw new InvalidOperationException("Public:StatementTimeoutMs 는 100~60000 이어야 합니다.");
         }
         // 연결 문자열이 비어 있으면 기존 가드(DataServiceCollectionExtensions.RequireConnectionString, 컨텍스트가 처음 해석될 때)가
-        // 그대로 처리한다 — 여기서는 값이 있을 때만, 그 값이 공개 연결 조립과 실제로 합쳐지는지를 시작 시점에 미리 확인한다.
+        // 그대로 처리한다 — 여기서는 값이 있을 때만, 그 값의 형식·보안 옵션·시간 제한을 시작 시점에 미리 확인한다.
         var configuration = services.GetRequiredService<IConfiguration>();
         var connectionString = configuration.GetConnectionString("Default");
         var publicConnectionString = configuration.GetConnectionString("Public");
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
-            CheckConnectionString("ConnectionStrings:Default", connectionString, pub.StatementTimeoutMs);
+            var defaultParsed = CheckConnectionString("ConnectionStrings:Default", connectionString, pub.StatementTimeoutMs, requireTls: !environment.IsDevelopment());
+            // 관리 연결은 첨부 잠금(GET_LOCK)을 최대 AttachmentLock.WaitSeconds초 기다린다. 클라이언트 명령 시간 제한이 그 이하면
+            // 경합 중인 GET_LOCK이 서버의 0(타임아웃) 응답보다 먼저 클라이언트 쪽에서 끊겨 분류기가 Other로 보고 503이 아니라 500이 된다.
+            if (defaultParsed.DefaultCommandTimeout != 0 && defaultParsed.DefaultCommandTimeout <= AttachmentLock.WaitSeconds)
+            {
+                throw new InvalidOperationException(
+                    $"ConnectionStrings:Default 의 Default Command Timeout(초)은 0(무한)이거나 첨부 잠금 대기 상한(AttachmentLock.WaitSeconds, {AttachmentLock.WaitSeconds}초)보다 커야 합니다 — 아니면 잠금 경합이 503 대신 500이 됩니다.");
+            }
         }
         if (!string.IsNullOrWhiteSpace(publicConnectionString))
         {
-            CheckConnectionString("ConnectionStrings:Public", publicConnectionString, pub.StatementTimeoutMs);
-            // 롤 이름은 GRANT 문장에 직접 들어간다(PublicRoleGrants) — 형식을 DB 접속 전에 확인한다.
+            CheckConnectionString("ConnectionStrings:Public", publicConnectionString, pub.StatementTimeoutMs, requireTls: !environment.IsDevelopment());
+            // 사용자 이름은 GRANT 문장에 직접 들어간다(PublicRoleGrants) — 형식을 DB 접속 전에 확인한다.
             var publicRole = PublicRoleGrants.RoleOf(publicConnectionString);
             if (!string.IsNullOrWhiteSpace(connectionString)
-                && string.Equals(publicRole, new NpgsqlConnectionStringBuilder(connectionString).Username, StringComparison.Ordinal))
+                && string.Equals(publicRole, new MySqlConnectionStringBuilder(connectionString).UserID, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("ConnectionStrings:Public 의 Username 이 ConnectionStrings:Default 와 같습니다 — 공개 조회는 별도의 읽기 전용 롤이어야 합니다.");
+                throw new InvalidOperationException("ConnectionStrings:Public 의 User ID 가 ConnectionStrings:Default 와 같습니다 — 공개 조회는 별도의 읽기 전용 사용자여야 합니다.");
             }
         }
         var rendering = services.GetRequiredService<IOptions<RenderingOptions>>().Value;
@@ -128,18 +137,20 @@ public static class StartupValidation
             // 상대 경로는 콘텐츠 루트(배포 시 작업 디렉터리)에 따라 달라져 운영에서는 의도치 않은 위치를 가리키기 쉽다.
             // appsettings.Development.json은 로컬 상대 경로(.data/attachments)를 그대로 쓰므로 Development만 예외로 허용한다.
             Require(Path.IsPathFullyQualified(attachments.RootPath), "Attachments:RootPath");
-            // 공개 조회가 관리 롤(테이블 소유자)로 돌면 default_transaction_read_only만 남는다 — 그것은 세션이 스스로 끌 수 있다(스펙 3.7).
+            // 공개 조회가 관리 사용자로 돌면 세션 read_only만 남는다 — 세션이 스스로 끌 수 있다(스펙 3.7).
             Require(!string.IsNullOrWhiteSpace(publicConnectionString), "ConnectionStrings:Public");
             // 키가 컨테이너의 임시 위치에 생기면 재시작할 때마다 모든 세션이 조용히 끊긴다(읽기 전용 루트 FS에서는 메모리에만 남는다).
             Require(Path.IsPathFullyQualified(configuration[AuthServiceCollectionExtensions.DataProtectionKeysPathKey] ?? string.Empty), AuthServiceCollectionExtensions.DataProtectionKeysPathKey);
         }
     }
 
-    /// <summary>연결 문자열 하나가 공개 연결 조립과 합쳐지는지, 클라이언트 시간 제한이 DB 시간 제한보다 긴지 확인한다.</summary>
+    /// <summary>연결 문자열 하나의 형식·보안 옵션·클라이언트 시간 제한을 확인한다.</summary>
     /// <param name="key">예외 메시지에 넣을 설정 키. 값(비밀번호 포함 가능)은 메시지에 넣지 않는다.</param>
     /// <param name="connectionString">검사할 연결 문자열.</param>
     /// <param name="statementTimeoutMs"><c>Public:StatementTimeoutMs</c>.</param>
-    /// <exception cref="InvalidOperationException"><c>Options</c>가 들어 있거나 <c>Command Timeout</c>(초)×1000이 <paramref name="statementTimeoutMs"/> 이하일 때.</exception>
+    /// <param name="requireTls"><see langword="true"/>면 <c>SslMode</c>가 Required·VerifyCA·VerifyFull 중 하나여야 한다(Development가 아닌 환경).</param>
+    /// <returns>파싱된 연결 문자열 빌더.</returns>
+    /// <exception cref="InvalidOperationException">형식 오류, <c>AllowPublicKeyRetrieval=true</c>, TLS 요구 미달, 또는 <c>Default Command Timeout</c>(초)×1000이 <paramref name="statementTimeoutMs"/> 이하일 때.</exception>
     /// <remarks>
     /// <b>[성능 및 동시성 제약 조건]</b>
     /// <list type="bullet">
@@ -148,24 +159,34 @@ public static class StartupValidation
     /// <item><description><b>Blocking:</b> 동기 실행. 순수 파싱이라 I/O가 없다 — 이 클래스의 "I/O 없음" 계약을 지킨다.</description></item>
     /// </list>
     /// </remarks>
-    private static void CheckConnectionString(string key, string connectionString, int statementTimeoutMs)
+    private static MySqlConnectionStringBuilder CheckConnectionString(string key, string connectionString, int statementTimeoutMs, bool requireTls)
     {
-        // Npgsql은 알 수 없는 키워드·형식 오류를 FormatException이 아니라 ArgumentException으로 던진다(실측) — Check가 둘 다 잡는다.
-        var parsed = Check(key, () => new NpgsqlConnectionStringBuilder(connectionString));
-        // Options가 이미 있으면 공개 연결의 시작 옵션(statement_timeout·default_transaction_read_only)과 합칠 수 없다.
-        // 첫 공개 요청이 아니라 시작 시점에 드러낸다.
-        if (!string.IsNullOrEmpty(parsed.Options))
+        MySqlConnectionStringBuilder parsed;
+        try
         {
-            throw new InvalidOperationException($"{key} 에 Options 를 넣을 수 없습니다 — 공개 조회 연결의 시작 옵션과 합칠 수 없습니다.");
+            parsed = new MySqlConnectionStringBuilder(connectionString);
         }
-        // CommandTimeout(초, 0=무한)이 statement_timeout(밀리초)보다 먼저 끊기면 클라이언트가 DB보다 먼저 취소해버려서
-        // OverloadExceptionHandler가 기대하는 57014(DB 시간제한) 대신 클라이언트 취소 예외가 난다 — 503 매핑 설계가 깨진다.
-        if (parsed.CommandTimeout != 0 && parsed.CommandTimeout * 1000L <= statementTimeoutMs)
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
         {
-            throw new InvalidOperationException(
-                $"{key} 의 Command Timeout(초)이 Public:StatementTimeoutMs(밀리초)보다 커야 합니다 — " +
-                "그렇지 않으면 클라이언트 취소가 DB의 statement_timeout보다 먼저 발생합니다.");
+            // 메시지를 옮기지 않는다: 커넥터 예외 메시지에 연결 문자열 조각이 들어갈 수 있다.
+            // (MySqlConnector는 모르는 키워드에 ArgumentException("Option 'bogus keyword' not supported.")을 던지고 값은 싣지 않는다 — 스파이크 S12. 그래도 옮기지 않는다.)
+            throw new InvalidOperationException($"설정 {key} 이(가) 잘못되었습니다(연결 문자열 형식).", ex);
         }
+        if (parsed.AllowPublicKeyRetrieval)
+        {
+            throw new InvalidOperationException($"{key} 에 AllowPublicKeyRetrieval=true 를 쓸 수 없습니다 — 공개키를 바꿔치기해 비밀번호를 빼낼 수 있습니다. SslMode=Required 로 연결하세요.");
+        }
+        if (requireTls && parsed.SslMode is not (MySqlSslMode.Required or MySqlSslMode.VerifyCA or MySqlSslMode.VerifyFull))
+        {
+            throw new InvalidOperationException($"Development가 아닌 환경에서는 {key} 의 SslMode 가 Required 이상이어야 합니다.");
+        }
+        // DefaultCommandTimeout(초, 0=무한)이 max_execution_time(밀리초)보다 먼저 끊기면 클라이언트 취소가 DB 시간 제한(3024)보다 먼저 나서
+        // OverloadExceptionHandler의 503 매핑이 깨진다.
+        if (parsed.DefaultCommandTimeout != 0 && parsed.DefaultCommandTimeout * 1000L <= statementTimeoutMs)
+        {
+            throw new InvalidOperationException($"{key} 의 Default Command Timeout(초)이 Public:StatementTimeoutMs(밀리초)보다 커야 합니다.");
+        }
+        return parsed;
     }
 
     /// <summary>설정 값을 파싱하고, 형식 오류(<see cref="FormatException"/>·<see cref="ArgumentException"/>)를 설정 키를 포함한 <see cref="InvalidOperationException"/>으로 바꾼다.</summary>

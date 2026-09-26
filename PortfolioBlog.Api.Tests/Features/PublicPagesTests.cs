@@ -10,21 +10,21 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
-/// <summary>공개 Razor 페이지를 실제 파이프라인 + PostgreSQL로 검증한다. 목록 쪽수처럼 DB 전체에 의존하는 테스트는 격리된 팩토리를 만든다.</summary>
+/// <summary>공개 Razor 페이지를 실제 파이프라인 + MySQL로 검증한다. 목록 쪽수처럼 DB 전체에 의존하는 테스트는 격리된 팩토리를 만든다.</summary>
 /// <param name="factory">컬렉션이 공유하는 컨테이너를 바탕으로 클래스 전용 DB를 갖는 <see cref="ApiFactory"/> 클래스 픽스처.</param>
-/// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture. 쪽수 테스트가 격리된 <see cref="ApiFactory"/>를 새로 만들 때 재사용한다.</param>
+/// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture. 쪽수 테스트가 격리된 <see cref="ApiFactory"/>를 새로 만들 때 재사용한다.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <paramref name="factory"/>가 호스팅하는 TestServer가 실제 PostgreSQL 컨테이너에 TCP로 접속한다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. <paramref name="factory"/>가 호스팅하는 TestServer가 실제 MySQL 컨테이너에 TCP로 접속한다.</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 <see cref="IClassFixture{TFixture}"/>로 클래스 단위 1회 생성·공유된다.
 /// <see cref="Index_ListsNewestFirst_Paginates_AndRejectsBadPages"/>만 자신만의 데이터를 격리하려고 새 <see cref="ApiFactory"/>를 만들어 <c>using</c>으로 해제한다 — 다른 테스트 메서드와 DB를 공유하지 않는다.</description></item>
 /// <item><description><b>Concurrency:</b> 공유 <paramref name="factory"/>를 쓰는 테스트 메서드들은 서로 다른 slug·태그·시리즈를 시드해 데이터가 섞이지 않는다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 HTTP·DB 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixture pg) : IClassFixture<ApiFactory>
+[Collection("mysql")]
+public sealed class PublicPagesTests(ApiFactory factory, MySqlContainerFixture mysql) : IClassFixture<ApiFactory>
 {
     private const string Attachment = "/attachments/01234567-89ab-cdef-0123-456789abcdef/diagram.png";
 
@@ -32,7 +32,7 @@ public sealed class PublicPagesTests(ApiFactory factory, PostgresContainerFixtur
     [Fact]
     public async Task Index_ListsNewestFirst_Paginates_AndRejectsBadPages()
     {
-        using var isolated = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var isolated = new ApiFactory(mysql, new Dictionary<string, string?>());
         var t0 = DbClock.UtcNow().AddDays(-1);
         for (var i = 0; i < 21; i++) await PublicSeed.PostAsync(isolated, $"p-{i:00}", $"글 {i}", createdAt: t0.AddMinutes(i));
         using var client = isolated.CreatePublicClient();

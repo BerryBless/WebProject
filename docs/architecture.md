@@ -26,7 +26,7 @@ flowchart TB
         ATT["첨부 GET/HEAD"]
     end
 
-    DB[("postgres")]
+    DB[("mysql")]
     FS[("attachments 볼륨")]
 
     V --> PUB
@@ -111,7 +111,7 @@ sequenceDiagram
     participant C as Caddy (admin 사이트)
     participant M as AdminSurfaceMiddleware
     participant A as Auth 엔드포인트
-    participant D as postgres
+    participant D as mysql
 
     W->>C: POST /api/auth/login {password}
     C->>C: 원본 IP 검사 (밖이면 404)
@@ -155,7 +155,7 @@ flowchart LR
 
 - HTML을 **저장하지 않고 요청마다 렌더링**합니다 — 렌더러의 보안 수정이 과거 글 전체에 즉시 적용됩니다.
 - 렌더 비용은 입력 크기가 아니라 **시간**으로 제한합니다: 줄 400자·문서 60,000자 강조 예산, 정규식 매치 타임아웃 250ms, 렌더당 강조 2,000ms. 예산을 넘긴 블록은 이스케이프한 일반 코드블록으로 떨어집니다.
-- Markdig 파서 자체의 비용(적대적 200KB 입력에서 수 초)은 **렌더 게이트**(프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503)와 **렌더 결과 캐시**(`(PostId, xmin)` 키, 64MB, 단일 비행)로 덮습니다. 글 저장 경로도 같은 게이트 안에 있습니다.
+- Markdig 파서 자체의 비용(적대적 200KB 입력에서 수 초)은 **렌더 게이트**(프로세스 전역 동시 2, 슬롯 대기 5초 초과 시 503)와 **렌더 결과 캐시**(`(PostId, Version)` 키, 64MB, 단일 비행)로 덮습니다. 글 저장 경로도 같은 게이트 안에 있습니다.
 - 글은 저장 전에 한 번 렌더링합니다 — "저장은 됐는데 공개 페이지가 열리지 않는" 상태를 막습니다.
 
 ## 데이터 모델
@@ -166,44 +166,47 @@ erDiagram
     Post ||--o{ PostTag : ""
     Tag ||--o{ PostTag : ""
     Post {
-        uuid Id PK
-        text Slug UK "직접 입력, 생성 후 불변"
+        char_36 Id PK
+        varchar Slug UK "직접 입력, 생성 후 불변, utf8mb4_0900_bin(NO PAD)"
         text Title
         text Summary
         text ContentMarkdown
-        uuid SeriesId FK
+        char_36 SeriesId FK
         int SeriesOrder
-        timestamptz CreatedAt "발행일"
-        timestamptz UpdatedAt
+        int_unsigned Version "INT UNSIGNED, 낙관적 동시성 토큰, 삽입 시 1, 앱이 UPDATE마다 +1"
+        datetime_6 CreatedAt "발행일, UTC"
+        datetime_6 UpdatedAt "UTC"
     }
     Series {
-        uuid Id PK
-        text Slug UK
+        char_36 Id PK
+        varchar Slug UK "utf8mb4_0900_bin"
         text Title
         text Description
     }
     Tag {
-        uuid Id PK
+        char_36 Id PK
         text Name
-        text NormalizedName UK
+        varchar NormalizedName UK "utf8mb4_0900_bin"
     }
     PostTag {
-        uuid PostId PK
-        uuid TagId PK
+        char_36 PostId PK
+        char_36 TagId PK
     }
     Attachment {
-        uuid Id PK
+        char_36 Id PK
         text FileName
-        text ContentType
+        varchar ContentType "utf8mb4_0900_bin"
         bigint SizeBytes
-        text Sha256 UK "내용 주소 저장"
+        varchar Sha256 UK "내용 주소 저장, utf8mb4_0900_bin"
     }
 ```
 
 - 발행 모델에 **초안 상태가 없습니다**. 저장 = 즉시 공개.
-- 동시 수정은 PostgreSQL `xmin` 동시성 토큰으로 감지합니다(409). 에디터는 409를 받으면 서버본과 내 본문을 나란히 보여 줍니다.
+- 동시 수정은 앱이 관리하는 `Version`(`INT UNSIGNED`, C# `uint`) 동시성 토큰으로 감지합니다(409). Posts를 UPDATE하는 모든 경로(SaveChanges 인터셉터·`ExecuteUpdateAsync`)가 반드시 `Version`을 1 올려야 하며, 아키텍처 테스트로 이를 강제합니다. 에디터는 409를 받으면 서버본과 내 본문을 나란히 보여 줍니다.
 - 앱의 검증 규칙은 **DB 제약의 부분집합**이어야 한다는 것을 테스트가 강제합니다(앱을 우회해도 DB가 막습니다).
-- 공개 조회는 별도 `PublicDbContext`가 담당합니다: `NoTracking`, 연결 시작 옵션으로 `statement_timeout`·`default_transaction_read_only`. 진짜 경계는 쓰기 권한이 없는 DB 롤이며, 그 구현은 4단계(배포)에 있습니다 → [배포 구성](deployment.md).
+- 공개 조회는 별도 `PublicDbContext`가 담당합니다: `NoTracking`, 연결을 열 때마다 `PublicSessionInterceptor`가 `SET SESSION transaction_read_only = ON, max_execution_time = <ms>, lock_wait_timeout = <ms를 초 단위로 올림, 최소 1>`을 보냅니다(MySqlConnector에는 PG의 시작 매개변수가 없어 연결마다 1회 왕복이 든다). `lock_wait_timeout`은 메타데이터 잠금(MDL) 대기의 상한입니다 — 공개 경로에서 유일하게 무한정 기다릴 수 있는 지점이라(일반 SELECT는 행 잠금을 기다리지 않습니다) `max_execution_time`이 놓치는 경로의 안전망 역할을 합니다. 진짜 경계는 5개 테이블 SELECT만 가진 DB 사용자(`blog_public`)이며, 앱이 기동마다 GRANT를 적용하고 `SHOW GRANTS`로 스스로 검증합니다(불일치 시 기동 실패). 그 구현은 4단계(배포)에 있습니다 → [배포 구성](deployment.md).
+- **트랜잭션 격리 수준(D7)**: MySqlConnector의 인자 없는 `BeginTransaction()`은 서버·세션 설정과 무관하게 매번 `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`를 보냅니다(실측). `ReadCommittedTransactionInterceptor`가 격리 수준을 지정하지 않은 모든 트랜잭션을 READ COMMITTED로 대체합니다(`SeriesEndpoints`의 `FOR UPDATE`, `TagResolver`의 서수 삽입 등 기존 동시성 설계가 전부 이 수준을 전제로 합니다). 서버 플래그 `--transaction-isolation=READ-COMMITTED`는 명시 트랜잭션 **밖**에서 도는 단일 문장(autocommit, `ExecuteUpdate`/`ExecuteDelete` 등)을 담당합니다 — 둘은 서로 다른 문장을 맡으므로 어느 한쪽만으로는 부족합니다.
+- **첨부 직렬화 잠금(D5)**: 같은 내용(SHA-256)을 만지는 업로드·삭제·청소는 `GET_LOCK` 사용자 잠금으로 직렬화합니다(`AttachmentLock`). 잠금 이름이 서버 전역이라 DB 이름 해시로 네임스페이스를 나누고(`att:` + DB 이름 SHA-256 앞 8자 + `:` + 내용 SHA 앞 48자, 최대 64자), 대기 상한은 10초로 넘으면 `DbLockTimeoutException`이 503으로 바뀝니다. 잠금을 쥔 세션에는 `lock_wait_timeout`도 같은 10초로 걸어 메타데이터 잠금 대기가 무한정 늘어지지 않게 합니다(PG 판 `lock_timeout 10s`와 같은 역할, 행 잠금 대기는 `innodb_lock_wait_timeout` 소관). 그래서 관리 연결의 `Default Command Timeout`은 0이거나 10초보다 커야 합니다(시작 검증). 해제는 명시적(`RELEASE_LOCK`)이며, 실패해도 늦어도 같은 물리 연결이 다음에 풀에서 대여될 때 `ConnectionReset=true`의 리셋이 잠금을 풉니다.
 
 ## 코드 지도
 

@@ -10,7 +10,7 @@ namespace PortfolioBlog.Api.Contracts;
 /// <param name="SeriesOrder">시리즈 안 순서(없으면 <c>null</c>).</param>
 /// <param name="CreatedAt">발행(생성) 시각.</param>
 /// <param name="UpdatedAt">마지막 수정 시각.</param>
-/// <param name="Version">낙관적 동시성 토큰(DB xmin).</param>
+/// <param name="Version">낙관적 동시성 토큰(앱이 관리하는 행 버전 <c>Posts.Version</c>).</param>
 public sealed record PostSummaryDto(Guid Id, string Slug, string Title, string Summary, string[] Tags,
     Guid? SeriesId, int? SeriesOrder, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, uint Version);
 
@@ -25,7 +25,7 @@ public sealed record PostSummaryDto(Guid Id, string Slug, string Title, string S
 /// <param name="SeriesOrder">시리즈 안 순서(없으면 <c>null</c>).</param>
 /// <param name="CreatedAt">발행(생성) 시각.</param>
 /// <param name="UpdatedAt">마지막 수정 시각.</param>
-/// <param name="Version">낙관적 동시성 토큰(DB xmin).</param>
+/// <param name="Version">낙관적 동시성 토큰(앱이 관리하는 행 버전 <c>Posts.Version</c>).</param>
 public sealed record PostDetailDto(Guid Id, string Slug, string Title, string Summary, string ContentMarkdown, string[] Tags,
     Guid? SeriesId, int? SeriesOrder, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, uint Version);
 

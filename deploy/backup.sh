@@ -21,12 +21,14 @@ dest="$root/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir "$dest" # -p 없이: 같은 UTC 초에 두 번 실행되면 여기서 실패한다(진행 중인 백업을 조용히 덮어쓰지 않는다)
 trap 'rm -rf "$dest"' ERR # 이후 어느 단계가 죽어도 부분 백업(평문 덤프 포함)을 지운다 — 미완성 백업이 서버에 쌓이거나 오프사이트로 복사되지 않게
 
-docker compose exec -T postgres pg_dump -U postgres -Fc blog > "$dest/blog.dump"
+# --single-transaction: InnoDB 일관 스냅숏(서비스 무중단). --no-tablespaces: PROCESS 권한 없이도 덤프. 비밀번호는 컨테이너 안 환경변수에서 읽는다.
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --no-tablespaces --set-gtid-purged=OFF --databases blog' > "$dest/blog.sql"
 docker compose --profile tools run --rm -T --no-deps tools 'tar -C /data/attachments --exclude=./.tmp -cf - .' > "$dest/attachments.tar"
 
 # 읽을 수 있는 백업인지 그 자리에서 확인한다(빈 파일·잘린 파일을 백업이라고 믿지 않는다).
-docker compose exec -T postgres pg_restore -l < "$dest/blog.dump" > /dev/null
+# mysqldump는 정상 종료 시 마지막 줄에 완료 표식을 쓴다(잘린 덤프에는 없다).
+tail -n 1 "$dest/blog.sql" | grep -q '^-- Dump completed'
 tar -tf "$dest/attachments.tar" > /dev/null
-(cd "$dest" && sha256sum blog.dump attachments.tar > SHA256SUMS)
+(cd "$dest" && sha256sum blog.sql attachments.tar > SHA256SUMS)
 
 echo "$dest"

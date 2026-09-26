@@ -10,17 +10,17 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <list type="bullet">
 /// <item><description><b>Thread Safety:</b> 테스트마다 격리된 <see cref="ApiFactory"/>(자체 DB·자체 제한기 상태)를 만든다.</description></item>
 /// <item><description><b>Memory Allocation:</b> 팩토리·HttpClient는 <c>using</c>으로 해제.</description></item>
-/// <item><description><b>Blocking:</b> 비동기. 실제 PostgreSQL 컨테이너에 접속한다.</description></item>
+/// <item><description><b>Blocking:</b> 비동기. 실제 MySQL 컨테이너에 접속한다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class RateLimitHeaderTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class RateLimitHeaderTests(MySqlContainerFixture mysql)
 {
     /// <summary>고정 창(1분) 한도를 넘긴 로그인은 429와 함께 1~60초의 Retry-After를 받는다.</summary>
     [Fact]
     public async Task LoginOverLimit_Returns429_WithRetryAfterSeconds()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "1" });
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?> { ["Admin:LoginPerIpPerMinute"] = "1" });
         using var client = factory.CreateAdminClient(handleCookies: false);
         using var first = await client.PostAsJsonAsync("/api/auth/login", new { password = "wrong-dummy-value" });
         Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);

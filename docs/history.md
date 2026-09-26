@@ -15,6 +15,8 @@
 | 2B | 공개 페이지·검색·Atom·sitemap·보안 헤더·속도 제한·읽기 전용 연결·렌더 게이트 | PR #3 → `80c8dc4` | [`tech_blog_2b_report_0921.md`](../plan/tech_blog_2b_report_0921.md) |
 | 3 | 관리 에디터 SPA + 실제 백엔드 E2E + CI 확장 | PR #4 → `16a3d25` | [`tech_blog_3_report_0922.md`](../plan/tech_blog_3_report_0922.md) |
 | 4 | 배포 구성(Docker·Caddy·DB 롤·백업/복원·스모크) | PR #5 → `531f207` | [`tech_blog_4_report_0923.md`](../plan/tech_blog_4_report_0923.md) |
+| 문서화 하네스 | `doc-harness/`로 신규 개발자용 기술 문서 생성·증분 갱신 | PR #6 | [`doc_harness_0923.md`](../plan/doc_harness_0923.md) |
+| MySQL 전환 | 저장소를 PostgreSQL에서 MySQL 8.4로 완전 교체(Pomelo EF Core) | `feat/mysql-migration`, 병합 대기 | [`mysql_migration_0926.md`](../plan/mysql_migration_0926.md) |
 
 ## 설계 (2026-09-20)
 
@@ -96,6 +98,23 @@ Task 1~6을 브랜치에서 모두 마쳤습니다: 공개 조회 전용 DB 롤�
 - "회차 이력이 없어 재개마다 재검증 $30이 든다"는 판정은 **틀렸습니다** — Fake 러너로 중단→재개를 재현하니 실패 항목만 다시 돌았습니다(캐시). 실제 원인은 재개 사이에 하네스 코드를 고쳐 문서가 다시 렌더된 것이었습니다.
 
 교훈: 입력 해시에 들어가는 모든 것은 결정적이어야 하고, 비싼 단계(LLM 검증)는 가장 뒤에 한 번씩만 두고 싼 단계(결정적 검사)를 앞뒤로 반복하며, 결정적 차단이 0이면 잔여 LLM 지적을 기록하고 발행하는 것이 한도가 있는 환경에서 끝을 보는 방법이었습니다.
+
+## MySQL 전환 (2026-09-26, 브랜치 `feat/mysql-migration`, 병합 대기)
+
+저장소를 PostgreSQL에서 **MySQL 8.4로 완전 교체**했습니다(둘을 함께 지원하는 구성은 만들지 않았습니다). PostgreSQL은 연결 문자열 수준을 넘어 읽기 전용 공개 롤·시작 세션 매개변수·권고 잠금·`xmin`·정규식 CHECK 같은 **보안 통제의 구현 수단**이었으므로, 이번 전환은 그 통제를 하나씩 대체하고 다시 증명하는 작업이었습니다.
+
+Phase 0 스파이크에서 처음 고른 Oracle `MySql.EntityFrameworkCore` 10.0.9가 no-go 판정을 받았습니다(`UseCollation`·`IsDescending`이 생성 DDL에서 빠지고, `Like` 이스케이프가 잘못된 SQL을 만들었습니다). 대신 **Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0**(EF Core를 9.0.20으로 하향)으로 다시 스파이크해 go 판정을 받았습니다.
+
+주요 대체: 공개 조회 롤의 GRANT를 앱이 기동마다 적용하고 `SHOW GRANTS`로 스스로 검증(불일치·초과 시 기동 실패, fail-closed) · 공개 연결이 열릴 때마다 세션에 `transaction_read_only`·`max_execution_time`을 거는 인터셉터 · `xmin` 대신 앱이 관리하는 `Version` 컬럼(모든 UPDATE 경로가 +1해야 함을 아키텍처 테스트로 강제) · `pg_advisory_lock` 대신 `GET_LOCK`(이름에 DB 해시로 네임스페이스 분리) · MySqlConnector가 트랜잭션마다 강제하는 REPEATABLE READ를 인터셉터로 READ COMMITTED로 되돌림(서버 플래그 `--transaction-isolation=READ-COMMITTED`는 트랜잭션 밖 단일 문장만 커버하고, 명시 트랜잭션 자체는 인터셉터 없이는 여전히 REPEATABLE READ로 돈다) · SqlState 대신 `MySqlException.Number` 기반 단일 오류 분류기.
+
+- 서수 순서 삽입만으로 태그 upsert의 데드락(1213)이 나지 않음을 부하 테스트로 확인해 재시도 로직을 추가하지 않았습니다(순서를 없애자 3/3 재현).
+- init 스크립트의 최초 구현이 비밀번호를 `sed` 치환 인자로 넘겨 컨테이너 `ps`/`/proc/*/cmdline`에 노출시켰습니다 → 셸 내장 `printf`로 SQL을 직접 조립하도록 바꿨습니다.
+- root를 `MYSQL_ROOT_HOST=localhost`로 소켓 전용으로 잠갔습니다(리뷰 권고, 원격 root 로그인 경로를 아예 없앰).
+- CI push 트리거가 `feature/**`만 받아 `feat/mysql-migration` 브랜치에서 CI가 한 번도 돌지 않은 것을 발견해 `feat/**`를 추가했습니다.
+- 통합 테스트 픽스처가 Pomelo가 연결 문자열에 덧붙이는 `Allow User Variables=True;Use Affected Rows=False` 때문에 원시 `MySqlConnection`과 EF가 서로 다른 풀을 쓰는 것을 놓쳐, 테스트가 엉뚱한 풀을 비우고 있었습니다 → EF가 실제로 만드는 연결 문자열을 그대로 풀 키로 쓰도록 고쳤습니다.
+- CHECK 제약의 정규식 끝 앵커(`\z`)를 런타임 값으로는 구별할 수 없는 케이스가 있어(64자 hex + 개행이 길이 제한에 먼저 걸림), `information_schema.CHECK_CONSTRAINTS`를 읽는 정적 검사로 증명 방법을 바꿨습니다.
+
+CI 4개 잡(test·web·web-e2e·deploy-smoke)이 모두 green입니다. 이 PC는 Hyper-V가 포트 4173을 배타 예약해 로컬 브라우저 E2E를 막으므로 CI가 대신 판정합니다. 설계·실측·판정 전체는 [설계 스펙](../plan/mysql_migration_0926.md)과 태스크별 보고서(`.superpowers/sdd/mysql_migration_impl_0926/`)에 있습니다.
 
 ## 이 저장소가 일하는 방식
 

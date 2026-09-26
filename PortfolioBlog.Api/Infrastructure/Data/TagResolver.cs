@@ -4,7 +4,7 @@ using PortfolioBlog.Api.Contracts;
 
 namespace PortfolioBlog.Api.Infrastructure.Data;
 
-/// <summary>태그 이름 목록을 정규화·중복 제거하고, 없는 태그는 <c>ON CONFLICT DO NOTHING</c>으로 만들어 Id 목록을 돌려준다.</summary>
+/// <summary>태그 이름 목록을 정규화·중복 제거하고, 없는 태그는 <c>ON DUPLICATE KEY UPDATE</c>(무변경)로 만들어 Id 목록을 돌려준다.</summary>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
@@ -13,7 +13,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// <item><description><b>Blocking:</b> Non-blocking. 새 태그마다 INSERT 1회 + 조회 1회를 await 한다.</description></item>
 /// </list>
 /// "조회 → 없으면 EF로 Add" 방식은 두 요청이 같은 새 태그를 동시에 만들 때 한쪽이 유니크 위반으로 실패한다.
-/// <c>ON CONFLICT (NormalizedName) DO NOTHING</c>은 그 경쟁을 DB가 흡수하므로 정상적인 동시 저장을 작성자에게 409로 돌려주지 않는다.
+/// <c>INSERT … ON DUPLICATE KEY UPDATE `Id` = `Id`</c>(NormalizedName 유니크 충돌 시 아무것도 바꾸지 않음)는 그 경쟁을 DB가 흡수하므로 정상적인 동시 저장을 작성자에게 409로 돌려주지 않는다.
 /// </remarks>
 public static class TagResolver
 {
@@ -67,7 +67,7 @@ public static class TagResolver
         {
             if (string.IsNullOrWhiteSpace(raw)) continue;
             var display = Display(raw);
-            // NUL(U+0000)은 PostgreSQL text 컬럼에 저장할 수 없다(JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있어 여기서 걸러야 DB에서 500이 되지 않는다).
+            // NUL(U+0000)은 정책상 거부한다(스펙 D15: MySQL은 저장하지만 검색·로그·렌더 경로의 이상 입력을 막는다. JSON은 유니코드 이스케이프로 NUL을 실어 나를 수 있다).
             if (TextRules.ContainsNul(display)) errors.Add(field, "태그는 제어 문자(NUL)를 포함할 수 없습니다.");
             else if (display.Length > AppDbContext.TagMax) errors.Add(field, $"태그는 {AppDbContext.TagMax}자 이하여야 합니다: {display[..20]}…");
             else if (display.Contains('/')) errors.Add(field, $"태그에 '/'를 쓸 수 없습니다: {display}");
@@ -103,14 +103,16 @@ public static class TagResolver
         var keys = wanted.Keys.ToArray();
         var existing = await db.Tags.AsNoTracking().Where(t => keys.Contains(t.NormalizedName)).Select(t => t.NormalizedName).ToListAsync(ct);
         // 정규화 이름의 서수(Ordinal) 순으로 삽입한다: 두 저장이 같은 새 태그 집합을 반대 순서로 삽입하면 각자 다른 순서로 행을 잠가
-        // PostgreSQL이 데드락(40P01)으로 한쪽을 강제 종료할 수 있다. 모든 호출이 같은 전역 순서로 잠그면 순환 대기 자체가 생기지 않는다.
+        // InnoDB가 교착(1213)으로 한쪽을 강제 롤백할 수 있다. 모든 호출이 같은 전역 순서로 잠그면 순환 대기 자체가 생기지 않는다.
         foreach (var (normalized, display) in wanted.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             if (existing.Contains(normalized)) continue;
             var id = Guid.CreateVersion7();
             // 보간 값은 전부 매개변수로 전달된다(ExecuteSqlInterpolated). 테이블·컬럼 이름만 리터럴이다.
+            // INSERT IGNORE는 쓰지 않는다: 유니크 충돌뿐 아니라 잘림·CHECK 위반까지 경고로 강등해 삼키므로 잘못된 행이 조용히 들어가거나 빠진다.
+            // ON DUPLICATE KEY UPDATE `Id` = `Id`는 유니크 충돌만 무변경으로 흡수하고 그 밖의 오류는 그대로 던진다.
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"""INSERT INTO "Tags" ("Id", "Name", "NormalizedName") VALUES ({id}, {display}, {normalized}) ON CONFLICT ("NormalizedName") DO NOTHING""", ct);
+                $"INSERT INTO `Tags` (`Id`, `Name`, `NormalizedName`) VALUES ({id}, {display}, {normalized}) ON DUPLICATE KEY UPDATE `Id` = `Id`", ct);
         }
         return await db.Tags.AsNoTracking().Where(t => keys.Contains(t.NormalizedName)).Select(t => t.Id).ToListAsync(ct);
     }

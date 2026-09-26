@@ -8,7 +8,7 @@ namespace PortfolioBlog.Api.Infrastructure.Data;
 /// <item><description><b>Memory Allocation:</b> Zero-allocation(struct 반환).</description></item>
 /// <item><description><b>Blocking:</b> 즉시 반환.</description></item>
 /// </list>
-/// Npgsql은 timestamptz를 마이크로초 단위로 기록하므로 100ns 틱을 미리 절삭해야 "저장 전 값 == 재조회 값"이 성립한다.
+/// MySQL <c>DATETIME(6)</c>은 마이크로초까지 저장하므로 100ns 틱을 미리 절삭해야 "저장 전 값 == 재조회 값"이 성립한다.
 /// </remarks>
 public static class DbClock
 {

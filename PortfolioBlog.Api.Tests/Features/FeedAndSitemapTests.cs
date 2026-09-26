@@ -9,18 +9,18 @@ using PortfolioBlog.Api.Tests.Infrastructure;
 namespace PortfolioBlog.Api.Tests.Features;
 
 /// <summary>Atom·sitemap·robots: 항상 유효한 XML, 절대 URL은 PUBLIC_ORIGIN, 공개 호스트 전용.</summary>
-/// <param name="pg">컬렉션이 공유하는 PostgreSQL 컨테이너 fixture. 테스트 메서드마다 설정(사이트 타이틀 등)이 달라야 하므로 클래스 픽스처 대신 메서드마다 <see cref="ApiFactory"/>를 직접 만든다.</param>
+/// <param name="mysql">컬렉션이 공유하는 MySQL 컨테이너 fixture. 테스트 메서드마다 설정(사이트 타이틀 등)이 달라야 하므로 클래스 픽스처 대신 메서드마다 <see cref="ApiFactory"/>를 직접 만든다.</param>
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 각 테스트가 만드는 <see cref="ApiFactory"/>가 호스팅하는 TestServer는 <paramref name="pg"/>가 가리키는 실제 PostgreSQL 컨테이너에 TCP로 접속한다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 각 테스트가 만드는 <see cref="ApiFactory"/>가 호스팅하는 TestServer는 <paramref name="mysql"/>가 가리키는 실제 MySQL 컨테이너에 TCP로 접속한다.</description></item>
 /// <item><description><b>Memory Policy:</b> 테스트 메서드마다 <see cref="ApiFactory"/>를 새로 생성해 <c>using</c>으로 해제한다(클래스 픽스처를 공유하지 않음 — 메서드마다 <c>Site:*</c> 설정 오버라이드가 달라 각자 독립된 DB·호스트가 필요하다).</description></item>
-/// <item><description><b>Concurrency:</b> <c>[Collection("postgres")]</c>라 같은 컬렉션의 다른 테스트 클래스와 컨테이너를 공유하지만 xUnit이 컬렉션 안에서는 직렬 실행한다. 이 클래스 자체는 테스트마다 독립된 DB를 쓰므로 데이터 간섭이 없다.</description></item>
+/// <item><description><b>Concurrency:</b> <c>[Collection("mysql")]</c>라 같은 컬렉션의 다른 테스트 클래스와 컨테이너를 공유하지만 xUnit이 컬렉션 안에서는 직렬 실행한다. 이 클래스 자체는 테스트마다 독립된 DB를 쓰므로 데이터 간섭이 없다.</description></item>
 /// <item><description><b>Blocking:</b> 모든 HTTP·DB 접근은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class FeedAndSitemapTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class FeedAndSitemapTests(MySqlContainerFixture mysql)
 {
     private static readonly XNamespace Atom = "http://www.w3.org/2005/Atom";
     private static readonly XNamespace Sitemap = "http://www.sitemaps.org/schemas/sitemap/0.9";
@@ -44,7 +44,7 @@ public sealed class FeedAndSitemapTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Feed_IsValidAtom_EvenWithHostileTitles_AndUsesPublicOrigin()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>
         {
             ["Site:Title"] = "블로그 <&>" + (char)1,
             ["Site:Description"] = "소개 <i>" + (char)2,
@@ -84,7 +84,7 @@ public sealed class FeedAndSitemapTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Feed_HasAtMostTwentyNewestEntries_AndIsValidWhenEmpty()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         using var client = factory.CreatePublicClient();
         var empty = XDocument.Parse(await client.GetStringAsync("/feed.xml")).Root!;
         Assert.Empty(empty.Elements(Atom + "entry"));
@@ -103,7 +103,7 @@ public sealed class FeedAndSitemapTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Sitemap_ListsEverything_WithEncodedAbsoluteUrls()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         var series = await PublicSeed.SeriesAsync(factory, "sm-series", "시리즈");
         await PublicSeed.PostAsync(factory, "sm-post", "글 <&>", tags: ["C#", "."], seriesId: series.Id, seriesOrder: 1);
         // 글이 하나도 연결되지 않은 태그를 관리 컨텍스트로 직접 저장한다: 아래 정확 목록 단언에 이 태그가 없어야 "글 없는 태그 제외"가
@@ -136,7 +136,7 @@ public sealed class FeedAndSitemapTests(PostgresContainerFixture pg)
     [Fact]
     public async Task Robots_PointsToTheSitemap_AndAllThreeArePublicHostOnly()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql, new Dictionary<string, string?>());
         using var client = factory.CreatePublicClient();
         using var robots = await client.GetAsync("/robots.txt");
         Assert.Equal("text/plain", robots.Content.Headers.ContentType?.MediaType);

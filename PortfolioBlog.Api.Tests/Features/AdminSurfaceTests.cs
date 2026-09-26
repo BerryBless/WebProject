@@ -22,7 +22,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <item><description><b>Blocking:</b> 모든 HTTP 호출은 <c>await</c>로 비동기 대기하며 동기 블로킹이 없다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class AdminSurfaceTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private const string Me = "/api/auth/me";

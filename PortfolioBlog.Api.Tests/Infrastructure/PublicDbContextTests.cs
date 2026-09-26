@@ -1,159 +1,123 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
+using MySqlConnector;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
-using PortfolioBlog.Api.Infrastructure.Web;
 
 namespace PortfolioBlog.Api.Tests.Infrastructure;
 
-/// <summary>공개 조회 연결이 DB 수준에서 시간 제한·읽기 전용인지 실제 PostgreSQL로 검증한다.</summary>
+/// <summary>공개 조회 세션 통제(스펙 D2): 읽기 전용, SELECT 실행 상한, 풀 재대여 시 리셋.</summary>
 /// <remarks>
-/// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 컬렉션 픽스처 <see cref="PostgresContainerFixture"/>(컨테이너 자체)만 공유하고,
-/// 각 테스트 케이스는 자신만의 <see cref="ApiFactory"/>(따라서 자신만의 DB·연결 문자열)를 직접 만들어 <c>using</c>으로 해제한다.</description></item>
-/// <item><description><b>Memory Policy:</b> 케이스마다 <see cref="ApiFactory"/>·DI 스코프·<see cref="PublicDbContext"/> 또는 <see cref="AppDbContext"/> 각 1개.</description></item>
-/// <item><description><b>Concurrency:</b> 케이스 간 공유 가변 상태가 없으므로(DB가 케이스마다 다름) 병렬 실행에 안전하다.</description></item>
-/// <item><description><b>Blocking:</b> 비동기 Non-blocking. 모든 DB 왕복을 <c>await</c>한다.</description></item>
+/// <item><description><b>픽스처 공유:</b> "mysql" 컬렉션 컨테이너, 테스트마다 팩토리.</description></item>
+/// <item><description><b>병렬 실행:</b> 컬렉션 내 직렬.</description></item>
+/// <item><description><b>외부 자원:</b> Docker MySQL.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
-public sealed class PublicDbContextTests(PostgresContainerFixture pg)
+[Collection("mysql")]
+public sealed class PublicDbContextTests(MySqlContainerFixture mysql)
 {
     private static readonly Dictionary<string, string?> FastTimeout = new() { ["Public:StatementTimeoutMs"] = "200" };
 
-    /// <summary>느린 문장은 statement_timeout에서 57014로 끊긴다. 2초짜리 pg_sleep이 1.5초 안에 끝나야 한다(타임아웃이 없으면 2초를 다 기다린다).
-    /// 측정 전에 연결을 미리 열어 둔다: 이 팩토리의 공개 연결 풀은 이 테스트가 처음 쓰는 것이라 첫 물리 연결 수립(TCP + 인증 + 시작 매개변수)이
-    /// 측정 구간에 섞이면 느린 러너에서 1.5초 상한을 statement_timeout과 무관한 이유로 넘길 수 있다.</summary>
+    // 스파이크 S3b: SELECT SLEEP(2)는 max_execution_time에 걸려도 오류 없이 0을 반환한다(3024가 나지 않는다). 그래서 행을 실제로 훑는 교차 조인으로 실행 시간 초과를 만든다.
+    private const string SlowSelect = "SELECT COUNT(*) AS `Value` FROM information_schema.COLUMNS a, information_schema.COLUMNS b, information_schema.COLUMNS c";
+
+    /// <summary>공개 컨텍스트의 느린 SELECT는 max_execution_time으로 끊기고(3024) 분류기가 QueryTimeout으로 본다.</summary>
     [Fact]
-    public async Task SlowStatement_IsCancelledByStatementTimeout()
+    public async Task SlowSelect_IsCancelledByMaxExecutionTime()
     {
-        using var factory = new ApiFactory(pg, FastTimeout);
+        using var factory = new ApiFactory(mysql, FastTimeout);
         using var _ = factory.CreateClient();
         await using var scope = factory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
-        await db.Database.OpenConnectionAsync();
-
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
-        var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("SELECT pg_sleep(2)"));
-        Assert.Equal("57014", ex.SqlState);
-        Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(1.5));
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.SqlQueryRaw<long>(SlowSelect).ToListAsync());
+        Assert.Equal(DbErrorKind.QueryTimeout, DbErrorClassifier.Classify(ex));
+        Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(2));
     }
 
-    /// <summary>같은 앱의 관리 컨텍스트는 제한을 받지 않는다(설정이 관리 연결로 새지 않았다).</summary>
+    /// <summary>관리 컨텍스트에는 실행 상한이 없다(관리 작업이 공개 설정에 끊기지 않는다).</summary>
     [Fact]
     public async Task AdminContext_IsNotAffected()
     {
-        using var factory = new ApiFactory(pg, FastTimeout);
+        using var factory = new ApiFactory(mysql, FastTimeout);
         using var _ = factory.CreateClient();
         await using var scope = factory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        // 200ms 제한을 넘는 0.5초 sleep이 예외 없이 끝나야 한다(관리 연결에는 statement_timeout이 없다).
-        Assert.Null(await Record.ExceptionAsync(() => db.Database.ExecuteSqlRawAsync("SELECT pg_sleep(0.5)")));
+        Assert.Equal(0L, await db.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.max_execution_time AS SIGNED) AS `Value`").SingleAsync());
+        Assert.Equal(0L, await db.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.transaction_read_only AS SIGNED) AS `Value`").SingleAsync());
     }
 
-    /// <summary>공개 연결로는 어떤 쓰기도 할 수 없다: SQL은 25006, SaveChanges는 앱에서 막는다.</summary>
+    /// <summary>세션 겹 단독 증명: 관리 사용자 연결(권한은 충분)에 공개 인터셉터만 붙여도 쓰기가 1792로 막힌다. SaveChanges는 앱 겹이 먼저 막는다.</summary>
     [Fact]
-    public async Task PublicContext_CannotWrite()
+    public async Task SessionLayer_Alone_BlocksWrites()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
+        using var factory = new ApiFactory(mysql);
         using var _ = factory.CreateClient();
-        await using var scope = factory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
-
-        var ex = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("DELETE FROM \"Tags\""));
-        Assert.Equal("25006", ex.SqlState);
-        var viaEf = await Assert.ThrowsAsync<PostgresException>(() => db.Tags.ExecuteDeleteAsync());
-        Assert.Equal("25006", viaEf.SqlState);
-
+        var options = new DbContextOptionsBuilder<PublicDbContext>()
+            .UseMySql(DataServiceCollectionExtensions.WithSessionReset(factory.ConnectionString), DataServiceCollectionExtensions.ServerVersion)
+            .AddInterceptors(new PublicSessionInterceptor(3000)).Options;
+        await using var db = new PublicDbContext(options);
+        var raw = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync("DELETE FROM `Tags`"));
+        Assert.Equal(DbErrorKind.ReadOnly, DbErrorClassifier.Classify(raw));
+        var bulk = await Assert.ThrowsAnyAsync<Exception>(() => db.Tags.ExecuteDeleteAsync());
+        Assert.Equal(DbErrorKind.ReadOnly, DbErrorClassifier.Classify(bulk));
         db.Tags.Add(new Tag { Name = "x", NormalizedName = "x" });
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
-        Assert.Throws<InvalidOperationException>(() => db.SaveChanges());
     }
 
-    /// <summary>같은 물리 연결(세션)을 붙잡은 채 직접 <c>SET default_transaction_read_only = off</c>를 실행하면 그 세션 안에서는 쓰기가
-    /// 성공하지만, 연결을 닫아 Npgsql 풀에 반납했다가 다시 열면 <c>transaction_read_only</c>가 <c>on</c>으로 되돌아가고 같은 쓰기가 다시
-    /// 25006으로 거부된다(측정 결과를 고정하는 테스트). <c>Maximum Pool Size=1</c>로 물리 연결을 하나로 묶어, 재획득한 연결이 반드시
-    /// 같은 물리 연결(같은 <c>pg_backend_pid()</c>)임을 같이 확인한다 — 다르면 "리셋됐다"는 단언 자체가 무의미하기 때문이다.
-    /// 이 앱은 이런 SQL을 절대 만들지 않으므로 실제 위험 경로는 아니지만(모든 조회는 매개변수화된 LINQ뿐),
-    /// <see cref="PublicDbContext"/>의 read-only가 "세션을 완전히 신뢰할 수 없는 제3자가 임의 SQL을 실행하는 상황"까지 막는 계층은
-    /// 아니라는 한계와, 그 한계가 "연결이 살아있는 그 세션 안에서만" 유효하다는 억제 범위를 함께 코드로 남긴다.
-    /// <b>쓰기 권한이 없는 DB 롤(스펙 §7)을 도입하면</b>: 이 테스트의 "이스케이프 성공" 단언(reset 전)은 실패로 뒤집어야 하지만,
-    /// "reset 후 read-only 복귀 + 25006" 단언은 그대로 유효하다(그 롤이면 애초에 reset 전에도 25006이 나므로).</summary>
+    /// <summary>
+    /// 공개 세션이 read_only를 스스로 꺼도 풀 재대여 때 리셋되고 인터셉터가 다시 켠다. 같은 물리 연결(CONNECTION_ID)을 재사용했는지도 확인해야
+    /// "리셋"을 측정한 것이 된다. 또 같은 풀을 관리 연결이 빌리면 read_only가 꺼져 있다(Development에서 Default를 공유하는 경우).
+    /// </summary>
     [Fact]
-    public async Task PublicContext_SessionCanOptOutOfReadOnly_ButResetsWhenConnectionReturnsToPool()
+    public async Task EscapedReadOnly_IsResetOnReuse_AndNeverLeaksToAdmin()
     {
-        using var factory = new ApiFactory(pg, new Dictionary<string, string?>());
-        using var _ = factory.CreateClient(); // 호스트 기동 → Migrate()
-        // Maximum Pool Size=1: 이 테스트 전용 풀에 물리 연결이 하나만 존재하도록 강제한다. 그래야 닫았다 다시 여는
-        // 두 번째 연결이 반드시 첫 번째와 같은 물리 연결(따라서 같은 pg_backend_pid)을 재사용하고, 아래 pid 비교가 결정적이다.
-        var connectionString = new NpgsqlConnectionStringBuilder(PublicDbContext.BuildConnectionString(factory.ConnectionString, new PublicOptions().StatementTimeoutMs)) { MaxPoolSize = 1 }.ConnectionString;
+        using var factory = new ApiFactory(mysql);
+        using var _ = factory.CreateClient();
+        var single = new MySqlConnectionStringBuilder(DataServiceCollectionExtensions.WithSessionReset(factory.ConnectionString)) { MaximumPoolSize = 1 }.ConnectionString;
+        var options = new DbContextOptionsBuilder<PublicDbContext>().UseMySql(single, DataServiceCollectionExtensions.ServerVersion).AddInterceptors(new PublicSessionInterceptor(3000)).Options;
+        // Pomelo의 UseMySql은 넘겨받은 연결 문자열에 `Allow User Variables=True;Use Affected Rows=False`를 덧붙여 실제 풀 키로 쓴다.
+        // 그래서 원시 MySqlConnection(single)은 이 문자열을 그대로 풀 키로 쓰는 EF 관리 연결과 다른 풀에 들어가(별개의 물리 연결이 되어)
+        // "관리 연결이 같은 풀을 빌린다"는 시나리오를 증명하지 못한다(항상 새 연결 기본값 0/0을 보게 되어 리셋 여부와 무관하게 통과해 버린다).
+        // 실제 운영에서 관리 연결(AppDbContext)도 같은 UseMySql 경로로 문자열이 변형되어 공개 연결과 같은 풀 키를 쓰므로, 검증도 인터셉터 없는
+        // AppDbContext로 같은 UseMySql 경로를 거쳐야 진짜 풀 공유를 재현한다.
+        var adminOptions = new DbContextOptionsBuilder<AppDbContext>().UseMySql(single, DataServiceCollectionExtensions.ServerVersion).Options;
         try
         {
-            int pidDuringEscape;
-            await using (var conn = new NpgsqlConnection(connectionString))
+            long firstId;
+            await using (var db = new PublicDbContext(options))
             {
-                await conn.OpenAsync();
-                pidDuringEscape = (int)(await ScalarAsync(conn, "SELECT pg_backend_pid()"))!;
-                await ExecAsync(conn, "SET default_transaction_read_only = off");
-                // 같은 세션 안에서는 이스케이프가 실제로 통한다 — 아래 reset 후 단언과 대비하기 위한 baseline.
-                Assert.Null(await Record.ExceptionAsync(() => ExecAsync(conn, "INSERT INTO \"Tags\" (\"Id\", \"Name\", \"NormalizedName\") VALUES (gen_random_uuid(), 'escape-probe-1', 'escape-probe-1')")));
-            } // using 종료 → Close() → Npgsql이 기본값(No Reset On Close=false)으로 연결을 풀에 반납하며 세션을 리셋한다.
-
-            int pidAfterReset;
-            await using (var conn = new NpgsqlConnection(connectionString))
-            {
-                await conn.OpenAsync();
-                pidAfterReset = (int)(await ScalarAsync(conn, "SELECT pg_backend_pid()"))!;
-                Assert.Equal("on", (string)(await ScalarAsync(conn, "SHOW transaction_read_only"))!);
-                var ex = await Record.ExceptionAsync(() => ExecAsync(conn, "INSERT INTO \"Tags\" (\"Id\", \"Name\", \"NormalizedName\") VALUES (gen_random_uuid(), 'escape-probe-2', 'escape-probe-2')"));
-                var pgEx = Assert.IsType<PostgresException>(ex);
-                Assert.Equal("25006", pgEx.SqlState);
+                await db.Database.OpenConnectionAsync();
+                firstId = await db.Database.SqlQueryRaw<long>("SELECT CAST(CONNECTION_ID() AS SIGNED) AS `Value`").SingleAsync();
+                await db.Database.ExecuteSqlRawAsync("SET SESSION transaction_read_only = OFF");
+                Assert.Equal(0L, await db.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.transaction_read_only AS SIGNED) AS `Value`").SingleAsync()); // 기준선: 이스케이프가 통한다
             }
-            // Maximum Pool Size=1이 실제로 같은 물리 연결을 재사용하게 만들었는지 확인한다 — 이게 성립해야 위 단언이 "리셋"을 측정한 것이지,
-            // 우연히 처음부터 read-only였던 별개의 연결을 잡은 게 아님을 보장한다.
-            Assert.Equal(pidDuringEscape, pidAfterReset);
+            await using (var db = new PublicDbContext(options))
+            {
+                await db.Database.OpenConnectionAsync();
+                Assert.Equal(firstId, await db.Database.SqlQueryRaw<long>("SELECT CAST(CONNECTION_ID() AS SIGNED) AS `Value`").SingleAsync());
+                Assert.Equal(1L, await db.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.transaction_read_only AS SIGNED) AS `Value`").SingleAsync());
+            }
+            await using (var admin = new AppDbContext(adminOptions)) // 인터셉터 없는 관리 측 대여, 같은 UseMySql 경로라 공개 연결과 같은 물리 풀을 공유한다
+            {
+                await admin.Database.OpenConnectionAsync();
+                Assert.Equal(firstId, await admin.Database.SqlQueryRaw<long>("SELECT CAST(CONNECTION_ID() AS SIGNED) AS `Value`").SingleAsync()); // 같은 물리 연결을 재사용했는지까지 확인
+                Assert.Equal(0L, await admin.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.transaction_read_only AS SIGNED) AS `Value`").SingleAsync());
+                Assert.Equal(0L, await admin.Database.SqlQueryRaw<long>("SELECT CAST(@@SESSION.max_execution_time AS SIGNED) AS `Value`").SingleAsync());
+            }
         }
         finally
         {
-            using var clear = new NpgsqlConnection(connectionString);
-            NpgsqlConnection.ClearPool(clear);
+            // 실제 풀 키(Pomelo가 변형한 문자열)로 비워야 유휴 연결이 즉시 닫힌다. 원시 "single" 문자열은 이 테스트에서 아무 풀도 채우지 않는다.
+            using var clear = new AppDbContext(adminOptions);
+            MySqlConnection.ClearPool((MySqlConnection)clear.Database.GetDbConnection());
         }
     }
 
-    private static async Task<object?> ScalarAsync(NpgsqlConnection conn, string sql)
-    {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
-        return await cmd.ExecuteScalarAsync();
-    }
-
-    private static async Task ExecAsync(NpgsqlConnection conn, string sql)
-    {
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    /// <summary>Options가 없는 입력에는 공개 연결 전용 Options(statement_timeout·default_transaction_read_only) 정확히 두 개가 붙고, Database는 그대로 보존된다.</summary>
-    [Fact]
-    public void BuildConnectionString_NoOptions_SetsExactlyTheTwoStartupOptions()
-    {
-        var built = new NpgsqlConnectionStringBuilder(PublicDbContext.BuildConnectionString("Host=h;Database=d;Username=u;Password=dummy", 3000));
-        Assert.Equal("-c statement_timeout=3000 -c default_transaction_read_only=on", built.Options);
-        Assert.Equal("d", built.Database);
-    }
-
-    /// <summary>입력에 이미 Options가 있으면 조용히 덮어쓰지 않고 시작 실패로 거부한다(운영자가 넣은 시작 옵션이
-    /// 공개 연결에서만 경고 없이 사라지는 것을 막는다). 예외 메시지에 비밀번호 등 연결 문자열 값이 그대로 노출되지 않는지도 확인한다.</summary>
-    [Fact]
-    public void BuildConnectionString_ExistingOptions_Throws()
-    {
-        const string dummyPassword = "dummy-super-secret-marker";
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            PublicDbContext.BuildConnectionString($"Host=h;Database=d;Username=u;Password={dummyPassword};Options=-c work_mem=1MB", 3000));
-        Assert.Contains("ConnectionStrings:Default", ex.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(dummyPassword, ex.Message, StringComparison.Ordinal);
-    }
+    /// <summary>범위 밖 상한 값은 인터셉터 생성에서 거부된다(정수만 SQL에 들어가지만 설정 오류는 드러낸다).</summary>
+    [Theory]
+    [InlineData(99)]
+    [InlineData(60_001)]
+    public void Interceptor_RejectsOutOfRangeTimeouts(int ms) => Assert.Throws<ArgumentOutOfRangeException>(() => new PublicSessionInterceptor(ms));
 }

@@ -46,7 +46,7 @@ public static class PostEndpoints
         posts.MapDelete("/{id:guid}", DeleteAsync).WithName("DeletePost");
     }
 
-    /// <summary>글 목록을 최신순으로 페이지네이션해 조회한다. <paramref name="q"/>가 있으면 제목·요약·본문을 <c>ILIKE</c>로 검색한다.</summary>
+    /// <summary>글 목록을 최신순으로 페이지네이션해 조회한다. <paramref name="q"/>가 있으면 제목·요약·본문을 <c>LIKE</c>(검색 열은 utf8mb4_0900_ai_ci라 대소문자 무시)로 검색한다.</summary>
     /// <param name="db">조회에 쓸 DbContext.</param>
     /// <param name="q">검색어(선택, 최대 <see cref="MaxQueryLength"/>자). 메타문자는 리터럴로 취급된다.</param>
     /// <param name="skip">건너뛸 건수(0 이상, 기본 0).</param>
@@ -67,7 +67,7 @@ public static class PostEndpoints
         if (skip is < 0) errors.Add("skip", "skip은 0 이상이어야 합니다.");
         if (take is < 1 or > MaxTake) errors.Add("take", $"take는 1~{MaxTake}여야 합니다.");
         var term = q?.Trim();
-        // NUL(U+0000)은 ILIKE 매개변수로 PostgreSQL에 보내면 SqlState 22021로 실패한다(PostValidation과 같은 규칙).
+        // NUL(U+0000)은 정책상 거부한다(스펙 D15, PostValidation과 같은 규칙).
         if (TextRules.ContainsNul(term)) errors.Add("q", TextRules.NulMessage);
         else if (term?.Length > MaxQueryLength) errors.Add("q", $"검색어는 {MaxQueryLength}자 이하여야 합니다.");
         if (errors.Any) return TypedResults.ValidationProblem(errors.ToDictionary());
@@ -76,9 +76,9 @@ public static class PostEndpoints
         if (!string.IsNullOrEmpty(term))
         {
             var pattern = LikePattern.Contains(term);
-            query = query.Where(p => EF.Functions.ILike(p.Title, pattern, LikePattern.Escape)
-                                  || EF.Functions.ILike(p.Summary, pattern, LikePattern.Escape)
-                                  || EF.Functions.ILike(p.ContentMarkdown, pattern, LikePattern.Escape));
+            query = query.Where(p => EF.Functions.Like(p.Title, pattern, LikePattern.Escape)
+                                  || EF.Functions.Like(p.Summary, pattern, LikePattern.Escape)
+                                  || EF.Functions.Like(p.ContentMarkdown, pattern, LikePattern.Escape));
         }
         var total = await query.CountAsync(ct);
         var items = await PostQueries.ListAsync(query, skip ?? 0, take ?? DefaultTake, ct);
@@ -181,7 +181,7 @@ public static class PostEndpoints
     /// 재조회 사이에 다른 요청이 같은 글을 또 저장했으면 남의 HTML이 그 요청의 최신 버전 키에 꽂히는 것을 막는다.</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: 모든 DB I/O를 <c>await</c>한다.
     /// 저장 전 렌더 가능성 확인은 <see cref="RenderGate"/>가 프로세스 전체의 동시 렌더 수를 제한하므로(<see cref="RenderGate"/> 문서 참조) 요청 스레드는 슬롯을 얻은 뒤에만 렌더링 시간만큼 점유된다.
-    /// <c>xmin</c>을 <c>OriginalValue</c>로 고정해 조회 이후 발생한 경쟁도 <c>UPDATE ... WHERE xmin = ...</c>로 잡는다(사전 검사만으로는 조회~저장 사이의 경쟁을 놓친다).</description></item>
+    /// <c>Version</c>의 <c>OriginalValue</c>를 클라이언트가 본 값으로 고정해 조회 이후 발생한 경쟁도 <c>UPDATE ... WHERE Version = ...</c>로 잡는다(사전 검사만으로는 조회~저장 사이의 경쟁을 놓친다). SET 쪽 +1은 <c>PostVersionInterceptor</c>가 한다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> UpdateAsync(Guid id, UpsertPostRequest req, AppDbContext db, RenderGate gate, RenderedPostCache cache, ILoggerFactory loggers, CancellationToken ct)
@@ -206,7 +206,7 @@ public static class PostEndpoints
         var rendered = await RenderOrAddErrorAsync(gate, req.ContentMarkdown!, errors, ct);
         if (rendered is null) return TypedResults.ValidationProblem(errors.ToDictionary());
 
-        // 읽은 뒤 저장 전까지의 경쟁도 잡도록 UPDATE의 WHERE xmin = ... 비교값을 클라이언트가 본 버전으로 고정한다.
+        // 읽은 뒤 저장 전까지의 경쟁도 잡도록 UPDATE의 WHERE Version = ... 비교값을 클라이언트가 본 버전으로 고정한다(SET은 PostVersionInterceptor가 +1).
         db.Entry(post).Property(p => p.Version).OriginalValue = req.Version!.Value;
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -222,7 +222,7 @@ public static class PostEndpoints
         post.ContentMarkdown = req.ContentMarkdown!;
         post.SeriesId = req.SeriesId;
         post.SeriesOrder = req.SeriesOrder;
-        post.UpdatedAt = DbClock.UtcNow(); // 항상 바뀌므로 태그만 고쳐도 Posts 행이 갱신되어 xmin 비교가 실행된다
+        post.UpdatedAt = DbClock.UtcNow(); // 항상 바뀌므로 태그만 고쳐도 Posts 행이 Modified가 되어 Version 비교와 +1이 실행된다
         try
         {
             await db.SaveChangesAsync(ct);
@@ -257,7 +257,7 @@ public static class PostEndpoints
     /// <item><description><b>Thread Context:</b> ASP.NET Core 요청 파이프라인 스레드에서 호출된다.</description></item>
     /// <item><description><b>Memory Policy:</b> 추적되는 <see cref="Post"/> 1개만 로드한다(태그·연결은 <c>Cascade</c> 삭제가 DB에서 처리하므로 미리 로드하지 않는다).</description></item>
     /// <item><description><b>Concurrency:</b> Thread-safe. 요청 스코프 의존성만 사용한다. Non-blocking: 모든 DB I/O를 <c>await</c>한다.
-    /// <c>xmin</c>을 <c>OriginalValue</c>로 고정해 조회 이후 발생한 경쟁도 <c>DELETE ... WHERE xmin = ...</c>로 잡는다.</description></item>
+    /// <c>Version</c>의 <c>OriginalValue</c>를 클라이언트가 본 값으로 고정해 조회 이후 발생한 경쟁도 <c>DELETE ... WHERE Version = ...</c>로 잡는다.</description></item>
     /// </list>
     /// </remarks>
     private static async Task<IResult> DeleteAsync(Guid id, uint? version, AppDbContext db, ILoggerFactory loggers, CancellationToken ct)
@@ -345,7 +345,7 @@ public static class PostEndpoints
     /// <item><description><b>Blocking:</b> 즉시 반환(Non-blocking).</description></item>
     /// </list>
     /// 왜 필요한가(경쟁 시나리오): A가 저장을 커밋한 뒤 응답을 만들려고 <see cref="PostQueries.GetDetailAsync"/>로 재조회하는 그 사이에
-    /// B가 같은 글을 저장·커밋하면, A의 재조회는 이미 B가 쓴 최신 행(B의 본문·B의 xmin)을 읽는다. 이 확인 없이 <c>cache.Store(dto.Id, dto.Version, rendered)</c>를
+    /// B가 같은 글을 저장·커밋하면, A의 재조회는 이미 B가 쓴 최신 행(B의 본문·B의 Version)을 읽는다. 이 확인 없이 <c>cache.Store(dto.Id, dto.Version, rendered)</c>를
     /// 그대로 부르면 "A가 렌더링한 A의 HTML"이 "B의 최신 버전 키"에 꽂혀, 그 다음 방문자가 B의 글 내용 대신 A가 렌더링한 HTML을 보게 된다.
     /// 키는 현재 버전과 일치하므로 이 오염은 다음 저장(TTL 24시간 또는 재배포)까지 스스로 회복되지 않는다. 본문이 다르면 캐시를 아예 건너뛰고
     /// 다음 방문자가 다시 렌더링하게 두는 쪽이 안전하다(틀린 캐시보다 캐시 미스가 낫다).

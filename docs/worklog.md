@@ -18,6 +18,7 @@
 | 4 | 09-21 | 2B단계: 공개 Razor 페이지·검색·Atom·sitemap, 보안 헤더, 속도 제한, 읽기 전용 DB 연결, 렌더 게이트·캐시 | PR #3 → `80c8dc4`, 테스트 589 |
 | 5 | 09-21 ~ 09-22 | 3단계: 관리 에디터 SPA(React 19 + Vite + CodeMirror 6), sandbox 미리보기, 임시본, 실제 백엔드 E2E | PR #4 → `16a3d25`, .NET 591 · Vitest 188 · E2E 8 |
 | 6 | 09-22 ~ 09-23 | 4단계: Docker Compose·Caddy·DB 롤 분리·백업/복원·스택 스모크·스택 E2E·CI `deploy-smoke`(Task 1~6), 문서 재구성(README 랜딩 + `docs/`) | PR #5 → `531f207`. .NET 625 · Vitest 194 · 스모크 exit 0 · 스택 E2E 8 |
+| 7 | 09-26 | MySQL 전환: 저장소를 PostgreSQL에서 MySQL 8.4(Pomelo EF Core)로 완전 교체, 보안 통제(공개 롤·세션·잠금·동시성 토큰·오류 분류) 전부 재구현·재증명 | 브랜치 `feat/mysql-migration`, 병합 대기. CI 4잡 green |
 
 ```mermaid
 flowchart LR
@@ -27,7 +28,8 @@ flowchart LR
     S3 --> S4["Step 4<br/>2B단계<br/>공개 사이트"]
     S4 --> S5["Step 5<br/>3단계<br/>관리 SPA"]
     S5 --> S6["Step 6<br/>4단계<br/>배포 구성"]
-    S6 -.-> NEXT["다음 사이클<br/>노션식 편집·보기<br/>(브레인스토밍부터)"]
+    S6 --> S7["Step 7<br/>MySQL 전환<br/>저장소 교체"]
+    S7 -.-> NEXT["다음 사이클<br/>노션식 편집·보기<br/>(브레인스토밍부터)"]
     style NEXT stroke-dasharray: 5 5
 ```
 
@@ -892,6 +894,38 @@ flowchart TD
 - 주요 변경사항: DB 롤 셋 분리(2B 잔여 위험 해소), 비루트·무셸·`read_only`·`cap_drop: ALL` 컨테이너, api는 인터넷으로 나갈 수 없는 3망, 관리 사이트 IP 게이트가 모든 처리보다 앞인 `route` + `:80`/`:443` 폴백, 무중단 백업·복원과 운영 절차, 운영과 같은 이미지로 띄워 복원 리허설까지 도는 스모크, 스택 대상 브라우저 E2E와 CI 게이트
 - 검증 결과: .NET **625개** 통과·경고 0, Vitest **194개**, 기존 E2E **8개**, `SMOKE_E2E=1 bash deploy/smoke/run.sh` **`=== 통과`**(허용 IP 10 · 비허용 IP 6 · 오류 응답 1 · seed 1 · verify-restore 1 · 복원 후 허용 10 · 스택 E2E 8, Chromium·Firefox), 하네스 감사 8/8. 최종 리뷰(브랜치 전체 diff + `SMOKE_KEEP=1` 스택 공격): 관리 우회 시도(Host·SNI·경로 정규화 변형·HTTP/1.0 no-Host·절대 URI·XFF 사칭) 전부 실패, 비허용 IP가 caddy를 건너뛰어 api를 직격해도 403(두 계층 독립 강제), 컨테이너 격리·DB 롤 경계·백업 산출물과 로그에 비밀 0 → **병합 Yes**, Critical 0 · Important 0 · Minor 3. PR #5 → CI 4잡(`test`·`web`·`web-e2e`·`deploy-smoke`) push·PR 실행 모두 통과(첫 Linux `deploy-smoke` 약 2분 20초) → squash 병합 master `531f207`(2026-09-23)
 
+### Step 7: MySQL 전환 (2026-09-26, 브랜치 `feat/mysql-migration`, 병합 대기)
+
+**배경.** 사용자 요청 "모든 데이터를 MySQL로 저장한다." PostgreSQL은 연결 문자열 수준을 넘어 **보안 통제의 구현 수단**이었다(읽기 전용 공개 롤, 시작 세션 매개변수, 권고 잠금, `xmin` 동시성 토큰, 정규식 CHECK). 그래서 이번 전환은 드라이버만 바꾸는 일이 아니라 그 통제를 하나씩 대체하고 다시 증명하는 일이었다. 이 단계는 유저 흐름·화면이 바뀌지 않으므로(내부 저장소 교체) 유저 흐름도·화면 시퀀스 다이어그램은 새로 그리지 않았다 — 대신 아래 처리 흐름은 설계 스펙 3절의 컴포넌트 다이어그램을 그대로 가리킨다.
+
+**한 일.**
+1. Phase 0 스파이크로 EF 프로바이더를 먼저 검증했다. Oracle `MySql.EntityFrameworkCore` 10.0.9는 `UseCollation`·`IsDescending`이 생성 DDL에서 빠지고 `Like` 이스케이프가 잘못된 SQL을 내 **no-go**였다. **Pomelo `Pomelo.EntityFrameworkCore.MySql` 9.0.0**(EF Core를 9.0.20으로 하향)으로 다시 스파이크해 **go** 판정을 받고 사용자에게 보고 후 승인받았다.
+2. 스키마·매핑 교체: `Version`(INT UNSIGNED, 앱이 관리하는 동시성 토큰) · `utf8mb4_0900_ai_ci`(검색)·`utf8mb4_0900_bin`(식별자 열, NO PAD — 최종 리뷰에서 PAD SPACE인 `utf8mb4_bin`을 교체) 콜레이션 · `REGEXP_LIKE(..., 'c')` CHECK · `CHAR(36)` Guid · `DATETIME(6)` + UTC 변환기.
+3. 세션 통제 재구현: `PublicSessionInterceptor`(연결 열릴 때마다 `transaction_read_only`·`max_execution_time`) · `ReadCommittedTransactionInterceptor`(MySqlConnector가 트랜잭션마다 강제하는 REPEATABLE READ를 되돌림, 서버 플래그와 이중 방어) · `PublicRoleGrants`(앱이 GRANT하고 `SHOW GRANTS`로 자기 검증, 불일치 시 기동 실패) · `GET_LOCK`/`RELEASE_LOCK`(DB 이름 해시로 네임스페이스 분리) · `DbErrorClassifier`(SqlState 대신 `MySqlException.Number`).
+4. 테스트 기반을 `Testcontainers.MySql`로 교체하고, PG 고유 동작을 단언하던 테스트(`AttachmentIntegrityTests`·`PublicDbContextTests`·`PublicRoleGrantsTests`·`ErrorPipelineTests`·`CheckConstraintCoverageTests`·`DatabaseSchemaTests` 등)를 MySQL 동작 기준으로 새로 증명했다.
+5. 배포 스택(compose·Caddyfile·init 스크립트·백업/복원·스모크)과 CI(web-e2e 서비스 컨테이너)를 MySQL로 교체했다.
+
+#### 🤔 고민과 판정
+
+| 판정 | 이유 |
+|---|---|
+| 공개 롤 GRANT는 **앱이 적용하고 검증도 한다**(운영자가 부여하는 안은 기각) | MySQL은 존재하지 않는 테이블에 GRANT를 거부한다 — 테이블은 앱이 마이그레이션할 때 생긴다. GRANT OPTION의 권한 상승 분석 결과 순증 위험은 사실상 0 |
+| 초과 권한은 자동 회수하지 않고 기동 실패로 알린다(PG 판은 자동 회수했다) | 회수하려면 `SHOW GRANTS` 출력 문자열을 SQL로 되돌려 조립해야 한다 — 조용히 고치기보다 드러내는 편을 택했다 |
+| 태그 upsert의 데드락 재시도는 추가하지 않는다 | 서수 순서 삽입만으로 부하 테스트 3/3에서 1213이 나지 않았다(순서를 없애자 3/3 재현) |
+| root를 `MYSQL_ROOT_HOST=localhost`로 소켓 전용 잠금(리뷰 권고 채택) | 원격 root 로그인 경로 자체를 없앤다. 백업·복원·운영 절차가 이미 소켓을 쓰므로 비용이 작다 |
+| CI push 트리거에 `feat/**` 추가(계획 밖) | 브랜치 이름이 `feat/`인데 트리거가 `feature/**`만 받아 CI가 한 번도 돌지 않았다 |
+
+#### ❌ 틀렸던 것
+
+- init 스크립트 초안이 비밀번호를 `sed` 치환의 인자로 넘겨 컨테이너 `ps`/`/proc/*/cmdline`에 노출시켰다 → 셸 내장 `printf`로 SQL을 직접 조립하도록 교체.
+- 통합 테스트가 Pomelo의 `UseMySql`이 연결 문자열에 `Allow User Variables=True;Use Affected Rows=False`를 덧붙이는 것을 놓쳐, `ApiFactory.Dispose`가 원시 `MySqlConnection`의 풀을 비웠지만 EF가 실제로 쓰는 풀(다른 연결 문자열)은 그대로 남아 있었다 → EF가 실제로 만드는 연결 문자열을 풀 키로 쓰도록 수정.
+- CHECK 제약 끝 앵커(`\z`, 64자 hex + 개행) 케이스는 런타임 입력으로 구별할 수 없었다(길이 제한에 먼저 걸림) → `information_schema.CHECK_CONSTRAINTS`를 읽는 정적 검사로 증명 방법을 바꿨다.
+
+#### 4. 구현 및 검증
+
+- 수정 파일: `PortfolioBlog.Api/Infrastructure/Data/*`(신규 인터셉터 2·분류기, 매핑 전면 교체, 마이그레이션 재생성), `Infrastructure/Storage/AttachmentLock.cs`(`GET_LOCK`), `Infrastructure/Access/StartupValidation.cs`(MySqlConnectionStringBuilder), `Features/{Series,Posts,Attachments}Endpoints.cs`(Version 동반·분류기); 테스트 `MySqlContainerFixture`·`ApiFactory`·재작성 테스트 다수·신규 테스트(`DbErrorClassifierTests`·`PostVersionTests`·`IsolationLevelTests`·`CollationTests`); 배포 `deploy/{docker-compose.yml,mysql-init/10-users.sh,backup.sh,restore.sh,.env.example,smoke/}`; CI `.github/workflows/ci.yml`; 문서(이 파일들)
+- 검증 결과: `dotnet build -warnaserror` 경고 0, CI 4개 잡(`test`·`web`·`web-e2e`·`deploy-smoke`) 모두 green(run 36191055799). 태스크 10개 각각 구현자 → 컨트롤러 검증 → 리뷰(clean) 순서로 진행했고, 리뷰가 잡은 지적은 즉시 반영하거나 문서화 태스크로 이월했다. 이 PC는 Hyper-V가 포트 4173을 배타 예약해 로컬 브라우저 E2E가 막히므로 CI가 대신 판정한다.
+
 ---
 
 ## 🔁 단계를 관통한 작업 방식과 교훈
@@ -945,4 +979,4 @@ flowchart TD
 | 4 | 병합 완료된 원격 브랜치 5개(`feature/blog-*`) 정리 | 재개 가이드 1절(사용자 몫) |
 | 5 | 스펙 7절의 확장 포인트: TOTP, 초안/예약 발행, slug 변경 + 리다이렉트, 전문 검색, 다중 인스턴스 렌더 캐시, 앞단 CDN(`trusted_proxies` 재설계) | 스펙 7절 |
 
-**수용한 채로 남은 잔여 위험(요약).** 이미지의 비검사 표면 5종(디코딩하지 않으므로) · 렌더 게이트를 공개·관리가 공유 · Kestrel이 직접 거부하는 응답에는 보안 헤더가 없다(본문도 없다) · 관리 SPA CSP의 `style-src-elem 'unsafe-inline'`(CodeMirror) · 소스 가드는 의도적 우회를 막지 못한다(목적은 실수 방지) · 이미지 태그 고정은 다이제스트가 아니다 · WebKit 미검증 · 로컬 Windows Docker Desktop의 간헐 15초 연결 타임아웃(재실행으로 통과, CI에서는 미발생) · 4단계: `blog_public`이 `postgres`·`template1`에 CONNECT·임시 테이블 가능(읽을 데이터 없음), 운영 `public` 서브넷 자동 할당, caddy healthcheck 없음, 서브넷·`Proxy__TrustedIp`가 4파일에 리터럴 중복, ACME HTTP-01은 로컬 CA로만 실증, 이 PC의 Hyper-V 포트 예약(8073–8272)으로 기존 E2E 4173·스모크 8081은 `SMOKE_HTTP_BIND`나 CI로 판정. 각 항목의 근거와 되돌릴 조건은 단계별 보고서 6절.
+**수용한 채로 남은 잔여 위험(요약).** 이미지의 비검사 표면 5종(디코딩하지 않으므로) · 렌더 게이트를 공개·관리가 공유 · Kestrel이 직접 거부하는 응답에는 보안 헤더가 없다(본문도 없다) · 관리 SPA CSP의 `style-src-elem 'unsafe-inline'`(CodeMirror) · 소스 가드는 의도적 우회를 막지 못한다(목적은 실수 방지) · 이미지 태그 고정은 다이제스트가 아니다 · WebKit 미검증 · 로컬 Windows Docker Desktop의 간헐 15초 연결 타임아웃(재실행으로 통과, CI에서는 미발생) · 4단계: ~~`blog_public`이 `postgres`·`template1`에 CONNECT·임시 테이블 가능(읽을 데이터 없음)~~ **MySQL 전환(Step 7)으로 해소** — MySQL은 DB 단위 권한이라 이 공백이 자연히 사라졌다(스모크가 `use mysql` 거부를 확인), 운영 `public` 서브넷 자동 할당, caddy healthcheck 없음, 서브넷·`Proxy__TrustedIp`가 4파일에 리터럴 중복, ACME HTTP-01은 로컬 CA로만 실증, 이 PC의 Hyper-V 포트 예약(8073–8272)으로 기존 E2E 4173·스모크 8081은 `SMOKE_HTTP_BIND`나 CI로 판정. 각 항목의 근거와 되돌릴 조건은 단계별 보고서 6절.

@@ -6,8 +6,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Npgsql;
+using PortfolioBlog.Api.Infrastructure.Data;
 using PortfolioBlog.Api.Infrastructure.Web;
+using PortfolioBlog.Api.Tests.Infrastructure;
 
 namespace PortfolioBlog.Api.Tests.Features;
 
@@ -17,7 +18,7 @@ namespace PortfolioBlog.Api.Tests.Features;
 /// <list type="bullet">
 /// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행된다. 각 테스트가 <see cref="StartAsync"/>로 자기 전용의 최소 <see cref="WebApplication"/>을 새로 띄우므로 <see cref="ApiFactory"/> 같은 공유 픽스처와 무관하다.</description></item>
 /// <item><description><b>Memory Policy:</b> 테스트마다 독립된 <see cref="WebApplication"/>·TestServer 인스턴스를 새로 만들고 <c>await using</c>으로 해제한다. 다른 테스트 클래스와 공유하는 가변 상태가 없다.</description></item>
-/// <item><description><b>Concurrency:</b> DB·Docker·<c>PostgresContainerFixture</c>에 의존하지 않으므로 다른 컬렉션과 병렬로 실행할 수 있다.</description></item>
+/// <item><description><b>Concurrency:</b> DB·Docker·<c>MySqlContainerFixture</c>에 의존하지 않으므로 다른 컬렉션과 병렬로 실행할 수 있다.</description></item>
 /// </list>
 /// </remarks>
 public sealed class ErrorPipelineTests
@@ -64,19 +65,6 @@ public sealed class ErrorPipelineTests
         Assert.DoesNotContain("boom", await res.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
-    /// <summary>statement_timeout(57014)과 잠금 대기 초과(55P03)는 503 + Retry-After가 된다. 다른 SQL 오류는 500 그대로다.</summary>
-    [Theory]
-    [InlineData("57014", 503)]
-    [InlineData("55P03", 503)]
-    [InlineData("23505", 500)]
-    public async Task PostgresOverload_MapsTo503(string sqlState, int expected)
-    {
-        await using var app = await StartAsync(_ => throw new PostgresException("simulated", "ERROR", "ERROR", sqlState));
-        using var res = await app.GetTestClient().GetAsync("/posts/x");
-        Assert.Equal(expected, (int)res.StatusCode);
-        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
-    }
-
     /// <summary>본문 없는 404: 공개 경로는 고정 HTML, /api는 ProblemDetails. 어느 쪽도 요청 경로를 본문에 반사하지 않는다.</summary>
     [Theory]
     [InlineData("/posts/%3Cscript%3Ealert(1)%3C/script%3E", "text/html")]
@@ -88,19 +76,6 @@ public sealed class ErrorPipelineTests
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
         Assert.Equal(mediaType, res.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain("script", await res.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>EF Core의 SaveChangesAsync가 PostgresException을 감싸는 DbUpdateException도 내부까지 훑어 과부하로 판정한다(55P03 → 503).
-    /// 무엇이든 감싸면 503으로 새는 것은 아님을 23505 → 500으로 함께 확인한다(과하게 넓어지지 않았다는 증거).</summary>
-    [Theory]
-    [InlineData("55P03", 503)]
-    [InlineData("23505", 500)]
-    public async Task WrappedPostgresOverload_MapsTo503_ButNotOverWidened(string sqlState, int expected)
-    {
-        await using var app = await StartAsync(_ => throw new DbUpdateException("save failed", new PostgresException("simulated", "ERROR", "ERROR", sqlState)));
-        using var res = await app.GetTestClient().GetAsync("/posts/x");
-        Assert.Equal(expected, (int)res.StatusCode);
-        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
     }
 
     /// <summary>렌더 게이트가 가득 차 포기한 요청도 503 + Retry-After다.</summary>
@@ -122,5 +97,40 @@ public sealed class ErrorPipelineTests
         await using var app = await StartAsync(ctx => { ctx.Response.Headers.ContentSecurityPolicy = preset; return Task.CompletedTask; });
         using var res = await app.GetTestClient().GetAsync("/api/x");
         Assert.Equal(expected, res.Headers.GetValues("Content-Security-Policy").Single());
+    }
+
+    /// <summary>실행 시간 초과·잠금 대기·교착은 503 + Retry-After, 중복 키는 500으로 남는다(과대 분류 금지).</summary>
+    [Theory]
+    [InlineData(3024, 503)]
+    [InlineData(1205, 503)]
+    [InlineData(1213, 503)]
+    [InlineData(1062, 500)]
+    public async Task MySqlOverload_MapsTo503(int number, int expected)
+    {
+        await using var app = await StartAsync(_ => throw MySqlErrors.Create(number));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(expected, (int)res.StatusCode);
+        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
+    }
+
+    /// <summary>SaveChanges 경로처럼 감싸여 와도 같게 매핑된다.</summary>
+    [Theory]
+    [InlineData(1205, 503)]
+    [InlineData(1062, 500)]
+    public async Task WrappedMySqlOverload_MapsTo503_ButNotOverWidened(int number, int expected)
+    {
+        await using var app = await StartAsync(_ => throw new DbUpdateException("save failed", MySqlErrors.Create(number)));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(expected, (int)res.StatusCode);
+        Assert.Equal(expected == 503, res.Headers.Contains("Retry-After"));
+    }
+
+    /// <summary>앱이 직접 던지는 GET_LOCK 타임아웃도 503이다.</summary>
+    [Fact]
+    public async Task AppLockTimeout_MapsTo503()
+    {
+        await using var app = await StartAsync(_ => throw new DbLockTimeoutException("wait"));
+        using var res = await app.GetTestClient().GetAsync("/posts/x");
+        Assert.Equal(503, (int)res.StatusCode);
     }
 }

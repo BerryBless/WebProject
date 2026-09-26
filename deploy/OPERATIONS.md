@@ -16,10 +16,10 @@ caddy (80·443, TLS 종단, 비루트 1654, cap_drop ALL + NET_BIND_SERVICE만, 
        api (포트 미공개, 비루트·읽기 전용 루트 FS)
         │  db (internal)
         ▼
-       postgres (포트 미공개)
+       mysql (포트 미공개)
 
-네트워크: public(caddy만) · edge(internal, caddy↔api) · db(internal, api↔postgres)
-볼륨: pgdata · attachments · dpkeys · caddy_data · caddy_config
+네트워크: public(caddy만) · edge(internal, caddy↔api) · db(internal, api↔mysql)
+볼륨: mysqldata · attachments · dpkeys · caddy_data · caddy_config
 ```
 
 ## 1. 최초 배포
@@ -33,7 +33,7 @@ $EDITOR .env                                   # 도메인·허용 CIDR·비밀�
 docker compose build api
 docker run --rm -it portfolioblog-api hash-password   # 관리자 비밀번호 입력(화면에 보이지 않음) → 출력된 해시를 .env의 ADMIN_PASSWORD_HASH에
 docker compose up -d --build
-docker compose ps                              # api·postgres가 healthy, caddy가 running
+docker compose ps                              # api·mysql이 healthy, caddy가 running
 ```
 
 앱은 시작할 때 스스로 한다: 설정 검증(틀리면 어떤 키가 문제인지 말하고 종료) → DB 마이그레이션 → 공개 조회 롤(`blog_public`)의 권한을 허용 테이블의 `SELECT`로 다시 맞춤.
@@ -64,7 +64,7 @@ docker compose ps                              # api·postgres가 healthy, caddy
 ## 4. 업데이트(재배포)
 
 ```bash
-./backup.sh                       # 마이그레이션은 자동으로 되돌려지지 않는다. 먼저 백업한다
+./backup.sh                       # 마이그레이션은 자동으로 되돌려지지 않는다. 먼저 백업한다(MySQL의 DDL은 암묵적으로 커밋되어 롤백되지 않는다 — 중간에 실패하면 스키마가 부분 적용된 채 남는다)
 git pull --ff-only
 docker compose up -d --build      # 이미지를 다시 빌드하고 바뀐 컨테이너만 교체한다
 docker compose ps && docker compose logs --tail 50 api
@@ -77,7 +77,7 @@ Caddyfile과 관리 SPA는 caddy 이미지에 구워져 있다 — 고치면 위
 ## 5. 백업과 복원
 
 ```bash
-./backup.sh [백업 루트]            # 기본 ./backups/<UTC 시각>/ 에 blog.dump · attachments.tar · SHA256SUMS
+./backup.sh [백업 루트]            # 기본 ./backups/<UTC 시각>/ 에 blog.sql · attachments.tar · SHA256SUMS
 ./restore.sh --yes <백업 디렉터리>  # 현재 DB와 첨부를 전부 지우고 덮어쓴다
 ```
 
@@ -85,7 +85,7 @@ Caddyfile과 관리 SPA는 caddy 이미지에 구워져 있다 — 고치면 위
 - **백업하지 않는 것:** `dpkeys`(세션 암호화 키 — 복원하면 다시 로그인하면 된다), `caddy_data`(인증서 — 다시 발급된다), `.env`(비밀값 — 비밀번호 관리자 등 별도의 안전한 곳에 보관한다. 없으면 복원한 DB에 앱이 접속하지 못한다).
 - 백업 디렉터리에는 글 전체와 첨부가 평문으로 들어 있다. 권한은 700/600으로 만들어진다. **서버 밖으로도 복사한다**(서버가 죽으면 서버 안의 백업도 죽는다).
 - 매일 새벽 백업 예: `crontab -e` → `17 3 * * * cd /srv/blog/deploy && ./backup.sh /srv/blog-backups >> /var/log/blog-backup.log 2>&1` (오래된 백업 정리는 `find /srv/blog-backups -maxdepth 1 -mtime +30 -exec rm -rf {} +`).
-- 새 서버로 옮길 때: 1절대로 `.env`까지 준비하고(같은 DB 비밀번호 셋) `docker compose build` 뒤, `up` 대신 `./restore.sh --yes <백업>`을 실행한다. 빈 볼륨에서 postgres가 롤과 빈 DB를 만들고 스크립트가 내용을 채운 뒤 전체를 띄운다.
+- 새 서버로 옮길 때: 1절대로 `.env`까지 준비하고(같은 DB 비밀번호 셋) `docker compose build` 뒤, `up` 대신 `./restore.sh --yes <백업>`을 실행한다. 빈 볼륨에서 mysql init 스크립트(`mysql-init/10-users.sh`)가 `blog_app`·`blog_public` 사용자와 빈 `blog` DB를 만들고 `restore.sh`가 덤프로 내용을 채운 뒤 전체를 띄운다.
 - **복원 리허설:** `deploy/smoke/run.sh`가 매번 한다(글·첨부 생성 → 백업 → 볼륨 삭제 → 복원 → 바이트 단위 확인). 운영 백업 파일로 직접 해 보려면 다른 기계에서 위 "새 서버" 절차를 따른다.
 - **복원이 중간에 멈추면:** 서비스는 멈춰 있고 첨부는 비어 있을 수 있다. 같은 백업으로 `./restore.sh`를 다시 실행하면 처음부터 다시 한다(몇 번을 해도 같다). 계속 실패하면 `docker compose up -d`로 서비스만 올려 이전 상태로 돌아간다(스크립트 자신도 실패 시 같은 안내를 출력한다).
 
@@ -104,7 +104,7 @@ docker compose up -d api
 쿠키가 유출됐다고 의심되면, 빠른 순서대로:
 
 1. 관리 화면에서 **로그아웃** — 모든 기기의 세션이 함께 끊긴다(세션 epoch 증가).
-2. 화면에 들어갈 수 없으면: `docker compose exec -T postgres psql -U postgres -d blog -c 'UPDATE "AdminState" SET "SessionEpoch" = "SessionEpoch" + 1'`
+2. 화면에 들어갈 수 없으면: `docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot blog -e "UPDATE AdminState SET SessionEpoch = SessionEpoch + 1"'`
 3. 비밀번호까지 새 나갔다면 6절로 비밀번호를 바꾼다(세션도 함께 폐기된다).
 
 ## 8. 허용 IP 변경
@@ -113,19 +113,21 @@ docker compose up -d api
 
 ## 9. DB 비밀번호 변경
 
-postgres는 빈 데이터 볼륨에서 처음 뜰 때만 `.env`의 값으로 롤을 만든다. 나중에 바꾸려면 DB 안에서 먼저 바꾼다.
+mysql은 빈 데이터 볼륨에서 처음 뜰 때만 `.env`의 값으로 사용자를 만든다. 나중에 바꾸려면 DB 안에서 먼저 바꾼다. 새 값은 영문·숫자만 쓴다(연결 문자열에 그대로 들어간다).
 
 ```bash
-docker compose exec -it postgres psql -U postgres   # 대화형 프롬프트가 뜬다
-\password blog_app                                   # 새 값을 두 번 입력한다(화면에 보이지 않는다)
-\password blog_public                                # 이어서 blog_public도
-\password postgres                                   # 마지막으로 postgres도
-\q
+docker compose exec -it mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'   # 대화형 프롬프트가 뜬다
+ALTER USER 'blog_app'@'%' IDENTIFIED BY '<새 값>';      -- 프롬프트 안에서 입력한다(셸 명령줄·ps에 남지 않는다)
+ALTER USER 'blog_public'@'%' IDENTIFIED BY '<새 값>';   -- 이어서 blog_public도
+ALTER USER 'root'@'localhost' IDENTIFIED BY '<새 값>';  -- 마지막으로 root도(소켓 전용 계정 하나뿐이다)
+exit
 $EDITOR .env                       # 세 값 모두 같은 값으로
-docker compose up -d api
+docker compose up -d mysql api     # mysql도 다시 만든다: 헬스체크·백업·복원이 컨테이너 환경변수의 비밀번호를 쓴다
 ```
 
-인라인 `-c "ALTER ROLE … PASSWORD '…'"` 형태는 쓰지 않는다 — 문장이 실패하면(롤 이름 오타 등) PostgreSQL이 그 문장을 로그에 평문 그대로 남긴다(`docker compose logs postgres`로 누구나 볼 수 있고, 로그는 11절이 시키는 대로 문제 보고 때 그대로 첨부되기도 한다). `\password`는 psql이 클라이언트에서 SCRAM 검증자를 계산해 보내므로 서버 로그·`ps`·셸 히스토리 어디에도 평문이 남지 않는다.
+`mysql -e "ALTER USER …"`처럼 셸 명령줄에 비밀번호를 넣지 않는다(셸 히스토리·`ps`에 남는다). 대화형 클라이언트는 `IDENTIFIED`·`PASSWORD`가 든 줄을 히스토리 파일에 쓰지 않는다.
+
+root는 컨테이너 안 소켓으로만 접속한다(compose의 `MYSQL_ROOT_HOST: localhost`). 이 설정은 빈 볼륨에서 처음 뜰 때만 적용되므로, 그 전에 만든 기존 배포는 위 프롬프트에서 `SELECT Host FROM mysql.user WHERE User='root';`로 `localhost`가 있는지 확인한 뒤 `DROP USER 'root'@'%';`를 실행한다.
 
 ## 10. 이미지 버전 올리기
 
@@ -135,14 +137,16 @@ docker compose up -d api
 |---|---|
 | `mcr.microsoft.com/dotnet/sdk`, `mcr.microsoft.com/dotnet/aspnet:<버전>-noble-chiseled-extra` | `PortfolioBlog.Api/Dockerfile` |
 | `node`, `caddy` | `PortfolioBlog.Web/Dockerfile` |
-| `postgres`(서비스와 `tools` 두 곳) | `deploy/docker-compose.yml` |
+| `mysql`(서비스와 `tools` 두 곳) | `deploy/docker-compose.yml` |
 | `node`(스모크 클라이언트) | `deploy/docker-compose.smoke.yml` |
 
-올린 뒤에는 `deploy/smoke/run.sh`를 통과시킨다(CI의 `deploy-smoke` 잡이 같은 것을 돌린다). PostgreSQL의 **주 버전**(17 → 18)은 데이터 디렉터리 형식이 달라 태그만 바꾸면 뜨지 않는다 — 백업 → 새 버전으로 빈 볼륨에서 복원한다.
+올린 뒤에는 `deploy/smoke/run.sh`를 통과시킨다(CI의 `deploy-smoke` 잡이 같은 것을 돌린다). MySQL의 **주 버전**(8.4 → 9.x 등, LTS 경계를 넘는 올림)은 데이터 디렉터리 형식이 달라 태그만 바꾸면 뜨지 않을 수 있다 — 릴리스 노트를 확인하고, 안전하지 않으면 백업 → 새 버전으로 빈 볼륨에서 복원한다. 8.4 안의 패치 올림(예: `8.4.11` → `8.4.x`)은 보통 태그만 바꾸면 되지만 매번 스모크로 확인한다.
+
+**MySQL 클라이언트 이미지를 올릴 때 주의:** MySQL 8.x 클라이언트는 비밀번호를 `MYSQL_PWD` 환경변수로 넘기는 방식을 폐기 예정(deprecated)으로 표시한다. 이 저장소는 헬스체크(`deploy/docker-compose.yml`의 mysql `healthcheck`)·`backup.sh`·`restore.sh`가 전부 `MYSQL_PWD`로 비밀번호를 넘긴다(명령줄 인자로 노출하지 않기 위해). 이미지를 올릴 때마다 이 세 곳이 여전히 경고 없이 동작하는지 확인하고, 폐기되면 `--defaults-extra-file`(임시 파일, 0600, 사용 후 즉시 삭제) 같은 대안으로 교체한다.
 
 ## 11. 로그
 
-- `docker compose logs -f api|caddy|postgres`. 컨테이너마다 10MB × 5개로 돌려 쓴다(그 이상은 사라진다 — 보존이 필요하면 외부 수집기를 붙인다).
+- `docker compose logs -f api|caddy|mysql`. 컨테이너마다 10MB × 5개로 돌려 쓴다(그 이상은 사라진다 — 보존이 필요하면 외부 수집기를 붙인다).
 - Caddy 액세스 로그는 `Cookie`·`Set-Cookie`·`Authorization` 값을 `REDACTED`로 남긴다(기본 동작, 실측). 앱은 비밀번호·쿠키·요청 본문을 기록하지 않는다. 로그인 실패는 IP만 남는다.
 - 과부하(503) 한 건은 스택 포함 약 50줄이다. 검색어·본문은 남지 않는다.
 
@@ -151,6 +155,7 @@ docker compose up -d api
 | 증상 | 볼 곳 |
 |---|---|
 | api가 `unhealthy`/재시작 반복 | `docker compose logs --tail 100 api` — 설정 오류면 첫 예외 메시지에 설정 키가 있다. 헬스체크 자체의 출력은 `docker inspect --format '{{json .State.Health}}' portfolioblog-api-1` |
+| "공개 조회 사용자의 권한이 허용 목록과 다릅니다" 로그로 api가 기동을 거부한다(R6, fail-closed) | 누군가 `blog_public`에 수동으로 권한을 넓힌 것이다(앱은 초과 권한을 자동 회수하지 않는다). 9절처럼 대화형 프롬프트를 열어 `SHOW GRANTS FOR 'blog_public'@'%';`로 실제 권한을 확인하고, 로그에 나온 초과분만 `REVOKE ... FROM 'blog_public'@'%';`로 회수한 뒤 `docker compose up -d api`로 재기동한다. 앱이 다시 SELECT 5개 테이블을 GRANT·검증한다 |
 | 인증서가 안 나온다 | `docker compose logs caddy \| grep -i acme` — DNS가 이 서버를 가리키는지, 80·443이 열려 있는지 |
 | 관리 사이트가 허용 회선에서도 404 | 2·3절의 원본 IP 확인. `.env`의 CIDR에 내 현재 공인 IP가 있는지 |
 | 로그인은 되는데 저장이 403 | `.env`의 `ADMIN_ORIGIN`이 브라우저 주소창의 출처와 글자 그대로 같은지(스킴·호스트, 포트는 443이면 생략) |

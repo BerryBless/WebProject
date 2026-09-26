@@ -13,7 +13,7 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// </remarks>
 public sealed class TextRulesTests
 {
-    /// <summary>NUL이 어디에 있든 잡아내고, null·빈 문자열·다른 제어 문자는 통과시킨다(PostgreSQL text가 못 담는 것은 NUL뿐이다).</summary>
+    /// <summary>NUL이 어디에 있든 잡아내고, null·빈 문자열·다른 제어 문자는 통과시킨다(MySQL은 NUL을 저장할 수 있지만, 검색·로그·렌더 경로의 이상 입력을 막는 정책으로 거부한다).</summary>
     [Theory]
     [InlineData("\0", true)]
     [InlineData("a\0b", true)]

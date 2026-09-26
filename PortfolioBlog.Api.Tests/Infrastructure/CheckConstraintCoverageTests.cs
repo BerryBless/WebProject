@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
+using MySqlConnector;
 using PortfolioBlog.Api.Domain;
 using PortfolioBlog.Api.Infrastructure.Data;
 
@@ -13,12 +13,12 @@ namespace PortfolioBlog.Api.Tests.Infrastructure;
 /// <remarks>
 /// <b>[성능 및 동시성 제약 조건]</b>
 /// <list type="bullet">
-/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가 실제 PostgreSQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
+/// <item><description><b>Thread Context:</b> xUnit 테스트 스레드에서 실행되며, <see cref="ApiFactory"/>가 호스팅하는 인메모리 TestServer가 실제 MySQL 컨테이너에 TCP로 접속하므로 DB I/O는 실제 네트워크 왕복을 수반한다.</description></item>
 /// <item><description><b>Memory Policy:</b> <paramref name="factory"/>는 클래스 픽스처로 1회 생성·공유된다. 각 케이스는 <c>await using</c>으로 자신의 DI 스코프와 <c>AppDbContext</c>를 스코프 종료 시 해제한다.</description></item>
-/// <item><description><b>Concurrency:</b> <c>postgres</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 고유 slug·이름을 써서 서로 간섭하지 않는다.</description></item>
+/// <item><description><b>Concurrency:</b> <c>mysql</c> 컬렉션에 속해 같은 컬렉션의 다른 테스트 클래스와 순차 실행된다. 케이스마다 고유 slug·이름을 써서 서로 간섭하지 않는다.</description></item>
 /// </list>
 /// </remarks>
-[Collection("postgres")]
+[Collection("mysql")]
 public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     /// <summary>CHECK 제약과 무관한 필수 필드를 채운 최소 유효 글을 만든다(각 위반 사례가 필드 하나만 바꿔 특정 제약만 어기게 하는 기준점).</summary>
@@ -85,7 +85,7 @@ public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFix
         Assert.Equal(declared, Violations.Keys.Order(StringComparer.Ordinal));
     }
 
-    /// <summary><paramref name="constraint"/>의 위반 사례가 SqlState 23514(check_violation)로 거부되고, 그 예외의 제약 이름이 바로 <paramref name="constraint"/>인지 확인한다(다른 제약에 먼저 걸려 통과하는 가짜 통과를 막는다).</summary>
+    /// <summary><paramref name="constraint"/>의 위반 사례가 오류 번호 3819(ER_CHECK_CONSTRAINT_VIOLATED)로 거부되고, 그 예외 메시지의 제약 이름이 바로 <paramref name="constraint"/>인지 확인한다(다른 제약에 먼저 걸려 통과하는 가짜 통과를 막는다).</summary>
     /// <param name="constraint">위반시킬 CHECK 제약 이름.</param>
     [Theory]
     [MemberData(nameof(ConstraintNames))]
@@ -96,8 +96,46 @@ public sealed class CheckConstraintCoverageTests(ApiFactory factory) : IClassFix
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Violations[constraint](db);
         var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        var pg = Assert.IsType<PostgresException>(ex.InnerException);
-        Assert.Equal("23514", pg.SqlState);
-        Assert.Equal(constraint, pg.ConstraintName);
+        var mysql = Assert.IsType<MySqlException>(ex.InnerException);
+        Assert.Equal(3819, mysql.Number);
+        // MySQL은 제약 이름을 별도 속성으로 주지 않는다. 서버 메시지 "Check constraint 'X' is violated."에서 확인한다
+        // (메시지는 서버가 만들고 MySqlConnector는 그대로 Message에 싣는다).
+        Assert.Contains($"'{constraint}'", mysql.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>DB 정규식이 끝의 개행을 허용하지 않는다(ICU의 $ 함정, \z 사용). 슬러그 값으로 실증한다(sha256은 63자+개행이 64자 미달이라 varchar(64) 자체를 통과 못하므로
+    /// 런타임 값으로는 앵커 종류를 구분할 수 없다 — 그 사례는 <see cref="EndAnchor_UsesZNotDollarSign"/>의 스키마 정적 검사로 대신한다).</summary>
+    [Fact]
+    public async Task TrailingNewline_IsRejected()
+    {
+        using var _ = factory.CreateClient();
+        await using var scope = factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Posts.Add(NewPost("abc\n"));
+        var ex = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        Assert.Contains("'CK_Posts_Slug_Format'", Assert.IsType<MySqlException>(ex.InnerException).Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>세 정규식 CHECK 제약(슬러그 2개·sha256)이 모두 개행을 허용하는 <c>$</c>가 아니라 절대 끝 앵커 <c>\z</c>로 끝나고,
+    /// 대소문자 구분 플래그 <c>'c'</c>를 명시하는지 <c>information_schema.CHECK_CONSTRAINTS</c>에 실제로 저장된 텍스트로 확인한다(런타임 값으로 판별할 수 없는
+    /// <c>CK_Attachments_Sha256</c>를 위한 스키마 정적 검사).</summary>
+    [Theory]
+    [InlineData("CK_Posts_Slug_Format")]
+    [InlineData("CK_Series_Slug_Format")]
+    [InlineData("CK_Attachments_Sha256")]
+    public async Task EndAnchor_UsesZNotDollarSign(string constraint)
+    {
+        using var _ = factory.CreateClient();
+        await using var connection = new MySqlConnection(factory.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(
+            "SELECT CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = @c", connection);
+        command.Parameters.AddWithValue("@c", constraint);
+        var clause = (string?)await command.ExecuteScalarAsync();
+        Assert.NotNull(clause);
+        // MySQL은 저장된 CHECK 절 텍스트를 자체 이스케이프 규칙으로 재직렬화한다(따옴표는 \', 소스의 리터럴 백슬래시 1개(\z)는 저장 텍스트에서 백슬래시 4개(\\\\z)로 다시 나타난다 — 실측).
+        Assert.Contains(@"\\\\z\'", clause, StringComparison.Ordinal);
+        Assert.Contains(@"_utf8mb4\'c\'", clause, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"$\'", clause, StringComparison.Ordinal);
     }
 }

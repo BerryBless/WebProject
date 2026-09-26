@@ -2,8 +2,8 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using PortfolioBlog.Api.Infrastructure.Data;
 
 #nullable disable
@@ -17,24 +17,24 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
-                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+                .HasAnnotation("ProductVersion", "9.0.20")
+                .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
-            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+            MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
 
             modelBuilder.Entity("PortfolioBlog.Api.Domain.AdminState", b =>
                 {
                     b.Property<int>("Id")
-                        .HasColumnType("integer");
+                        .HasColumnType("int");
 
                     b.Property<int>("SessionEpoch")
-                        .HasColumnType("integer");
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
                     b.ToTable("AdminState", null, t =>
                         {
-                            t.HasCheckConstraint("CK_AdminState_Single", "\"Id\" = 1");
+                            t.HasCheckConstraint("CK_AdminState_Single", "`Id` = 1");
                         });
 
                     b.HasData(
@@ -49,25 +49,27 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
+                        .HasColumnType("varchar(20)")
+                        .UseCollation("utf8mb4_0900_bin");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
+                        .HasColumnType("varchar(255)");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("varchar(64)")
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
@@ -75,7 +77,8 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
+                        .HasColumnType("varchar(80)")
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.HasKey("Id");
 
@@ -87,13 +90,13 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
 
                     b.ToTable("Attachments", t =>
                         {
-                            t.HasCheckConstraint("CK_Attachments_ContentType", "\"ContentType\" IN ('image/png', 'image/jpeg', 'image/gif', 'image/webp')");
+                            t.HasCheckConstraint("CK_Attachments_ContentType", "`ContentType` IN ('image/png', 'image/jpeg', 'image/gif', 'image/webp')");
 
-                            t.HasCheckConstraint("CK_Attachments_FileName_NotBlank", "length(btrim(\"FileName\")) > 0");
+                            t.HasCheckConstraint("CK_Attachments_FileName_NotBlank", "CHAR_LENGTH(TRIM(`FileName`)) > 0");
 
-                            t.HasCheckConstraint("CK_Attachments_Sha256", "\"Sha256\" ~ '^[0-9a-f]{64}$'");
+                            t.HasCheckConstraint("CK_Attachments_Sha256", "REGEXP_LIKE(`Sha256`, '^[0-9a-f]{64}\\\\z', 'c')");
 
-                            t.HasCheckConstraint("CK_Attachments_Size", "\"SizeBytes\" BETWEEN 1 AND 10485760");
+                            t.HasCheckConstraint("CK_Attachments_Size", "`SizeBytes` BETWEEN 1 AND 10485760");
                         });
                 });
 
@@ -101,44 +104,43 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.Property<string>("ContentMarkdown")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("longtext");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<Guid?>("SeriesId")
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.Property<int?>("SeriesOrder")
-                        .HasColumnType("integer");
+                        .HasColumnType("int");
 
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                        .HasColumnType("varchar(100)")
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<string>("Summary")
                         .IsRequired()
                         .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
+                        .HasColumnType("varchar(300)");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
+                        .HasColumnType("varchar(200)");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
 
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
+                        .HasColumnType("int unsigned");
 
                     b.HasKey("Id");
 
@@ -152,25 +154,25 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
 
                     b.ToTable("Posts", t =>
                         {
-                            t.HasCheckConstraint("CK_Posts_Content_Size", "octet_length(\"ContentMarkdown\") <= 204800");
+                            t.HasCheckConstraint("CK_Posts_Content_Size", "LENGTH(`ContentMarkdown`) <= 204800");
 
-                            t.HasCheckConstraint("CK_Posts_SeriesOrder_Positive", "\"SeriesOrder\" IS NULL OR \"SeriesOrder\" > 0");
+                            t.HasCheckConstraint("CK_Posts_SeriesOrder_Positive", "`SeriesOrder` IS NULL OR `SeriesOrder` > 0");
 
-                            t.HasCheckConstraint("CK_Posts_Series_Pair", "(\"SeriesId\" IS NULL) = (\"SeriesOrder\" IS NULL)");
+                            t.HasCheckConstraint("CK_Posts_Series_Pair", "(`SeriesId` IS NULL) = (`SeriesOrder` IS NULL)");
 
-                            t.HasCheckConstraint("CK_Posts_Slug_Format", "\"Slug\" ~ '^[a-z0-9]+(-[a-z0-9]+)*$'");
+                            t.HasCheckConstraint("CK_Posts_Slug_Format", "REGEXP_LIKE(`Slug`, '^[a-z0-9]+(-[a-z0-9]+)*\\\\z', 'c')");
 
-                            t.HasCheckConstraint("CK_Posts_Title_NotBlank", "length(btrim(\"Title\")) > 0");
+                            t.HasCheckConstraint("CK_Posts_Title_NotBlank", "CHAR_LENGTH(TRIM(`Title`)) > 0");
                         });
                 });
 
             modelBuilder.Entity("PortfolioBlog.Api.Domain.PostTag", b =>
                 {
                     b.Property<Guid>("PostId")
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.Property<Guid>("TagId")
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.HasKey("PostId", "TagId");
 
@@ -183,22 +185,23 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
+                        .HasColumnType("varchar(1000)");
 
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                        .HasColumnType("varchar(100)")
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
+                        .HasColumnType("varchar(200)");
 
                     b.HasKey("Id");
 
@@ -207,9 +210,9 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
 
                     b.ToTable("Series", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Series_Slug_Format", "\"Slug\" ~ '^[a-z0-9]+(-[a-z0-9]+)*$'");
+                            t.HasCheckConstraint("CK_Series_Slug_Format", "REGEXP_LIKE(`Slug`, '^[a-z0-9]+(-[a-z0-9]+)*\\\\z', 'c')");
 
-                            t.HasCheckConstraint("CK_Series_Title_NotBlank", "length(btrim(\"Title\")) > 0");
+                            t.HasCheckConstraint("CK_Series_Title_NotBlank", "CHAR_LENGTH(TRIM(`Title`)) > 0");
                         });
                 });
 
@@ -217,17 +220,18 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
+                        .HasColumnType("char(36)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("varchar(50)");
 
                     b.Property<string>("NormalizedName")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("varchar(50)")
+                        .UseCollation("utf8mb4_0900_bin");
 
                     b.HasKey("Id");
 
@@ -236,9 +240,9 @@ namespace PortfolioBlog.Api.Infrastructure.Data.Migrations
 
                     b.ToTable("Tags", t =>
                         {
-                            t.HasCheckConstraint("CK_Tags_Name_NoSlash", "position('/' in \"Name\") = 0");
+                            t.HasCheckConstraint("CK_Tags_Name_NoSlash", "LOCATE('/', `Name`) = 0");
 
-                            t.HasCheckConstraint("CK_Tags_Name_NotBlank", "length(btrim(\"Name\")) > 0");
+                            t.HasCheckConstraint("CK_Tags_Name_NotBlank", "CHAR_LENGTH(TRIM(`Name`)) > 0");
                         });
                 });
 

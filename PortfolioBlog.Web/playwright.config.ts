@@ -4,20 +4,20 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, devices } from '@playwright/test'
 
-// 실제 백엔드(PortfolioBlog.Api + PostgreSQL)와 production 빌드(`vite preview`, 실제 보안 헤더)를 띄워 브라우저로 검사한다.
+// 실제 백엔드(PortfolioBlog.Api + MySQL)와 production 빌드(`vite preview`, 실제 보안 헤더)를 띄워 브라우저로 검사한다.
 // 먼저 `npm run e2e:prepare`가 .e2e/env.json(버려질 비밀번호·해시)을 만들어야 한다.
 const web = dirname(fileURLToPath(import.meta.url))
 const api = process.env.BLOG_API_DIR ?? join(web, '..', 'PortfolioBlog.Api')
 const envFile = join(web, '.e2e', 'env.json')
 if (!existsSync(envFile)) throw new Error('먼저 `npm run e2e:prepare`를 실행하세요.')
-const prepared = JSON.parse(readFileSync(envFile, 'utf8')) as { port: string; pgPassword: string; adminPassword: string; hash: string }
+const prepared = JSON.parse(readFileSync(envFile, 'utf8')) as { port: string; dbPassword: string; adminPassword: string; hash: string }
 
 export const SPA_ORIGIN = 'https://localhost:4173'
 const API_ORIGIN = 'https://localhost:7198'
 process.env.E2E_ADMIN_PASSWORD = prepared.adminPassword // 테스트 워커가 읽는다(파일에 다시 쓰지 않는다)
 
 // 연결 문자열은 조각으로 조립한다(저장소의 비밀값 스캐너는 한 줄짜리 연결 문자열 리터럴을 막는다).
-const connection = ['Host=localhost', `Port=${prepared.port}`, 'Database=blog_e2e', 'Username=postgres', `Password=${prepared.pgPassword}`].join(';')
+const connection = ['Server=localhost', `Port=${prepared.port}`, 'Database=blog_e2e', 'User ID=root', `Password=${prepared.dbPassword}`, 'SslMode=Required'].join(';')
 
 export default defineConfig({
   testDir: 'e2e',
