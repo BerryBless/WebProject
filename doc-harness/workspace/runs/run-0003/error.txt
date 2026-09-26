@@ -1,4 +1,4 @@
-Error: diagram:F008_FLOW_RESOLVE: QUOTA: claude reported is_error: You've hit your session limit · resets 5:50pm (Asia/Seoul)
+Error: diagram:F017_DATAFLOW: QUOTA: claude reported is_error: You've hit your session limit · resets 1:10am (Asia/Seoul)
     at <anonymous> (E:\project\WebProject\doc-harness\src\phases\common.ts:61:24)
     at async Run.runItem (E:\project\WebProject\doc-harness\src\run.ts:125:22)
     at async reconcileDiagram (E:\project\WebProject\doc-harness\src\render\documents.ts:180:15)
@@ -8,4 +8,4 @@ Error: diagram:F008_FLOW_RESOLVE: QUOTA: claude reported is_error: You've hit yo
     at async verificationLoop (E:\project\WebProject\doc-harness\src\verify\loop.ts:140:21)
     at async runIncremental (E:\project\WebProject\doc-harness\src\pipeline.ts:394:16)
     at async runPipeline (E:\project\WebProject\doc-harness\src\pipeline.ts:176:9)
-    at async Command.<anonymous> (E:\project\WebProject\doc-harness\src\cli.ts:21:15)
+    at async Command.<anonymous> (E:\project\WebProject\doc-harness\src\cli.ts:31:13)
